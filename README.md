@@ -197,7 +197,8 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 - *Attention Is All You Need* — Vaswani et al., 2017 ([arXiv:1706.03762](https://arxiv.org/abs/1706.03762))
 - *BERT* — Devlin et al., 2019 ([arXiv:1810.04805](https://arxiv.org/abs/1810.04805))
 - *GPT-3* — Brown et al., 2020 ([arXiv:2005.14165](https://arxiv.org/abs/2005.14165))
-- *LLaMA / LLaMA 2 / Llama 3* — Touvron et al. / Meta AI, 2023-2024
+- *LLaMA* / *Llama 2* — Touvron et al., 2023 ([arXiv:2302.13971](https://arxiv.org/abs/2302.13971) · [arXiv:2307.09288](https://arxiv.org/abs/2307.09288))
+- *The Llama 3 Herd of Models* — Llama Team, AI @ Meta, 2024 ([arXiv:2407.21783](https://arxiv.org/abs/2407.21783))
 - *Mistral 7B* — Jiang et al., 2023 ([arXiv:2310.06825](https://arxiv.org/abs/2310.06825))
 - *Mixtral of Experts* — Jiang et al., 2024 ([arXiv:2401.04088](https://arxiv.org/abs/2401.04088))
 - *Mamba* — Gu & Dao, 2023 ([arXiv:2312.00752](https://arxiv.org/abs/2312.00752))
@@ -257,7 +258,7 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 - *gpt-oss model card* — OpenAI, 2025
 - *LLaDA: Large Language Diffusion Models* — Nie et al., 2025 ([arXiv:2502.09992](https://arxiv.org/abs/2502.09992))
 - *Auxiliary-Loss-Free Load Balancing* — Wang et al., 2024 ([arXiv:2408.15664](https://arxiv.org/abs/2408.15664))
-- *Muon* — Jordan et al., 2024; *Muon is Scalable for LLM Training* — Moonshot AI, 2025 ([arXiv:2502.16982](https://arxiv.org/abs/2502.16982))
+- *Muon* — Jordan et al., 2024; *Muon is Scalable for LLM Training* — Liu et al. (Moonshot AI), 2025 ([arXiv:2502.16982](https://arxiv.org/abs/2502.16982))
 - *OCP Microscaling Formats (MX) Specification*, 2023; *NVFP4* — NVIDIA, 2025
 - *DeepSpeed-Ulysses* — Jacobs et al., 2023 ([arXiv:2309.14509](https://arxiv.org/abs/2309.14509))
 - *ZeRO* — Rajbhandari et al., 2019 ([arXiv:1910.02054](https://arxiv.org/abs/1910.02054))

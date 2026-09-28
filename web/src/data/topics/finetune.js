@@ -307,7 +307,7 @@ loss = -logsigmoid(z).mean()      # DPO / SimPO 共用的外壳`,
         { from: 'teacher logits / T', to: 'student KL', body: '$T$ 放大暗知识, $T^2$ 补回 softmax 梯度的 $1/T^2$ 缩放, 软硬两项的相对权重才只由 $\\alpha$ 决定。' },
       ],
       sourceRows: [
-        { concept: 'value head', code: 'llm_finetune/methods/reward_model.py:RewardModel', takeaway: '复用 LLaMA 骨架, lm_head 换成 Identity 再接一个 [D]→[1] 的头。手抄一遍主干前向的话, 主干一改 (mask / RoPE / cache) 就会悄悄不一致。' },
+        { concept: 'value head', code: 'llm_finetune/methods/reward_model.py:RewardModel', takeaway: '复用 LLaMA 骨架, 用 forward(..., return_hidden=True) 取 ln_f 之后的隐状态, 再接一个 [D]→[1] 的头。手抄一遍主干前向的话, 主干一改 (mask / RoPE / cache) 就会悄悄不一致。' },
         { concept: '读哪一个位置', code: 'attention_mask.sum(1) - 1', takeaway: '右 pad 时取最后一个真 token。取 [:, -1] 读到的是 pad: 同一序列多垫 5 位 PAD, 分数偏移从 5e-06 变成 4.54。' },
         { concept: 'BT loss', code: 'llm_finetune/methods/reward_model.py:BradleyTerryLoss', takeaway: '第 1 步 loss $0.6929 \\approx \\ln 2$ (两边分数还没拉开)。' },
         { concept: '组内优势', code: 'llm_finetune/methods/grpo.py:group_advantages', takeaway: 'adv = (r − mean) / (std + eps); 组内奖励全相同时 adv 全为 0, 这组白占 batch。DAPO 的动态采样就是冲它去的。' },
@@ -689,11 +689,11 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
 
     // ───────────────────────── 压轴: 训练脚本与选型 ─────────────────────────
     'finetune-runs': {
-      title: '训练脚本与落盘 · 11 种方法的代价结构',
+      title: '训练脚本与落盘 · 16 种方法的代价结构',
       subtitle: '在"有什么数据 / 有多少显存 / 能不能在线采样"之后, 直接点名方法。还要说出它每步几次前向、常驻几份权重、最后落盘什么。',
       tldr: '方法之间的区别不在 loss 写得好不好看, 在代价结构:\n- 要不要常驻 reference model\n- 要不要在线采样\n- 落盘是全量权重还是 adapter\n实测 DPO 每步 2 次前向 / 常驻 778 KB / 5.4 s; SimPO 与 ORPO 1 次 / 389 KB / 4.0 s。',
       question: '手上只有 (问, 答) 且显存紧张, 该用哪个? 换成成对偏好呢? 换成"答案能被程序判对错"呢?',
-      code: 'llm_finetune/run_finetune/{sft,lora,dora,qlora,rm,dpo,simpo_orpo,grpo,distill,on_policy_distill}/train_*.py',
+      code: 'llm_finetune/run_finetune/{sft,lora,dora,qlora,merge,rm,prm,dpo,kto,simpo_orpo,rlaif,ppo,grpo,distill,on_policy_distill}/train_*.py',
       points: [
         { title: '两个维度可以自由组合', body: '- SFT / DPO / GRPO: 决定 "优化什么目标"。\n- LoRA / QLoRA / DoRA: 决定 "更新哪些参数"。\n两者互相正交, LoRA-SFT、LoRA-DPO 都很常见。\n代码上: methods/ 放可复用算法, run_finetune/ 放一次实验的编排。' },
         {
@@ -702,11 +702,13 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
           body: '- 每步 LM 前向次数: DPO 2 次, SimPO / ORPO 1 次, GRPO 系还要先采 G 条。\n- 常驻权重份数: DPO 要 policy + ref = 778 KB, 无 ref 的只要 389 KB。\n- 落盘产物: 全量权重 / adapter / value head。\n数据形态先砍掉一半候选, 这三项再砍一半。',
         },
         { title: '别只存 merge 后的权重', body: 'LoRA adapter 只有 $r\\cdot(d_{\\text{in}}+d_{\\text{out}})$ 个参数: 本仓库 76 KB, 整模型 389 KB。\n- 存 adapter: 能独立分发、按请求热切换。\n- 只留 merge 后的完整权重: 退化成每个任务一份大模型。' },
+        { title: 'KTO / RLAIF / PRM: 老结构, 新数据', body: '这三种的训练代价都能在老方法里找到原型, 变的是数据从哪来。\n- KTO: 同 DPO, policy + ref 每步 2 次前向。吃单条 👍 / 👎, 一半前向花在估 $z_0$ 的错配样本上。\n- RLAIF: 训前让 judge 造一轮偏好对 (4096 条采样 → 2539 对), 之后就是 DPO。\n- PRM: 同 RM, 1 次前向, 一份权重 + value head。每条解要 K 个逐步标签, 贵在标注。' },
+        { title: 'PPO 贵在 critic, 合并根本不训练', body: '- PPO: 比 GRPO 多一个同尺寸的 critic。要训的参数 ×2 (199,360), 常驻 ×3 (policy + ref + critic)。每步前向 "采样 + 3 + 2μ", 60 步 11.8 s, GRPO 6.1 s。\n- 模型合并: 零梯度、零数据, 前向次数记 0, 显存和信号两栏填不上, 记 "—"。它要的是同一基座上已经微调好的模型, 代价花在那几次微调里 (本例两次各 300 步)。' },
       ],
       links: [
         { from: 'methods/*.py', to: 'run_finetune/*/train_*.py', body: '算法类被训练脚本实例化并喂 batch; 脚本还负责留出集评估和最后那条断言。' },
-        { from: 'PairwiseForward / TeacherStudent', to: '通用 Trainer', body: '一步要跑多次前向的方法 (DPO / SimPO / ORPO / RM / 蒸馏) 都包成一个 nn.Module, Trainer 一行不用改。' },
-        { from: 'GRPO / on-policy 蒸馏', to: '不用 Trainer', body: '数据由当前策略现场采样, GRPO 还要在同一批 rollout 上更新 $\\mu$ 次。"取 batch → 更新一次"的约定不成立, 硬塞只会更难读。' },
+        { from: 'PairwiseForward / TeacherStudent', to: '通用 Trainer', body: '一步要跑多次前向的方法 (DPO / SimPO / ORPO / RM / KTO / RLAIF / 蒸馏) 都包成一个 nn.Module, Trainer 一行不用改。' },
+        { from: 'GRPO / PPO / on-policy 蒸馏', to: '不用 Trainer', body: '数据由当前策略现场采样, GRPO 和 PPO 还要在同一批 rollout 上更新 $\\mu$ 次。"取 batch → 更新一次"的约定不成立, 硬塞只会更难读。' },
         { from: 'print_trainable_parameters', to: '验收 PEFT', body: 'loss 下降和显存占用都证明不了 base 被冻住; 统计 requires_grad 的参数量才是直接证据。' },
         { from: 'adapter state_dict', to: 'llm_infer Multi-LoRA', body: '多租户服务靠 adapter 能独立切换。' },
       ],
@@ -718,6 +720,11 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
         { concept: 'SimPO / ORPO', code: 'run_finetune/simpo_orpo/train_simpo_orpo.py', takeaway: '同样的数据, 去掉 ref: 常驻权重减半、前向减半, 实测每步快约 25%。' },
         { concept: 'GRPO 系', code: 'run_finetune/grpo/train_grpo.py', takeaway: '只要 prompt, 但必须有 verifier 或 RM, 且必须能在线采样 (G 条/prompt)。$\\beta>0$ 时才额外常驻一份 ref。' },
         { concept: '蒸馏', code: 'run_finetune/{distill,on_policy_distill}/train_*.py', takeaway: '都要一个更强的 teacher 常驻; 离线版从语料取数, on-policy 版由 student 现场采样。' },
+        { concept: 'PPO', code: 'run_finetune/ppo/train_ppo.py', takeaway: '每题只采 1 条, 但常驻 policy + ref + critic 三份, critic 与 policy 同尺寸且要训: 要训的参数和 Adam 状态都翻倍。' },
+        { concept: 'PRM', code: 'run_finetune/prm/train_prm.py', takeaway: '和 RM 同一个 "主干 + 标量头", 每步 1 次前向。在每一步的末 token 上做 BCE, 每条解 K 个标签。' },
+        { concept: 'KTO', code: 'run_finetune/kto/train_kto.py', takeaway: '数据是单条好 / 坏样本。policy + ref 各前向 2B 条: B 条本身, B 条错配样本估 $z_0$。' },
+        { concept: 'RLAIF', code: 'run_finetune/rlaif/train_rlaif.py', takeaway: '训前采 1 轮, judge 批评、改写出偏好对; 训练本身就是 DPO, judge 是规则, 不占训练显存。' },
+        { concept: '模型合并', code: 'run_finetune/merge/train_merge.py', takeaway: '不训练: 输入是同一基座的 $\\theta_0$ 和几个微调模型。在 state_dict 上逐张量加减, 落盘一份合并后的全量权重。' },
         { concept: '参数统计', code: 'llm_finetune/utils/param_utils.py:print_trainable_parameters', takeaway: '打印可训 / 总参数与占比, 用来验收"真的只训了 adapter"。' },
       ],
       snippetTitle: '读一个 run_finetune 脚本, 盯这 5 行',
@@ -729,6 +736,11 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
       source: [
         'llm_finetune/run_finetune/common.py:pretrained_base',
         'llm_finetune/utils/param_utils.py:print_trainable_parameters',
+        'llm_finetune/methods/ppo.py:PPOTrainer',
+        'llm_finetune/methods/prm.py:prm_loss',
+        'llm_finetune/methods/kto.py:KTOForward',
+        'llm_finetune/methods/rlaif.py:build_preference_pairs',
+        'llm_finetune/methods/merge.py:task_arithmetic',
       ],
       run: 'python -m llm_finetune.run_all',
     },

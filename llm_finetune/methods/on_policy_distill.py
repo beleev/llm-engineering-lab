@@ -29,8 +29,8 @@ def token_kl(logits_p: torch.Tensor, logits_q: torch.Tensor) -> torch.Tensor:
 def on_policy_distill_step(student: nn.Module, teacher: nn.Module, prompts: torch.Tensor,
                            max_new: int, optimizer: torch.optim.Optimizer) -> Dict[str, float]:
     P = prompts.size(1)
-    # 1) student 自己采样; generate 在 inference_mode 下运行, clone 成普通张量才能再做带梯度的前向
-    seqs = student.generate(prompts, max_new, temperature=1.0).clone()            # [B, P+C]
+    # 1) student 自己采样; generate 在 no_grad 下运行, 返回普通张量, 可直接做带梯度的前向
+    seqs = student.generate(prompts, max_new, temperature=1.0)                    # [B, P+C]
     mask = completion_mask(seqs[:, P:]).float()                                   # [B, C] EOS 之后不算
 
     # 2) 两个模型在**同一条 student 轨迹**上前向; 位置 P−1 … P+C−2 的输出预测回复的 C 个 token

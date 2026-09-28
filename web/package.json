@@ -1,9 +1,9 @@
 {
-  "name": "llm-models-visualizer",
+  "name": "llm-engineering-lab-web",
   "private": true,
   "version": "0.5.0",
   "type": "module",
-  "description": "LLM Models 架构演进教具库 — 可视化 & 交互教学前端",
+  "description": "LLM Engineering Lab 的交互教程站: 六个阶段的章节、实验台与自测",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -51,7 +51,7 @@ def diagnostics(policy, task) -> None:
           f"← log-prob 必须带同一个 T, 否则 ρ 的分母不是行为策略")
     assert tv["z/T"] < tv["z"]
     policy.train()
-    seqs = policy.generate(prompt.repeat(4, 1), 3, temperature=T).clone()
+    seqs = policy.generate(prompt.repeat(4, 1), 3, temperature=T)
     assert policy.training, "generate() 结束后应恢复调用前的 train 状态 (否则采样一次就把模型永久留在 eval)"
     with torch.no_grad():
         assert not torch.allclose(completion_logprobs(policy, seqs, prompt.size(1), T),

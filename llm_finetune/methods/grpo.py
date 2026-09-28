@@ -103,8 +103,8 @@ class GRPOTrainer:
 
         # ---- 1) rollout: 每个 prompt 采 G 条 ----
         expanded = prompts.repeat_interleave(cfg.group_size, dim=0)               # [N=B·G, P]
-        # generate 内部是 inference_mode (并在结束时恢复 train/eval 状态); clone 成普通张量才能参与带梯度的前向
-        seqs = self.policy.generate(expanded, cfg.max_new, temperature=cfg.temperature).clone()
+        # generate 在 no_grad 下采样 (并在结束时恢复 train/eval 状态), 返回普通张量, 可直接参与带梯度的前向
+        seqs = self.policy.generate(expanded, cfg.max_new, temperature=cfg.temperature)
         completions = seqs[:, P:]                                                 # [N, C]
         mask = completion_mask(completions).float()                               # [N, C] EOS 之后不算回复
 

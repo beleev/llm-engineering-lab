@@ -20,23 +20,21 @@ from llm_models.training.loss import LossComputer
 
 class RewardModel(nn.Module):
     """
-    backbone: 任何 `forward(idx, attention_mask) → [B, T, V]` 且最后一层叫 `lm_head` 的 LM (本库 LLaMA 满足)。
+    backbone: 任何 `forward(idx, attention_mask, return_hidden=True) → [B, T, D]` 的 LM (本库 LLaMA 满足)。
 
-    取隐状态的办法: 把 lm_head 换成 Identity, backbone 的 forward 就直接返回 ln_f 之后的 h [B, T, D] ——
-    只依赖公开的 forward 约定, 不用手抄一遍主干 (mask / RoPE / cache 怎么变都不受影响)。
-    注意这会**原地改掉**传进来的 backbone: RM 拿走它的所有权, 还要当 policy 用就先 deepcopy。
+    取隐状态走公开接口 `return_hidden=True` (ln_f 之后、lm_head 之前的 h), 不用手抄一遍主干
+    (mask / RoPE / cache 怎么变都不受影响)。backbone 不被改动; 但 RM 训练会更新它的权重, 还要当 policy 用就先 deepcopy。
     """
 
     def __init__(self, backbone: nn.Module) -> None:
         super().__init__()
-        backbone.lm_head = nn.Identity()          # embedding 权重不受影响 (tied 的只是同一个 Parameter 的引用)
         self.backbone = backbone
         self.value_head = nn.Linear(backbone.d_model, 1, bias=False)
         nn.init.normal_(self.value_head.weight, std=0.01)             # 小初始化: 起步时 r_w − r_l ≈ 0, loss ≈ ln 2
 
     def forward(self, input_ids: torch.Tensor,                        # [B, T] 右 pad
                 attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:   # → [B]
-        h = self.backbone(input_ids, attention_mask)                  # [B, T, D]
+        h = self.backbone(input_ids, attention_mask, return_hidden=True)   # [B, T, D]
         scores = self.value_head(h).squeeze(-1)                       # [B, T] 每个前缀一个分
         if attention_mask is None:
             return scores[:, -1]

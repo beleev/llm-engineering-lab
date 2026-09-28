@@ -126,7 +126,8 @@ class LLaMA(GenerationMixin, nn.Module):
         idx: torch.Tensor,                              # [B, T]
         attention_mask: Optional[torch.Tensor] = None,  # [B, past+T], 1=有效 0=pad
         cache: Optional[KVCache] = None,
-    ) -> torch.Tensor:                                  # [B, T, V]
+        return_hidden: bool = False,                    # True: 返回 ln_f 之后的隐状态 [B, T, D], 不过 lm_head
+    ) -> torch.Tensor:                                  # [B, T, V] (return_hidden=True 时 [B, T, D])
         B, T = idx.shape
         past = cache.pos if cache is not None else 0    # 已缓存的 token 数
         if past + T > self.max_len:
@@ -148,4 +149,5 @@ class LLaMA(GenerationMixin, nn.Module):
         if cache is not None:
             cache.pos += T
 
-        return self.lm_head(self.ln_f(x))
+        h = self.ln_f(x)
+        return h if return_hidden else self.lm_head(h)   # 奖励模型 / critic / PRM 取 h 接自己的头
