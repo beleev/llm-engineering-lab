@@ -19,10 +19,35 @@ free_list        归还顺序 = 被复用顺序 = prefix cache 的 LRU 淘汰顺
 | `paged_attention.py` | 碰张量: `write_kv` (slot mapping) / `gather_kv` / `paged_attention` |
 
 ## 运行后应该看到什么
-`python -m llm_infer.m02_paged_attention.demo`
-- 三条序列 (10/6/3 token, bs=4) 拿到 `[0,1,2] [3,4] [5]`, pool 利用率 75%; seq 102 结束后 block 3,4 回到 free_list 队尾
-- seq 101 从 12 长到 13 token → 新分配 1 个 block; 申请 100 token → `MemoryError` (m03 抢占的触发信号)
-- `max |paged - dense| = 0.00e+00` (decode, T_q=1) 和 `T_q=5 (prefill chunk) = 0.00e+00`; 内碎片 1/12 slot, 上界 3
+```bash
+python -m llm_infer.m02_paged_attention.demo
+```
+```
+[1] 多序列并发分配 (pool=8 blocks, block_size=4)
+  seq 101 block_table: [0, 1, 2]
+  seq 102 block_table: [3, 4]
+  seq 103 block_table: [5]
+  pool 状态:           {'total': 8, 'used': 6, 'free': 2, 'utilization': '75.0%', 'n_seqs': 3}
+[2] seq 102 结束, 它的 block 立即被 free_list 吃掉
+  pool 状态:           {'total': 8, 'used': 4, 'free': 4, 'utilization': '50.0%', 'n_seqs': 2}
+  free_list:           [6, 7, 4, 3]
+[3] seq 101 增长到 13 token, 触发新 block 分配
+  新分配的 block:      6
+  seq 101 block_table: [0, 1, 2, 6]
+[4] 申请超出 pool 容量
+  MemoryError: 需要 25 个新 block, 只剩 3 个空闲
+               [5] 数值验证: paged_attention 与连续 KV 计算结果一致
+  max |paged - dense|              = 0.00e+00
+  [6] T_q=5 (prefill chunk) max diff = 0.00e+00
+  内碎片 (末页空槽)                       = 1 / 12 slot, 上界 block_size-1=3
+```
+- [1] 三条序列是 10 / 6 / 3 token, bs=4, 各要 3 / 2 / 1 个 block, pool 利用率 75%。
+- [2] seq 102 结束后, block 4、3 回到 free_list 队尾, 排在从没用过的 6、7 后面。
+- [3] 3 个 block 装满 12 个 token, 第 13 个 token 要新分配 1 个 block, 拿到的是队首的 6。
+- [4] 申请 100 token 要 25 个 block, 只剩 3 个 → `MemoryError`。这是 m03 触发抢占的信号。
+- [5] 是 decode 形状 (T_q=1), [6] 是一个 prefill chunk (T_q=5)。
+
+断言: [5] [6] 两种形状下, 分页 KV 上的 attention 与连续 KV 的结果相同。
 
 ## 与真实系统的差距
 - 这里 `gather_kv` 先把散落的 block 拷成连续数组再算; vLLM / FlashInfer 的 kernel 直接按页表跳着读, 零拷贝

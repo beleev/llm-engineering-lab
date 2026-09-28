@@ -6,11 +6,8 @@
 <template>
   <LabFrame
     title="LLaDA — 先填有把握的, 没把握的遮回去再想"
-    sub="12 个位置一开始全是 [MASK], 每一行是一步去噪之后的样子。
-      - 紫: 本步新定稿。绿: 之前已定稿。
-      - 灰字: 本步预测过, 但置信度低被重新遮住。
-      - 红: 定稿错了, 再也改不回来。
-      最下面一行是自回归在 “同样的串行步数” 里能写出多少。"
+    sub="12 个位置一开始全是 [MASK], 每一行是一步去噪之后的样子。格子有四种状态, 对照图下方的图例。
+      最下面一行是自回归在「同样的串行步数」里能写出多少。"
     module="llm_models/models/language_models/llada.py"
     run="python -m llm_models.run_models.language_models.llada.infer_llada"
     :challenge="{
@@ -39,6 +36,12 @@
       <span class="rl mono ar">自回归</span>
       <span v-for="i in T" :key="'ar' + i" class="cell w" :class="i <= arDone ? 'ok' : ''">{{ i <= arDone ? WORDS[i - 1] : '·' }}</span>
     </div>
+    <p class="legend">
+      <span class="cell w on">词</span> 本步新定稿
+      <span class="cell w ok">词</span> 之前已定稿
+      <span class="cell w ghost">词</span> 本步预测过, 但置信度低被重新遮住
+      <span class="cell w bad">词</span> 定稿错了, 再也改不回来
+    </p>
 
     <template #stats>
       <div class="kv"><span>定稿错误数</span><b :class="errors === 0 ? 'good' : 'bad'">{{ errors }} / {{ T }}</b></div>
@@ -108,4 +111,6 @@ const arDone = computed(() => Math.min(T, stepper.step.value))
 .rl.dimrow { opacity: 0.35; }
 .rl.ar { color: var(--eye); margin-top: 8px; }
 .rl.ar ~ .cell { margin-top: 8px; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
+.legend .cell { min-width: 30px; height: 20px; }
 </style>

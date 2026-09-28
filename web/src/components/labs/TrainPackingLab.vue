@@ -7,7 +7,7 @@
 <template>
   <LabFrame
     title="Packing — 拼在一行的文档会互相看见吗?"
-    sub="方阵是注意力 mask: 第 $t$ 行是 query, 第 $s$ 列是 key。绿格 = 同一篇里能看, 红格 = 看到了别的文档 (串文档)。
+    sub="方阵是注意力 mask: 第 $t$ 行是 query, 第 $s$ 列是 key。能看的格子分两种: 同一篇里的, 和看到了别的文档的 (串文档), 颜色对照图例。
       下面两行是位置 id 和每个 token 要预测的 label。点某一行, 看这个 token 到底能看见谁。"
     module="llm_train/m18"
     run="python -m llm_train.m18_sequence_packing.demo"
@@ -43,16 +43,18 @@
         <span v-for="t in T" :key="'l' + t" class="cell mono" :class="labelCls(t - 1)">{{ t < T ? '→' + t : '·' }}</span>
       </div>
     </div>
+    <p class="legend">
+      <span class="cell ok" /> 同一篇里能看 <span class="cell bad" /> 看到了别的文档, 或位置 / label 错了 <span class="cell dim" /> 被 mask 掉 · 列头的数字 = 第几篇文档
+    </p>
 
     <template #stats>
-      <div class="kv"><span>q{{ q }} 能看见的 token</span><b>{{ seen.all }} 个</b></div>
-      <div class="kv"><span>其中来自别的文档</span><b :class="seen.other ? 'bad' : 'good'">{{ seen.other }} 个</b></div>
+      <div class="kv"><span>q{{ q }} 能看见 {{ seen.all }} 个 token, 其中来自别的文档</span><b :class="seen.other ? 'bad' : 'good'">{{ seen.other }} 个</b></div>
       <div class="kv"><span>有效预测 (本图 {{ T }} token)</span><b>{{ valid }}</b></div>
       <div class="kv"><span>m18 实测 max|Δ| ({{ pe === 'rope' ? 'RoPE' : '绝对位置' }})</span><b :class="delta === null ? '' : delta < 1e-10 ? 'good' : 'bad'">{{ delta === null ? '未测' : delta.toExponential(1) }}</b></div>
       <div class="kv"><span>与逐篇训练等价?</span><b :class="equiv ? 'good' : 'bad'">{{ equiv ? '是' : '否' }}</b></div>
       <div class="lab-note">
         <p>★ 文档 mask 只有一行: <code class="inline">(t ≥ s) & (doc[t] == doc[s])</code>。</p>
-        <p>m18 的 CE 总和: 三样都做 566.353069 = 逐篇 566.353069; 不屏蔽边界 577.563075 (有效预测 124 → 127)。</p>
+        <p>m18 的 CE 总和 (实测, 不随开关变化): 三样都做 566.353069 = 逐篇 566.353069; 不屏蔽边界 577.563075 (有效预测 124 → 127)。</p>
       </div>
     </template>
   </LabFrame>
@@ -109,4 +111,6 @@ const equiv = computed(() => docMask.value && (reset.value || pe.value === 'rope
 .d3 { color: var(--warn); }
 .lbl { font-size: 10px; color: var(--text-dim); align-self: center; }
 .cell.sel-row { outline: 1px solid var(--accent); }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
+.legend .cell { min-width: 14px; width: 14px; height: 14px; }
 </style>

@@ -19,30 +19,37 @@ from typing import List
 
 
 class SeqStatus(Enum):
+    """序列在调度器里的三种状态, 转移关系见文件头的图。"""
     WAITING = "waiting"
     RUNNING = "running"
     FINISHED = "finished"
 
 
 class Stage(Enum):
+    """序列此刻在 prefill 还是 decode。
+
+    Stage 和下面的 seq.stage 目前没有调用方: 调度器直接比较 num_computed 与 num_tokens。
+    """
     PREFILL = "prefill"
     DECODE = "decode"
 
 
 @dataclass
 class Sequence:
+    """一条推理请求: 输入的 prompt, 已生成的输出, 以及 KV 算到了哪里。"""
     seq_id: int
     prompt_ids: List[int]
-    max_new_tokens: int
-    eos_id: int = 2
+    max_new_tokens: int            # 最多生成几个 token, 到数即结束
+    eos_id: int = 2                # 与 CharTokenizer.EOS_ID 一致
 
-    output_ids: List[int] = field(default_factory=list)
+    output_ids: List[int] = field(default_factory=list)   # 已生成的 token, 抢占后原样保留
     status: SeqStatus = SeqStatus.WAITING
     num_computed: int = 0          # KV 已就绪的 token 数 (含 prefix cache 命中的)
-    num_preempted: int = 0
+    num_preempted: int = 0         # 被抢占的次数 (只做统计)
 
     @property
     def all_ids(self) -> List[int]:
+        """prompt + 已生成输出; 模型每步处理的是它的 [num_computed:] 这一段。"""
         return self.prompt_ids + self.output_ids
 
     @property
@@ -55,13 +62,14 @@ class Sequence:
 
     @property
     def stage(self) -> Stage:
-        # 还差不止 1 个 token 的 KV → 在 prefill (含被抢占后的重算)
+        # 还差不止 1 个 token 的 KV → 在 prefill (含被抢占后的重算); 本属性目前没有调用方
         return Stage.PREFILL if self.num_tokens - self.num_computed > 1 else Stage.DECODE
 
     def append_token(self, token_id: int) -> None:
         self.output_ids.append(token_id)
 
     def is_finished(self) -> bool:
+        """生成够 max_new_tokens 个, 或最后一个输出是 EOS。"""
         # 只数 output_ids: 抢占不会把输出折进 prompt, 所以 max_new_tokens 不会被重置
         return (self.num_output >= self.max_new_tokens
                 or (bool(self.output_ids) and self.output_ids[-1] == self.eos_id))

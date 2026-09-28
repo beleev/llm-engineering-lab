@@ -5,7 +5,15 @@ python -m llm_finetune.run_finetune.dpo.train_dpo      # ~9 s
 ```
 
 ## 直觉
-KL 约束下的最优策略满足 `r(x,y) = β·log π(y|x)/π_ref(y|x) + const`。把它代回 Bradley-Terry, RM 和 RL 两步就合并成了一个对偏好对的二分类 loss。
+RLHF 原本要两步, 两步都贵:
+- 先用偏好对训一个 reward model (RM)。要多养一个模型, RM 打分不准时策略还会钻它的空子。
+- 再用 RL 让策略去拿高分。要在线采样, 训练不稳, 超参难调。
+
+DPO 把两步合成一步, 直接在偏好对上训策略:
+- 条件是 "策略不许离 ref 太远"。ref 是训练开始时那份策略的冻结副本, 这个条件叫 KL 约束。
+- 在这个条件下, 最优策略和奖励之间有一个能直接写出来的关系: 策略相对 ref 把一条回复的概率抬高多少, 就等于它认为这条回复有多好。
+- 写成公式: `r(x,y) = β·log π(y|x)/π_ref(y|x) + const`。
+- 把这个 r 代回 RM 的 Bradley-Terry loss (`−log σ(r_w − r_l)`, 见 [rm](../rm/readme.md)), 得到一个对偏好对的二分类 loss。RM 和 RL 都不用了。
 
 ## 核心公式
 `L = − log σ( β·[ (log π_θ(y_w) − log π_ref(y_w)) − (log π_θ(y_l) − log π_ref(y_l)) ] )`
@@ -17,12 +25,24 @@ KL 约束下的最优策略满足 `r(x,y) = β·log π(y|x)/π_ref(y|x) + const`
 | 留出集 | 偏好准确率 | log π(chosen) | log π(rejected) | 贪心 exact-match |
 |---|---|---|---|---|
 | SFT 后 | 0.965 | −4.03 | −10.55 | 0.332 |
-| DPO 后 | **0.996** | **−4.18 ↓** | −15.36 | **0.137 ↓** |
+| DPO 后 | 0.996 | **−4.18 ↓** | −15.36 | **0.137 ↓** |
 
 第 1 步 loss 恰为 0.6931 = ln 2 (policy = ref)。
-**如实解读**: 偏好准确率上去了, 差值从 6.5 拉到 11.2 —— 但 chosen 自己的 log-prob 也掉了, 生成质量 (EM) 反而下降。DPO 的 loss 只看差值, "两边一起降、rejected 降得更多" 同样让 loss 变小 (likelihood displacement)。脚本对这一现象设了断言。对照 `simpo_orpo`: ORPO 的 NLL 项正是为此而设。
+**怎么读这张表**:
+- 偏好准确率上去了, chosen 与 rejected 的差值从 6.5 拉到 11.2。
+- 但 chosen 自己的 log-prob 也掉了, 生成质量 (EM) 反而下降。
+- 原因: DPO 的 loss 只看差值, "两边一起降、rejected 降得更多" 同样让 loss 变小。这个现象叫 likelihood displacement, 脚本对它设了断言。
+- 对照 `simpo_orpo`: ORPO 的 NLL 项正是为此而设。
 
 训练走通用 `Trainer`: `PairwiseForward.with_frozen_copy(policy)` 把 "policy 前向 + ref 前向" 包成一个 Module; 没有 DPOTrainer, 没有复制的训练循环。
+
+## 与真实系统的差距
+- **偏好对是程序造的**: rejected 只比 chosen 错一个或少一个 token。真实偏好对里两条回复可能整体不同, 标签还带噪声。
+- **起点故意只训到 "半会"**: SFT 100 步, EM 0.332, 为的是留出提升空间。真实 DPO 的起点是已经训好的 SFT 模型。
+- **只跑了一组超参**: β=0.5、lr=3e-4、200 步。likelihood displacement 在别的 β 和步数下有多严重, 脚本没有测。
+- **ref 的 log-prob 每步现算**: 这里每步换新 batch, 只能现算。数据集固定时可以把 ref 的 log-prob 预先算好存下来, 训练时就不用常驻第二份权重。
+- **只量了偏好准确率和 EM**: 真实对齐要看回复质量的人评或基准集, 留出集上 "chosen 概率高于 rejected" 只是必要条件。
+- **未实现 IPO**: 它改的是 loss 的形状, 用来防止差值被无限拉大。
 
 ## 常见误区
 - **prompt mask 多盖一位**, 并辩称 "那一步转移对 chosen / rejected 相同"。上下文相同, 但**目标 token y₁ 不同**, log p(y₁|x) 恰恰是区分两者的一项。

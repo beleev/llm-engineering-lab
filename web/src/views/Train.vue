@@ -18,7 +18,7 @@
       :goals="[
         '看懂 DDP / TP / PP / ZeRO 各自切的是 batch / 矩阵 / 层 / 状态',
         '说清混合精度为什么少不了 loss scaling、fp32 master 和 grad clip',
-        '把 m01..m16 各自的功能挂回 full_loop 一步里的对应位置',
+        `把 ${moduleSpan} 各自的功能挂回 full_loop 一步里的对应位置`,
       ]"
       :codes="[
         { path: 'llm_train/core/' },
@@ -26,8 +26,8 @@
         { path: 'llm_train/m01_gradient_accumulation/' },
         { path: 'llm_train/m05_zero_fsdp/' },
       ]"
-      :prereq="{ name: 'diffusion', label: '扩散生成 · 架构家族收束' }"
-      :next-step="{ name: 'train-batch-ddp', label: 'batch 与 DDP' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <section class="section">
@@ -49,7 +49,7 @@
     </section>
 
     <section class="section">
-      <h2>2. 六个切分维度</h2>
+      <h2>2. {{ axes.length }} 个切分维度</h2>
       <p class="lead">
         读训练框架时先问"它切的是哪一种东西"。下面这张表把名词压回具体张量和通信原语。
       </p>
@@ -81,7 +81,7 @@
         <p>
           这些 demo 的写法都一样: 先算一个单机基线, 再算并行版本, 最后用 <code class="inline">assert</code> 把两者对齐。
         </p>
-        <p>等价性是所有并行策略的验收标准, 不是锦上添花。一旦对不上, 训出来的就不是同一个模型。</p>
+        <p>等价性是所有并行策略的验收标准。一旦对不上, 训出来的就不是同一个模型。</p>
       </div>
 
       <div class="grid grid-2" style="gap: 16px;">
@@ -167,8 +167,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'diffusion', label: '扩散生成', hint: '模型结构已经看完, 下一步是把训练规模做上去' }"
-      :next="{ name: 'train-batch-ddp', label: 'batch 与 DDP', hint: '先拆 batch, 再同步多卡梯度' }"
+      :prev="{ ...prevChapter, hint: '模型结构已经看完, 下一步是把训练规模做上去' }"
+      :next="{ ...nextChapter, hint: '先拆 batch, 再同步多卡梯度' }"
     />
   </div>
 </template>
@@ -181,7 +181,16 @@ import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import CodeRef from '@/components/CodeRef.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { trainModules } from '@/data/models.js'
+import { trainModules, learningPath } from '@/data/models.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'train')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 模块范围从数据里数, 不写死 (trainModules 里除了 mNN 还有一行 full)
+const moduleCount = trainModules.filter((m) => /^m\d+$/.test(m.id)).length
+const moduleSpan = `m01..m${String(moduleCount).padStart(2, '0')}`
 
 const trainChain = [
   {

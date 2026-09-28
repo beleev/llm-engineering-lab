@@ -18,10 +18,14 @@
         <button type="button" @click="seed++">换一组 token</button>
       </div>
       <LabSlider v-model="skew" label="路由倾斜度 s (Zipf)" :min="0" :max="2" :step="0.1" />
-      <LabSlider v-model="redIdx" label="冗余副本数 (EPLB)" :min="0" :max="2" :format="(v) => RED[v]" />
+      <!-- 连续放置下每个专家固定 1 个 slot, 副本数不起作用: 置灰, 不让拖 -->
+      <div :inert="mode === 'contig' || null" :class="{ off: mode === 'contig' }">
+        <LabSlider v-model="redIdx" label="冗余副本数 (EPLB)" :min="0" :max="2" :format="(v) => RED[v]" />
+      </div>
+      <p v-if="mode === 'contig'" class="tip">连续放置不复制专家, 副本数滑杆不起作用。先切到「EPLB 贪心放置」。</p>
     </template>
 
-    <svg :viewBox="`0 0 ${W} ${H + 30}`" role="img" aria-label="每张卡上的专家 slot 负载">
+    <svg :viewBox="`0 0 ${W} ${H + 30}`" role="group" aria-label="每张卡上的专家 slot 负载">
       <g v-for="(col, r) in view.cols" :key="r">
         <g
           v-for="s in col.slots" :key="s.slot" role="button" tabindex="0" :aria-label="`专家 ${s.e}, ${s.load} token`"
@@ -60,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import LabFrame from '@/components/lab/LabFrame.vue'
 import LabSlider from '@/components/lab/LabSlider.vue'
 import { mulberry32, randn, range, argmax, sum } from '@/utils/labmath.js'
@@ -76,7 +80,6 @@ const skew = ref(1)
 const redIdx = ref(1)
 const seed = ref(1)
 const sel = ref(-1)
-watch(redIdx, () => { mode.value = 'eplb' }) // 副本只对 EPLB 有意义, 拖了就直接切过去
 
 // 路由 logits 的噪声部分 ~ N(0,1), 只跟 seed 走; 两批: [0] 历史 (用来定放置), [1] 新 batch (用来评测)
 const noise = computed(() => {
@@ -129,6 +132,8 @@ const view = computed(() => {
 </script>
 
 <style scoped>
+.off { opacity: 0.45; }
+.tip { font-size: 11px; color: var(--text-dim); }
 .slot { cursor: pointer; outline: none; }
 .slot rect { stroke: var(--bg-card); stroke-width: 1; }
 .slot rect.rep { stroke: var(--text); stroke-dasharray: 3 2; }

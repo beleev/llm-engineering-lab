@@ -17,15 +17,17 @@ _clock = itertools.count()  # 逻辑时钟: LRU 只需要先后顺序, 不需要
 
 @dataclass(eq=False)
 class RadixNode:
+    """树上的一个节点, 连同"父 → 本节点"那条边。eq=False: 节点按身份比较, 不按字段内容。"""
     edge_tokens: List[int]                       # 父 → 本节点这条边上的 token 串; root 为 []
     slots: List[int]                             # 与 edge_tokens 等长: 每个 token 的 KV 在 pool 里的槽位
     children: Dict[int, "RadixNode"] = field(default_factory=dict)  # key = 子边的首 token (兄弟边首 token 必不同)
     parent: Optional["RadixNode"] = None
     ref_count: int = 0                           # 有多少个在跑的请求正用着这段 KV; >0 不可驱逐
-    last_used: int = field(default_factory=lambda: next(_clock))
+    last_used: int = field(default_factory=lambda: next(_clock))   # 最近一次被 match 经过的逻辑时刻, LRU 用
 
 
 def _lcp(a: List[int], b: List[int]) -> int:
+    """最长公共前缀 (longest common prefix) 的长度。"""
     n = 0
     for x, y in zip(a, b):
         if x != y:
@@ -35,6 +37,8 @@ def _lcp(a: List[int], b: List[int]) -> int:
 
 
 class RadixCache:
+    """基数树索引。只管 token 串 → slots 的映射和引用计数, KV 内容与槽位分配由调用方负责。"""
+
     def __init__(self) -> None:
         self.root = RadixNode(edge_tokens=[], slots=[])
 
@@ -71,7 +75,8 @@ class RadixCache:
     def insert(self, tokens: List[int], slots: List[int]) -> int:
         """插入 (tokens, 它们的 KV slots)。返回树里已有的前缀长度 n:
         slots[:n] 与树上已有 KV 重复, 调用方应当释放它们; 只有 slots[n:] 挂到新叶子上。"""
-        assert len(tokens) == len(slots)
+        assert len(tokens) == len(slots), \
+            f"每个 token 对应一个 KV 槽位: tokens {len(tokens)} 个, slots {len(slots)} 个"
         node, hit = self.match(tokens)
         n = len(hit)
         if n < len(tokens):
@@ -81,14 +86,15 @@ class RadixCache:
 
     def lock_path(self, node: RadixNode) -> None:
         """请求开始使用 node 代表的前缀: node → root 整条路径 ref_count+1。"""
-        while node.parent is not None:
+        while node.parent is not None:               # root 没有边, 不计数
             node.ref_count += 1
             node = node.parent
 
     def unlock_path(self, node: RadixNode) -> None:
+        """请求结束: node → root 整条路径 ref_count-1, 与 lock_path 成对调用。"""
         while node.parent is not None:
             node.ref_count -= 1
-            assert node.ref_count >= 0
+            assert node.ref_count >= 0, "ref_count 减成负数: unlock 多于 lock, 或 split 时没继承 ref_count"
             node = node.parent
 
     def evict(self, n_tokens: int) -> List[int]:
@@ -98,7 +104,7 @@ class RadixCache:
         """
         freed: List[int] = []
         while len(freed) < n_tokens:
-            # ponytail: 每次 O(N) 全树扫描; SGLang 用按 last_access_time 的小顶堆, 树大了再换
+            # 简化: 每次 O(N) 全树扫描; SGLang 用按 last_access_time 的小顶堆, 树大了再换
             leaves = [x for x in self._nodes() if not x.children and x.ref_count == 0]
             if not leaves:
                 break
@@ -117,9 +123,11 @@ class RadixCache:
         return out
 
     def total_tokens(self) -> int:
+        """树里索引着多少个 token 的 KV (= 占用的槽位数)。"""
         return sum(len(x.edge_tokens) for x in self._nodes())
 
     def pretty(self) -> str:
+        """把树画成缩进文本, 每行一条边: token 串、slots、ref_count。"""
         lines: List[str] = []
 
         def walk(node: RadixNode, depth: int) -> None:

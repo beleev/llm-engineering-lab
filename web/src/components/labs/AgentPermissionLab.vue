@@ -5,7 +5,8 @@
 <template>
   <LabFrame
     title="权限门 — 一次工具调用是怎么被裁决的"
-    sub="选模式、点规则开关、选或直接输入一条调用, 看它依次穿过 deny → ask → allow → 模式兜底。再把匹配方式切到「朴素 glob」, 用 rm -fr、双空格、大写去绕 deny 规则。"
+    sub="控件从上到下五排: 模式、规则开关、匹配方式、预设调用、自己输入。选好一条调用, 看它依次穿过 deny → ask → allow → 模式兜底。
+      再把匹配方式切到「朴素 glob」, 用 rm -fr、双空格、大写去绕 deny 规则。"
     module="llm_agent/m03"
     run="python -m llm_agent.m03_permissions.demo"
     :challenge="{
@@ -15,22 +16,27 @@
   >
     <template #controls>
       <div class="row">
+        <span class="tip">模式:</span>
         <button v-for="m in MODES" :key="m" type="button" class="mono" :class="{ active: mode === m }" @click="mode = m">{{ m }}</button>
       </div>
       <div class="row">
+        <span class="tip">规则:</span>
         <button v-for="(r, i) in rules" :key="i" type="button" class="rule mono" :class="[r.decision, { off: !r.on }]" :aria-pressed="r.on" @click="r.on = !r.on">
           {{ r.on ? '☑' : '☐' }} {{ r.decision }} · {{ r.tool }}{{ r.pattern ? ` "${r.pattern}"` : '' }}
         </button>
       </div>
       <div class="row">
-        <button type="button" :class="{ active: normalized }" @click="normalized = true">归一化匹配 (现在的实现)</button>
-        <button type="button" :class="{ active: !normalized }" @click="normalized = false">朴素 glob (旧实现)</button>
-        <button type="button" :class="{ active: human }" @click="human = !human">有人审批: {{ human ? '会批准' : '无人可问' }}</button>
+        <span class="tip">匹配方式:</span>
+        <button type="button" :class="{ active: normalized }" @click="normalized = true">归一化匹配 (permissions.py)</button>
+        <button type="button" :class="{ active: !normalized }" @click="normalized = false">朴素 glob (反例)</button>
+        <button type="button" :class="{ active: human }" :aria-pressed="human" @click="human = !human">有人审批: {{ human ? '会批准' : '无人可问' }}</button>
       </div>
       <div class="row">
+        <span class="tip">预设调用:</span>
         <button v-for="p in PRESETS" :key="p.arg" type="button" class="mono" :class="{ active: tool === p.tool && arg === p.arg }" @click="tool = p.tool; arg = p.arg">{{ p.arg }}</button>
       </div>
       <div class="row call">
+        <span class="tip">自己输入:</span>
         <select v-model="tool" class="mono" aria-label="工具"><option v-for="(t, n) in TOOLS" :key="n" :value="n">{{ n }}</option></select>
         <input v-model="arg" type="text" class="mono arg" spellcheck="false" aria-label="参数" />
         <span class="risk mono">risk={{ TOOLS[tool].risk }}</span>
@@ -52,7 +58,10 @@
       <div class="kv"><span>谁做的决定</span><b>{{ decisive.source }}</b></div>
       <div class="kv"><span>匹配时看到的文本</span><b class="small">{{ decisive.seen }}</b></div>
       <div class="kv"><span>deny 规则: 朴素 / 归一化</span><b :class="denyHit.naive === denyHit.norm ? '' : 'bad'">{{ denyHit.naive ? '命中' : '漏过' }} / {{ denyHit.norm ? '命中' : '漏过' }}</b></div>
-      <p class="lab-note">{{ decisive.reason }}。复合命令 (&amp;&amp; || ; | &amp;) 会被拆开逐段评估, 任一段不过则整体不过。否则 <code class="inline">echo hi &amp;&amp; rm -rf /</code> 能蹭到 allow "echo *"。</p>
+      <div class="lab-note">
+        <p>{{ decisive.reason }}。复合命令 (&amp;&amp; || ; | &amp;) 会被拆开逐段评估, 任一段不过则整体不过。否则 <code class="inline">echo hi &amp;&amp; rm -rf /</code> 能蹭到 allow "echo *"。</p>
+        <p>拆分认引号: <code class="inline">echo 'a; b'</code> 是一段。带输出重定向 (&gt; &gt;&gt;) 的段不享受 allow 规则, 引号没配对的命令直接拒绝。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -72,6 +81,7 @@ const TOOLS = {
 const PRESETS = [
   { tool: 'shell', arg: 'rm -rf /' }, { tool: 'shell', arg: 'rm -fr /' }, { tool: 'shell', arg: 'RM  -r -f /' },
   { tool: 'shell', arg: 'find / -delete' }, { tool: 'shell', arg: 'echo hi && rm -rf /' }, { tool: 'shell', arg: 'echo $(cat ~/.ssh/id_rsa)' }, { tool: 'shell', arg: 'git push origin main' },
+  { tool: 'shell', arg: "echo 'a; b'" }, { tool: 'shell', arg: 'echo x > ~/.bashrc' },
   { tool: 'write_note', arg: 'todo: fix login' }, { tool: 'read_file', arg: '.env' }, { tool: 'mcp__weather__get_weather', arg: 'Beijing' },
 ]
 const rules = reactive([
@@ -102,13 +112,17 @@ const normalize = (text) => {
 const matches = (rule, name, text, norm) => glob(name, rule.tool)
   && (!rule.pattern || (norm ? glob(normalize(text), normalize(rule.pattern)) : glob(text, rule.pattern)))
 
-const DANGER = ['rm ', 'sudo', 'curl ', 'wget ', 'ssh ', 'chmod ', '>', '| sh', 'token', 'secret']
+const DANGER = ['rm ', 'sudo', 'curl ', 'wget ', 'ssh ', 'chmod ', '>', 'token', 'secret'] // 同 permissions.py:_SHELL_DANGER
 const SENSITIVE = ['.env', 'secret', 'id_rsa', '.ssh', 'credentials']
-const ask = (reason) => ({ verdict: 'ASK', source: 'human', reason })
+// dont_ask 从不问人: 该问的 (命中 ask 规则) 直接拒绝, 与 permissions.py:_ask 相同
+const ask = (reason) => (mode.value === 'dont_ask'
+  ? { verdict: 'DENY', source: 'dont_ask', reason: `${reason}; dont_ask 不问人, 直接拒绝` }
+  : { verdict: 'ASK', source: 'human', reason })
 const fallback = (name, text) => {
   const t = TOOLS[name], m = mode.value
   if (m === 'plan') return t.readOnly ? { verdict: 'ALLOW', source: 'plan', reason: '只读工具, plan 模式放行' } : { verdict: 'DENY', source: 'plan', reason: 'plan 模式只读: 计划获批前任何写操作都拒绝' }
-  if (m === 'dont_ask' || m === 'bypass_permissions') return { verdict: 'ALLOW', source: m, reason: '该模式对未命中规则的调用一律放行 (deny 规则仍生效)' }
+  if (m === 'dont_ask') return { verdict: 'DENY', source: m, reason: '没有 allow 规则预先批准它: dont_ask 只放行 allow 规则命中的调用' }
+  if (m === 'bypass_permissions') return { verdict: 'ALLOW', source: m, reason: '该模式对未命中规则的调用一律放行 (deny 规则仍生效)' }
   if (m === 'accept_edits') return t.risk === 'high' ? ask('accept_edits 只自动放行低/中风险, 高风险仍问人') : { verdict: 'ALLOW', source: m, reason: '低/中风险自动放行' }
   if (m === 'auto') {
     if (name === 'shell' && DANGER.some((x) => (normalize(text) + ' ').includes(x))) return { verdict: 'DENY', source: 'auto', reason: 'auto 分类器看到危险 shell 片段' }
@@ -118,15 +132,63 @@ const fallback = (name, text) => {
   return ask('default 模式: 没有规则命中就问人')
 }
 
-// 对应 PermissionGate._evaluate_one: 顺序就是优先级
-const evaluateOne = (name, text) => {
+// ★ 对应 permissions.py:split_command: 按引号切词, 引号里的 ; & | > 都是普通字符。
+// 这些字符 (引号外) 连着的一串算一个操作符, 如 && >>。引号没配对返回 null
+// 简化: 不处理反斜杠转义 (shlex 会处理)
+const OPS = ';&|<>()\n'
+const lex = (cmd) => {
+  const toks = []
+  let cur = null, i = 0
+  const push = () => { if (cur !== null) toks.push(cur); cur = null }
+  while (i < cmd.length) {
+    const c = cmd[i]
+    if (c === "'" || c === '"') {
+      const j = cmd.indexOf(c, i + 1)
+      if (j < 0) return null
+      cur = (cur ?? '') + cmd.slice(i + 1, j)
+      i = j + 1
+    } else if (c === ' ' || c === '\t' || c === '\r') { push(); i++ }
+    else if (OPS.includes(c)) {
+      push()
+      let j = i
+      while (j < cmd.length && OPS.includes(cmd[j])) j++
+      toks.push(cmd.slice(i, j))
+      i = j
+    } else { cur = (cur ?? '') + c; i++ }
+  }
+  push()
+  return toks
+}
+// 返回 [{ text, redirect }]: 一段是去掉引号后的词用空格拼起来; redirect = 这一段有 > 或 >>
+const splitCommand = (cmd) => {
+  const toks = lex(cmd)
+  if (!toks) return null
+  const segs = []
+  let words = [], redirect = false
+  for (const t of toks) {
+    const isOp = t.length > 0 && [...t].every((c) => OPS.includes(c))
+    if (isOp && !/[<>]/.test(t) && /[;&|\n]/.test(t)) { // && || ; | & 换行: 一段结束
+      if (words.length) segs.push({ text: words.join(' '), redirect })
+      words = []
+      redirect = false
+      continue
+    }
+    words.push(t)
+    redirect = redirect || (isOp && t.includes('>'))
+  }
+  if (words.length) segs.push({ text: words.join(' '), redirect })
+  return segs
+}
+
+// 对应 PermissionGate._evaluate_one: 顺序就是优先级。noAllow = 这一段不享受 allow 规则的原因
+const evaluateOne = (name, text, noAllow = '') => {
   const stages = []
   let out = null
   for (const d of ['deny', 'ask', 'allow']) {
     const skip = out ? '已有结论, 不再检查'
       : d !== 'deny' && mode.value === 'plan' ? 'plan 模式下 ask/allow 规则不生效 (allow 也不能放行写操作)'
         : d === 'ask' && mode.value === 'bypass_permissions' ? 'bypass_permissions 跳过 ask 规则'
-          : d === 'allow' && name === 'shell' && /\$\(|`/.test(text) ? '命令替换 $(…) / `…` 里能藏任何东西: 不享受 allow 规则' : ''
+          : d === 'allow' && noAllow ? noAllow : ''
     const hit = skip ? null : rules.find((r) => r.on && r.decision === d && matches(r, name, text, normalized.value))
     if (hit) out = d === 'ask' ? ask(`命中 ask 规则 ${hit.tool} "${hit.pattern}"`) : { verdict: d.toUpperCase(), source: 'rule', reason: `命中 ${d} 规则 ${hit.tool} "${hit.pattern}"` }
     const n = rules.filter((r) => r.on && r.decision === d).length
@@ -138,8 +200,17 @@ const evaluateOne = (name, text) => {
 }
 
 const result = computed(() => {
-  const segs = tool.value === 'shell' ? arg.value.split(/&&|\|\||;|\||&|\n/).map((s) => s.trim()).filter(Boolean) : []
-  const parts = (segs.length > 1 ? segs : [arg.value]).map((s) => evaluateOne(tool.value, s))
+  if (tool.value !== 'shell') return { parts: [evaluateOne(tool.value, arg.value)], idx: 0 }
+  const segs = splitCommand(arg.value)
+  if (!segs) { // 看不懂的命令不能放行 (fail closed)
+    const stages = [{ name: 'split_command', state: 'hit', detail: '引号没配对, shlex 解析失败 → 直接拒绝, 不查规则' }]
+    return { parts: [{ verdict: 'DENY', source: 'parser', reason: '引号没配对, 解析不了的命令一律拒绝', stages, text: arg.value, seen: arg.value }], idx: 0 }
+  }
+  // 命令替换查原始字符串: 切词会把 $( 拆成两个记号
+  const subst = /\$\(|`/.test(arg.value) ? '命令替换 $(…) / `…` 里能藏任何东西: 不享受 allow 规则' : ''
+  const redir = '输出重定向 (> >>): 整串匹配 allow 规则, 实际却在写文件, 不享受 allow 规则'
+  const parts = (segs.length ? segs : [{ text: arg.value, redirect: false }])
+    .map((s) => evaluateOne('shell', s.text, subst || (s.redirect ? redir : '')))
   const bad = parts.findIndex((p) => p.verdict !== 'ALLOW' && !(p.verdict === 'ASK' && human.value))
   return { parts, idx: bad < 0 ? 0 : bad }
 })
@@ -163,6 +234,7 @@ const denyHit = computed(() => {
 .call select { max-width: 150px; }
 .call .arg { flex: 1; min-width: 160px; }
 .risk { font-size: 12px; color: var(--accent); }
+.tip { font-size: 12px; color: var(--text-muted); min-width: 64px; }
 .call select, .arg { min-height: 32px; background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 8px; font-size: 12px; max-width: 100%; min-width: 0; }
 .seg { font-size: 12px; color: var(--text-dim); margin: 6px 0; word-break: break-all; }
 .seg.decisive { color: var(--text); }

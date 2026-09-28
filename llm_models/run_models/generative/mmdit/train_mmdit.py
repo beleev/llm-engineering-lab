@@ -28,15 +28,17 @@ def main():
     )
     print(f"MM-DiT Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
+    scheduler = FlowMatchingScheduler(num_train_timesteps=1000)
     data_gen = DiffusionDataGenerator(
-        scheduler=FlowMatchingScheduler(num_train_timesteps=1000), batch_size=cfg.batch_size,
+        scheduler=scheduler, batch_size=cfg.batch_size,
         latent_channels=4, latent_size=8,
         text_seq_len=16, text_dim=64,     # 开启文本流
     )
     t = data_gen.generate_batch()["t"]
-    print(f"喂给模型的 t: {t.tolist()}  (Flow Matching 的 t∈[0,1] 已 ×1000)")
+    print(f"喂给模型的 t: {t.tolist()}  (Flow Matching 的 t∈[0,1] 已 ×{scheduler.num_train_timesteps})")
     assert t.max() > 1.0, "t 没有被缩放到 [0, 1000) 量纲"
 
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, DiffusionLoss()).train()
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss: {first:.4f} (理论 Var(ε)+Var(x_0)=2) | 终态: {last:.4f}")

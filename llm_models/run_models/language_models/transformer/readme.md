@@ -22,6 +22,14 @@ python -m llm_models.run_models.language_models.transformer.train_transformer
 - train: 初始 loss 6.972 (ln 1000 = 6.908) → 60 步后 0.046 (约 6 秒)。
 - src 与 tgt 是**互不相关的固定随机序列**, 下降 = 背下这个 batch。
 
+## 与真实系统的差距
+- **规模**: train 是 2 层、d_model=256、4 头、d_ff=512。类的默认参数 (6 层、d_model=512、8 头、d_ff=2048) 才是论文的 base 配置。
+- **Pre-LN**: 本库所有 block 统一用 Pre-LN `x + f(LN(x))`。论文是 Post-LN。
+- **没有 weight tying**: `src_embedding`、`tgt_embedding`、`fc_out` 是三个独立矩阵。本库其他 LM 都让输出层和 embedding 共享权重, 这个模型没有。
+- **embedding 乘 √D**: 这一条论文里就有。N(0, 0.02²) 初始化是本库约定。
+- **解码没有 KV cache**: `encode()` 只跑一次, 但 `decode()` 每步重跑整个目标前缀。只演示了贪心, 没有 beam search。
+- **数据是合成的**: src 和 tgt 是互不相关的随机 token, 固定一个 batch (2 条 × 32 token) 训 60 步。固定 batch 是本库约定, 用来检查梯度通路。
+
 ## 常见误区
 - "cross-attention 也要加 RoPE" —— 不要。Q 与 K 来自两条不同序列, "相对位置 i−j" 没有意义。
 - "训练时 decoder 也是一步步生成的" —— 训练用 teacher forcing: 整个 tgt 一次并行喂入, 靠因果 mask 防止偷看。

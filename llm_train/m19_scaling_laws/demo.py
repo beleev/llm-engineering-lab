@@ -23,17 +23,21 @@ DATA = [2048, 4096, 8192, 16384, 32768, 65536]
 LR, BATCH = 3e-2, 32                                                     # 所有规模同一个 lr (在 1e-2 / 3e-2 / 1e-1 里粗扫过)
 
 _rs = make_rng(19)
+# teacher 的三组参数: 输入权重 U_T [K, D_IN], 偏置 C_T [K], 输出权重 A_T [K]
 U_T = _rs.randn(K, D_IN) / np.sqrt(D_IN) * 2                             # teacher: 512 个 tanh 单元
 C_T = _rs.randn(K) * 0.5
 A_T = _rs.choice([-1, 1], K) * np.arange(1, K + 1) ** -1.0               # 输出权重按 1/k 衰减 → 窄网络只学得到头部, 误差随宽度幂律下降
 
 
 def sample(rs, n):
+    """抽 n 个样本: x [n, D_IN], y [n] = teacher 的输出 + 标签噪声。"""
     x = rs.randn(n, D_IN)
+    # [n, D_IN] @ [D_IN, K] → [n, K], 过 tanh 后乘输出权重 [K] → [n]
     return x, np.tanh(x @ U_T.T + C_T) @ A_T + NOISE * rs.randn(n)      # 标签噪声方差 σ² = 0.01 就是真实的 E
 
 
 def n_params(width):
+    """学生的参数个数 N: W1 (D_IN·width) + b1 (width) + w2 (width) + b2 (1)。"""
     return width * (D_IN + 2) + 1                                        # W1 + b1 + w2 + b2
 
 
@@ -42,32 +46,37 @@ def train(width, n_data, seed=0):
     rs = make_rng(seed)
     P = {"W1": rs.randn(D_IN, width) / np.sqrt(D_IN), "b1": np.zeros(width),
          "w2": rs.randn(width) / np.sqrt(width), "b2": np.zeros(1)}
+    # M / S: Adam 的一阶 / 二阶矩, 与参数同形
     M = {k: np.zeros_like(v) for k, v in P.items()}
     S = {k: np.zeros_like(v) for k, v in P.items()}
-    data_rs, steps = make_rng(1000 + seed), n_data // BATCH
+    data_rs, steps = make_rng(1000 + seed), n_data // BATCH             # 数据用另一个随机源, 和初始化互不影响
     for t in range(1, steps + 1):
-        x, y = sample(data_rs, BATCH)
-        h = np.tanh(x @ P["W1"] + P["b1"])
-        g = 2 * (h @ P["w2"] + P["b2"][0] - y) / BATCH                  # dL/dpred
-        gh = np.outer(g, P["w2"]) * (1 - h**2)
+        x, y = sample(data_rs, BATCH)                                   # [B, D_IN], [B]
+        h = np.tanh(x @ P["W1"] + P["b1"])                              # [B, D_IN] @ [D_IN, width] → [B, width]
+        g = 2 * (h @ P["w2"] + P["b2"][0] - y) / BATCH                  # [B] dL/dpred
+        # pred = h @ w2 → dL/dh = g ⊗ w2; 再乘 tanh' = 1 − h²
+        gh = np.outer(g, P["w2"]) * (1 - h**2)                          # [B, width], outer 把 [B] 和 [width] 撑开
+        # W1 [D_IN, width], b1 [width], w2 [width], b2 [1]
         grads = {"W1": x.T @ gh, "b1": gh.sum(0), "w2": h.T @ g, "b2": np.array([g.sum()])}
         lr_t = LR * 0.5 * (1 + np.cos(np.pi * t / steps))               # cosine 退火长度 = 本次的数据量 (Chinchilla 的关键修正)
         for k in P:
             adam_update(P[k], grads[k], M[k], S[k], t, lr_t)
-    x, y = sample(make_rng(7), 4096)
+    x, y = sample(make_rng(7), 4096)                                     # 固定的测试集, 所有 (N, D) 共用
     return float(np.mean((np.tanh(x @ P["W1"] + P["b1"]) @ P["w2"] + P["b2"][0] - y) ** 2))
 
 
 def fit_scaling_law(N, D, L):
     """变量投影: 对每组 (α, β) 解线性最小二乘得 E, A, B ≥ 0; 残差按相对误差计。返回 (α, β, E, A, B, 相对 RMS)。"""
     best = None
-    grid = np.linspace(0.05, 2.0, 79)
+    grid = np.linspace(0.05, 2.0, 79)                                    # α, β 的候选值, 步长 0.025
     for al in grid:
         for be in grid:
+            # 三列是 1, N^-α, D^-β, 系数就是 E, A, B。[n_points, 3]
+            # 每行除以自己的 L, 目标变成全 1: 残差 = 预测 / 实测 − 1, 即相对误差
             X = np.stack([np.ones_like(N), N**-al, D**-be], axis=1) / L[:, None]
-            coef = np.linalg.lstsq(X, np.ones_like(L), rcond=None)[0]
+            coef = np.linalg.lstsq(X, np.ones_like(L), rcond=None)[0]   # [3] = (E, A, B)
             if (coef < 0).any():
-                continue
+                continue                                                 # E, A, B 出现负数的组合不要
             r = float(np.sum((X @ coef - 1) ** 2))
             if best is None or r < best[0]:
                 best = (r, al, be, *coef)
@@ -76,6 +85,7 @@ def fit_scaling_law(N, D, L):
 
 
 def compute_optimal(C, al, be, A, B):
+    """文件头的闭式解: 给定算力 C, 返回 (N_opt, D_opt)。"""
     a, b = be / (al + be), al / (al + be)
     G = (al * A / (be * B)) ** (1 / (al + be))
     return G * (C / 6) ** a, (C / 6) ** b / G
@@ -91,6 +101,7 @@ def main() -> None:
     for w in WIDTHS:
         row = [loss.setdefault((w, d), train(w, d)) for d in DATA]
         print("  " + f"{n_params(w):>8}" + "".join(f"{v:>9.4f}" for v in row))
+    # 36 个格点拉成三个等长的一维数组 [36]: 参数量, 数据量, 测试 loss
     N = np.array([n_params(w) for w, _ in loss], dtype=float)
     D = np.array([d for _, d in loss], dtype=float)
     L = np.array(list(loss.values()))
@@ -113,8 +124,8 @@ def main() -> None:
     for C in (1e7, 1e8, 1e9):
         n_opt, d_opt = compute_optimal(C, al, be, A, B)
         ns = np.logspace(0, 6, 20001)                                    # 数值检查闭式解
-        n_num = ns[np.argmin(A / ns**al + B / (C / 6 / ns) ** be)]
-        assert abs(n_num / n_opt - 1) < 0.01
+        n_num = ns[np.argmin(A / ns**al + B / (C / 6 / ns) ** be)]     # C/6/ns: 算力固定时, 每个 N 对应的 D
+        assert abs(n_num / n_opt - 1) < 0.01, "闭式解 N_opt 与数值搜索的最小点必须相差 1% 以内"
         kv(f"C = {C:.0e}", f"N_opt = {n_opt:7.0f}, D_opt = {d_opt:9.0f}, D/N = {d_opt / n_opt:5.0f}")
 
     # IsoFLOP: 网格的反对角线 (宽度 ×2, 数据 ÷2) 上 6ND 近似相等, 拿真训的点对照预测

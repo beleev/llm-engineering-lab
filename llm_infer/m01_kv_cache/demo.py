@@ -3,7 +3,7 @@ m01 KV Cache — 把历史 token 的 K/V 存下来, decode 每步只算 1 个新
 
 瓶颈: 无 cache 时第 t 步要重算 t 个 token 的全部层 (延迟随 t 线性涨, 累计 O(T²) 次 token 前向);
       有 cache 后每步只过 1 个 token, 代价是显存: KV 字节 = 2·n_layer·T·D·sizeof(dtype)。
-关键数字: 本 demo T=6+32, 累计 token 前向次数 688 → 37 (18.6×); LLaMA-7B fp16 每 token 0.5 MB KV。
+关键数字: 本 demo 默认 prompt 6 + 生成 32, 累计 token 前向次数 688 → 37 (18.6×); LLaMA-7B fp16 每 token 0.5 MB KV。
 读代码盯住: generate_with_cache 里的 `kv_cache` — 每步 K.shape[0] 只 +1, 喂给模型的永远是 1 个 token。
 真实系统: HF `past_key_values`; vLLM / SGLang 的 KV block pool 就是这块内存的分页管理 (见 m02)。
 
@@ -29,7 +29,10 @@ def generate_no_cache(lm: TinyLM, prompt_ids: np.ndarray, max_new: int):
 
 
 def generate_with_cache(lm: TinyLM, prompt_ids: np.ndarray, max_new: int):
-    """prefill 一次建 KV, 之后每步 decode_step 只喂 1 个 token。"""
+    """prefill 一次建 KV, 之后每步 decode_step 只喂 1 个 token。
+
+    返回 (ids, 每步末位 logits (max_new, V), 每步 ms, 最终 kv_cache)。
+    """
     ids, step_logits, times_ms = list(prompt_ids), [], []
     with Timer() as t:
         logits, kv_cache = lm.prefill(np.asarray(prompt_ids, dtype=np.int64))  # kv: n_layer × (K (T,D), V (T,D))
@@ -52,17 +55,18 @@ def main():
     prompt = np.array([1, 10, 20, 30, 40, 50], dtype=np.int64)
     max_new = 32
 
-    banner("M01 - KV Cache: brute force vs incremental")
+    banner("M01 - KV Cache: 每步重算 vs 增量解码")
     ids_a, logits_a, times_a = generate_no_cache(lm, prompt, max_new)
     ids_b, logits_b, times_b, kv_cache = generate_with_cache(lm, prompt, max_new)
 
     print("\n[1] 正确性: cache 解码 vs 每步重算")
     diff = float(np.abs(logits_a - logits_b).max())
-    kv("生成 ids (前 10 个)", ids_b[len(prompt):len(prompt) + 10])
+    n_show = 10                                       # 只打印前几个新 token
+    kv(f"生成 ids (前 {n_show} 个)", ids_b[len(prompt):len(prompt) + n_show])
     kv("token 逐个一致", ids_a == ids_b)
-    kv("logits max-abs-diff (32 步)", f"{diff:.2e}")
+    kv(f"logits max-abs-diff ({max_new} 步)", f"{diff:.2e}")
     assert ids_a == ids_b, "KV cache 解码与重算结果不一致"
-    assert diff < 1e-4, diff
+    assert diff < 1e-4, f"有无 cache 的 logits 最大差 {diff:.2e}, 超出 fp32 舍入误差 (1e-4)"
 
     print("\n[2] KV 显存: 公式 vs 实际 nbytes")
     T = kv_cache[0][0].shape[0]                       # cache 里的 token 数 = prompt + max_new - 1 (最后一个 token 还没喂回)
@@ -72,10 +76,11 @@ def main():
     kv("cache 内 token 数 T", T)
     kv(f"2·L·T·D·{itemsize} (L={cfg.n_layer}, D={cfg.d_model})", f"{formula} B")
     kv("实际 sum(K.nbytes+V.nbytes)", f"{actual} B")
-    assert T == len(prompt) + max_new - 1 and formula == actual
+    assert T == len(prompt) + max_new - 1, f"cache 里应有 prompt + max_new - 1 个 token, 实际 {T}"
+    assert formula == actual, f"KV 字节数: 公式 2·L·T·D·itemsize = {formula}, 实际 nbytes = {actual}"
     # LLaMA-7B: 32 层, D=4096, fp16 → 每 token 2·32·4096·2 B
-    per_tok = 2 * 32 * 4096 * 2
-    kv("同公式代入 LLaMA-7B fp16", f"{per_tok / 2**20:.2f} MiB/token, T=4096 → {per_tok * 4096 / 2**30:.2f} GiB")
+    per_tok, ctx = 2 * 32 * 4096 * 2, 4096
+    kv("同公式代入 LLaMA-7B fp16", f"{per_tok / 2**20:.2f} MiB/token, T={ctx} → {per_tok * ctx / 2**30:.2f} GiB")
 
     print("\n[3] 计算量: 累计过模型的 token 数 (与机器无关)")
     n_prompt = len(prompt)
@@ -84,14 +89,16 @@ def main():
     kv("无 cache", work_a)
     kv("有 cache", work_b)
     kv("比值", f"{work_a / work_b:.1f}x")
-    assert work_a == 688 and work_b == 37
+    # 688 = 6+7+...+37, 37 = 6+31; 这两个数只对默认的 prompt 6 / max_new 32 成立
+    assert work_a == 688, f"无 cache 累计 token 前向数应为 688, 实际 {work_a}"
+    assert work_b == 37, f"有 cache 累计 token 前向数应为 37, 实际 {work_b}"
 
     print("\n[4] 实测单步耗时 ms (numpy/CPU, 有噪声, 仅看趋势)")
-    print(f"  step:  {'no_cache':>10}  {'with_cache':>10}")
+    print(f"  step:  {'无 cache':>9}  {'有 cache':>9}")                       # 中文占两格, 宽度少补 1
     for i in range(0, max_new, max_new // 8):
         print(f"  {i:>4}:  {times_a[i]:>10.3f}  {times_b[i]:>10.3f}")
     kv("总耗时 无/有 cache (ms)", f"{sum(times_a):.2f} / {sum(times_b):.2f}  → {sum(times_a) / sum(times_b):.1f}x")
-    print("  注: T=38 太小, 实测加速比远低于 token 数比值 — 每次 numpy 调用的固定开销占主导 (正是 m12 的主题)。")
+    print(f"  注: T={len(prompt) + max_new} 太小, 实测加速比远低于 token 数比值 — 每次 numpy 调用的固定开销占主导 (正是 m12 的主题)。")
 
 
 if __name__ == "__main__":

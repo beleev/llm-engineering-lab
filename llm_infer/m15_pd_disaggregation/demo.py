@@ -27,19 +27,20 @@ def main():
 
     print("\n[1] 两个节点, 各自一份权重; 中间只传 bytes")
     p_node, d_node = PrefillNode(cfg), DecodeNode(cfg)
-    assert not np.shares_memory(p_node.lm.w.tok_emb, d_node.lm.w.tok_emb)   # 真的是两份权重, 不是同一个对象
+    assert not np.shares_memory(p_node.lm.w.tok_emb, d_node.lm.w.tok_emb), \
+        "P、D 两个节点应各有一份权重, 不能是同一块内存"
     link = KVLink(link_gbps=400, latency_ms=0.05)
 
     first_token, wire_kv = p_node.run(prompt)               # ← TTFT 在这里结束: 首 token 由 P 节点给出
     payload, xfer_ms = link.send(wire_kv[2])
-    assert isinstance(payload, bytes)
+    assert isinstance(payload, bytes), "过链路的只能是纯 bytes, 不能带着 P 节点的对象引用"
     gen = d_node.run(first_token, (wire_kv[0], wire_kv[1], payload), max_new)
 
     baseline = TinyLM(cfg).generate_greedy(prompt, max_new=max_new)
     kv("单机 baseline 生成", baseline[len(prompt):])
     kv("P→D 分离 生成", gen)
     assert list(prompt) + gen == baseline, "分离后输出必须与单机逐 token 相同"
-    print("  ✓ 逐 token 相同 (首 token 来自 P 节点, 其余 15 个来自 D 节点)")
+    print(f"  ✓ 逐 token 相同 (首 token 来自 P 节点, 其余 {max_new - 1} 个来自 D 节点)")
 
     print("\n[2] KV 字节数")
     shape, dtype, _ = wire_kv
@@ -49,11 +50,13 @@ def main():
     actual = sum(K.nbytes + V.nbytes for K, V in deserialize_kv(*wire_kv))
     kv(f"公式 2·L·T·D·itemsize = 2·{L}·{T}·{D}·{itemsize}", f"{formula} B")
     kv("实际 nbytes / 线上 payload", f"{actual} B / {len(payload)} B")
-    assert formula == actual == len(payload) == link.bytes_sent
-    kv("该 KV 过 400 Gbps 链路 (模型值)", f"{xfer_ms:.4f} ms  (其中固定延迟 0.05 ms)")
+    assert formula == actual == len(payload) == link.bytes_sent, \
+        f"KV 字节数四处应相等: 公式 {formula}, nbytes {actual}, payload {len(payload)}, 链路计数 {link.bytes_sent}"
+    kv(f"该 KV 过 {link.link_gbps:g} Gbps 链路 (模型值)", f"{xfer_ms:.4f} ms  (其中固定延迟 {link.latency_ms:g} ms)")
 
-    print("\n[3] 代价模型: LLaMA-7B (32 层, D=4096, fp16), T=4096 的 KV 传输时间  [公式计算, 非实测]")
-    big = kv_nbytes_formula(32, 4096, 4096, 2)
+    big_L, big_D, big_T = 32, 4096, 4096                     # LLaMA-7B 的层数和隐藏维, 以及上下文长度
+    print(f"\n[3] 代价模型: LLaMA-7B ({big_L} 层, D={big_D}, fp16), T={big_T} 的 KV 传输时间  [公式计算, 非实测]")
+    big = kv_nbytes_formula(big_L, big_T, big_D, 2)
     kv("KV 大小", f"{big / 1e9:.3f} GB ({big / 2**30:.2f} GiB)")
     print(f"  {'链路':<28} {'Gbps':>6} {'GB/s':>7} {'传输 ms':>9}")
     for name, gbps in LINKS_GBPS.items():
@@ -62,28 +65,34 @@ def main():
     ms_400 = KVLink(400).transfer_ms(big)
     wrong_ms = big / (400 * 1e9) * 1e3                       # 常见错误: 把 Gbps 当 GB/s, 少除了 8
     kv("400 Gbps: 正确 / 把 Gbps 当 GB/s", f"{ms_400:.1f} ms / {wrong_ms:.1f} ms  (低估 {ms_400 / wrong_ms:.0f}x)")
-    assert KVLink(400).bytes_per_s == 50e9 and abs(ms_400 / wrong_ms - 8) < 1e-9
-    assert abs(ms_400 - 2147483648 / 50e9 * 1e3) < 1e-9
+    assert KVLink(400).bytes_per_s == 50e9, "400 Gbps = 400e9 / 8 = 50e9 bytes/s"
+    assert abs(ms_400 / wrong_ms - 8) < 1e-9, "把 Gbps 当 GB/s 会把传输时间低估 8 倍"
+    # 2147483648 = 2·32·4096·4096·2 字节, 即上面的 big; 50e9 是 400 Gbps 换成的 bytes/s
+    assert abs(ms_400 - 2147483648 / 50e9 * 1e3) < 1e-9, "传输时间应等于 字节数 / (bytes/s), latency 为 0"
 
-    print("\n[4] 为什么分离: prefill 与 decode 混跑时的干扰 (TinyLM 实测, 3 次取最快)")
+    repeats = 3                                              # 计时重复几次, 取最快
+    print(f"\n[4] 为什么分离: prefill 与 decode 混跑时的干扰 (TinyLM 实测, {repeats} 次取最快)")
     lm = p_node.lm
     long_prompt = np.random.RandomState(1).randint(0, cfg.vocab_size, size=400)
     _, kv_cache = lm.prefill(prompt)
 
     def best_ms(fn):
+        """跑 repeats 次取最快, 压掉系统抖动。"""
         best = float("inf")
-        for _ in range(3):
+        for _ in range(repeats):
             with Timer() as t:
                 fn()
             best = min(best, t.ms)
         return best
     t_prefill = best_ms(lambda: lm.prefill(long_prompt))
     t_decode = best_ms(lambda: lm.decode_step(first_token, kv_cache))
-    kv("400-token prefill", f"{t_prefill:.2f} ms")
+    kv(f"{len(long_prompt)}-token prefill", f"{t_prefill:.2f} ms")
     kv("1 个 decode step", f"{t_decode:.3f} ms")
     kv("同卡混跑: 被插队的那一步 ITL", f"{t_decode + t_prefill:.2f} ms  ({(t_decode + t_prefill) / t_decode:.0f}x 抖动)")
     kv("分离后: ITL", f"{t_decode:.3f} ms  (prefill 在别的节点上, 互不影响)")
-    assert t_prefill > 5 * t_decode
+    # 这条依赖墙钟计时, 机器很忙时可能偶发失败, 重跑即可
+    assert t_prefill > 5 * t_decode, \
+        f"{len(long_prompt)}-token prefill 应比 1 个 decode step 慢 5 倍以上: {t_prefill:.2f} ms vs {t_decode:.3f} ms"
 
 
 if __name__ == "__main__":

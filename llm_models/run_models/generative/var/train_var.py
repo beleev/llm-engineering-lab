@@ -21,6 +21,7 @@ K = 64  # 码本大小 = Transformer 词表大小
 
 
 def train_tokenizer(tokenizer: ImageTokenizer, images: torch.Tensor, steps: int = 150):
+    """阶段 1: 用 重建 MSE + vq_loss 训练 tokenizer; 返回每步的重建 loss 列表。"""
     opt = torch.optim.Adam(tokenizer.parameters(), lr=3e-3)
     history = []
     for step in range(steps):
@@ -50,7 +51,7 @@ def main():
     # ---- 阶段 1: tokenizer ----
     tokenizer = ImageTokenizer(image_size=16, codebook_size=K, latent_dim=16,
                                base_channels=16, levels=2, scales=(1, 2, 4))
-    codebook_init = tokenizer.quantizer.vq.codebook.weight.detach().clone()
+    codebook_init = tokenizer.quantizer.vq.codebook.weight.detach().clone()   # 训练前的码本, 留着算位移
     recon = train_tokenizer(tokenizer, images)
     moved = (tokenizer.quantizer.vq.codebook.weight - codebook_init).abs().max().item()
     print(f"tokenizer recon: {recon[0]:.4f} → {recon[-1]:.4f} | 码本最大位移 {moved:.4f}")
@@ -58,6 +59,7 @@ def main():
     assert moved > 1e-3, "码本没有被训练 (straight-through / vq_loss 断了?)"
 
     # ---- 阶段 2: next-scale Transformer ----
+    #      Trainer 每步拿到的还是那批图像; VARModel 内部先用冻结的 tokenizer 把图变成 token
     model = VARModel(tokenizer.eval(), d_model=96, n_heads=4, num_layers=2)
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"VAR Transformer 可训练参数: {n_train:,} | 序列长度 L = {model.num_tokens}")
@@ -70,7 +72,7 @@ def main():
 
     # 采样: 3 次前向出 21 个 token, 全部是合法码字 (词表里根本没有 BOS)
     tokens = model.eval().sample_tokens(batch_size=4, top_k=10)
-    assert all(0 <= t.min() and t.max() < K for t in tokens)
+    assert all(0 <= t.min() and t.max() < K for t in tokens), "采样出的 token 应全部落在码本范围 [0, K)"
     print("采样 token 形状:", [tuple(t.shape) for t in tokens])
 
 

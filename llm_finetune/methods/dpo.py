@@ -2,13 +2,14 @@
 DPO — Direct Preference Optimization (Rafailov et al., 2023)
 
 是什么: 直接在偏好对 (x, y_w, y_l) 上做二分类, 不训 reward model, 不跑 RL。
-解决什么: RLHF = SFT → RM → PPO, 要同时养 4 个模型; DPO 证明 KL 约束下的最优策略满足
+解决什么: RLHF = SFT → RM → PPO, 要同时养 4 个模型 (policy、ref、critic、reward model); DPO 证明 KL 约束下的最优策略满足
           r(x,y) = β·log π(y|x)/π_ref(y|x) + const, 代回 Bradley-Terry 就得到一个纯监督 loss。
 核心公式:  L = − log σ( β·[ (log π_θ(y_w|x) − log π_ref(y_w|x)) − (log π_θ(y_l|x) − log π_ref(y_l|x)) ] )
            log π(y|x) = Σ_{t∈回复} log p(y_t | x, y_<t)   —— 包含第一个回复 token y_1 (见 data/tasks.make_labels)
 读代码时盯住: `PairwiseForward` —— 它是本章接入通用 Trainer 的扩展点: "一步要跑几次前向" 被包进一个 nn.Module,
               Trainer 的循环 (clip / step / scheduler) 一行不用复制。
 代价: 每步多一次 ref 前向 + 常驻一份 ref 权重 (SimPO / ORPO 把它去掉, 见 simpo.py / orpo.py)。
+与论文的差异: loss 公式相同。偏好对是合成的 (正确回复 vs 损坏回复), 不是人工标注。
 """
 
 import copy
@@ -37,8 +38,8 @@ def compute_sequence_logprobs(logits: torch.Tensor, labels: torch.Tensor,
 
 class PairwiseForward(nn.Module):
     """
-    Trainer 只会 `model(**batch)` 一次。偏好类方法每步要对 chosen / rejected (以及可选的冻结 ref) 各跑一次 ——
-    把这些前向包成一个 Module 的 forward, Trainer 就不用改。DPO / SimPO / ORPO / Reward Model 共用。
+    Trainer 只会 `model(**batch)` 一次。偏好类方法每步要把 chosen 和 rejected 都送进 policy, 有冻结 ref 时还要送进 ref。
+    这里把两者拼成 2B 条序列, policy 前向 1 次、ref 前向 1 次, 包成一个 Module 的 forward, Trainer 就不用改。DPO / SimPO / ORPO / Reward Model 共用。
 
     forward 的形参名 = PreferenceDataGenerator 的 key; 返回 {"chosen", "rejected"[, "ref_chosen", "ref_rejected"]},
     值是被包模型的原始输出 (LM: logits [B,T,V]; RM: 分数 [B])。
@@ -84,6 +85,7 @@ class DPOLoss(LossComputer):
 
     def compute(self, model_output: Dict[str, torch.Tensor], labels: Dict[str, torch.Tensor],
                 **kwargs) -> Dict[str, torch.Tensor]:
+        # 四路 logits 各算一个整条回复的 log π [B]。"ref_chosen" 与 "chosen" 是同一条序列, 共用一份 labels
         logp = {k: compute_sequence_logprobs(v, labels[k.replace("ref_", "")]) for k, v in model_output.items()}
         # 隐式奖励 r̂ = β·(log π_θ − log π_ref); ref 项在 no_grad 下算出, 本来就没有梯度
         chosen_reward = self.beta * (logp["chosen"] - logp["ref_chosen"])             # [B]

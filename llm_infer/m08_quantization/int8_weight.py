@@ -16,11 +16,13 @@ import numpy as np
 
 @dataclass
 class QInt8Tensor:
+    """对称 INT8 per-channel 量化后的权重: W ≈ q * scale。"""
     q: np.ndarray            # int8, (D_in, D_out)
     scale: np.ndarray        # float32, (D_out,) 每个输出通道 (列) 一个
 
     def dequantize(self) -> np.ndarray:
-        return self.q.astype(np.float32) * self.scale[None, :]
+        """还原成浮点权重 (D_in, D_out)。"""
+        return self.q.astype(np.float32) * self.scale[None, :]           # (D_in,D_out) * (1,D_out)
 
     def nbytes(self) -> int:
         return self.q.nbytes + self.scale.nbytes
@@ -28,9 +30,10 @@ class QInt8Tensor:
 
 def quantize_int8(W: np.ndarray) -> QInt8Tensor:
     """对称 per-channel: scale = max|列| / 127。权重近似零均值, 对称量化省掉 zero-point。"""
-    abs_max = np.maximum(np.max(np.abs(W), axis=0), 1e-8)                 # (D_out,)
-    scale = (abs_max / 127.0).astype(np.float32)
-    q = np.clip(np.round(W / scale[None, :]), -127, 127).astype(np.int8)
+    abs_max = np.maximum(np.max(np.abs(W), axis=0), 1e-8)                 # (D_out,); 1e-8: 整列为 0 时防除零
+    scale = (abs_max / 127.0).astype(np.float32)                          # 列内最大值映射到 ±127
+    # 只用 [-127, 127], 不用 -128: 正负对称, 0 恰好落在格点上
+    q = np.clip(np.round(W / scale[None, :]), -127, 127).astype(np.int8)  # (D_in, D_out)
     return QInt8Tensor(q=q, scale=scale)
 
 
@@ -52,9 +55,11 @@ class QTensor:
     bits: int
 
     def dequantize(self) -> np.ndarray:
+        """还原成浮点, 形状与 q 相同 (scale / lo 靠 keepdims 留下的维度广播)。"""
         return self.q.astype(np.float32) * self.scale.astype(np.float32) + self.lo.astype(np.float32)
 
     def nbytes(self) -> int:
+        """bit-packing 后的字节数: 每个元素 bits 位 (向上取整到字节) + scale 和 lo。"""
         return -(-self.q.size * self.bits // 8) + self.scale.nbytes + self.lo.nbytes
 
     def bits_per_elem(self) -> float:
@@ -66,7 +71,10 @@ def quantize_affine(x: np.ndarray, bits: int, axis) -> QTensor:
     """在 `axis` 上统计 min/max (这些维上的元素共用一组 scale/lo), 非对称 RTN。axis=None → per-tensor。"""
     lo = x.min(axis=axis, keepdims=True).astype(np.float16)
     hi = x.max(axis=axis, keepdims=True)
+    # 下限 1e-4: 组内全相等时 hi - lo = 0, 防除零。
+    # scale 存成 fp16, 1e-8 在 fp16 里会舍成 0; 1e-4 高于 fp16 的最小正规数 (约 6.1e-5)。
     scale = np.maximum((hi - lo.astype(np.float32)) / (2 ** bits - 1), 1e-4).astype(np.float16)
     # 用存下来的 fp16 scale/lo 算 q, 这样 dequantize 与这里严格互逆
     q = np.round((x - lo.astype(np.float32)) / scale.astype(np.float32))
+    # clip: lo 存成 fp16 后可能略大于真实最小值, q 会出现 -1 这样的越界值
     return QTensor(np.clip(q, 0, 2 ** bits - 1).astype(np.uint8), scale, lo, bits)

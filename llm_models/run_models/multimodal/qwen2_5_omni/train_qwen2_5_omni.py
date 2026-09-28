@@ -16,9 +16,11 @@ from llm_models.training import Trainer, TrainingConfig, OmniLoss, OmniDataGener
 
 
 class SameCodecInput(OmniDataGenerator):
+    """每条样本的 codec 输入都换成第 0 条的, 标签不动: Talker 只看自己的输入就分不清这几条样本。"""
+
     def _sample(self):
         batch = super()._sample()
-        batch["audio_input_ids"] = batch["audio_input_ids"][:1].repeat(self.batch_size, 1)
+        batch["audio_input_ids"] = batch["audio_input_ids"][:1].repeat(self.batch_size, 1)   # [1, T_A] → [B, T_A]
         return batch
 
 
@@ -44,9 +46,12 @@ def main():
     print(f"text_loss {m0['text_loss']:.3f} (ln {V_TEXT} = {math.log(V_TEXT):.3f}) -> {m1['text_loss']:.3f} | "
           f"audio_loss {m0['audio_loss']:.3f} (ln {V_AUDIO} = {math.log(V_AUDIO):.3f}) -> {m1['audio_loss']:.3f} "
           f"(不读 Thinker 的下界 ln 2 = {math.log(2):.3f})")
-    assert abs(m0["text_loss"] - math.log(V_TEXT)) < 0.5 and abs(m0["audio_loss"] - math.log(V_AUDIO)) < 0.5
-    assert abs(m0["total_loss"] - (m0["text_loss"] + 0.5 * m0["audio_loss"])) < 1e-4
-    assert m1["text_loss"] < 0.5 * m0["text_loss"]
+    assert abs(m0["text_loss"] - math.log(V_TEXT)) < 0.5, "text_loss 的初值应 ≈ ln V_text"
+    assert abs(m0["audio_loss"] - math.log(V_AUDIO)) < 0.5, "audio_loss 的初值应 ≈ ln V_audio"
+    assert abs(m0["total_loss"] - (m0["text_loss"] + 0.5 * m0["audio_loss"])) < 1e-4, \
+        "total_loss 应等于 text_loss + 0.5 · audio_loss"
+    assert m1["text_loss"] < 0.5 * m0["text_loss"], "text_loss 未明显下降"
+    # 两条样本二选一的下界是 ln 2; 阈值取 0.5·ln 2, 比下界再低一半才算数
     assert m1["audio_loss"] < 0.5 * math.log(2), "audio_loss 低于 ln 2 才说明 Talker 用上了 Thinker 隐状态"
 
 

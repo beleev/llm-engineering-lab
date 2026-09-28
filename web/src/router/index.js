@@ -1,8 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { extraChapters } from '@/data/topics/index.js'
-import { stageBy } from '@/data/models.js'
+import { stageBy, stages } from '@/data/models.js'
 
-// meta.stage 用于侧栏分组与面包屑；meta.title 是章节名。
+// meta.stage 用于侧栏分组与面包屑; meta.title 是章节名, 显示在面包屑和标签页标题里。
+// 章节名以侧栏为准: 文件末尾会用 models.js 里的 label 覆盖这里的 title, 两边不会各说各的。
 const routes = [
   {
     path: '/',
@@ -43,7 +44,7 @@ const routes = [
     meta: { title: 'Adam 与采样', stage: 'basic', chapter: '阶段 1 · llm_basic' },
   },
 
-  // ── 阶段 2 · llm_models (5 章) ────────────────────────────────────
+  // ── 阶段 2 · llm_models ───────────────────────────────────────────
   {
     path: '/models',
     name: 'models',
@@ -60,7 +61,7 @@ const routes = [
     path: '/position',
     name: 'position',
     component: () => import('@/views/Position.vue'),
-    meta: { title: '位置编码与 RoPE', stage: 'models', chapter: '阶段 2 · llm_models' },
+    meta: { title: '位置编码', stage: 'models', chapter: '阶段 2 · llm_models' },
   },
   {
     path: '/blocks',
@@ -136,7 +137,7 @@ const routes = [
     path: '/finetune',
     name: 'finetune',
     component: () => import('@/views/Finetune.vue'),
-    meta: { title: 'SFT · LoRA · DPO · GRPO · 蒸馏', stage: 'finetune', chapter: '阶段 4 · llm_finetune' },
+    meta: { title: '微调与对齐', stage: 'finetune', chapter: '阶段 4 · llm_finetune' },
   },
   {
     path: '/finetune/sft',
@@ -166,7 +167,7 @@ const routes = [
     path: '/finetune/runs',
     name: 'finetune-runs',
     component: () => import('@/views/StageTopic.vue'),
-    meta: { title: '训练脚本与落盘', stage: 'finetune', chapter: '阶段 4 · llm_finetune' },
+    meta: { title: '选型与落盘', stage: 'finetune', chapter: '阶段 4 · llm_finetune' },
   },
 
   // ── 阶段 5 · llm_infer ────────────────────────────────────────────
@@ -198,7 +199,7 @@ const routes = [
     path: '/infer/compute',
     name: 'infer-compute',
     component: () => import('@/views/StageTopic.vue'),
-    meta: { title: '算子与压缩', stage: 'infer', chapter: '阶段 5 · llm_infer' },
+    meta: { title: '算子与调度开销', stage: 'infer', chapter: '阶段 5 · llm_infer' },
   },
   {
     path: '/infer/engine',
@@ -236,7 +237,7 @@ const routes = [
     path: '/agent/extensibility',
     name: 'agent-extensibility',
     component: () => import('@/views/StageTopic.vue'),
-    meta: { title: 'Hooks / Skills / MCP', stage: 'agent', chapter: '阶段 6 · llm_agent' },
+    meta: { title: 'Hooks / Skills', stage: 'agent', chapter: '阶段 6 · llm_agent' },
   },
   {
     path: '/agent/state-subagents',
@@ -272,6 +273,14 @@ const routes = [
   },
 ]
 
+// 兜底: 地址写错、或章节换过路由名时落到这里, 不留一块空白
+const notFound = {
+  path: '/:pathMatch(.*)*',
+  name: 'not-found',
+  component: () => import('@/views/NotFound.vue'),
+  meta: { title: '没有这一页' },
+}
+
 // data/topics/*.js 里声明的扩展章节 -> 自动生成路由: 'train-muon' => /train/muon
 for (const [stage, chapters] of Object.entries(extraChapters)) {
   for (const c of chapters) {
@@ -286,10 +295,20 @@ for (const [stage, chapters] of Object.entries(extraChapters)) {
   }
 }
 
+// 章节名只认侧栏那一份: 章节用 chapters[].label, 阶段总览页用阶段名
+for (const s of stages) {
+  const titles = [[s.route, s.title], ...(s.chapters || []).map((c) => [c.route, c.label])]
+  for (const [name, title] of titles) {
+    const r = routes.find((x) => x.name === name)
+    if (r) r.meta.title = title
+  }
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
-  routes,
-  scrollBehavior: () => ({ top: 0 }),
+  routes: [...routes, notFound],
+  // 浏览器后退 / 前进时回到离开时的位置 (从术语表返回, 还在刚才读的那一段); 点链接进新页面才回顶部
+  scrollBehavior: (to, from, saved) => saved || { top: 0 },
 })
 
 // 标签页标题跟着章节走, 开了一排标签页也分得清

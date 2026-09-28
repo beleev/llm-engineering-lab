@@ -4,6 +4,8 @@
 关键设计: harness 对模型的全部依赖就是 LLM 协议的 next(); 工具 / 权限 / hook / 持久化一行不用改。
 [1] 离线: 用 toy LLM 跑出一段 transcript, 转成 Messages API 请求体, 检查它满足 API 的结构约束。
 [2] 在线: 真实模型 + 同一个 calculator 工具 + 同一个权限门。
+    装了 SDK 且环境里有 ANTHROPIC_API_KEY 时, 这一步会发真实请求并计费。
+    tests/test_smoke.py 会扫到本 demo, 所以 CI 里不要设这个变量。
 
     pip install anthropic && export ANTHROPIC_API_KEY=... && python -m llm_agent.m15_claude_api.demo
 """
@@ -27,16 +29,23 @@ def main() -> None:
     hooks.register("post_tool_use", lambda result: f"[audit] {result.name}")
     agent = Agent(RuleBasedLLM(), ToolRegistry([CalculatorTool()]), PermissionGate("auto"), hooks=hooks, name="offline")
     agent.run("计算 17 * 23", verbose=False)
+    # _assemble_context 给出的就是"下一次要发给模型的上下文", 拿它去转换
     system, api_messages = to_api_messages(agent._assemble_context(""))
     for item in api_messages:
         print(f"    {item['role']:<9} {json.dumps(item['content'], ensure_ascii=False)[:120]}")
     kv("system", " | ".join(system.split("\n\n")))
     roles = [m["role"] for m in api_messages]
-    assert roles == ["user", "assistant", "user", "assistant"], roles  # 严格交替, 以 user 开头
-    assert "Answer in Chinese." in system  # 开头的 system 消息进了顶层 system
-    assert api_messages[2]["content"][0]["type"] == "tool_result"  # tool_result 在最前, hook 注释排在它后面
-    assert "<system-reminder>" in api_messages[2]["content"][1]["text"]
-    assert api_messages[1]["content"][0]["id"] == api_messages[2]["content"][0]["tool_use_id"]
+    assert roles == ["user", "assistant", "user", "assistant"], f"角色应严格交替并以 user 开头, 实际: {roles}"
+    # 开头的 system 消息进了顶层 system
+    assert "Answer in Chinese." in system, "session_start 注入的 system 消息应并进顶层 system 参数"
+    # tool_result 在最前, hook 注释排在它后面
+    assert api_messages[2]["content"][0]["type"] == "tool_result", "tool_result 应排在该 user 消息的最前面"
+    assert "<system-reminder>" in api_messages[2]["content"][1]["text"], (
+        "对话中途的 system 消息应转成 user 侧的 <system-reminder> 文本, 排在 tool_result 之后"
+    )
+    assert api_messages[1]["content"][0]["id"] == api_messages[2]["content"][0]["tool_use_id"], (
+        "转换后 tool_use 和 tool_result 的 id 应仍然对得上"
+    )
 
     print("\n[2] 在线: 真实模型")
     try:
@@ -46,8 +55,8 @@ def main() -> None:
         return
     live = Agent(llm, ToolRegistry([CalculatorTool()]), PermissionGate("auto"), max_turns=4, name="claude")
     final = live.run("请用 calculator 工具计算 (17 * 23) + 5, 然后只回答数字。")
-    assert validate_transcript(live.messages) == []
-    assert "396" in final, final
+    assert validate_transcript(live.messages) == [], "真实模型跑出的 transcript 配对也应合法"
+    assert "396" in final, f"(17 * 23) + 5 应等于 396, 实际回答: {final}"
     print("\n  OK: 换模型 = 换一个实现了 next() 的对象。")
 
 

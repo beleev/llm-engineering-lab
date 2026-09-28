@@ -18,8 +18,8 @@
         '说清多模态为什么要把位置按三个轴拆开',
       ]"
       :codes="[{ path: 'llm_models/layers/core/position_encoding.py' }]"
-      :prereq="{ name: 'attention', label: '注意力的四代演进' }"
-      :next-step="{ name: 'blocks', label: 'Block 组装器 — 把零件拼成完整模型' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <EvolutionChain
@@ -28,9 +28,10 @@
     />
 
     <!-- variant 切换 -->
-    <div class="btn-group" style="margin-bottom: 20px;">
-      <button v-for="v in variants" :key="v.id"
+    <div class="btn-group" style="margin-bottom: 20px;" role="group" aria-label="选择位置编码方案">
+      <button v-for="v in variants" :key="v.id" type="button"
               :class="{ active: variant === v.id }"
+              :aria-pressed="variant === v.id"
               @click="variant = v.id">{{ v.label }}</button>
     </div>
 
@@ -43,12 +44,12 @@
             每个位置算一个固定向量, 直接加到 token embedding 上。不同维度用不同频率, 合起来就是这个位置的 "指纹"。
           </p>
           <p class="desc" style="margin: 6px 0 12px;">它编的是绝对位置, 训练长度之外推不出去。</p>
-          <pre class="code" v-html="highlight(sinCode)"></pre>
+          <CodeBlock :code="sinCode" />
         </div>
         <div class="card">
           <h3>频率谱 <span class="tag">d_model=64</span></h3>
           <p class="desc" style="margin-bottom: 8px;">一条线是一个维度, 横轴是位置。低维波长短、抖得快, 高维波长长、几乎是条斜线。</p>
-          <svg viewBox="0 0 480 320" width="100%" height="320">
+          <svg viewBox="0 0 480 320" width="100%" height="320" role="img" aria-label="Sinusoidal 位置编码的 16 个维度随位置变化的曲线">
             <path v-for="(line, idx) in sinLines" :key="idx"
                   :d="line" fill="none"
                   :stroke="sinColor(idx)" stroke-width="1" stroke-opacity="0.7" />
@@ -69,12 +70,13 @@
           <p class="desc" style="margin: 6px 0 16px;">下面 4 个点是 4 个维度对, 频率不同, 转速就不同。拖滑条看它们分开。</p>
 
           <div class="form-row">
-            <label>位置 m</label>
-            <input type="range" min="0" max="64" step="1" v-model.number="m" />
+            <label for="position-rope-m">位置 m</label>
+            <input id="position-rope-m" type="range" min="0" max="64" step="1" v-model.number="m" />
             <span class="val">{{ m }}</span>
           </div>
 
-          <svg viewBox="-160 -160 320 320" width="100%" height="320" style="max-width: 360px; margin: 10px auto; display: block;">
+          <svg viewBox="-160 -160 320 320" width="100%" height="320" style="max-width: 360px; margin: 10px auto; display: block;"
+               role="img" :aria-label="`位置 m = ${m} 时, 4 个维度对在复平面上各自转过的角度`">
             <!-- 网格 -->
             <circle cx="0" cy="0" r="100" fill="none" stroke="var(--border)" stroke-dasharray="2 4" />
             <line x1="-140" y1="0" x2="140" y2="0" stroke="var(--border)" />
@@ -116,17 +118,17 @@
           <p class="desc" style="margin-top: 6px;">下面两根滑条随便拖: 只要 <Tex text="$|m-n|$" /> 不变, 相似度就不动。</p>
 
           <div class="form-row" style="margin-top: 16px;">
-            <label>Q 位置 m</label>
-            <input type="range" min="0" max="32" step="1" v-model.number="qPos" />
+            <label for="position-q-pos">Q 位置 m</label>
+            <input id="position-q-pos" type="range" min="0" max="32" step="1" v-model.number="qPos" />
             <span class="val">{{ qPos }}</span>
           </div>
           <div class="form-row">
-            <label>K 位置 n</label>
-            <input type="range" min="0" max="32" step="1" v-model.number="kPos" />
+            <label for="position-k-pos">K 位置 n</label>
+            <input id="position-k-pos" type="range" min="0" max="32" step="1" v-model.number="kPos" />
             <span class="val">{{ kPos }}</span>
           </div>
 
-          <div class="stat" style="margin-top: 10px;">
+          <div class="stat" style="margin-top: 10px;" aria-live="polite" aria-atomic="true">
             <div class="k">模拟相似度 (低维对)</div>
             <div class="v accent">{{ cosSim.toFixed(3) }}</div>
             <div class="hint">相对距离 <Tex text="$|m-n|$" /> = {{ Math.abs(qPos - kPos) }}; 与绝对位置 <Tex text="$m, n$" /> 无关</div>
@@ -219,8 +221,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'attention', label: '注意力的四代演进', hint: 'KV cache 的瓶颈与解法' }"
-      :next="{ name: 'blocks', label: 'Block 组装器', hint: '把 attention + ffn + norm + pos 拼起来, 数模型差异' }"
+      :prev="{ ...prevChapter, hint: 'KV cache 的瓶颈与解法' }"
+      :next="{ ...nextChapter, hint: '把 attention + ffn + norm + pos 拼起来, 数模型差异' }"
     />
   </div>
 </template>
@@ -235,6 +237,13 @@ import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
+import { learningPath } from '@/data/models.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'position')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
 const variants = [
   { id: 'sin',   label: 'Sinusoidal (2017)' },
@@ -244,16 +253,16 @@ const variants = [
 const variant = ref('rope')
 
 const evoSteps = [
-  { name: 'Sinusoidal', year: 2017, color: '#9ca3af',
+  { name: 'Sinusoidal', year: 2017, color: 'var(--text-muted)',
     pain: '(原点) 不给位置 = 一袋 token, 打乱顺序结果不变',
     fix: '按不同频率算一组正余弦, 加到 embedding 上, 编的是绝对位置' },
-  { name: 'Learnable', year: 2018, color: '#60a5fa',
+  { name: 'Learnable', year: 2018, color: 'var(--accent)',
     pain: 'Sin 是写死的公式, 不一定贴合数据',
     fix: '每个位置配一个可学向量 (BERT / ViT), 但训练长度之外的位置从没被训过' },
-  { name: 'RoPE', year: 2021, color: '#34d399',
+  { name: 'RoPE', year: 2021, color: 'var(--left)',
     pain: '加在 embedding 上, V 也跟着带了位置, 而 attention 只需要 Q 和 K 带',
     fix: '把 Q/K 的相邻两维当复数, 在位置 $m$ 处旋转 $e^{im\\theta}$: 内积自动只剩 $(m-n)$, 零参数, 能往外推' },
-  { name: 'M-RoPE', year: 2024, color: '#f5a623',
+  { name: 'M-RoPE', year: 2024, color: 'var(--eye)',
     pain: '视觉 patch 是二维网格, 一根一维的位置轴装不下',
     fix: 'head_dim 切成 (T, H, W) 三段各转各的; 文本三轴 id 相同, 严格退化成 1-D RoPE → 图文共用一个 decoder' },
 ]
@@ -286,7 +295,7 @@ const qPos = ref(5)
 const kPos = ref(9)
 // 4 个维度对的频率 (对数衰减)
 const freq = (i) => 0.5 * Math.pow(0.3, i) // i=0 快, i=3 慢
-const dimColor = (i) => ['#7c6bf1', '#3dd68c', '#f5a623', '#ec4899'][i]
+const dimColor = (i) => ['var(--accent)', 'var(--left)', 'var(--eye)', 'var(--right)'][i]
 
 // 模拟相似度: 假设 q = k = (1, 0) 向量, 旋转后内积 = cos(差角)
 const cosSim = computed(() => {
@@ -300,12 +309,6 @@ const sinCode = `def forward(x):
     # pe[pos, 2i+1] = cos(pos / 10000^(2i/d))
     return x + pe[:, :x.size(1)]`
 
-function highlight(s) {
-  return s
-    .replace(/#.*$/gm, m => `<span class="cm">${m}</span>`)
-    .replace(/\b(def|return|for|in|None|if|else|self)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b\d+\b/g, m => `<span class="num">${m}</span>`)
-}
 </script>
 
 <style scoped>

@@ -28,13 +28,13 @@ def gptq_quantize(W: np.ndarray, X_calib: np.ndarray, bits: int = 4, group: int 
     H += damp * np.mean(np.diag(H)) * np.eye(D_in)                        # 阻尼: 校准样本少时 H 接近奇异
     U = np.linalg.cholesky(np.linalg.inv(H)).T                            # 上三角, H⁻¹ = UᵀU
     W = W.astype(np.float64).copy()
-    Q = np.zeros_like(W)
+    Q = np.zeros_like(W)                                                  # 量化后的权重, 逐行填
     for i in range(D_in):
         if i % group == 0:                                                # 新一组: 按当前 (已补偿的) 权重定格点
             g = quantize_affine(W[i:i + group], bits, axis=0)             # scale/lo: (1, D_out)
             scale, lo = g.scale.astype(np.float64)[0], g.lo.astype(np.float64)[0]
-        Q[i] = np.clip(np.round((W[i] - lo) / scale), 0, 2 ** bits - 1) * scale + lo
+        Q[i] = np.clip(np.round((W[i] - lo) / scale), 0, 2 ** bits - 1) * scale + lo   # 第 i 行舍入到格点
         delta = (W[i] - Q[i]) / U[i, i]                                   # (D_out,)
-        W[i + 1:] -= np.outer(U[i, i + 1:], delta)                        # 误差摊给后面所有行
-    # ponytail: 逐行 rank-1 更新 O(D_in²·D_out); 真 GPTQ 攒 128 行一批 (lazy batch) 提高访存效率, 数学相同
+        W[i + 1:] -= np.outer(U[i, i + 1:], delta)                        # (D_in-i-1, D_out) 误差摊给后面所有行
+    # 简化: 逐行 rank-1 更新 O(D_in²·D_out); 真 GPTQ 攒 128 行一批 (lazy batch) 提高访存效率, 数学相同
     return Q.astype(np.float32)

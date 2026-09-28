@@ -15,8 +15,9 @@ from typing import Callable, Dict, List, Optional, Sequence
 
 @dataclass
 class BlockManager:
-    num_blocks: int
-    block_size: int = 16
+    """定长 block 的分配器。只记哪个 block 归谁、被引用几次, 张量在 paged_attention.py。"""
+    num_blocks: int                                      # pool 里一共多少个物理 block
+    block_size: int = 16                                 # 每个 block 装多少个 token 的 KV
 
     ref_count: List[int] = field(init=False)             # 0 = 空闲 (可能仍被 prefix cache 索引)
     block_tables: Dict[int, List[int]] = field(init=False)  # seq_id → 物理 block id 列表
@@ -31,7 +32,8 @@ class BlockManager:
     # ---- 查询 ---- #
 
     def blocks_needed(self, n_tokens: int) -> int:
-        return -(-n_tokens // self.block_size)           # ceil
+        """装下 n_tokens 个 token 要几个 block。"""
+        return -(-n_tokens // self.block_size)           # ceil: // 向下取整, 取负两次变成向上取整
 
     def can_allocate(self, n_tokens: int, shared: Sequence[int] = ()) -> bool:
         """n_tokens 的序列放得下吗? shared 是前缀命中的 block: 不用新分配,
@@ -40,6 +42,7 @@ class BlockManager:
         return len(self.free_list) >= self.blocks_needed(n_tokens) - len(shared) + revive
 
     def can_append(self, seq_id: int, n_tokens: int) -> bool:
+        """已有页表的序列长到 n_tokens 个 token, 空闲 block 够不够补差额。"""
         need = self.blocks_needed(n_tokens) - len(self.block_tables[seq_id])
         return len(self.free_list) >= need
 
@@ -55,6 +58,7 @@ class BlockManager:
     # ---- 分配 / 增长 / 释放 ---- #
 
     def _pop_free(self) -> int:
+        """从 free_list 队首取一个 block 来写新内容。"""
         blk = self.free_list.popleft()
         if self.on_evict is not None:
             self.on_evict(blk)                           # 内容即将被覆盖 → 先让 prefix cache 忘掉它
@@ -64,15 +68,15 @@ class BlockManager:
     def share_block(self, blk: int) -> None:
         """引用 +1。ref=0 说明它是"已释放但还没被覆盖"的缓存 block → 从 free_list 捞回来。"""
         if self.ref_count[blk] == 0:
-            self.free_list.remove(blk)   # ponytail: deque.remove 是 O(n); vLLM 用双向链表做 O(1)
+            self.free_list.remove(blk)   # 简化: deque.remove 是 O(n); vLLM 用双向链表做 O(1)
         self.ref_count[blk] += 1
 
     def allocate(self, seq_id: int, n_tokens: int, shared: Sequence[int] = ()) -> List[int]:
         """为新序列建页表: 前 len(shared) 页复用已有 block, 其余新分配。"""
-        assert seq_id not in self.block_tables, f"seq {seq_id} already allocated"
+        assert seq_id not in self.block_tables, f"seq {seq_id} 已有页表, 不能重复 allocate"
         if not self.can_allocate(n_tokens, shared):
-            raise MemoryError(f"need {self.blocks_needed(n_tokens) - len(shared)} new blocks, "
-                              f"only {len(self.free_list)} free")
+            raise MemoryError(f"需要 {self.blocks_needed(n_tokens) - len(shared)} 个新 block, "
+                              f"只剩 {len(self.free_list)} 个空闲")
         for blk in shared:               # 先 share 再 pop: 否则可能把自己要复用的 block 淘汰掉
             self.share_block(blk)
         n_new = self.blocks_needed(n_tokens) - len(shared)
@@ -83,7 +87,7 @@ class BlockManager:
     def ensure_capacity(self, seq_id: int, n_tokens: int) -> List[int]:
         """让页表装得下 n_tokens 个 token, 返回新分配的 block (通常 0 或 1 个)。"""
         if not self.can_append(seq_id, n_tokens):
-            raise MemoryError("no free block to append")
+            raise MemoryError("没有空闲 block 可追加")
         table = self.block_tables[seq_id]
         new = [self._pop_free() for _ in range(self.blocks_needed(n_tokens) - len(table))]
         table.extend(new)

@@ -77,8 +77,8 @@ const frames = computed(() => {
   const send = (id, text, taskId) => j({ jsonrpc: '2.0', id, method: 'message/send', params: { message: { role: 'user', parts: [{ kind: 'text', text }], ...(taskId ? { taskId } : {}) } } })
   const P1 = ['submitted', 'working', 'input-required']
   return [
-    { path: [], note: '发现: GET /.well-known/agent-card.json, 按 skill tag "报销" 挑中 expense-agent。相当于 MCP 的 tools/list, 但列的是技能, 不是函数签名。', wire: j({ name: 'expense-agent', url: 'a2a://expense', skills: [{ id: 'file_expense', tags: ['expense', 'reimbursement', '报销'] }] }) },
-    { path: P1, note: '第一条 message/send 没带 taskId: 新建 task-1。对方发现没有日期, 停在 input-required 反问。这是正常中间态, 不是错误。', wire: `→ ${send(2, ask)}\n← ${j({ id: 2, result: { id: 'task-1', status: { state: 'input-required', message: { parts: [{ text: '请提供出差日期 (YYYY-MM-DD)。' }] } }, artifacts: [] } })}` },
+    { path: [], note: '发现: GET /.well-known/agent-card.json, 按 skill tag "报销" 挑中 expense-agent。相当于 MCP 的 tools/list, 但列的是技能 (skill), 没有函数签名。', wire: j({ name: 'expense-agent', url: 'a2a://expense', skills: [{ id: 'file_expense', tags: ['expense', 'reimbursement', '报销'] }] }) },
+    { path: P1, note: '第一条 message/send 没带 taskId: 新建 task-1。对方发现没有日期, 停在 input-required 反问。input-required 是正常中间态, 任务还活着。', wire: `→ ${send(2, ask)}\n← ${j({ id: 2, result: { id: 'task-1', status: { state: 'input-required', message: { parts: [{ text: '请提供出差日期 (YYYY-MM-DD)。' }] } }, artifacts: [] } })}` },
     { path: [...P1, 'working', end], note: ok ? `助理查日程答 2026-09-15, 带同一个 taskId 续上。对方内部用 calculator 算出 ${total.value}, 线上看不到这次调用; 交回 artifact。` : `合计 ${total.value} 超过上限 ${LIMIT}: failed 也是正常结局, 没有 artifact。`, wire: `→ ${send(4, '出差日期 2026-09-15', 'task-1')}\n← ${j({ id: 4, result: { id: 'task-1', status: { state: end, message: { parts: [{ text: endMsg }] } }, artifacts: ok ? [{ parts: [{ kind: 'data', data: { claim_id: 'EXP-task-1', date: '2026-09-15', total: total.value } }] }] : [] } })}` },
   ]
 })

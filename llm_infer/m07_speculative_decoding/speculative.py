@@ -8,7 +8,8 @@ m07 speculative.py — 投机解码: draft 猜 K 个, target 一次 forward 验 
 读代码盯住: speculative_decode 里的 kv (target KV 只覆盖 out[:-1], 拒绝后 truncate_kv
       回滚, 从不重新 prefill) 和 n (本轮接受数)。
 对应真实系统: vLLM spec_decode 的 rejection sampler / SGLang speculative;
-      m17 (EAGLE drafter) 与 m19 (树形验证) 复用本文件的接受规则与循环。
+      m17 的 EAGLE drafter 接进本文件的主循环和接受规则 (eagle.py 还复用了 pick);
+      m19 的树形验证自带 accept_tree 和主循环, 只有它的 demo 拿本文件的链式版本做对照。
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ def make_draft(target: TinyLM, n_layer: Optional[int] = None, noise: float = 0.0
     rs = np.random.RandomState(seed)
 
     def perturb(w: np.ndarray) -> np.ndarray:
+        """给一个权重矩阵加噪; 噪声大小按该矩阵自己的标准差缩放。"""
         if noise == 0.0 or w.ndim == 1:                   # norm 的 gamma 不动
             return w
         return (w + noise * w.std() * rs.randn(*w.shape)).astype(np.float32)
@@ -42,7 +44,11 @@ def make_draft(target: TinyLM, n_layer: Optional[int] = None, noise: float = 0.0
 
 
 def sample(p: np.ndarray, rng: np.random.Generator) -> int:
-    """从离散分布 p (V,) 采一个 id (逆 CDF)。"""
+    """从离散分布 p (V,) 采一个 id (逆 CDF)。
+
+    min(..., len(p)-1): cumsum 有舍入误差, 末项可能略小于 1; 随机数落在它上面时
+    searchsorted 会返回 len(p), 钳回最后一个下标。
+    """
     return int(min(np.searchsorted(np.cumsum(p), rng.random(), side="right"), len(p) - 1))
 
 
@@ -50,7 +56,7 @@ def pick(logits: np.ndarray, temperature: float, rng) -> Tuple[int, Optional[np.
     """temperature=0 → (argmax, None); 否则 → (采样 id, 完整分布 p (V,))。"""
     if temperature == 0:
         return int(np.argmax(logits)), None
-    p = softmax(logits.astype(np.float64) / temperature)
+    p = softmax(logits.astype(np.float64) / temperature)   # fp64: 接受规则要算 p_t / p_d, 小概率不能被 fp32 舍掉
     return sample(p, rng), p
 
 
@@ -60,7 +66,11 @@ def pick(logits: np.ndarray, temperature: float, rng) -> Tuple[int, Optional[np.
 # --------------------------------------------------------------------- #
 
 def accept_greedy(d_tokens: List[int], t_logits: np.ndarray) -> Tuple[int, int]:
-    """t_logits (K+1, V): 第 i 行 = target 看完 [ctx, d_0..d_{i-1}] 后对槽位 i 的预测。"""
+    """t_logits (K+1, V): 第 i 行 = target 看完 [ctx, d_0..d_{i-1}] 后对槽位 i 的预测。
+
+    从头数 draft 与 target 的 argmax 连续相同的个数 n。
+    n < K 时 t_pred[n] 是纠错 token; n == K 时它是第 K+1 行的预测, 即白送的 bonus。
+    """
     t_pred = t_logits.argmax(-1)                          # (K+1,)
     n = 0
     while n < len(d_tokens) and d_tokens[n] == t_pred[n]:
@@ -79,7 +89,7 @@ def accept_sampling(d_tokens: List[int], d_probs: np.ndarray, t_probs: np.ndarra
         if rng.random() < t_probs[i, tok] / d_probs[i, tok]:     # tok 采自 p_d, 分母 > 0
             continue
         residual = np.maximum(t_probs[i] - d_probs[i], 0.0)      # (V,)
-        z = residual.sum()
+        z = residual.sum()                                       # z = 0 只在 p_t == p_d 时出现, 此时退回 p_t
         return i, sample(residual / z if z > 0 else t_probs[i], rng)
     return len(d_tokens), sample(t_probs[-1], rng)                # 全接受: bonus 直接采自 target
 
@@ -95,6 +105,10 @@ class ModelDrafter:
         self.lm, self.kv, self.fed, self.calls = lm, None, [], 0
 
     def propose(self, out: List[int], K: int, temperature: float, rng, hidden=None):
+        """接在 out 后面连猜 K 个 token → (tokens 长度 K, probs (K, V))。
+
+        greedy 时 probs 为 None。hidden 是给 EAGLE 式 drafter 的, 这里不用。
+        """
         n = 0                                             # 公共前缀长度 = 仍然有效的 draft KV
         while n < min(len(self.fed), len(out) - 1) and self.fed[n] == out[n]:
             n += 1
@@ -113,7 +127,7 @@ class ModelDrafter:
 
 
 # --------------------------------------------------------------------- #
-# 主循环 (chain 形 draft)。target_calls 如实计数: 1 次 prefill + 每轮 1 次 #
+# 主循环 (chain 形 draft)。target_calls = 1 次 prefill + 每轮 1 次验证    #
 # --------------------------------------------------------------------- #
 
 def speculative_decode(target: TinyLM, drafter, prompt, max_new: int, K: int = 4,
@@ -126,8 +140,8 @@ def speculative_decode(target: TinyLM, drafter, prompt, max_new: int, K: int = 4
     """
     logits, kv, hid = target.forward(prompt, return_hidden=True)      # prefill, (T, V)
     target_calls = 1
-    out = list(map(int, prompt)) + [pick(logits[-1], temperature, rng)[0]]
-    hidden = hid[-1]
+    out = list(map(int, prompt)) + [pick(logits[-1], temperature, rng)[0]]   # 第 1 个新 token 来自 prefill
+    hidden = hid[-1]                                      # (D,)
     accepts: List[int] = []
 
     while len(out) - len(prompt) < max_new:
@@ -145,9 +159,10 @@ def speculative_decode(target: TinyLM, drafter, prompt, max_new: int, K: int = 4
             t_probs = softmax(logits.astype(np.float64) / temperature)                  # (K+1, V)
             n, nxt = accept(d_tokens, d_probs, t_probs, rng)
 
-        out += d_tokens[:n] + [nxt]
+        out += d_tokens[:n] + [nxt]                       # 本轮产出 n + 1 个 token
         kv = truncate_kv(kv, n_ctx + 1 + n)               # 回滚: 丢掉被拒 draft 的 KV, 不重新 prefill
-        hidden = hid[n]
+        hidden = hid[n]                                   # 第 n 行 = 产出 nxt 的那个位置
         accepts.append(n)
 
+    # 最后一轮可能产出超过 max_new, 截掉多的
     return out[: len(prompt) + max_new], target_calls, accepts

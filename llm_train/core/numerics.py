@@ -23,12 +23,13 @@ FLOAT_FORMATS = {
 def fake_quant_float(x: np.ndarray, fmt: str) -> np.ndarray:
     """逐元素舍入到 fmt 的网格 (round-to-nearest-even, 上界饱和, subnormal, 下溢为 0)。"""
     m_bits, max_val, e_min = FLOAT_FORMATS[fmt]
-    x = np.clip(np.asarray(x, dtype=np.float64), -max_val, max_val)
+    x = np.clip(np.asarray(x, dtype=np.float64), -max_val, max_val)   # 超出最大值就饱和
     mant, exp = np.frexp(x)                          # x = mant · 2^exp, mant ∈ [0.5, 1)
     grid = 2.0 ** (m_bits + 1)                       # 含隐含位共 m_bits+1 个有效二进制位
-    q_normal = np.ldexp(np.round(mant * grid) / grid, exp)
+    q_normal = np.ldexp(np.round(mant * grid) / grid, exp)   # 尾数舍入到网格, 再乘回 2^exp
     quantum = 2.0 ** (e_min - m_bits)                # subnormal 区固定步长
     q_sub = np.round(x / quantum) * quantum
+    # 按大小选一套网格: 不小于 2^e_min 用 normal (相对精度), 更小用 subnormal (固定步长)
     return np.where(np.abs(x) >= 2.0 ** e_min, q_normal, q_sub)
 
 
@@ -39,10 +40,10 @@ def quant_blockwise(x: np.ndarray, fmt: str, block: int) -> np.ndarray:
     (真实系统存 FP32 或 E8M0, 见 m15)。
     """
     max_val = FLOAT_FORMATS[fmt][1]
-    flat = np.asarray(x, dtype=np.float64).reshape(-1)
-    pad = (-flat.size) % block
+    flat = np.asarray(x, dtype=np.float64).reshape(-1)               # [x.size]
+    pad = (-flat.size) % block                                       # 末尾补几个 0 才能整除 block
     blocks = np.pad(flat, (0, pad)).reshape(-1, block)               # [n_blocks, block]
     scale = np.abs(blocks).max(axis=1, keepdims=True) / max_val      # [n_blocks, 1]
-    scale[scale == 0] = 1.0
-    deq = fake_quant_float(blocks / scale, fmt) * scale
-    return deq.reshape(-1)[: flat.size].reshape(np.shape(x))
+    scale[scale == 0] = 1.0                                          # 整块全 0 时 amax=0, 防除零
+    deq = fake_quant_float(blocks / scale, fmt) * scale              # [n_blocks, block]
+    return deq.reshape(-1)[: flat.size].reshape(np.shape(x))         # 去掉补的 0 → x 的形状

@@ -58,8 +58,7 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>状态大小 (恒定)</span><b class="good">16</b></div>
-      <div class="kv"><span>KV cache 大小 (随 t 增长)</span><b :class="(t + 1) * 8 > 16 ? 'bad' : ''">{{ (t + 1) * 8 }}</b></div>
+      <div class="kv"><span>KV cache 大小 (状态 S 恒为 16)</span><b :class="(t + 1) * 8 > 16 ? 'bad' : ''">{{ (t + 1) * 8 }}</b></div>
       <div class="kv"><span>查询 t{{ qSafe }} 的读回误差</span><b :class="now.errs[qSafe] < 0.15 ? 'good' : 'bad'">{{ (now.errs[qSafe] * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>所有旧 token 平均误差</span><b>{{ (mean(now.errs) * 100).toFixed(0) }}%</b></div>
       <p class="lab-note mono">应读回 {{ vec(now.target[qSafe]) }}<br>实际读回 {{ vec(now.read[qSafe]) }}</p>

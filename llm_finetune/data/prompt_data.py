@@ -14,6 +14,11 @@ from llm_finetune.data.tasks import SeqTask
 
 
 class PromptDataGenerator(SyntheticDataGenerator):
+    """
+    每步产出 {"prompts": [B, P]}。没有 "labels" 键: 回复和分数都在训练步里现场产生。
+    fixed 是基类的缓存开关: True = 第一个 batch 缓存下来反复用; False = 每步重新采样。
+    """
+
     def __init__(self, task: SeqTask, batch_size: int = 16, split: str = "train",
                  fixed: bool = False) -> None:
         self.task, self.batch_size, self.split, self.fixed = task, batch_size, split, fixed

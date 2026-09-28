@@ -1,6 +1,6 @@
 # M15 — 接真实模型 (opt-in)
 
-同一个 agent loop, 把 `RuleBasedLLM` 换成调用 Claude Messages API 的 `ClaudeLLM`; 本模块不在 `run_all` 里, 默认 demo 从不导入它。
+同一个 agent loop, 把 `RuleBasedLLM` 换成调用 Claude Messages API 的 `ClaudeLLM`。本模块不在 `run_all` 里; 默认 demo 不会实例化 `ClaudeLLM`, 不发网络请求 (m19 只借用了同文件里的纯函数 `to_api_messages`)。
 
 ## 直觉
 
@@ -16,7 +16,9 @@
 
 - `core/llm.py` — `LLM` 协议: `next(messages, tools) -> ModelAction`, 无状态, 状态全在 messages 里。
 - `core/claude_llm.py` — `to_api_messages(messages) -> (system, api_messages)`: 纯函数, 不需要 SDK, 可离线测试。
-- `core/claude_llm.py` — `ClaudeLLM`: 构造时延迟 `import anthropic`, 缺 SDK 或缺 `ANTHROPIC_API_KEY` 抛 `RuntimeError`; 模型默认 `claude-opus-5`, 环境变量 `LLM_AGENT_MODEL` 可覆盖 (如 `claude-sonnet-5`、`claude-haiku-4-5`)。
+- `core/claude_llm.py` — `ClaudeLLM`:
+  - 构造时延迟 `import anthropic`, 缺 SDK 或缺 `ANTHROPIC_API_KEY` 抛 `RuntimeError`。
+  - 模型默认 `claude-opus-5`, 环境变量 `LLM_AGENT_MODEL` 可覆盖 (如 `claude-sonnet-5`、`claude-haiku-4-5`)。
 - `core/schema.py` — `ModelAction.raw_content`: API 返回的原始 content blocks; `ToolCall.id`: 真实模型自带 id, 为空时才由 agent 分配 `toolu_NNNN`。
 
 ```
@@ -37,7 +39,7 @@ ClaudeLLM.next(messages, tools)
 Agent.run 把 action.raw_content 原样 append 进 transcript (含 thinking block)
 ```
 
-设计取舍:
+关键设计:
 
 - 转换写成纯函数: 适配器里最容易错的是格式, 而格式可以不联网就断言。
 - 中途的 system 消息降级成 user 侧 `<system-reminder>`: 这种写法任何模型都接受, 且 harness 注入与用户原话、工具数据在文本上仍可区分。
@@ -66,7 +68,7 @@ pip install anthropic && export ANTHROPIC_API_KEY=... && python3 -m llm_agent.m1
   跳过: 需要可选依赖: pip install anthropic。设置好之后重跑本 demo 即可, 其余模块不受影响。
 ```
 
-离线段的 `assert` 验证:
+断言验证的内容 (离线段):
 
 - 角色序列恰为 `user, assistant, user, assistant`: 以 user 开头、严格交替 (`hook_context` 被并进第一条 user, `post_tool_hook` 注释被并进携带 tool_result 的那条 user)。
 - `session_start` hook 注入的 "Answer in Chinese." 位于用户 prompt 之前, 因而进了顶层 `system`。
@@ -78,7 +80,7 @@ pip install anthropic && export ANTHROPIC_API_KEY=... && python3 -m llm_agent.m1
 ## 与真实系统的差距
 
 - 在线路径未经真实 API 验证 (见上方声明)。`model_dump` 出来的 block 能否原样被 API 接受需要实测; 压缩请求 (`summarize_with_llm` 传空工具列表) 会沿用上一次的 tools, 因为历史含 tool_use 时 API 要求必须声明 tools。
-- 未启用服务端 refusal fallbacks (需要 beta 端点与 `fallbacks` 参数): 这里只识别 `stop_reason == "refusal"` 并如实返回一句话。
+- 未启用服务端 refusal fallbacks (需要 beta 端点与 `fallbacks` 参数): 这里只识别 `stop_reason == "refusal"`, 返回一句 `[模型拒绝了该请求]`。
 - 没有 streaming: 非流式 + `max_tokens=16000`, 长输出要等整段返回; 更大的 `max_tokens` 需要改用流式。
 - 没有 prompt caching: 每轮全价重发整个前缀。也没有用 `response.usage` 记账, `Agent.usage` 仍是字符估算。
 - 没有自定义重试、限流退避与按错误类型分类处理 (只有 SDK 自带的默认重试); 任何 API 异常都会直接抛出中断 loop。

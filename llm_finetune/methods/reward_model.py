@@ -7,6 +7,9 @@ Reward Model — RLHF 的第二步 (InstructGPT, 2022)
            r(x, y) = value_head( h[最后一个**非 pad** token] )
 读代码时盯住: `last = attention_mask.sum(1) − 1` —— 右 pad 时 h[:, −1] 是 pad 位置的隐状态, 读它等于给 pad 打分。
 与 DPO 的关系: 同一份偏好数据、同一个 Bradley-Terry; DPO 把 r 写成 β·log π/π_ref 从而跳过这一步。
+未实现: 每个 prompt 只有一对 (chosen, rejected)。InstructGPT 让标注员给同一个 prompt 的 K 条回复排序, 一次拆出多对。
+        分数也没有做平移归一化。
+依赖 llm_models: `LLaMA.forward(idx, attention_mask, return_hidden=True)` 返回隐状态 [B, T, D]; 还要读 `backbone.d_model`。
 """
 
 from typing import Dict, Optional
@@ -23,6 +26,7 @@ class RewardModel(nn.Module):
     backbone: 任何 `forward(idx, attention_mask, return_hidden=True) → [B, T, D]` 的 LM (本库 LLaMA 满足)。
 
     取隐状态走公开接口 `return_hidden=True` (ln_f 之后、lm_head 之前的 h), 不用手抄一遍主干
+    这个参数让 forward 只返回 h, 代替 logits; 不是返回 (logits, h) 二元组。
     (mask / RoPE / cache 怎么变都不受影响)。backbone 不被改动; 但 RM 训练会更新它的权重, 还要当 policy 用就先 deepcopy。
     """
 
@@ -46,8 +50,8 @@ class BradleyTerryLoss(LossComputer):
     """model_output = PairwiseForward(RewardModel) 的输出 {"chosen": [B], "rejected": [B]}; labels 不用。"""
 
     def compute(self, model_output: Dict[str, torch.Tensor], labels=None, **kwargs) -> Dict[str, torch.Tensor]:
-        r_w, r_l = model_output["chosen"], model_output["rejected"]
-        loss = -F.logsigmoid(r_w - r_l).mean()
+        r_w, r_l = model_output["chosen"], model_output["rejected"]   # [B] ×2, w = 赢的 (chosen), l = 输的 (rejected)
+        loss = -F.logsigmoid(r_w - r_l).mean()                        # logsigmoid: 分差很大时不会算出 log(0)
         return {
             "total_loss": loss,
             "reward_margin": (r_w - r_l).detach().mean(),

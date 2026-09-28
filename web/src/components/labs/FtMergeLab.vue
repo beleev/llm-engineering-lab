@@ -7,7 +7,7 @@
   <LabFrame
     title="合并两个任务向量: 相加、TIES、DARE"
     sub="$\tau_A$ 主要改前 4 维, $\tau_B$ 主要改后 4 维, 各带一点对方那段的小噪声。点格子翻转符号, 制造冲突。
-      第三行是合并后加回基座的量 $\theta - \theta_0$。点下面表格的一行, 切到那种方法在真实实验里的设置。"
+      第三行是合并后加回基座的量 $\theta - \theta_0$。下面的表格是训练脚本的实测结果, 点一行把玩具切到同一种方法。"
     module="llm_finetune/methods/merge.py"
     run="python -m llm_finetune.run_finetune.merge.train_merge"
     :challenge="{
@@ -35,6 +35,10 @@
       </div>
     </div>
 
+    <div class="lab-note tcap">
+      <p>train_merge.py 留出集 (实测, 不随上面的玩具变化)。</p>
+      <p>表里的 λ 是各方法在验证集上挑出来的。玩具的 λ 只取 0.5 或 1: 点 TIES d=0.5 (表里 1.5) 和 DARE p=0.9 (表里 0.7) 时, 滑杆停在 1。</p>
+    </div>
     <table class="res mono">
       <thead><tr><th /><th>λ</th><th>A 段</th><th>B 段</th><th>两段全对 EM</th><th>干扰</th></tr></thead>
       <tbody>
@@ -132,6 +136,7 @@ const cellStyle = (x) => ({ background: `color-mix(in srgb, ${x >= 0 ? 'var(--le
 .vl { font-size: 12px; color: var(--text-muted); }
 .vc { min-width: 0; min-height: 0; width: 46px; height: 26px; padding: 0; font-size: 10px; color: var(--text); }
 button.vc { cursor: pointer; }
+.tcap { margin-bottom: 6px; }
 .res { border-collapse: collapse; font-size: 12px; min-width: 460px; }
 .res th { font-size: 11px; color: var(--text-dim); font-weight: 400; text-align: right; padding: 3px 6px; }
 .res td { padding: 3px 6px; text-align: right; color: var(--text-muted); border-top: 1px solid var(--border); }

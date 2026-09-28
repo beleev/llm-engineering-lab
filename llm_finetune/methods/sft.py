@@ -8,6 +8,7 @@ SFT — 全参监督微调 (InstructGPT 三阶段的第一步)
         idx    :  x1    x2    SEP   y1    y2    EOS
         labels : −100  −100   y1    y2    EOS   −100     ← SEP 这一列**必须**监督: 它预测的是第一个回复 token
 读代码时盯住: 这里没有新 loss。SFT 与预训练的差异 100% 在 labels 里 (data/tasks.py::make_labels)。
+未实现: chat template 和多轮对话。真实 SFT 按角色决定哪几段算 loss; 这里只有 "prompt / 回复" 两段。
 """
 
 from llm_models.training.loss import StandardLMLoss

@@ -19,16 +19,19 @@ from llm_infer.m02_paged_attention.block_manager import BlockManager
 
 
 def _block_hash(parent_hash: Optional[bytes], token_ids: Sequence[int]) -> bytes:
+    """H(父 hash ‖ 本 block 的 token)。第一个 block 没有父, 用固定的 b"<root>" 起头。"""
     h = hashlib.sha1(parent_hash or b"<root>")
     h.update(np.asarray(token_ids, dtype=np.int64).tobytes())   # 不能用 bytes(list): id ≥ 256 会抛错
     return h.digest()
 
 
 class PrefixCache:
+    """hash ↔ 物理 block 的双向索引。只存索引, KV 内容在 pool 里。"""
+
     def __init__(self, block_manager: BlockManager):
         self.bm = block_manager
-        self.hash_to_block: Dict[bytes, int] = {}
-        self.block_to_hash: Dict[int, bytes] = {}
+        self.hash_to_block: Dict[bytes, int] = {}    # 查命中用: 链式 hash → 物理 block
+        self.block_to_hash: Dict[int, bytes] = {}    # 淘汰用: block 被覆盖时反查要删哪个 hash
         block_manager.on_evict = self.evict          # 缓存项与 block 内容同生共死
 
     def match_prefix(self, token_ids: Sequence[int]) -> Tuple[List[int], int]:
@@ -37,7 +40,7 @@ class PrefixCache:
         bs = self.bm.block_size
         hits: List[int] = []
         parent: Optional[bytes] = None
-        for i in range((len(token_ids) - 1) // bs):
+        for i in range((len(token_ids) - 1) // bs):      # -1: 最后一个 token 永远留给模型真算
             parent = _block_hash(parent, token_ids[i * bs:(i + 1) * bs])
             blk = self.hash_to_block.get(parent)
             if blk is None:
@@ -47,7 +50,7 @@ class PrefixCache:
 
     def register(self, token_ids: Sequence[int], block_table: Sequence[int], num_computed: int) -> None:
         """把 KV 已算完的完整 block (前 num_computed // bs 个) 登记进索引。
-        ponytail: 每次从头重算 hash 链 O(T); 真实系统把每块 hash 存在 request 上增量算。"""
+        简化: 每次从头重算 hash 链 O(T); 真实系统把每块 hash 存在 request 上增量算。"""
         bs = self.bm.block_size
         parent: Optional[bytes] = None
         for i in range(num_computed // bs):
@@ -58,6 +61,7 @@ class PrefixCache:
                 self.block_to_hash[block_table[i]] = parent
 
     def evict(self, block_id: int) -> None:
+        """block 即将被覆盖: 删掉它的索引。没登记过的 block 直接忽略。"""
         h = self.block_to_hash.pop(block_id, None)
         if h is not None:
             del self.hash_to_block[h]

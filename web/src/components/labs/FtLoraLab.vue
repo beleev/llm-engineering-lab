@@ -8,7 +8,8 @@
   <LabFrame
     title="LoRA — 用 B·A 拟合一个低秩的 ΔW"
     sub="左边是冻结的 $W_0$, 右边是「全参微调本来想学到的」$\Delta W^*$。
-      拖秩 $r$: $B$ ($d\times r$) 和 $A$ ($r\times d$) 的乘积, 就是秩 $r$ 下对 $\Delta W^*$ 的最优近似。悬停 $\Delta W$ 的任意一格, 看它由 $B$ 的哪一行和 $A$ 的哪一列相乘得到。"
+      拖秩 $r$: $B$ ($d\times r$) 和 $A$ ($r\times d$) 的乘积, 就是秩 $r$ 下对 $\Delta W^*$ 的最优近似。图上的 $B$、$A$ 是训练后的样子。
+      悬停或点 $\Delta W$ 的任意一格 (键盘: 聚焦 $\Delta W$ 后按方向键), 看它由 $B$ 的哪一行和 $A$ 的哪一列相乘得到。"
     module="llm_finetune/methods/lora.py"
     run="python -m llm_finetune.run_finetune.lora.train_lora"
     :challenge="{
@@ -24,7 +25,6 @@
       </div>
       <LabSlider v-model="r" label="秩 r" :min="1" :max="D" />
       <LabSlider v-model="decay" label="ΔW* 谱衰减" :min="0.3" :max="0.95" :step="0.05" :format="(v) => v.toFixed(2)" />
-      <LabSlider v-model="alpha" label="α (缩放分子)" :min="1" :max="32" />
       <LabSlider v-model="logd" label="真实层宽 d (算参数用)" :min="9" :max="13" :format="(v) => String(2 ** v)" />
     </template>
 
@@ -32,13 +32,22 @@
       <template v-for="(m, k) in shown" :key="m.name">
         <span v-if="m.op" class="op mono">{{ m.op }}</span>
         <figure class="mat">
-          <div class="cells hm" :style="{ gridTemplateColumns: `repeat(${m.data[0].length}, 12px)` }">
+          <!-- 只有 ΔW 可以选格子: 鼠标悬停、触屏点按、键盘方向键三种方式 -->
+          <div
+            class="cells hm" :style="{ gridTemplateColumns: `repeat(${m.data[0].length}, 12px)` }"
+            :tabindex="m.name === 'ΔW' ? 0 : undefined" :role="m.name === 'ΔW' ? 'group' : undefined"
+            :aria-label="m.name === 'ΔW' ? `ΔW 矩阵, 方向键选格子。${hovText}` : undefined"
+            @focus="m.name === 'ΔW' && moveHov(0, 0)"
+            @keydown.up.prevent="moveHov(-1, 0)" @keydown.down.prevent="moveHov(1, 0)"
+            @keydown.left.prevent="moveHov(0, -1)" @keydown.right.prevent="moveHov(0, 1)"
+          >
             <template v-for="(row, i) in m.data" :key="i">
               <span
                 v-for="(v, j) in row" :key="j" class="px"
                 :class="{ hl: isHl(m.name, i, j) }"
                 :style="{ background: tint(v, m.max) }"
                 @mouseenter="m.name === 'ΔW' && (hov = { i, j })"
+                @click="m.name === 'ΔW' && (hov = { i, j })"
               />
             </template>
           </div>
@@ -46,6 +55,7 @@
         </figure>
       </template>
     </div>
+    <p v-if="!merged" class="lab-note" style="margin-top: 8px;">{{ hovText || '选 ΔW 的一格: 它等于 B 的那一行和 A 的那一列逐项相乘再求和, 再乘 α/r。' }}</p>
     <div class="spec">
       <span class="mono cap">ΔW* 的奇异值谱 (亮的 = 被 r 保留)</span>
       <div class="bars">
@@ -54,10 +64,9 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span><Tex text="可训参数 $2\cdot d\cdot r$" /></span><b>{{ fmtNum(2 * dReal * r) }}</b></div>
-      <div class="kv"><span><Tex text="占全量 $d^2$ 的" /></span><b class="good">{{ (200 * r / dReal).toFixed(2) }}%</b></div>
+      <div class="kv"><span><Tex text="可训参数 $2\cdot d\cdot r$ (占 $d^2$ 的)" /></span><b>{{ fmtNum(2 * dReal * r) }} ({{ (200 * r / dReal).toFixed(2) }}%)</b></div>
       <div class="kv"><span>重构相对误差</span><b :class="err < 0.1 ? 'good' : err > 0.3 ? 'bad' : ''">{{ (err * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span><Tex text="缩放 $\alpha/r$" /></span><b>{{ (alpha / r).toFixed(2) }}</b></div>
+      <div class="kv"><span><Tex text="缩放 $\alpha/r$ ($\alpha = 16$)" /></span><b>{{ (alpha / r).toFixed(2) }}</b></div>
       <div class="kv"><span>推理额外 matmul</span><b :class="merged ? 'good' : ''">{{ merged ? 0 : 2 }}</b></div>
       <p class="lab-note">
         <template v-if="merged">
@@ -77,10 +86,11 @@ import { computed, ref } from 'vue'
 import LabFrame from '@/components/lab/LabFrame.vue'
 import Tex from '@/components/Tex.vue'
 import LabSlider from '@/components/lab/LabSlider.vue'
-import { fmtNum, mulberry32, randn, range } from '@/utils/labmath.js'
+import { clamp, fmtNum, mulberry32, randn, range } from '@/utils/labmath.js'
 
 const D = 12
-const r = ref(2), decay = ref(0.55), alpha = ref(16), logd = ref(12), seed = ref(1)
+const alpha = 16          // 与 LoRALinear 的默认值相同。ΔW 固定时改 α 只会让 B 反向缩放, 图不变, 所以不做成滑杆
+const r = ref(2), decay = ref(0.55), logd = ref(12), seed = ref(1)
 const merged = ref(false)
 const hov = ref(null)
 const dReal = computed(() => 2 ** logd.value)
@@ -112,13 +122,13 @@ const target = computed(() => lowRank(D))
 const delta = computed(() => lowRank(r.value))            // ★ 秩 r 的最优近似 = 截断 SVD
 // 写成 LoRA 的参数形式: ΔW = (α/r)·B·A, 取 A = V_rᵀ, B = U_r·S_r·(r/α)
 const A = computed(() => range(r.value).map((k) => base.value.V[k]))
-const B = computed(() => range(D).map((i) => range(r.value).map((k) => base.value.U[k][i] * sv.value[k] * r.value / alpha.value)))
+const B = computed(() => range(D).map((i) => range(r.value).map((k) => base.value.U[k][i] * sv.value[k] * r.value / alpha)))
 // 闭式误差: sqrt(丢掉的 s² / 全部 s²), 与逐元素相减算出来的 Frobenius 误差一致
 const err = computed(() => Math.sqrt(sv.value.slice(r.value).reduce((s, x) => s + x * x, 0) / sv.value.reduce((s, x) => s + x * x, 0)))
 
 const Wm = computed(() => base.value.W0.map((row, i) => row.map((w, j) => w + delta.value[i][j])))
 const mergeDiff = computed(() => {
-  const x = range(D).map((i) => Math.sin(i + 1)), s = alpha.value / r.value
+  const x = range(D).map((i) => Math.sin(i + 1)), s = alpha / r.value
   const Ax = A.value.map((a) => dot(a, x))
   const y1 = base.value.W0.map((w, i) => dot(w, x) + s * dot(B.value[i], Ax))
   const y2 = Wm.value.map((w) => dot(w, x))
@@ -131,7 +141,7 @@ const mk = (name, data, note, op = '') => ({
 const shown = computed(() => (merged.value
   ? [mk('W′', Wm.value, '一个普通矩阵, 补丁消失'), mk('ΔW*', target.value, '想学到的更新', '　')]
   : [
-    mk('W₀', base.value.W0, '冻结, 不更新'), mk('B', B.value, '可训, 初始化为 0', '+'), mk('A', A.value, '可训, 随机初始化', '×'),
+    mk('W₀', base.value.W0, '冻结, 不更新'), mk('B', B.value, '可训 (训练后; 起点全零)', '+'), mk('A', A.value, '可训 (训练后; 起点随机)', '×'),
     mk('ΔW', delta.value.map((row) => row.slice()), '(α/r)·B·A', '='), mk('ΔW*', target.value, '想学到的更新', '≈'),
   ]))
 
@@ -141,6 +151,16 @@ const isHl = (name, i, j) => {
   if (!h) return false
   return (name === 'ΔW' && i === h.i && j === h.j) || (name === 'B' && i === h.i) || (name === 'A' && j === h.j)
 }
+const moveHov = (di, dj) => {
+  const h = hov.value ?? { i: 0, j: 0 }
+  hov.value = { i: clamp(h.i + di, 0, D - 1), j: clamp(h.j + dj, 0, D - 1) }
+}
+const hovText = computed(() => {
+  const h = hov.value
+  if (!h || merged.value) return ''
+  const terms = range(r.value).map((k) => B.value[h.i][k] * A.value[k][h.j])
+  return `ΔW[${h.i}][${h.j}] = (α/r) · Σ B[${h.i}][k]·A[k][${h.j}] = ${(alpha / r.value).toFixed(2)} × ${terms.reduce((s, x) => s + x, 0).toFixed(4)} = ${delta.value[h.i][h.j].toFixed(3)}`
+})
 const tint = (v, max) => `color-mix(in srgb, var(${v >= 0 ? '--accent' : '--right'}) ${Math.round(Math.abs(v) / max * 100)}%, transparent)`
 </script>
 
@@ -150,6 +170,7 @@ const tint = (v, max) => `color-mix(in srgb, var(${v >= 0 ? '--accent' : '--righ
 .hm { gap: 1px; width: max-content; }
 .px { width: 12px; height: 12px; border-radius: 1px; outline: 1px solid color-mix(in srgb, var(--border) 60%, transparent); outline-offset: -1px; }
 .px.hl { outline: 2px solid var(--warn); outline-offset: -1px; }
+.hm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .op { font-size: 18px; color: var(--text-muted); }
 figcaption { font-size: 11px; color: var(--text); margin-top: 4px; line-height: 1.4; }
 figcaption i { color: var(--text-dim); font-style: normal; }

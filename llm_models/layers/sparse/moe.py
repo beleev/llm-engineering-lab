@@ -28,7 +28,7 @@ class MixtralMoE(nn.Module):
         num_experts:    E (Mixtral 8x7B 是 8)
         top_k:          K (Mixtral 8x7B 是 2)
 
-    不含 dropout: 残差 dropout 统一由外层 Block 做一次 (以前这里和 Block 各做一次 = 两次)。
+    不含 dropout: 残差 dropout 统一由外层 Block 做一次; 这里再做一次就成了两次。
     forward 返回 (output, routing_info):
         router_logits [N, E] (未 detach, aux loss 要回传) / selected_experts [N, K] /
         routing_weights [N, K] / routing_probs [N, E]
@@ -58,8 +58,10 @@ class MixtralMoE(nn.Module):
     def forward(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """x [B, T, D] → (output [B, T, D], routing_info)。routing_info 的键见类 docstring。"""
         B, T, D = x.shape
-        x_flat = x.view(-1, D)  # [N, D], N = B*T
+        # 路由是逐 token 的事, 和它在哪个序列、哪个位置无关, 所以先摊平
+        x_flat = x.view(-1, D)  # [B, T, D] → [N, D], N = B*T
 
         # 1) 路由打分 (Mixtral 用 softmax, 让所有专家分数总和为 1)
         router_logits = self.router(x_flat)                    # [N, E]
@@ -70,20 +72,21 @@ class MixtralMoE(nn.Module):
             routing_probs, self.top_k, dim=-1
         )  # [N, K], [N, K]
         # 归一化让 K 个权重和=1; 与 DeepSeek 不同的是这里用的已经是 softmax 值
-        # +1e-9 防万一 (top-k 全 0 概率极低但需兜底)
-        routing_weights = topk_probs / (topk_probs.sum(dim=-1, keepdim=True) + 1e-9)
+        # softmax 的 top-k 之和 ≥ K/E, 不会为 0; +1e-9 只为与 DeepSeekMoE 的 sigmoid 版本写法一致
+        routing_weights = topk_probs / (topk_probs.sum(dim=-1, keepdim=True) + 1e-9)   # [N, K]
 
         # 3) 按专家聚合: 每个专家挑出"选了我"的 token 算一次, 按权重加和
-        output = torch.zeros_like(x_flat)
+        output = torch.zeros_like(x_flat)                      # [N, D]
         for i, expert in enumerate(self.experts):
-            # token_idx: 哪些 token 选中了专家 i; nth: 它是该 token 的第几号选择
+            # token_idx: 哪些 token 选中了专家 i; nth: 它是该 token 的第几号选择。两者都是 [m]
             token_idx, nth = torch.where(selected_experts == i)
-            if token_idx.numel() == 0:
+            if token_idx.numel() == 0:                         # 没人选这个专家: 跳过, 省一次前向
                 continue
-            w = routing_weights[token_idx, nth].unsqueeze(-1)  # [m, 1]
+            w = routing_weights[token_idx, nth].unsqueeze(-1)  # [m] → [m, 1], 好和 [m, D] 相乘
+            # index_add_: 把 m 个结果加回各自 token 所在的行。一个 token 选 K 个专家, 会被加 K 次
             output.index_add_(0, token_idx, expert(x_flat[token_idx]) * w)
 
-        output = output.view(B, T, D)
+        output = output.view(B, T, D)                          # [N, D] → [B, T, D]
 
         routing_info = {
             "router_logits": router_logits,          # 未 detach, 可回传 aux loss

@@ -3,6 +3,10 @@
 脚本清单是扫目录动态发现的 —— 新增一个 mNN_xxx/demo.py 会自动被测到, 不需要维护列表。
 各 demo 自己负责在末尾 assert 它声称的结论, 这里只负责"全都真的跑过"。
 
+llm_agent/m15_claude_api/demo.py 也会被扫到 (llm_agent/run_all.py 排除了它, 这里没有)。
+没装 anthropic SDK 或没有 ANTHROPIC_API_KEY 时它只跑离线检查。
+两者都有时它会真的调用 API (联网, 计费)。CI 和本地跑测试时不要设这个变量。
+
     pytest                # 快速集: 所有 demo.py / infer_*.py
     pytest -m slow        # 训练脚本 (train_*.py), 每个几秒到几十秒
     pytest -m ""          # 全部
@@ -27,6 +31,7 @@ def _modules(pattern):
     return found
 
 
+# 用当前解释器跑一个脚本, 退出码非 0 就断言失败。超过 timeout 秒由 subprocess 抛 TimeoutExpired
 def _run(args, cwd=ROOT, timeout=300):
     proc = subprocess.run(
         [sys.executable, *args], cwd=cwd, capture_output=True, text=True, timeout=timeout

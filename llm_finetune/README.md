@@ -3,13 +3,11 @@
 `llm_models` 教会了怎么训练一个 LM; 本章回答: 怎么把它变成 **听指令 / 合偏好 / 会解题 / 更小** 的模型。
 
 ```
-llm_basic → llm_models → llm_finetune → llm_agent
-                ↓
-            llm_infer → llm_train
+llm_basic → llm_models → llm_train → llm_finetune (本章) → llm_infer → llm_agent
 ```
 
 ```bash
-python -m llm_finetune.run_all                                   # 全部 15 个脚本, CPU 约 4 分钟
+python -m llm_finetune.run_all                                   # 全部 15 个脚本, CPU 约 5 分钟
 python -m llm_finetune.run_finetune.grpo.train_grpo              # 单个, 每个 < 35 s
 pytest -m slow -k llm_finetune                                   # 同样的脚本, 走冒烟测试
 ```
@@ -53,15 +51,15 @@ pytest -m slow -k llm_finetune                                   # 同样的脚�
 | LoRA / DoRA | (x, y) | – | – | – | 1 冻结 + 适配器 (梯度 / Adam 只为适配器) | 1 | 是 |
 | QLoRA | (x, y) | – | – | – | ≈0.15 (NF4) + 适配器 | 1 | 是 |
 | Reward Model | (x, y_w, y_l) | – | 它自己就是 | – | 1 | 1 (2B 条) | 是, 经 `PairwiseForward` |
-| DPO | (x, y_w, y_l) | **需要** | – | – | **2** | **2** (2B 条) | 是, 经 `PairwiseForward` |
+| DPO | (x, y_w, y_l) | 需要 | – | – | 2 | 2 (2B 条) | 是, 经 `PairwiseForward` |
 | SimPO | (x, y_w, y_l) | – | – | – | 1 | 1 (2B 条) | 同上 |
 | ORPO | (x, y_w, y_l), 无需先 SFT | – | – | – | 1 | 1 (2B 条) | 同上 |
-| KTO | (x, y, 好/坏), 不需成对 | **需要** | – | – | **2** | **2** (B 条 + B 条错配) | 是, 经 `KTOForward` |
+| KTO | (x, y, 好/坏), 不需成对 | 需要 | – | – | 2 | 2 (B 条 + B 条错配) | 是, 经 `KTOForward` |
 | PRM / ORM | (x, 解, 逐步 / 最终标签) | – | 它自己就是 | – | 1 | 1 | 否 (4 行手写循环) |
-| PPO | 只有 x | **需要** (KL 惩罚) | **verifier 或 RM** | **需要** (1 条 / prompt) | **3** (+ critic 的梯度 / Adam) | 采样 + 3 + 2μ (policy / ref / critic) | **否** |
-| GRPO 系 | 只有 x | 仅 β>0 时 | **verifier 或 RM** | **需要** (G 条 / prompt) | 1 (β>0 时 2) | 采样 + 1 + μ | **否** |
+| PPO | 只有 x | 需要 (KL 惩罚) | verifier 或 RM | 需要 (1 条 / prompt) | 3 (+ critic 的梯度 / Adam) | 采样 + 3 + 2μ (policy / ref / critic) | 否 |
+| GRPO 系 | 只有 x | 仅 β>0 时 | verifier 或 RM | 需要 (G 条 / prompt) | 1 (β>0 时 2) | 采样 + 1 + μ | 否 |
 | 蒸馏 | (x, y) + teacher | – (teacher 冻结) | – | – | 1 + teacher | 2 | 是, 经 `TeacherStudent` |
-| On-policy 蒸馏 | 只有 x + teacher | – | – | **需要** | 1 + teacher | 采样 + 2 | **否** |
+| On-policy 蒸馏 | 只有 x + teacher | – | – | 需要 | 1 + teacher | 采样 + 2 | 否 |
 
 ## 实测 (CPU, 默认种子; 全部为留出集指标)
 
@@ -69,36 +67,49 @@ pytest -m slow -k llm_finetune                                   # 同样的脚�
 |---|---|
 | sft | reverse 任务 EM 0.000 → **1.000** (600 步); prompt mask 多盖一位的同配置模型 EM = **0.000** |
 | lora | copy→sort 适配 300 步: 全参 EM **0.809** / loss 0.119; LoRA(r=8) lr=1e-2 EM 0.352 / loss 0.384; lr=3e-3 EM 0.281。可训参数 99,648 → 19,456 |
-| dora | 同 r=8、3 seeds 平均: LoRA loss 0.369 / EM 0.382; DoRA loss **0.296** / EM **0.522** (+1,280 参数) |
-| qlora | 量化全部 14 个线性层: 整模型 389 KB → 59 KB (**6.57×**); 基座 EM 1.000 → 1.000; 适配 sort EM 0.402 |
+| dora | 同 r=8、3 个种子平均: LoRA loss 0.369 / EM 0.382; DoRA loss **0.296** / EM **0.522** (+1,280 参数) |
+| qlora | 量化全部 14 个线性层: 整模型 389 KiB → 59 KiB (**6.57×**); 基座 EM 1.000 → 1.000; 适配 sort EM 0.402 |
 | merge | 两段改写各微调一次, 单个模型 "两段全对" EM ≤ 0.027; Task Arithmetic (λ=1) **1.000**, DARE p=0.5 0.875, TIES 0.734, SLERP 0.090, 简单平均 0.039 |
 | rm | 留出集偏好准确率 0.549 → **0.930**; 右 pad 5 位的分数偏移: 取最后真 token 5e-06, 取 `[:, -1]` 4.54 |
 | prm | 4 步模 10 算术链, 同数据同步数: best-of-8 答案正确率 随机 0.473 / ORM 0.488 / PRM **0.648**; PRM 定位第一个错步 0.575 (常数猜法 0.341) |
 | dpo | 偏好准确率 0.965 → 0.996, 但 log π(chosen) −4.03 → −4.18、EM 0.332 → **0.137** (likelihood displacement) |
 | kto | 偏好对拆成单条: 准确率 0.965 → 0.992, log π(chosen) −4.03 → **−3.73**、EM 0.324 (DPO 0.121); 好:坏 = 1:9 调 λ 0.988, 不调 λ 崩到 0.492 / EM 0 |
-| simpo_orpo | DPO 2 次前向 / 778 KB / 5.4 s; SimPO、ORPO 1 次 / 389 KB / 4.0 s。EM: DPO 0.121, SimPO 0.023, ORPO **0.543**; ORPO 从零训练 EM 0.973 |
+| simpo_orpo | DPO 2 次前向 / 778 KiB / 5.4 s; SimPO、ORPO 1 次 / 389 KiB / 4.0 s。EM: DPO 0.121, SimPO 0.023, ORPO **0.543**; ORPO 从零训练 EM 0.973 |
 | rlaif | 规则 judge 造 2539 个偏好对 + DPO: 违反原则 0.648 → **0.031**; judge 漏检的变体 0.418 → 0.320 (基本不动); 照抄率 1.000 → 0.856 |
 | ppo | 每步 256 条: pass@1 0.186 → **0.381** (GRPO 0.287), 但 critic 冻结的对照 0.389 —— 赢在一题一采, 不在 critic; critic 解释方差 0.025 vs 组均值 0.365; 要训参数 ×2 |
-| grpo | 采样 pass@1 0.186 → 0.287 (GRPO) / 0.326 (DAPO) / 0.324 (Dr.GRPO) / 0.320 (GSPO); 贪心 EM 0.562 → 0.53 (基本不变)。ρ: epoch1 ≡ 1, epoch2 最大偏离 0.16~1.04 |
-| distill | 128 条固定数据: forward KL 硬标签 2.292 vs 软标签 **1.860**; 无限数据时差距消失 (0.906 vs 0.959) |
+| grpo | 采样 pass@1 0.186 → 0.287 (GRPO) / 0.326 (DAPO) / 0.324 (Dr.GRPO) / 0.320 (GSPO); 贪心 EM 0.562 → 0.53 (基本不变)。ρ: epoch1 ≡ 1, epoch2 最大偏离 0.16~1.04; β=0.5 短跑 20 步, 留出集 KL(policy‖SFT 起点) 0.0101 (β=0 时 0.0551) |
+| distill | 128 条固定数据: forward KL 硬标签 2.293 vs 软标签 **1.860**; 无限数据时差距消失 (0.906 vs 0.960) |
 | on_policy_distill | 样本合格率: off-policy 0.059 vs on-policy **0.402**; 但 on-policy 把 teacher 的少数派答案压到 log π = −33 (off-policy −17) |
+
+DPO 的 EM 在表里有两个数:
+- dpo 行的 0.137 来自 `train_dpo`。
+- kto、simpo_orpo 行里的 DPO 0.121 是这两个脚本各自重跑的对照, 配置相同。
+- 差别在随机数: `train_dpo` 接着 SFT 的随机流往下训, 另两个脚本在 DPO 前把种子重设为 1。两个数的结论一致 (EM 从 0.332 掉到 0.12–0.14)。
 
 **一个常见的误解**: "LoRA 比全参收敛更快, 这是 PEFT 的工程优势"。这种结论通常来自病态初始化 (初始 CE ≈ 250 而非 ln V)、只背几条样本、以及给 LoRA 单独调大 10× 的 lr。在初始化正常、同看留出集的条件下, **同样步数下全参更快也更好**; LoRA 买的是显存与存储, 不是收敛速度。
 
-## 关于 "复用 Trainer" 的实话
+## 哪些方法复用 Trainer
 
 `llm_models.training.Trainer` 的约定是 "取 batch → `model(**batch)` → `loss.compute(output, labels)` → 更新一次"。
 
-- **SFT / LoRA / DoRA / QLoRA**: 只换数据 (和模型里的层), loss 就是 `StandardLMLoss` (`SFTLoss` 是它的别名, 不再复制一份)。
-- **DPO / SimPO / ORPO / RM / 蒸馏**: 一步要跑多次前向。扩展点是**包一层 `nn.Module`**: [`PairwiseForward`](methods/dpo.py) (chosen + rejected [+ 冻结 ref]) 和 [`TeacherStudent`](methods/distill.py)。它们的 loss 都是普通 `LossComputer`, Trainer 一行不改 —— 不需要为它们各写一套复制粘贴的 clip / step / scheduler。
-- **GRPO / on-policy 蒸馏**: 不用 Trainer。数据由当前策略现场采样 (数据生成器得拿到模型), GRPO 还要在同一批 rollout 上更新 μ 次、并记住采样时刻的 log-prob。这与上面的约定有本质冲突, 硬塞进去只会更难读。
+- **SFT / LoRA / DoRA / QLoRA**: 只换数据 (和模型里的层), loss 就是 `StandardLMLoss` (`SFTLoss` 是它的别名, 没有另写一份)。
+- **DPO / SimPO / ORPO / KTO / RM / 蒸馏**: 一步要跑多次前向。扩展点是包一层 `nn.Module`:
+  - [`PairwiseForward`](methods/dpo.py): chosen + rejected [+ 冻结 ref]。KTO 的 `KTOForward` 继承它。
+  - [`TeacherStudent`](methods/distill.py): student + 冻结 teacher。
+  - 它们的 loss 都是普通 `LossComputer`, Trainer 一行不改, 不需要为它们各写一套复制粘贴的 clip / step / scheduler。
+- **模型合并 / RLAIF**: 训练部分照样走 Trainer。合并前的两次微调是 SFT, RLAIF 造完偏好对后用现成的 `DPOLoss`。
+- **GRPO / PPO / on-policy 蒸馏**: 不用 Trainer。
+  - 数据由当前策略现场采样, 数据生成器得拿到模型。
+  - GRPO 和 PPO 还要在同一批 rollout 上更新 μ 次, 并记住采样时刻的 log-prob。
+  - 这与 "取 batch → 更新一次" 的约定冲突, 硬塞进去只会更难读。
+- **PRM / ORM**: 也不用 Trainer。loss 函数直接拿模型和一批带噪解算 BCE, `train_prm.py` 里是一个 4 行的手写循环。
 
 ## 目录
 
 ```
 llm_finetune/
 ├── data/           tasks.py (SeqTask, make_labels, verify) · instruction / preference / prompt 三种取数方式
-├── methods/        sft · lora · dora · qlora · reward_model · prm · dpo · kto · simpo · orpo · ppo · grpo · distill · on_policy_distill
+├── methods/        sft · lora · dora · qlora · merge · reward_model · prm · dpo · kto · simpo · orpo · rlaif · ppo · grpo · distill · on_policy_distill
 ├── utils/          param_utils.py (count / freeze / print)
 ├── run_finetune/   common.py + <name>/train_<name>.py + <name>/readme.md
 └── run_all.py

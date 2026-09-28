@@ -14,7 +14,7 @@
     </div>
 
     <ChapterIntro
-      tldr="loop 本身只有十几行, 从 m01 到 m19 几乎没改过。可靠性全在它周围: 工具注册表、权限门、上下文与记忆、hooks、JSONL transcript、子智能体隔离。"
+      :tldr="tldr"
       question="为什么一个能调用工具的模型, 还不能直接等价于一个可靠 Agent 产品?"
       :goals="[
         '读懂一个 Agent loop 的最小骨架: messages / tool_use / tool_result',
@@ -27,8 +27,8 @@
         { path: 'llm_agent/m01_agent_loop/' },
         { path: 'llm_agent/m02_tool_use/' },
       ]"
-      :prereq="{ name: 'infer-engine', label: '阶段 5.5 · mini-vLLM 引擎' }"
-      :next-step="{ name: 'agent-loop', label: '阶段 6.1 · Agent loop' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <section class="section">
@@ -73,7 +73,7 @@
       </div>
       <div class="grid grid-2" style="gap: 16px;">
         <div class="card">
-          <h3>模型负责选择动作 <span class="tag">probabilistic</span></h3>
+          <h3>模型负责选择动作 <span class="tag">概率性</span></h3>
           <pre class="code">{{ modelSide }}</pre>
           <p class="hint">
             换成真实 LLM, 这里就变成 tool calling 的 JSON 输出。后面的工具执行和权限逻辑一行都不用跟着改:
@@ -81,11 +81,10 @@
           </p>
         </div>
         <div class="card">
-          <h3>harness 负责执行边界 <span class="tag">deterministic</span></h3>
+          <h3>harness 负责执行边界 <span class="tag">确定性</span></h3>
           <pre class="code">{{ harnessSide }}</pre>
           <p class="hint">
-            Agent 产品的可靠性几乎全在这几行里。
-            这几行决定能不能拒掉危险动作、恢复状态、压住上下文, 以及出事后能不能逐行复盘。
+            Agent 能不能拒掉危险动作、恢复状态、压住上下文、出事后逐行复盘, 几乎全看这几行。
           </p>
         </div>
       </div>
@@ -120,7 +119,7 @@
     </section>
 
     <section class="section">
-      <h2>5. full_loop · mini-Claude-Code-style harness</h2>
+      <h2>5. full_loop · 仿 Claude Code 的最小 harness</h2>
       <p class="lead">
         <RepoLink path="llm_agent/full_loop/demo.py" label="full_loop/demo.py" tiny /> 把所有机制接到同一个 Agent 中:
         检索、笔记、skill、fetch、shell、delegate 与 MCP 工具共用一条执行面。
@@ -157,8 +156,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'infer-engine', label: '阶段 5.5 · mini-vLLM 引擎', hint: '推理服务提供 token, Agent harness 编排动作' }"
-      :next="{ name: 'agent-loop', label: '阶段 6.1 · Agent loop', hint: '先看最小 while-loop 闭环' }"
+      :prev="{ ...prevChapter, hint: '推理服务提供 token, Agent harness 编排动作' }"
+      :next="{ ...nextChapter, hint: '先看最小 while-loop 闭环' }"
     />
   </div>
 </template>
@@ -171,7 +170,16 @@ import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import CodeRef from '@/components/CodeRef.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { agentModules } from '@/data/models.js'
+import { agentModules, learningPath } from '@/data/models.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'agent')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 最后一个模块的编号从数据里取, 不写死 (agentModules 里除了 mNN 还有一行 full)
+const lastModule = agentModules.filter((m) => /^m\d+$/.test(m.id)).at(-1).id
+const tldr = `loop 本身只有十几行, 从 m01 到 ${lastModule} 几乎没改过。可靠性全在它周围: 工具注册表、权限门、上下文与记忆、hooks、JSONL transcript、子智能体隔离。`
 
 const agentChain = [
   {
@@ -213,7 +221,7 @@ const agentChain = [
     name: 'State + Team',
     year: 'm06-m07',
     pain: '长任务要恢复, 子任务不能污染主上下文。',
-    fix: 'append-only transcript + isolated subagent summary return。',
+    fix: 'transcript 只追加不改写; 子智能体单独跑, 只把摘要交回父级。',
     color: 'var(--left)',
   },
 ]
@@ -311,7 +319,7 @@ agent = Agent(
 
 const runRows = [
   { step: '1', title: 'skill → 检索 → 写笔记', body: '先按需加载 SKILL.md 正文, 再 TF-IDF 检索, 把结果写入笔记。' },
-  { step: '2', title: 'delegate isolated research', body: '父 Agent 调子 Agent, 父级只收到 summary。' },
+  { step: '2', title: '委托子智能体做调研', body: '父 Agent 调子 Agent, 父级只收到 summary。' },
   { step: '3', title: 'MCP 工具 (真实子进程)', body: 'stdio JSON-RPC server 暴露 mcp__weather__* 工具, 由 allow 规则放行。' },
   { step: '4', title: '危险命令被拒', body: 'rm -fr 换了 flag 顺序, 归一化后仍命中 deny 规则。' },
   { step: '5', title: '文档夹带指令和密钥', body: '不可信输出被标记、密钥被脱敏, 污点规则锁住高风险工具。' },

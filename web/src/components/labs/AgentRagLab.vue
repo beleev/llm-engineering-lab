@@ -18,7 +18,8 @@
       <div class="row">
         <button v-for="r in ROUTES" :key="r.id" type="button" :class="{ active: route === r.id }" @click="route = r.id">{{ r.label }}</button>
       </div>
-      <LabSlider v-model="top" label="rerank 范围 (前 N 名)" :min="1" :max="15" unit=" 名" />
+      <LabSlider v-if="route === 'rerank'" v-model="top" label="rerank 范围 (前 N 名)" :min="1" :max="15" unit=" 名" />
+      <p v-else class="tip">「rerank 范围」已隐藏: 这条路线不做 rerank。切到「RRF + rerank」再拖。</p>
     </template>
 
     <div class="rows">
@@ -131,4 +132,5 @@ const cmp = (a, b) => (a > b + 1e-9 ? 'good' : a < b - 1e-9 ? 'bad' : '')
 .chip { display: inline-block; margin: 0 4px 2px 0; padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; }
 .chip.hit { border-color: var(--left); color: var(--left); }
 .rt { display: inline-block; margin-right: 10px; }
+.tip { font-size: 12px; color: var(--text-muted); }
 </style>

@@ -16,6 +16,14 @@ from llm_finetune.data.tasks import PAD, SeqTask, make_labels
 
 
 class PreferenceDataGenerator(SyntheticDataGenerator):
+    """
+    每步产出 (S = P+R):
+        chosen_input_ids / rejected_input_ids            [B, S]  键名 = PairwiseForward.forward 的形参名
+        chosen_attention_mask / rejected_attention_mask  [B, S]  1 = 真 token, 0 = 右 pad
+        labels = {"chosen": [B, S], "rejected": [B, S]}          已左移一位, prompt / pad 位置 = -100
+    fixed 是基类的缓存开关: True = 第一个 batch 缓存下来反复用 (评估时拿一份固定的留出集); False = 每步重新采样。
+    """
+
     def __init__(self, task: SeqTask, batch_size: int = 64, split: str = "train",
                  fixed: bool = False) -> None:
         self.task, self.batch_size, self.split, self.fixed = task, batch_size, split, fixed

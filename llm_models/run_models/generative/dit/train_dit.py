@@ -37,11 +37,15 @@ def main():
     loss_fn = DiffusionLoss()
 
     # loss_mask: 只在 mask=1 的位置算 MSE, 按有效元素数平均
+    #   用一个 2×2 的手算例子验证: pred 全 0, target 上一行是 1、下一行是 3
     pred, target = torch.zeros(1, 1, 2, 2), torch.tensor([[[[1.0, 1.0], [3.0, 3.0]]]])
-    top_row = torch.tensor([[[[1.0, 1.0], [0.0, 0.0]]]])
-    assert loss_fn.compute(pred, target)["total_loss"].item() == 5.0              # (1+1+9+9)/4
-    assert loss_fn.compute(pred, target, loss_mask=top_row)["total_loss"].item() == 1.0
+    top_row = torch.tensor([[[[1.0, 1.0], [0.0, 0.0]]]])               # mask: 只留上面一行
+    assert loss_fn.compute(pred, target)["total_loss"].item() == 5.0, \
+        "不带 mask 时 loss 应是 4 个元素的平均: (1+1+9+9)/4 = 5"
+    assert loss_fn.compute(pred, target, loss_mask=top_row)["total_loss"].item() == 1.0, \
+        "带 mask 时只算上面一行, 且按有效元素数平均: (1+1)/2 = 1"
 
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, loss_fn).train()
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss: {first:.4f} (理论 E[ε²]=1) | 终态: {last:.4f}")

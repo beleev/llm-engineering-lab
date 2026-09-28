@@ -6,9 +6,10 @@
 -->
 <template>
   <LabFrame
-    title="温度采样 — 小语料抬多高才合适?"
-    sub="5 个来源的库存差 400 倍。灰条是按原始比例采样的占比, 彩条是温度 $T$ 下的占比 $p_i \propto n_i^{1/T}$。
-      拖温度滑杆, 点任一来源看它被上采样几倍、在 500M 预算里被过几遍。"
+    title="数据源温度配比 — 小语料抬多高才合适?"
+    sub="5 个来源的库存差 400 倍。每行上面的细条是按原始比例采样的占比, 下面的粗条是温度 $T$ 下的占比 $p_i \propto n_i^{1/T}$。
+      拖温度滑杆, 点任一来源看它被上采样几倍、在 500M 预算里被过几遍。
+      这里的温度管各来源的占比, 和解码时的采样温度不是一回事。"
     module="llm_train/m17"
     run="python -m llm_train.m17_data_pipeline.demo"
     :challenge="{
@@ -36,10 +37,13 @@
 
     <template #stats>
       <div class="kv"><span>{{ cur.name }}: 库存</span><b>{{ cur.n }}M</b></div>
-      <div class="kv"><span>{{ cur.name }}: 上采样倍数</span><b :class="cur.up > 1 ? 'good' : 'bad'">×{{ cur.up.toFixed(2) }}</b></div>
+      <div class="kv"><span>{{ cur.name }}: 上采样倍数</span><b>×{{ cur.up.toFixed(2) }}</b></div>
       <div class="kv"><span>{{ cur.name }}: 预算内过几遍</span><b :class="cur.ep > 4 ? 'bad' : ''">{{ cur.ep.toFixed(1) }}</b></div>
       <div class="kv"><span>超过 4 遍的来源</span><b :class="over ? 'bad' : 'good'">{{ over }} 个</b></div>
-      <p class="lab-note">★ 上采样倍数 = 新占比 / 原始占比, 过几遍 = 新占比 × 500M / 库存。T=1 时每个来源都是 0.5 遍。</p>
+      <div class="lab-note">
+        <p>★ 上采样倍数 = 新占比 / 原始占比, 过几遍 = 新占比 × 500M / 库存。T=1 时每个来源都是 0.5 遍。</p>
+        <p>倍数大于 1 和小于 1 各有代价, 所以不标好坏。只有「过几遍」超过 4 才标红。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

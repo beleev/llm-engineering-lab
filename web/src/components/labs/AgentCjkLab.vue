@@ -5,7 +5,7 @@
 <template>
   <LabFrame
     title="中文检索 — 为什么要字符 bigram"
-    sub="语料和 m08 demo 完全相同 (6 篇英文 + 2 篇中文)。改查询、切换分词器和 idf 公式, 看 token 怎么切、排序怎么变。悬停任意一个 token, 看它的 idf 和命中了哪些文档。"
+    sub="语料和 m08 demo 完全相同 (6 篇英文 + 2 篇中文)。改查询、切换分词器和 idf 公式, 看 token 怎么切、排序怎么变。悬停或点击任意一个 token, 看它的 idf、df 和命中了哪些文档。"
     module="llm_agent/m08"
     run="python -m llm_agent.m08_retrieval.demo"
     :challenge="{
@@ -24,19 +24,19 @@
       </div>
       <div class="row">
         <button type="button" :class="{ active: bigram }" @click="bigram = true">英文按词 + 中文 bigram</button>
-        <button type="button" :class="{ active: !bigram }" @click="bigram = false">只认 [a-z0-9]+ (旧)</button>
-        <button type="button" :class="{ active: bm25 }" @click="bm25 = !bm25">idf: {{ bm25 ? 'BM25 式 ln(1+(N−df+.5)/(df+.5))' : '旧式 ln(N/(1+df))+1' }}</button>
+        <button type="button" :class="{ active: !bigram }" @click="bigram = false">只认 [a-z0-9]+ (反例)</button>
+        <button type="button" :class="{ active: bm25 }" @click="bm25 = !bm25">idf: {{ bm25 ? 'BM25 式 ln(1+(N−df+.5)/(df+.5))' : '平滑式 ln(N/(1+df))+1' }}</button>
       </div>
     </template>
 
     <div class="tokens">
       <button
-        v-for="(w, i) in qTokens" :key="i" type="button" class="tok mono" :class="{ oov: !(w in index.idf), on: hover === w }"
-        @mouseenter="hover = w" @mouseleave="hover = ''" @focus="hover = w" @blur="hover = ''"
+        v-for="(w, i) in qTokens" :key="i" type="button" class="tok mono" :class="{ oov: !(w in index.idf), on: focus === w }"
+        @mouseenter="hover = w" @mouseleave="hover = ''" @focus="hover = w" @blur="hover = ''" @click="pin = w"
       >{{ w }}<em>{{ w in index.idf ? index.idf[w].toFixed(2) : '语料外' }}</em></button>
       <span v-if="!qTokens.length" class="empty">分词结果为空: 查询向量是零向量</span>
     </div>
-    <div v-for="(d, i) in ranked" :key="d.title" class="doc" :class="{ top: i === 0 && d.score > 0, hit: hover && d.tf[hover] }">
+    <div v-for="(d, i) in ranked" :key="d.title" class="doc" :class="{ top: i === 0 && d.score > 0, hit: focus && d.tf[focus] }">
       <span class="mono rank">#{{ i + 1 }}</span>
       <span class="mono title">{{ d.title }}</span>
       <span class="track"><span class="fill" :style="{ width: d.score * 100 + '%' }" /></span>
@@ -47,7 +47,7 @@
       <div class="kv"><span>top-1</span><b class="small" :class="ranked[0].score > 0 ? 'good' : 'bad'">{{ ranked[0].score > 0 ? ranked[0].title : 'no matches' }}</b></div>
       <div class="kv"><span>top-1 余弦</span><b :class="ranked[0].score > 0 ? '' : 'bad'">{{ ranked[0].score.toFixed(2) }}</b></div>
       <div class="kv"><span>得分 &gt; 0 的文档</span><b>{{ ranked.filter((d) => d.score > 0).length }} / {{ ranked.length }}</b></div>
-      <div class="kv"><span>悬停 token 的 df</span><b>{{ hover ? (index.df[hover] || 0) : '—' }}</b></div>
+      <div class="kv"><span>「{{ focus || '—' }}」的 df (出现在几篇里)</span><b>{{ focus ? (index.df[focus] || 0) : '—' }}</b></div>
       <p class="lab-note">这仍是 TF-IDF 余弦, 只是 idf 换成了 BM25 的那一项 (完整 BM25 还有词频饱和 k1 与长度归一 b)。把 embed() 换成神经向量就是稠密检索, 工具接口不变。</p>
     </template>
   </LabFrame>
@@ -69,7 +69,7 @@ const DOCS = {
   低秩微调: 'LoRA 只训练低秩适配器, 可训练参数不到百分之一, 显存占用大幅下降。',
 }
 const QUERIES = ['显存碎片怎么解决', 'how does the model manage memory fragmentation', 'LoRA 显存占用']
-const query = ref(QUERIES[0]), bigram = ref(true), bm25 = ref(true), hover = ref('')
+const query = ref(QUERIES[0]), bigram = ref(true), bm25 = ref(true), hover = ref(''), pin = ref('')
 
 // ★ utils.py:tokenize —— 英文按词; 中文连续段切成相邻两字的 bigram (单字段保留该字)
 const tokenize = (text) => {
@@ -96,6 +96,8 @@ const vec = (tf, idf) => {
   return Object.fromEntries(Object.entries(v).map(([w, x]) => [w, x / norm]))
 }
 const qTokens = computed(() => tokenize(query.value))
+// 读数盯住的 token: 悬停的优先, 其次是点过的, 都没有就取查询的第一个。不悬停时 df 也有数
+const focus = computed(() => hover.value || (qTokens.value.includes(pin.value) ? pin.value : qTokens.value[0] || ''))
 const ranked = computed(() => {
   const { tfs, idf } = index.value
   const q = vec(count(qTokens.value), idf)

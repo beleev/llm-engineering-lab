@@ -33,6 +33,7 @@ BAD_BATCH_STEP = 12                                       # 这一步的数据�
 
 
 def init_state(world: int) -> dict:
+    """建一份全新的训练状态。下一步计算要读的东西都在这个 dict 里, checkpoint 存的也是它。"""
     flat = flatten_tree(LinearModel.init(D_IN, D_OUT, seed=0).params()).astype(F32)       # [14]
     ranks = [{"master": s.copy(), "m": np.zeros_like(s), "v": np.zeros_like(s)} for s in np.split(flat, world)]
     return {
@@ -44,14 +45,19 @@ def init_state(world: int) -> dict:
 
 
 def train_step(state: dict, micro: int, amp: bool) -> float:
+    """跑一步并改写 state。返回本步各 micro-batch 的平均 loss。
+
+    micro: 每个 rank 把自己的数据再切成几个 micro-batch。amp: 是否用 fp16 计算 + loss scaling。
+    被跳过的步返回 NaN, 参数不动, state["skipped"] 加 1。
+    """
     ranks, scaler, world = state["ranks"], state["scaler"], len(state["ranks"])
-    dt = F16 if amp else F32
-    like = LinearModel.init(D_IN, D_OUT).params()
+    dt = F16 if amp else F32                              # 计算副本的精度
+    like = LinearModel.init(D_IN, D_OUT).params()         # 只借它的 key 和形状, 用来把 [14] 还原成 W 和 b
     lr = warmup_cosine_lr(state["step"], TOTAL_STEPS, BASE_LR, WARMUP, min_ratio=0.1)
 
     x, y = state["data"].next_batch()                     # 全局 batch [16, 6]
     if state["step"] == BAD_BATCH_STEP:
-        x[0, 0] = np.nan
+        x[0, 0] = np.nan                                  # 只弄坏一个数, 它所在 rank 的梯度就全是 NaN
 
     # 1) 计算副本: 把各 rank 的 master 分片转成低精度再 all-gather (通信的是 fp16, 省一半带宽)
     flat_lp = all_gather([rk["master"].astype(dt) for rk in ranks])      # world × [14]
@@ -60,10 +66,10 @@ def train_step(state: dict, micro: int, amp: bool) -> float:
     # 2) 每 rank: micro-batch 累积。梯度以 "放大后的 fp16" 形式产生, 转 fp32 再累加
     local, losses = [], []
     for r in range(world):
-        p = unflatten_like(flat_lp[r], like)
+        p = unflatten_like(flat_lp[r], like)                             # [14] → W [6, 2], b [2]
         model = LinearModel(p["W"], p["b"])
         xr, yr = np.split(x, world)[r], np.split(y, world)[r]            # [16/world, ...]
-        acc = np.zeros(flat_lp[r].size, dtype=F32)
+        acc = np.zeros(flat_lp[r].size, dtype=F32)                       # [14] 这个 rank 累积的梯度, fp32
         for xb, yb in zip(np.split(xr, micro), np.split(yr, micro)):
             with np.errstate(over="ignore", invalid="ignore"):           # 溢出是预期内的事, 交给 scaler 处理
                 loss, g = model.loss_and_grads(xb.astype(dt), yb.astype(dt), loss_scale=scale)
@@ -84,17 +90,18 @@ def train_step(state: dict, micro: int, amp: bool) -> float:
     shards = [g / F32(scale * world) for g in reduce_scatter_sum(local)]
 
     # 5) 全局范数裁剪 —— 范数必须是 "所有分片" 的, 每 rank 只贡献自己的平方和
-    sq = all_reduce_sum([np.array([np.sum(s.astype(np.float64) ** 2)]) for s in shards])[0]
-    clip = min(1.0, MAX_NORM / (float(np.sqrt(sq[0])) + 1e-12))
+    sq = all_reduce_sum([np.array([np.sum(s.astype(np.float64) ** 2)]) for s in shards])[0]   # [1] 全局平方和
+    clip = min(1.0, MAX_NORM / (float(np.sqrt(sq[0])) + 1e-12))          # +1e-12: 梯度全 0 时防除零
 
     # 6) 分片 Adam: 每 rank 只碰自己的 master/m/v
-    state["opt_steps"] += 1
+    state["opt_steps"] += 1                               # Adam 的 t 只数真正更新过的步, 被跳过的不算
     for rk, g in zip(ranks, shards):
         adam_update(rk["master"], g * F32(clip), rk["m"], rk["v"], state["opt_steps"], lr)
     return float(np.mean(losses))
 
 
 def train(world: int, micro: int, amp: bool, steps: int, state: dict | None = None) -> dict:
+    """跑 steps 步, 返回最终 state。传入 state 就接着它往下训 (续训), 不传就从头开始。"""
     state = state or init_state(world)
     for _ in range(steps):
         state["last_loss"] = train_step(state, micro, amp)
@@ -102,6 +109,7 @@ def train(world: int, micro: int, amp: bool, steps: int, state: dict | None = No
 
 
 def full_master(state: dict) -> np.ndarray:
+    """把各 rank 的 master 分片拼回完整参数 [14], 只用来比对。"""
     return np.concatenate([rk["master"] for rk in state["ranks"]])
 
 
@@ -117,6 +125,7 @@ def save_sharded(ckpt_dir: Path, state: dict) -> None:
 
 
 def load_sharded(ckpt_dir: Path) -> dict:
+    """save_sharded 的逆操作: 从目录里读回一份可以直接续训的 state。"""
     meta = load_checkpoint(ckpt_dir / "meta.pkl")
     state = init_state(meta["world"])                                    # "新进程": 先建空壳, 再逐项覆盖
     state["ranks"] = [load_checkpoint(ckpt_dir / f"rank{r}.pkl") for r in range(meta["world"])]
@@ -127,9 +136,10 @@ def load_sharded(ckpt_dir: Path) -> dict:
 
 
 def val_loss(flat: np.ndarray, data: ToyDataStream) -> float:
+    """flat [14] 是完整参数。在固定的 64 个样本上, 和数据流背后的真实线性关系比 MSE。"""
     rs = np.random.RandomState(99)
-    x = rs.randn(64, D_IN).astype(F32)
-    p = unflatten_like(flat, LinearModel.init(D_IN, D_OUT).params())
+    x = rs.randn(64, D_IN).astype(F32)                                   # [64, 6]
+    p = unflatten_like(flat, LinearModel.init(D_IN, D_OUT).params())     # [14] → W [6, 2], b [2]
     return float(np.mean((x @ p["W"] + p["b"] - (x @ data.true_W + data.true_b)) ** 2))
 
 
@@ -143,7 +153,8 @@ def main() -> None:
     print("\n[A] fp32: 分布式 vs 单卡")
     kv("max |Δ master|", f"{diff32:.1e}  (只差 float32 求和顺序)")
     kv("NaN batch 被跳过的步数 (两边)", f"{single32['skipped']} / {dist32['skipped']}")
-    assert diff32 < 1e-5 and single32["skipped"] == dist32["skipped"] == 1
+    assert diff32 < 1e-5, "fp32 下, 2 卡 × 2 个 micro-batch × 分片 Adam 的参数必须等于单卡"
+    assert single32["skipped"] == dist32["skipped"] == 1, "两边都恰好跳过 1 步: 混入 NaN 的那个 batch"
 
     # ---- B) AMP: fp16 计算 + fp32 master + 动态 loss scale ----
     comm.reset()
@@ -159,7 +170,7 @@ def main() -> None:
     kv("max |Δ master| AMP 分布式 vs AMP 单卡", f"{max_abs_diff(full_master(dist16), full_master(single16)):.1e}  (参数共移动 {moved:.2f})")
     kv(f"通信 ({TOTAL_STEPS} 步合计)", wire)
     assert dist16["skipped"] >= 2 and dist16["skipped"] == single16["skipped"], "起始 scale 过高必然溢出; NaN batch 也必须被拦下"
-    assert np.isfinite(full_master(dist16)).all()
+    assert np.isfinite(full_master(dist16)).all(), "AMP 训练后 master 里不能有 Inf / NaN"
     assert v16 < 0.05 * start and abs(v16 - v32) < 0.02 * start, "AMP 的终点与 fp32 基本重合"
     assert max_abs_diff(full_master(dist16), full_master(single16)) < 0.02 * moved, "只差 fp16 舍入"
 
@@ -173,9 +184,10 @@ def main() -> None:
     kv("文件", files)
     kv("max |Δ master| 续训 vs 不中断", f"{max_abs_diff(full_master(resumed), full_master(dist16)):.1e}")
     assert np.array_equal(full_master(resumed), full_master(dist16)), "续训必须逐位相同"
-    assert all(np.array_equal(a[k], b[k]) for a, b in zip(resumed["ranks"], dist16["ranks"]) for k in ("m", "v"))
-    assert resumed["scaler"].state_dict() == dist16["scaler"].state_dict()
-    assert resumed["skipped"] == dist16["skipped"]
+    assert all(np.array_equal(a[k], b[k]) for a, b in zip(resumed["ranks"], dist16["ranks"]) for k in ("m", "v")), \
+        "续训后 Adam 的 m / v 必须与不中断的逐位相同"
+    assert resumed["scaler"].state_dict() == dist16["scaler"].state_dict(), "续训后 LossScaler 的状态必须相同"
+    assert resumed["skipped"] == dist16["skipped"], "续训后累计跳过的步数必须相同"
 
     print("\n  OK: DP × 累积 × AMP × ZeRO 分片 Adam × 裁剪 × NaN guard × 分片 checkpoint, 全部有断言兜底。")
 

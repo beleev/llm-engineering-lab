@@ -12,14 +12,19 @@ import torch.nn as nn
 
 from llm_models.layers.core.attention import MultiHeadAttention
 
+# 每个 token 的布局: [key 32 维 | value 31 维 | 标志位 1 维], 合计 64 维, 能被 4 个头整除
 D_KEY, D_VAL = 32, 31
 D_MODEL = D_KEY + D_VAL + 1                                            # 最后 1 维是 "我是查询" 标志位
 
 
 def make_batch(B: int, T: int):
+    """
+    造一批联想检索样本。
+    返回 x [B, T+1, D_MODEL] (T 个键值对 + 末尾 1 个查询) 和答案 value_j [B, D_VAL]。
+    """
     keys, vals = torch.randn(B, T, D_KEY), torch.randn(B, T, D_VAL)
     j = torch.randint(0, T, (B,))                                      # 每条样本要检索的位置
-    rows = torch.arange(B)
+    rows = torch.arange(B)                                             # 配合 j 做逐样本取值: keys[rows, j] → [B, D_KEY]
     x = torch.zeros(B, T + 1, D_MODEL)
     x[:, :T, :D_KEY], x[:, :T, D_KEY:-1] = keys, vals                  # 前 T 个 token: [key | value | 0]
     x[:, T, :D_KEY], x[:, T, -1] = keys[rows, j], 1.0                  # 查询 token:   [key_j | 0 | 1]
@@ -27,6 +32,8 @@ def make_batch(B: int, T: int):
 
 
 class Recall(nn.Module):
+    """一层混合 (attention 或逐 token 的 Linear 基线) + 线性读出, 只取查询位置的输出。"""
+
     def __init__(self, use_attention: bool = True):
         super().__init__()
         self.attn = MultiHeadAttention(D_MODEL, num_heads=4) if use_attention else nn.Linear(D_MODEL, D_MODEL)
@@ -37,6 +44,7 @@ class Recall(nn.Module):
 
 
 def train(model: nn.Module, steps: int = 400) -> tuple:
+    """每步新采 64 条、T=8 的样本训练; 返回 (第 1 步的 mse, 最后 20 步的平均 mse)。"""
     opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
     losses = []
     for step in range(1, steps + 1):
@@ -45,8 +53,8 @@ def train(model: nn.Module, steps: int = 400) -> tuple:
         opt.zero_grad(); loss.backward(); opt.step()
         losses.append(loss.item())
         if step == 1 or step % 100 == 0:
-            print(f"  step {step:>3d} | mse {loss.item():.4f}")
-    return losses[0], sum(losses[-20:]) / 20
+            print(f"  第 {step:>3d} 步 | mse {loss.item():.4f}")
+    return losses[0], sum(losses[-20:]) / 20                           # 末尾取 20 步平均: 每步数据不同, 单步 mse 有抖动
 
 
 def main():
@@ -56,6 +64,7 @@ def main():
     print("单层 MultiHeadAttention:")
     first, last = train(Recall(use_attention=True))
     print(f"基线 mse {base:.3f} (≈ value 的方差 1, 等于瞎猜) | attention: {first:.3f} -> {last:.3f}")
+    # value ~ N(0,1): 不知道该取哪个 value 时最好的输出是均值 0, mse 就是 value 的方差 1
     assert base > 0.9, "逐 token 模型不可能知道该取哪个 value"
     assert last < 0.5 * base, "attention 应学会按 key 检索 value"
 

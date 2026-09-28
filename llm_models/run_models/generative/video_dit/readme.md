@@ -25,6 +25,15 @@ python -m llm_models.run_models.generative.video_dit.train_video_dit
 
 `train_video_dit`: loss 1.0163 → 0.0119 (初始 ≈ E[ε²] = 1; **固定 batch, 下降 = 背下 2 段 latent 的 ε**)。
 
+## 与真实系统的差距
+
+- **没有文本条件**: 只有 timestep 和类别标签, 经 adaLN 注入。
+- **注意力不拆分**: 对全部时空 token 做一次完整注意力。真实系统常拆成 spatial + temporal 两次来省算力。
+- **规模**: latent (4, 8, 8) 切成 32 个 token, train 是 2 层、d_model=96。
+- **latent 是随机数**: x_0 从 N(0, I) 采, 没有接 `../vae3d` 的 Causal 3D VAE。
+- **尺寸固定**: 位置嵌入按构造时的 `video_latent_size` 建表, 不支持变分辨率和变时长。
+- **固定 batch 是本库约定**: 2 段 latent 的 x_t、t、ε 全被缓存。
+
 ## 常见误区
 
 - "Transformer 天然知道帧顺序": 自注意力对 token 置换等变, 顺序信息全靠位置嵌入 —— 上面 time_pos 清零的实验就是证据。

@@ -8,7 +8,7 @@ MTP — Multi-Token Prediction (多 token 预测) 模块
 
 动机:
     标准 LM 的每个位置只预测 t+1 一个 token。MTP 让位置 t 同时预测
-    t+1, t+2, ..., t+1+K, 带来三重收益:
+    t+1, t+2, ..., t+1+K。这样做有三个作用:
       1. **训练信号更密** — 同一条数据提供 (K+1) 份监督, 数据效率更高
       2. **表征被迫"向前规划"** — hidden state 必须编码更远期的信息,
          缓解 next-token 短视 (teacher forcing 只看一步)
@@ -31,6 +31,11 @@ DeepSeek-V3 的串行式 MTP (与 Gloeckle 的并行独立 head 不同, 保留�
 
 推理:
     部署时可以直接丢弃 MTP 模块 (零成本), 或保留用作投机解码 draft head。
+
+本库的做法 (教学约定):
+    - MTP 接在 LLaMA 主干 (GQA + SwiGLU) 上, 不是 DeepSeek-V3 的 MLA + MoE 主干。
+    - lm_head 与 embedding 共享权重、embedding 乘 √D, 见 models/__init__.py。
+    - 投机解码那条路径没有实现: 带 cache 生成时只跑主干。
 """
 
 import math
@@ -58,7 +63,7 @@ class MTPModule(nn.Module):
 
         h^k = Block( W [RMSNorm(h^{k-1}) ; RMSNorm(emb_next)] )
 
-    为什么拼接后要先各自 RMSNorm:
+    为什么拼接前要各自 RMSNorm:
         h 与 embedding 的数值尺度不同 (h 经过了多层残差累加), 直接拼接会让
         投影矩阵 W 先花容量学"对齐尺度"; 各自归一化后拼接更稳。
     """
@@ -91,11 +96,13 @@ class MTPModule(nn.Module):
         self,
         h_prev: torch.Tensor,        # [B, T, D] 上一级 hidden
         emb_next: torch.Tensor,      # [B, T, D] 真实 next-token 的 embedding
-        mask: torch.Tensor,
+        mask: torch.Tensor,          # [B 或 1, T, T] 因果 ∧ padding, 与主干同一张
         rope: RotaryPositionalEncoding,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor:               # [B, T, D] 本级 hidden (还没过 final_norm)
+        # 两路各自归一化后在最后一维拼接: 2 × [B, T, D] → [B, T, 2D]
         x = torch.cat([self.norm_hidden(h_prev), self.norm_emb(emb_next)], dim=-1)
         x = self.proj(x)                      # [B, T, 2D] -> [B, T, D]
+        # 不传 position_ids: 位置按 0..T-1 算。MTP 只在无 cache 的整段前向里跑, 这样是对的
         return self.block(x, mask=mask, rope=rope)
 
 
@@ -108,6 +115,8 @@ class MTPLLaMA(GenerationMixin, nn.Module):
           "logits":     [B, T, V]          主 head (预测 t+1)
           "mtp_logits": List[[B, T, V]]    第 k 项预测 t+1+k
         }
+
+    接受 attention_mask; 支持 KV cache (generate() 来自 GenerationMixin, 它只取 "logits" 一项)。
 
     Args:
         vocab_size / d_model / n_heads / num_kv_heads / num_layers / max_len /
@@ -142,7 +151,7 @@ class MTPLLaMA(GenerationMixin, nn.Module):
 
         if d_ff is None:
             d_ff = int(8 / 3 * d_model)
-            d_ff = ((d_ff + 63) // 64) * 64
+            d_ff = ((d_ff + 63) // 64) * 64      # 向上对齐到 64 的倍数, 同 LLaMA
 
         # ---- 主干: 与 LLaMA 相同的 N 层 stack ----
         self.layers = nn.ModuleList(
@@ -173,17 +182,19 @@ class MTPLLaMA(GenerationMixin, nn.Module):
             ]
         )
 
-        causal = build_causal_mask(max_len, torch.device("cpu"))
+        causal = build_causal_mask(max_len, torch.device("cpu"))   # [1, max_len, max_len]
         self.register_buffer("causal_mask", causal, persistent=False)
 
         init_weights(self)   # weight tying 之后; 初始 CE ≈ ln V
 
     def _causal_mask(self, seq_len: int) -> torch.Tensor:
+        """取左上角 [1, seq_len, seq_len] 的下三角 mask; 超过缓存大小就现建一张。"""
         if seq_len <= self.causal_mask.size(-1):
             return self.causal_mask[:, :seq_len, :seq_len]
         return build_causal_mask(seq_len, self.causal_mask.device)
 
     def _embed(self, idx: torch.Tensor) -> torch.Tensor:
+        """idx [B, T] -> [B, T, D]。主干输入和 MTP 的 emb_next 共用这一个函数 (·√D 是本库约定)。"""
         return self.token_embedding(idx) * math.sqrt(self.d_model)
 
     def forward(
@@ -193,18 +204,22 @@ class MTPLLaMA(GenerationMixin, nn.Module):
         cache: Optional[KVCache] = None,
     ) -> Dict[str, Any]:
         """
-        Returns {"logits": [B, T, V], "mtp_logits": List of [B, T, V]}。
+        idx [B, T] -> 返回 dict, 两个键:
+            "logits":     [B, T, V]            主 head, 位置 i 预测 t_{i+1}
+            "mtp_logits": list, 长度 mtp_depth  第 k 项 [B, T, V], 位置 i 预测 t_{i+1+k}
+        attention_mask: [B, past+T], 1=有效 0=pad。
         给了 cache (= 生成) 时只跑主干, mtp_logits 为空: MTP 模块要拼接 "未来的真实 token",
         普通自回归解码时它们还不存在 (用作投机解码 draft 是另一条路径)。
         """
         B, T = idx.shape
-        past = cache.pos if cache is not None else 0
+        past = cache.pos if cache is not None else 0                     # 已缓存的 token 数
         if past + T > self.max_len:
             raise ValueError(f"序列长度 {past + T} 超过 max_len={self.max_len}")
 
-        position_ids = torch.arange(past, past + T, device=idx.device)
+        position_ids = torch.arange(past, past + T, device=idx.device)   # [T] 新 token 的绝对位置
+        # 行 past: 是新 token (query), 列 :past+T 是全部历史 (key)
         causal = self._causal_mask(past + T)[:, past:]                   # [1, T, past+T]
-        mask = combine_causal_and_padding_mask(causal, attention_mask)
+        mask = combine_causal_and_padding_mask(causal, attention_mask)   # [B 或 1, T, past+T]
 
         # ---- 主干前向 ----
         h = self._embed(idx)                                             # [B, T, D]
@@ -213,7 +228,8 @@ class MTPLLaMA(GenerationMixin, nn.Module):
                 h, mask=mask, rope=self.rope, position_ids=position_ids,
                 cache=cache.layers[i] if cache is not None else None,
             )
-        logits_main = self.lm_head(self.ln_f(h))
+        # h 本身不过 ln_f 就交给 MTP 模块: 每个模块入口有自己的 norm_hidden
+        logits_main = self.lm_head(self.ln_f(h))                         # [B, T, V]
         if cache is not None:
             cache.pos += T
             return {"logits": logits_main, "mtp_logits": []}
@@ -224,18 +240,22 @@ class MTPLLaMA(GenerationMixin, nn.Module):
             # teacher forcing: idx 左移 k 位; 末尾 k 个位置没有未来 token,
             # 用 0 占位 (这些位置的预测会在 MTPLoss 里被 -100 屏蔽)
             shifted = torch.zeros_like(idx)
-            shifted[:, :-k] = idx[:, k:]
+            shifted[:, :-k] = idx[:, k:]                                 # 位置 i 放 t_{i+k}
             emb_next = self._embed(shifted)                              # [B, T, D]
 
+            # h 被覆盖: 第 k 级的输出就是第 k+1 级的 h_prev (串行级联)
             h = module(h, emb_next, mask=mask, rope=self.rope)
-            mtp_logits.append(self.lm_head(module.final_norm(h)))
+            mtp_logits.append(self.lm_head(module.final_norm(h)))        # [B, T, V]
 
         return {"logits": logits_main, "mtp_logits": mtp_logits}
 
 
 def __getattr__(name: str):
-    # MTPLoss 已搬到 training/loss.py (models 不该反向依赖 training)。
-    # 惰性转发让 `from llm_models.models.language_models.mtp import MTPLoss` 继续可用, 且不产生循环 import
+    # MTPLoss 定义在 training/loss.py, 和其它 loss 放在一起。
+    # 这里做惰性转发: `from llm_models.models.language_models.mtp import MTPLoss` 可用,
+    # 而 training 只在真正取 MTPLoss 时才被 import。
+    # llada.py 走另一种写法: 文件顶部直接 import training.loss 的基类。
+    # 两种都不会循环 import, 因为 training 不 import models。
     if name == "MTPLoss":
         from llm_models.training.loss import MTPLoss
         return MTPLoss

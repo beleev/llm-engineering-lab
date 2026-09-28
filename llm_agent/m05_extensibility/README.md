@@ -12,9 +12,14 @@ Hook 解决第二个: 它是 harness 里的普通 Python 函数, 不经过模型
 
 ## 核心数据结构与控制流
 
-- `core/skills.py: SkillRegistry` — 启动时 glob `*/SKILL.md`, 只留 frontmatter 的 `name` / `description`, 正文当场丢弃; `catalog()` 是唯一常驻 system prompt 的内容; `load(name)` 到调用时才重新读文件取正文。
+- `core/skills.py: SkillRegistry` — skill 的目录:
+  - 启动时 glob `*/SKILL.md`, 只留 frontmatter 的 `name` / `description`, 正文当场丢弃。
+  - `catalog()` 是唯一常驻 system prompt 的内容。
+  - `load(name)` 到调用时才重新读文件取正文。
 - `core/skills.py: SkillTool` — 名为 `skill` 的普通工具, 参数 `name` 用 `enum` 限定为已安装的 skill; 返回值就是正文。
-- `core/hooks.py: HookManager / HookResult` — 7 个事件: `session_start(source)` / `user_prompt_submit` / `pre_tool_use` / `post_tool_use` / `pre_compact` / `stop` / `subagent_stop`。`HookResult` 只有四个字段: `block`, `reason`, `updated_call`, `additional_context`。
+- `core/hooks.py: HookManager / HookResult` — 事件和返回值:
+  - 7 个事件: `session_start(source)` / `user_prompt_submit` / `pre_tool_use` / `post_tool_use` / `pre_compact` / `stop` / `subagent_stop`。
+  - `HookResult` 只有四个字段: `block`, `reason`, `updated_call`, `additional_context`。
 - `core/agent.py: Agent._authorize / _run_tools` — 固定执行顺序。
 
 ```
@@ -26,10 +31,12 @@ model 发出 tool_use(call)  ──先写入 transcript──>
 tool_result 挂回模型发出的原 id → user 消息;  notes → 独立 system 消息 (name="post_tool_hook")
 ```
 
-关键设计决策:
+关键设计:
 
-- **门评估改写后的调用**。hook 是用户代码, 也可能有 bug 或被人塞了恶意逻辑; 只授权原始调用等于给 hook 一条绕过 deny 规则的路。第 [5] 节就是这条路的回归测试。
-- **hook 文字走旁路**。`session_start` / `user_prompt_submit` / `post_tool_use` 追加的内容分别落成 name 为 `session_start` / `hook_context` / `post_tool_hook` 的 system 消息, 从不拼进用户 prompt 或 `tool_result` —— 否则 `[audit]` 之类的注释会被模型当成工具数据写进笔记、拿去当检索词。
+- **门评估改写后的调用**。hook 是用户代码, 也可能有 bug 或被人塞了恶意逻辑; 只授权原始调用等于给 hook 一条绕过 deny 规则的路。第 [5] 节验证这条路走不通。
+- **hook 文字走旁路**。hook 追加的内容落成独立的 system 消息, 从不拼进用户 prompt 或 `tool_result`:
+  - `session_start` / `user_prompt_submit` / `post_tool_use` 三个事件, 消息的 name 分别是 `session_start` / `hook_context` / `post_tool_hook`。
+  - 拼进去的话, `[audit]` 之类的注释会被模型当成工具数据写进笔记、拿去当检索词。
 - **skill 正文是可信指令**。它由用户自己安装, toy LLM 会服从 `skill` 工具返回的内容; 而 `fetch_doc` 抓回的文档是不可信数据 (m12)。区别在来源, 不在格式。
 - **结果永远挂在模型发出的 id 上**, 即使 hook 把调用改成了别的工具 —— 保证 tool_use / tool_result 配对合法。
 
@@ -38,6 +45,8 @@ tool_result 挂回模型发出的原 id → user 消息;  notes → 独立 syste
 ```bash
 cd <仓库根目录> && python3 -m llm_agent.m05_extensibility.demo
 ```
+
+真实输出节选 (省略了 [4] 整节, 其余各节也省略了若干行):
 
 ```
 [1] 渐进式披露: 常驻上下文的只有目录
@@ -50,7 +59,7 @@ cd <仓库根目录> && python3 -m llm_agent.m05_extensibility.demo
 [3] PreToolUse hook 拦截: 即使权限模式全放行, 含 token 的 shell 也到不了执行层
   [hooked] turn 1: model -> tool_use toolu_0001 shell {'command': 'cat token.txt'}
   [hooked] tool_result toolu_0001 -> BLOCKED BY HOOK: secret-like shell command
-[5] 回归: hook 把 calculator 改写成 rm -rf, 权限门必须拦住 (只授权原始调用的话, 执行的却是改写后的 → 直接放行)
+[5] hook 把 calculator 改写成 rm -rf: 权限门评估的是改写后的调用, deny 规则照样拦住
   [rewritten] turn 1: model -> tool_use toolu_0001 calculator {'expr': '2 + 2'}
   [rewritten] pre_tool_use hook rewrote -> shell {'command': 'rm -rf /'}
   [rewritten] permission shell -> deny (rule: destructive)
@@ -61,20 +70,23 @@ cd <仓库根目录> && python3 -m llm_agent.m05_extensibility.demo
 
 - [1] 目录 token 数的 3 倍仍小于全部正文 (69 vs 419)。
 - [2] 同一 prompt: 无 skill 的 agent 不调任何工具; 有 skill 的 agent 调用序列恰为 `skill → search_docs`; 检索词等于原始 prompt (skill 正文没漏进去); 未触发的 `release-notes` 正文从未出现在 transcript 里。
-- [3] 权限模式是 `dont_ask` (全放行) 时, hook 仍拦住了含 token 的命令, `shell.executed == []`。
+- [3] 权限模式是 `bypass_permissions` (全放行) 时, hook 仍拦住了含 token 的命令, `shell.executed == []`。
 - [4] 所有 `tool_result` 里都没有 `[audit]`; 它出现在 `post_tool_hook` system 消息里; 同一 agent 跑两轮, `session_start` 消息只有 1 条; `stop` 触发 2 次且拿到最终文本。
 - [5] hook 把 `calculator` 改写成 `shell rm -rf /`, 结果是 `DENIED: destructive`, `shell2.executed == []`。
 
 ## 与真实系统的差距
 
-- Claude Code 的 hook 是 settings 里配置的外部命令 (stdin 收 JSON, 用退出码 / JSON 输出表达决定), 有 matcher、超时; 这里是进程内 Python 回调, 没有 matcher, 也没有异常隔离 (hook 抛错会直接炸掉 loop; 返回 None 视为"无意见")。
+- Claude Code 的 hook 是 settings 里配置的外部命令: stdin 收 JSON, 用退出码 / JSON 输出表达决定, 有 matcher、超时。这里是进程内的 Python 回调:
+  - 没有 matcher, 也没有异常隔离。hook 抛错会直接炸掉 loop; 返回 None 视为"无意见"。
+  - `pre_tool_use` 只能拦和改, 不能批准。Claude Code 的 PreToolUse hook 可以返回 allow 直接跳过询问 (deny 规则仍然生效)。
+  - `session_start` 的 source 只有 `startup` / `resume` 两种。Claude Code 有 startup / resume / clear / compact 四种。
 - 这里的 `stop` 只是通知; Claude Code 的 Stop hook 可以阻止结束、让模型继续干活。`subagent_stop` 同理。
 - `post_tool_use` 只对真正执行过的调用触发; 被 hook 拦截或被权限拒绝的调用没有"执行后"。
 - 渐进披露只实现了两层 (目录 → 正文); 正文引用的脚本 / 附件按需读取的第三层未实现。frontmatter 解析只支持单行 `key: value`。
 - skill 正文在这里只是一条普通 `tool_result`: 长会话超预算时会被 `clear_tool_results` 当旧结果清成占位符, 没有"已加载的 skill 要保留"的特殊处理。
 - 触发是 toy LLM 对 description 里"触发词:"做子串匹配; 真实模型靠语义判断 description 是否相关, 所以真实系统里 description 的写法直接决定 skill 会不会被用上。
 - 改写成功时, transcript 里的 `tool_use` 仍是模型发出的原始调用 (结果挂在它的 id 上); 实际执行的改写后调用记在紧随其后的 `post_tool_hook` system 消息里 (`pre_tool_use rewrote ...`), 审计时要两条一起看。
-- MCP (外部工具) 已移到 m09。
+- 外部工具 (MCP) 是另一种扩展方式, 见 m09。
 
 ## 常见误区
 
@@ -87,7 +99,7 @@ cd <仓库根目录> && python3 -m llm_agent.m05_extensibility.demo
 1. 如果把 `_authorize` 里的 `self.permissions.evaluate(final, tool)` 改成 `evaluate(call, tool)`, 第 [5] 节会发生什么?
 <details><summary>答案</summary>
 
-门看到的是无害的 `calculator`, 在 `dont_ask` 模式下放行; 随后执行的却是 hook 改写出的 `shell rm -rf /`, deny 规则被绕过, `shell2.executed` 不再为空, 断言失败。所以鉴权必须发生在 hook 改写之后。
+门看到的是无害的 `calculator`, 在 `bypass_permissions` 模式下放行; 随后执行的却是 hook 改写出的 `shell rm -rf /`, deny 规则被绕过, `shell2.executed` 里多出这条命令, 断言失败。所以鉴权必须发生在 hook 改写之后。
 
 </details>
 

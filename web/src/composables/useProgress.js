@@ -1,4 +1,4 @@
-// 学习进度: 读过哪些章、自测题答对几道。只存在本机 localStorage, 不上传。
+// 学习进度: 打开过哪些章、自测最好答对几道、选的阅读档位。只存在本机 localStorage, 不上传。
 import { reactive, watch } from 'vue'
 
 const KEY = 'llm-progress'
@@ -22,7 +22,12 @@ export function useProgress() {
       if (!['home', 'glossary', 'compare'].includes(route)) state.last = route
     },
     isVisited: (route) => !!state.visited[route],
-    setQuiz(route, correct, total) { state.quiz[route] = { correct, total } },
+    // 记的是最好成绩: 重做时答得更差不覆盖, 侧栏的 ✓ 不会因为重做错一题就消失。
+    // 题目数量变了 (total 不同) 说明题库换过, 成绩重新记。
+    setQuiz(route, correct, total) {
+      const old = state.quiz[route]
+      if (!old || old.total !== total || correct > old.correct) state.quiz[route] = { correct, total }
+    },
     quizOf: (route) => state.quiz[route] || null,
     isMastered: (route) => { const q = state.quiz[route]; return !!q && q.correct === q.total },
     setLevel(l) { state.level = l },

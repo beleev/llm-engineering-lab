@@ -6,13 +6,16 @@ N_LAT = 4                                                              # 每个�
 
 TINY = dict(
     vocab_size=V_TEXT, audio_vocab_size=V_AUDIO,
+    # Thinker 的文本主干: 64 维
     text_d_model=64, text_n_heads=4, text_num_kv_heads=2, text_num_layers=2, max_len=64,
+    # 三个模态编码器 (图像 / 音频 / 视频), 各自带一个 Resampler 把输出压成 N_LAT 个 token
     vision_image_size=IMAGE, vision_patch_size=14, vision_d_model=64, vision_n_heads=4,
     vision_num_layers=1, vision_num_latents=N_LAT, vision_num_latent_layers=1,
     audio_spec_size=SPEC, audio_patch_size=(8, 8), audio_in_channels=1, audio_d_model=32, audio_n_heads=4,
     audio_num_layers=1, audio_num_latents=N_LAT, audio_num_latent_layers=1,
     video_size=VIDEO, video_tubelet_size=2, video_patch_size=14, video_in_channels=3, video_d_model=64,
     video_n_heads=4, video_num_layers=1, video_num_latents=N_LAT, video_num_latent_layers=1,
+    # Talker: 32 维, 比 Thinker 窄, 所以模型会多建一层桥接投影 thinker_to_talker
     talker_d_model=32, talker_n_heads=4, talker_num_kv_heads=2, talker_num_layers=1, talker_max_len=64,
     dropout=0.0,
 )

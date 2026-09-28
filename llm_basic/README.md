@@ -48,8 +48,8 @@ cd llm_basic
 python prepare.py            # 已自带数据，可跳过
 python gradcheck.py          # 必跑：< 1 秒
 python optim.py              # 优化器自检（裁剪 / cosine 端点 / AdamW）
-python train.py --max-iters 300 --eval-interval 100 --out /tmp/c.npz   # 4 秒试跑，不覆盖自带 ckpt.npz
-python train.py              # 完整 2000 步，约 27 秒，会覆盖 ckpt.npz
+python train.py --max-iters 300 --eval-interval 100 --out /tmp/c.npz   # 约 3 秒试跑，不覆盖自带 ckpt.npz
+python train.py              # 完整 2000 步，约 20 秒，会覆盖 ckpt.npz
 python train.py --n-layer 2 --weight-decay 0.1 --grad-clip 1.0 --cosine --out /tmp/c2.npz
 python sample.py "ROMEO:" --max-new 120 --temperature 0.8              # 用自带 ckpt.npz
 python sample.py --ckpt /tmp/c2.npz --top-k 10
@@ -63,30 +63,43 @@ python bpe.py --merges 300   # 独立的 BPE 演示
 `python gradcheck.py`：7 个算子的相对误差在 1e-11 ~ 2e-10，端到端两种层数全部 `[OK ]`：
 
 ```
-[1] 逐算子 gradcheck（全元素，断言 rel < 1e-06）
+[1] 逐算子 gradcheck (全元素, 断言 rel < 1e-06)
   [OK ] linear         max_rel=2.42e-11
   [OK ] rmsnorm        max_rel=8.16e-11
   [OK ] attention      max_rel=1.57e-10
   [OK ] cross_entropy  max_rel=1.81e-10      （另有 embedding / relu / mlp）
 [2] 端到端 gradcheck  n_layer=2 ...
-  [OK ] pos_emb          max_abs=1.00e-07  max_rel=1.14e-06      ← 最差的一项
-all gradients within tolerance — analytical backward looks correct.
+  [OK ] pos_emb          max_abs=1.00e-07  max_rel=1.14e-06      （节选 1 项）
+全部梯度都在容差内: 手写 backward 与 forward 一致。
 ```
 
 把 `rmsnorm_backward` 的耦合项故意删掉，逐算子检查立刻报 `rmsnorm: dx 相对误差 3.11e-01`——这就是它存在的意义。
 
-`python optim.py`：`optim self-check OK: clip 37.14 → 1.000000, cosine lr 1.0e-04 → 1.0e-03 → 1.0e-04`
+`python optim.py`：`optim 自检通过: 裁剪 37.14 → 1.000000, cosine lr 1.0e-04 → 1.0e-03 → 1.0e-04`
 
-`python train.py`（默认 1 层，45,568 参数）。第 1 步 loss 必须 ≈ ln 65 = 4.174，代码里有断言：
+`python train.py`（默认参数：1 层，45,568 参数，2000 步，每 200 步评估一次）。第 1 步 loss 必须 ≈ ln 65 = 4.174，代码里有断言。下面节选 4 行，`...` 处省略了中间的评估行；最后一列是累计耗时，每台机器不同：
 
 ```
-step     1 | train_loss 4.1770 | val_loss 4.1453
-step   500 | train_loss 2.4463 | val_loss 2.3920
-step  1000 | train_loss 2.0278 | val_loss 2.1128
-step  2000 | train_loss 1.9119 | val_loss 1.9809 | 26.8s
+step     1 | train_loss 4.1770 | val_loss 4.1453 | lr 3.00e-04 | 0.1s
+step   200 | train_loss 2.7276 | val_loss 2.6774 | lr 3.00e-04 | 2.0s
+...
+step  1000 | train_loss 2.0907 | val_loss 2.1120 | lr 3.00e-04 | 9.8s
+...
+step  2000 | train_loss 1.8878 | val_loss 1.9856 | lr 3.00e-04 | 19.5s
 ```
 
-2 层 + AdamW(0.1) + clip(1.0) + cosine（78,656 参数）：2000 步 val\_loss 2.0452、45 秒——**并不比 1 层好**。步数这么少时 cosine 过早把 lr 降到 3e-5，多出来的一层还没学起来；这里要学的是"这些开关怎么实现"，不是"开了就一定更好"。
+每次评估会从同一个随机数发生器里抽 batch，所以改 `--eval-interval` 后，后面的 loss 会有小幅出入。
+
+`python train.py --n-layer 2 --weight-decay 0.1 --grad-clip 1.0 --cosine`（2 层 + AdamW + 裁剪 + cosine，78,656 参数）：
+
+```
+step  2000 | train_loss 1.9704 | val_loss 2.0421 | lr 3.00e-05 | 37.6s
+```
+
+val\_loss 2.0421，**并不比 1 层的 1.9856 好**，耗时约 38 秒：
+
+- 步数这么少时，cosine 过早把 lr 降到 3e-5，多出来的一层还没学起来。
+- 这里要学的是"这些开关怎么实现"。开了不一定更好。
 
 `python sample.py "ROMEO:" --max-new 120 --temperature 0.8`（自带 ckpt，val≈2.0 的水平：像英语，但还不是英语）：
 
@@ -104,18 +117,20 @@ Gacking wich should bothess preath my him her patime have a fare don to whenth t
 3. **embedding 反向写成 `dW[ids] += dout`**：重复 id 只会被加一次，梯度悄悄偏小。必须 `np.add.at`。
 4. **AdamW = Adam + L2 正则**：L2 是把 `λW` 加进梯度，会被 `1/√v` 缩放，梯度大的参数几乎不衰减；AdamW 把 `λW` 直接加在更新量上，所有参数按同一比例衰减。另外 gain / bias（1 维参数）不做衰减。
 5. **梯度裁剪是逐参数裁**：那样会改变梯度方向。全局范数裁剪是所有参数同乘一个系数，方向不变。
-6. **多层需要新的反向推导**：不需要。前向 `for` 循环存下每层 cache，反向 `reversed` 再走一遍。层数直接从参数名 `block_{i}_*` 数出来，所以没有 `n_layer` 字段的旧 `ckpt.npz` 照常加载。
+6. **多层需要新的反向推导**：不需要。前向 `for` 循环存下每层 cache，反向 `reversed` 再走一遍。层数直接从参数名 `block_{i}_*` 数出来，所以 checkpoint 里不必存 `n_layer`：自带的 `ckpt.npz` 就没有这个字段，照常加载。
 
 ## 自测题
 
 1. 为什么交叉熵对 logits 的梯度 `(p − onehot)/N` 每一行加起来恰好为 0？这意味着什么？
-   **答**：`Σp = 1`、`Σonehot = 1`，相减为 0。意味着给一行 logits 同时加一个常数不改变 loss（softmax 平移不变），梯度在这个方向上没有分量。`gradcheck.py` 里有这条断言。
+   **答**：`Σp = 1`、`Σonehot = 1`，相减为 0。意味着给一行 logits 同时加一个常数不改变 loss（softmax 平移不变），梯度在这个方向上没有分量。`gradcheck.py` 断言的是所有行的梯度总和为 0，比"每一行为 0"弱一些。
 2. `attention_backward` 里没有再对 `dscores` 乘一次 causal mask，为什么被屏蔽位置的梯度仍然是 0？
    **答**：被屏蔽位置 `scores = −inf` → `A = 0`；softmax 反向 `dS = A ⊙ (…)` 带一个因子 A，所以自动为 0。
 3. 训练第 1 步 loss 打印出 20 而不是 4.17，最可能哪里错了？
    **答**：初始化太大：logits 不再 ≈ 0，模型"自信地瞎猜"，loss ≫ ln V（实测把矩阵 std 从 0.02 改成 1，初始 loss = 19.98）。应检查 `init_weights` 的 std=0.02；`train.py` 的断言 `|loss − ln V| < 0.5` 会直接拦下。
 
-## 刻意省略了什么
+## 与真实系统的差距
+
+为了让每一步都看得见，这里刻意省略了这些：
 
 | 这里 | 真模型 | 到哪里看 |
 | --- | --- | --- |

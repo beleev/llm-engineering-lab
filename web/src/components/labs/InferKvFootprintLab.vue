@@ -31,13 +31,13 @@
 
     <div class="bars">
       <div v-for="v in variants" :key="v.name" class="bar-row" :class="{ native: v.name === native }">
-        <span class="bar-name mono">{{ v.name }}<small>{{ v.what }}</small></span>
+        <span class="bar-name mono">{{ v.name }}<small>{{ v.what }}{{ v.name === native ? ' · 实际采用' : '' }}</small></span>
         <span class="bar-track"><span class="bar-fill" :style="{ width: (v.bytes / variants[0].bytes) * 100 + '%', background: v.color }" /></span>
         <span class="bar-val mono">{{ fmtKiB(v.bytes) }}</span>
       </div>
     </div>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} 190`" role="img" aria-label="每种结构在显存预算内能放几条序列">
+    <svg ref="svg" :viewBox="`0 0 ${W} 190`" role="group" aria-label="每种结构在显存预算内能放几条序列">
       <g v-for="(v, i) in variants" :key="v.name" :transform="`translate(0, ${18 + i * 38})`">
         <text x="0" y="-4" class="ax">{{ v.name }} · 每条 {{ v.gib.toFixed(2) }} GiB · 放得下 {{ v.fit }} 条</text>
         <template v-if="v.gib * sx >= 3">
@@ -68,8 +68,8 @@
         <span>{{ v.name }} 最大并发</span>
         <b :class="v.fit === 0 ? 'bad' : v.fit === best ? 'good' : ''">{{ v.fit }} 条</b>
       </div>
-      <div class="kv"><span>MLA 比 MHA 省</span><b class="good">{{ (variants[0].bytes / variants[3].bytes).toFixed(1) }}×</b></div>
       <div class="lab-note">
+        <p>每 token 字节, MHA 是 MLA 的 {{ (variants[0].bytes / variants[3].bytes).toFixed(1) }}×。标着「实际采用」的那一行是所选模型真正用的结构; 拖过滑杆后不再对应任何预设。</p>
         <ul class="pts">
           <li><b>每 token 字节:</b> <Tex text="$2 \cdot n_{\text{kv}} \cdot d_{\text{head}} \cdot n_{\text{layer}} \cdot \text{bytes}$" />。</li>
           <li><b>MLA:</b> <Tex text="$(d_c + d_{\text{rope}}) \cdot n_{\text{layer}} \cdot \text{bytes}$。K/V 共用 latent, 没有「$2 \cdot$」。" /></li>
@@ -90,7 +90,7 @@ import { useDrag } from '@/composables/useDrag.js'
 import { clamp } from '@/utils/labmath.js'
 
 const PRESETS = [
-  { name: 'LLaMA-2-7B', L: 32, h: 5, kv: 3, dh: 7, dc: 512, native: 'MHA' },
+  { name: 'LLaMA-2-7B', L: 32, h: 5, kv: 5, dh: 7, dc: 512, native: 'MHA' },   // 32 个 KV 头: 没有分组, GQA 那一行和 MHA 一样大
   { name: 'LLaMA-3-8B', L: 32, h: 5, kv: 3, dh: 7, dc: 512, native: 'GQA' },
   { name: 'LLaMA-3-70B', L: 80, h: 6, kv: 3, dh: 7, dc: 512, native: 'GQA' },
   { name: 'DeepSeek-V3', L: 61, h: 7, kv: 3, dh: 7, dc: 512, native: 'MLA' },
@@ -100,8 +100,11 @@ const D_ROPE = 64, GIB = 2 ** 30, W = 640, sx = W / 160
 
 const L = ref(32), hExp = ref(5), kvExp = ref(3), dhExp = ref(7), dc = ref(512)
 const ctxExp = ref(13), nbytes = ref(2), budget = ref(40)
-const presetName = ref('LLaMA-3-8B'), native = ref('GQA')
-const apply = (p) => { L.value = p.L; hExp.value = p.h; kvExp.value = p.kv; dhExp.value = p.dh; dc.value = p.dc; presetName.value = p.name; native.value = p.native }
+const apply = (p) => { L.value = p.L; hExp.value = p.h; kvExp.value = p.kv; dhExp.value = p.dh; dc.value = p.dc }
+// 选中的预设从滑杆的值反推: 滑杆一动, 对不上任何预设, 高亮就消失
+const preset = computed(() => PRESETS.find((p) => p.L === L.value && p.h === hExp.value && p.kv === kvExp.value && p.dh === dhExp.value && p.dc === dc.value))
+const presetName = computed(() => preset.value?.name)
+const native = computed(() => preset.value?.native)
 
 watch(hExp, (h) => { kvExp.value = Math.min(kvExp.value, h) }) // KV 头数不能超过 query 头数
 
@@ -113,7 +116,7 @@ const variants = computed(() => {
   const gqa = (nkv) => 2 * nkv * dh * L.value * nbytes.value          // ★ 2 = K 和 V
   const rows = [
     { name: 'MHA', what: `${H} kv 头`, bytes: gqa(H), color: 'var(--danger)' },
-    { name: 'GQA', what: `${G} kv 头`, bytes: gqa(G), color: 'var(--warn)' },
+    { name: 'GQA', what: G === H ? `${G} kv 头 = MHA` : `${G} kv 头`, bytes: gqa(G), color: 'var(--warn)' },
     { name: 'MQA', what: '1 kv 头', bytes: gqa(1), color: 'var(--left)' },
     { name: 'MLA', what: `latent ${dc.value}+${D_ROPE}`, bytes: (dc.value + D_ROPE) * L.value * nbytes.value, color: 'var(--accent)' },
   ]

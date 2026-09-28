@@ -21,20 +21,24 @@ DROPOUT_P = 0.25
 
 
 def train_steps(model, optim, data, rng: np.random.RandomState, steps: int) -> None:
+    """原地训练 steps 步。四个对象 (模型, 优化器, 数据流, RNG) 的状态都会被推进。"""
     for _ in range(steps):
-        x, y = data.next_batch()
+        x, y = data.next_batch()                                       # [B, d_in], [B, d_out]
+        # mask [B, d_in]: 以 DROPOUT_P 的概率置 0; 留下的除以 (1-p), 输入的期望不变
         mask = (rng.rand(*x.shape) >= DROPOUT_P) / (1 - DROPOUT_P)     # 输入 dropout: 每步消耗 RNG
         _, grads = model.loss_and_grads((x * mask).astype(np.float32), y)
         optim.step(model.params(), grads)
 
 
 def fresh(model_seed=8, data_seed=9, rng_seed=10):
+    """从头建一套 (模型, 优化器, 数据流, RNG)。三个种子各管一样; 优化器的 lr / momentum 写死。"""
     model = LinearModel.init(4, 2, seed=model_seed)
     return model, MomentumSGD(model.params(), lr=0.05, momentum=0.8), \
         ToyDataStream(4, 2, batch_size=6, seed=data_seed), np.random.RandomState(rng_seed)
 
 
 def snapshot(model, optim, data, rng, step) -> dict:
+    """把文件头 "状态清单" 里的五样东西收进一个 dict, 交给 save_checkpoint 落盘。"""
     return {
         "model": {k: v.copy() for k, v in model.params().items()},
         "optim": optim.state_dict(),
@@ -66,24 +70,29 @@ def main() -> None:
     train_steps(*run, steps=3)
     with tempfile.TemporaryDirectory(prefix="llm_train_ckpt_") as tmp:
         path = Path(tmp) / "step_0003.pkl"
-        save_checkpoint(path, snapshot(*run, step=3))                   # 原子写: tmp → rename
+        state = snapshot(*run, step=3)
+        save_checkpoint(path, state)                                    # 原子写: tmp → rename
         size = path.stat().st_size
+        rng_bytes = state["rng"][1].nbytes                              # MT19937 的 624 个 uint32
+        model_bytes = sum(v.nbytes for v in state["model"].values())
 
         results = {}
         for skip in [(), ("rng",), ("optim",), ("data",)]:
-            # "新进程": 所有对象用不同的种子/超参重建, 只有 checkpoint 能把它们拉回正轨
+            # "新进程": 模型、数据流、RNG 换一组种子重建, 只有 checkpoint 能把它们拉回正轨。
+            # 优化器的 lr / momentum 和原来相同, velocity 从 0 起步; 漏恢复它丢的是 velocity
             model, _, data, rng = fresh(model_seed=999, data_seed=777, rng_seed=555)
             optim = MomentumSGD(model.params(), lr=0.05, momentum=0.8)
             step = restore(load_checkpoint(path), model, optim, data, rng, skip=skip)
             train_steps(model, optim, data, rng, steps=5 - step)
             results[skip] = max_abs_diff(ref[0].params(), model.params())
 
-    kv("checkpoint 大小", f"{size} B (其中 RNG 状态 ~2.5KB, 比模型还大)")
+    kv("checkpoint 大小", f"{size} B (其中 RNG 状态 {rng_bytes} B, 模型参数只有 {model_bytes} B)")
     kv("完整恢复: max |Δ| vs 不中断", f"{results[()]:.1e}")
     kv("漏掉 RNG 状态", f"{results[('rng',)]:.1e}")
     kv("漏掉 optimizer 状态", f"{results[('optim',)]:.1e}")
     kv("漏掉 data seed/cursor", f"{results[('data',)]:.1e}")
 
+    assert rng_bytes > model_bytes, "这个玩具模型上, RNG 状态比模型参数还大"
     assert results[()] == 0.0, "完整恢复必须逐位相同"
     assert all(results[s] > 1e-6 for s in results if s), "任何一项漏恢复都会让续训偏离"
     print("\n  OK: 参数 + 优化器 + 数据游标 + RNG 四样齐全才逐位续上; 漏任何一样都不报错, 只是悄悄偏了。")

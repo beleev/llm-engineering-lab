@@ -14,11 +14,11 @@ tiny_model.py — 极简 Decoder-only Transformer (numpy, 仅推理前向)
     ids (T,)
         │
         ▼
-    tok_emb(V, D) + RoPE                位置编码
+    tok_emb(V, D)                       只查表, 不加位置
         │
         ▼
     ┌─ Block × N_LAYER ────────────────┐
-    │   x → RMSNorm → Attn(causal) ──┐ │
+    │   x → RMSNorm → Attn(causal) ──┐ │   位置编码在这里: Q/K 上做 RoPE
     │                                + │
     │                                ↓ │
     │   h → RMSNorm → SwiGLU MLP ────┐ │
@@ -59,12 +59,13 @@ from llm_infer.core.utils import rms_norm, silu, dense_attention
 
 @dataclass(frozen=True)
 class ModelConfig:
+    """模型超参。frozen: 建好后不能改, 多个模块共用同一份配置时不会互相影响。"""
     vocab_size: int = 128
     d_model: int = 32
     d_mlp: int = 64
     n_layer: int = 4
-    max_seq_len: int = 512
-    rope_base: float = 10000.0
+    max_seq_len: int = 512          # RoPE 表预计算到这个长度, 位置超出会越界
+    rope_base: float = 10000.0      # RoPE 频率的底数, 取原论文的值
 
 
 # --------------------------------------------------------------------- #
@@ -89,6 +90,7 @@ class LayerWeights:
 
 @dataclass
 class ModelWeights:
+    """整个模型的权重: 词表 + N 层 + 末尾 norm + 输出头。"""
     tok_emb: np.ndarray        # (V, D)
     layers: List[LayerWeights] = field(default_factory=list)
     norm_f_g: np.ndarray = None  # (D,)
@@ -103,7 +105,9 @@ def init_weights(cfg: ModelConfig, seed: int = 42) -> ModelWeights:
     def rand(shape):
         # 简化的 xavier: std = 1/sqrt(fan_in)
         fan_in = shape[0]
-        return rs.randn(*shape).astype(np.float32) * fan_in ** -0.5   # python float: 保持 fp32 (np.sqrt 标量会升成 fp64)
+        # fan_in ** -0.5 是 python float, 乘完还是 fp32。
+        # 写成 / np.sqrt(fan_in) 会得到 np.float64 标量, NumPy 2 下权重被升成 fp64。
+        return rs.randn(*shape).astype(np.float32) * fan_in ** -0.5
 
     layers = []
     for _ in range(N):
@@ -133,8 +137,8 @@ def precompute_rope(d: int, max_t: int, base: float = 10000.0) -> Tuple[np.ndarr
         theta_k(pos) = pos / base^(2k/d)
     """
     half = d // 2
-    inv_freq = 1.0 / (base ** (np.arange(0, half).astype(np.float32) * 2.0 / d))
-    pos = np.arange(max_t).astype(np.float32)
+    inv_freq = 1.0 / (base ** (np.arange(0, half).astype(np.float32) * 2.0 / d))   # (d/2,) 第 k 对的角频率
+    pos = np.arange(max_t).astype(np.float32)                                        # (max_t,)
     freqs = np.outer(pos, inv_freq)         # (max_t, d/2)
     return np.cos(freqs), np.sin(freqs)
 
@@ -150,13 +154,13 @@ def apply_rope(x: np.ndarray, cos: np.ndarray, sin: np.ndarray, start_pos: int =
     if positions is None:
         positions = np.arange(start_pos, start_pos + t)
     c = cos[positions]                 # (T, d/2)
-    s = sin[positions]
+    s = sin[positions]                 # (T, d/2)
     # 把最后一维 D 切成两半: x = [x1 ; x2], 各 d/2
     x1, x2 = np.split(x, 2, axis=-1)
     # 旋转: [x1, x2] → [x1*cos - x2*sin, x1*sin + x2*cos]
     # 广播: c/s 是 (T, d/2), x1/x2 是 (T, d/2) → 直接乘
     if x1.ndim == 3:  # 多头, 在 head 维广播
-        c = c[:, None, :]
+        c = c[:, None, :]              # (T, d/2) → (T, 1, d/2)
         s = s[:, None, :]
     return np.concatenate([x1 * c - x2 * s, x1 * s + x2 * c], axis=-1)
 
@@ -183,17 +187,17 @@ def attn_forward(
     """
     # 1) Q K V 投影
     q = x @ layer.wq                       # (T_q, D)
-    k = x @ layer.wk
-    v = x @ layer.wv
+    k = x @ layer.wk                       # (T_q, D)
+    v = x @ layer.wv                       # (T_q, D)
 
-    # 2) RoPE 加在 Q / K 上 (V 不加)
+    # 2) RoPE 加在 Q / K 上 (V 不加): 位置只影响"谁看谁"的打分, 不改被取走的内容
     q = apply_rope(q, cos, sin, start_pos, positions)
     k = apply_rope(k, cos, sin, start_pos, positions)
 
     # 3) 拼接历史 KV
     if kv_cache is not None:
         K_prev, V_prev = kv_cache
-        K = np.concatenate([K_prev, k], axis=0)
+        K = np.concatenate([K_prev, k], axis=0)   # (ctx, D) + (T_q, D) → (T_k, D), T_k = ctx + T_q
         V = np.concatenate([V_prev, v], axis=0)
     else:
         K, V = k, v
@@ -202,15 +206,15 @@ def attn_forward(
     out = dense_attention(q, K, V, mask)    # (T_q, D)
 
     # 5) 输出投影
-    out = out @ layer.wo
+    out = out @ layer.wo                    # (T_q, D)
     return out, (K, V)
 
 
 def mlp_forward(x: np.ndarray, layer: LayerWeights) -> np.ndarray:
-    """SwiGLU MLP: down( silu(gate(x)) * up(x) )"""
-    gate = silu(x @ layer.w_gate)
-    up = x @ layer.w_up
-    return (gate * up) @ layer.w_down
+    """SwiGLU MLP: down( silu(gate(x)) * up(x) )。x (T, D) → (T, D)。"""
+    gate = silu(x @ layer.w_gate)          # (T, H) 门控: 每个隐藏单元放行多少
+    up = x @ layer.w_up                    # (T, H) 被门控的内容
+    return (gate * up) @ layer.w_down      # (T, H) → (T, D)
 
 
 def block_forward(
@@ -222,7 +226,7 @@ def block_forward(
     positions: Optional[np.ndarray] = None,
     mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-    """PreLN 风格: norm → sublayer → residual"""
+    """PreLN 风格: norm → sublayer → residual。x (T, D) → (x (T, D), 本层新的 (K, V))。"""
     # attention sublayer
     h = rms_norm(x, layer.norm1_g)
     h, new_kv = attn_forward(h, layer, cos, sin, kv_cache, start_pos, positions, mask)
@@ -269,6 +273,7 @@ class TinyLM:
         """
         ids = np.atleast_1d(np.asarray(ids, dtype=np.int64))
         x = self.w.tok_emb[ids]                           # (T, D)
+        # 新 token 的起始位置 = cache 里已有的 token 数 (取第 0 层的 K 行数, 各层相同)
         start = 0 if kv_cache is None else kv_cache[0][0].shape[0]
         new_kv = []
         for li, layer in enumerate(self.w.layers):
@@ -297,11 +302,12 @@ class TinyLM:
     # ------------------------------------------------------------- #
 
     def generate_greedy(self, prompt_ids: np.ndarray, max_new: int = 16) -> List[int]:
+        """prefill 一次, 再逐 token decode, 每步取 argmax。返回 prompt + max_new 个新 token。"""
         out_ids: List[int] = list(prompt_ids)
         logits, kv = self.prefill(prompt_ids)
-        next_id = int(np.argmax(logits[-1]))
+        next_id = int(np.argmax(logits[-1]))      # 只有最后一行预测的是下一个 token
         out_ids.append(next_id)
-        for _ in range(max_new - 1):
+        for _ in range(max_new - 1):              # prefill 已经产出第 1 个, 所以只循环 max_new-1 次
             logits, kv = self.decode_step(next_id, kv)
             next_id = int(np.argmax(logits))
             out_ids.append(next_id)

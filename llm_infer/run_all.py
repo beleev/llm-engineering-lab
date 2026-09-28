@@ -1,4 +1,6 @@
-"""Run all llm_infer demos in learning-path order (每个 demo 都以 assert 收尾, 任何一个失败即非 0 退出)。
+"""按学习路径的顺序跑完 llm_infer 的全部 demo。
+
+每个 demo 都以 assert 收尾, 任何一个失败即非 0 退出。
 
     python -m llm_infer.run_all
 """
@@ -21,6 +23,7 @@ DEMOS = [
 
 
 def main() -> None:
+    """逐个 import 各模块的 demo 并调用 main(), 最后打印每个 demo 的耗时。"""
     times = []
     for name in DEMOS:
         t0 = time.perf_counter()
@@ -29,7 +32,7 @@ def main() -> None:
     print("\n" + "=" * 70)
     for name, dt in times:
         print(f"  ✓ {name:<28} {dt:6.2f}s")
-    print(f"  {len(times)} demos passed, total {sum(dt for _, dt in times):.1f}s")
+    print(f"  {len(times)} 个 demo 全部通过, 共 {sum(dt for _, dt in times):.1f}s")
 
 
 if __name__ == "__main__":

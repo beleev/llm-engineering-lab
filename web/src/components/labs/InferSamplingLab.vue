@@ -8,21 +8,22 @@
     sub="上下文「今天天气真」的下一个 token。
       - 空心框: 过滤前的概率。实心: 过滤并重新归一化后的概率。被砍掉的 token 下面标着是哪一级砍的。
       - 点柱子: 把它放进 / 移出「已出现过」的历史, 吃重复惩罚。
-      - 拖竖线: 改 top-k。"
+      - 拖竖线: 改 top-k。「温度放在过滤之后」把温度挪到最后一级, 两种顺序的存活数并排在右侧。"
     module="llm_infer/m10"
     run="python -m llm_infer.m10_sampling.demo"
     :challenge="{
-      ask: '设 top-p = 0.9, 记下存活个数; 然后把温度从 1.0 拖到 2.0。存活数变多还是变少? 再设 min-p = 0.1 做同样的事。如果把顺序改成「先 top-p 再除温度」, 结果还一样吗?',
-      answer: '温度在过滤之前, $T$ 变大 → 分布变平:\n- top-p: 凑够 0.9 的质量需要更多 token, 留下的变多。\n- min-p: 阈值是 $\\text{min\\_p} \\times p_{\\max}$, 分布变平后 $p_{\\max}$ 下降, 留下的也变多。\n- top-k: 完全不看分布, 永远留 $k$ 个。\n前两者都是「模型越犹豫留得越多」。如果先过滤再除温度, 存活集合就与 $T$ 无关了。\n同一组参数在不同框架里结果不同, 多半就是顺序不同, 例如 min-p 放在 top-p 之前还是之后。',
+      ask: '默认 top-k = 8、top-p = 0.9, 存活 5 个。把温度从 1.0 拖到 2.0, 存活数变多还是变少?',
+      answer: '变多: 5 个 → 7 个。\n温度在过滤之前, $T$ 变大 → 分布变平:\n- top-p: 凑够 0.9 的质量需要更多 token, 留下的变多。\n- min-p: 阈值是 $\\text{min\\_p} \\times p_{\\max}$, 分布变平后 $p_{\\max}$ 下降, 留下的也变多。\n- top-k: 完全不看分布, 永远留 $k$ 个。\n前两者都是「模型越犹豫留得越多」。\n打开「温度放在过滤之后」再拖温度: 存活数停在 5, 与 $T$ 无关。\n同一组参数在不同框架里结果不同, 多半就是顺序不同, 例如 min-p 放在 top-p 之前还是之后。',
     }"
   >
     <template #controls>
       <LabSlider v-model="pen" label="① 重复惩罚" :min="1" :max="2" :step="0.05" :format="(t) => t.toFixed(2)" />
-      <LabSlider v-model="T" label="② 温度 T" :min="0.2" :max="3" :step="0.1" :format="(t) => t.toFixed(1)" />
-      <LabSlider v-model="topK" label="③ top-k (0 = 关)" :min="0" :max="16" />
-      <LabSlider v-model="topP" label="④ top-p" :min="0.05" :max="1" :step="0.05" :format="(t) => t.toFixed(2)" />
-      <LabSlider v-model="minP" label="⑤ min-p" :min="0" :max="0.5" :step="0.01" :format="(t) => t.toFixed(2)" />
+      <LabSlider v-model="T" :label="`${NO.T} 温度 T`" :min="0.2" :max="3" :step="0.1" :format="(t) => t.toFixed(1)" />
+      <LabSlider v-model="topK" :label="`${NO.k} top-k (0 = 关)`" :min="0" :max="16" />
+      <LabSlider v-model="topP" :label="`${NO.p} top-p`" :min="0.05" :max="1" :step="0.05" :format="(t) => t.toFixed(2)" />
+      <LabSlider v-model="minP" :label="`${NO.m} min-p`" :min="0" :max="0.5" :step="0.01" :format="(t) => t.toFixed(2)" />
       <div class="row">
+        <button type="button" :class="{ active: tempLast }" :aria-pressed="tempLast" @click="tempLast = !tempLast">温度放在过滤之后</button>
         <button type="button" @click="seed++">换一组 logits</button>
         <button type="button" @click="hist = new Set()">清空历史</button>
       </div>
@@ -43,7 +44,7 @@
       </g>
       <g class="draggable" tabindex="0" role="slider" aria-label="拖动改变 top-k" :aria-valuenow="topK" aria-valuemin="0" aria-valuemax="16"
         @pointerdown="start($event, { svg, onMove })"
-        @keydown.left="topK = clamp((topK || V) - 1, 1, V)" @keydown.right="topK = topK && topK < V - 1 ? topK + 1 : 0">
+        @keydown.left.prevent="topK = clamp((topK || V) - 1, 1, V)" @keydown.right.prevent="topK = topK && topK < V - 1 ? topK + 1 : 0">
         <rect :x="cutX - 8" y="4" width="16" height="190" class="grab" />
         <line :x1="cutX" :x2="cutX" y1="14" y2="192" class="cutline" />
         <text :x="Math.min(cutX, X0 + V * BW - 22)" y="10" class="cutlbl">top-k = {{ topK || '关' }}</text>
@@ -51,10 +52,9 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>存活 token</span><b>{{ alive.length }} / {{ V }}</b></div>
+      <div class="kv"><span>存活: 温度在前 / 在后</span><b>{{ aliveBoth[0] }} / {{ aliveBoth[1] }}</b></div>
       <div class="kv"><span>保留的原始概率质量</span><b :class="mass < 0.5 ? 'bad' : 'good'">{{ (mass * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>熵: 过滤前 → 后 (nats)</span><b>{{ hPre.toFixed(2) }} → {{ hPost.toFixed(2) }}</b></div>
-      <div class="kv"><span>top-1 概率 (最终)</span><b>{{ top1.toFixed(3) }}</b></div>
       <div class="kv"><span>各级砍掉</span><b class="sm">k {{ cutBy.k }} · p {{ cutBy.p }} · min-p {{ cutBy.m }}</b></div>
       <div class="lab-note">
         <ul class="pts">
@@ -62,7 +62,7 @@
           <li><b>top-p:</b> 留下 "累计质量首次 <Tex text="$\ge p$" /> 的最小集合"。</li>
           <li><b>min-p:</b> 砍掉 <Tex text="$p < \text{min\_p} \cdot p_{\max}$" /> 的。</li>
         </ul>
-        <p>后面的级只看到前面留下的 token。</p>
+        <p>后面的级只看到前面留下的 token。温度放到过滤之后, 三级过滤看到的就是 <Tex text="$T = 1$" /> 的分布, 存活数不再跟着温度变。</p>
       </div>
     </template>
   </LabFrame>
@@ -80,7 +80,10 @@ const TOKS = ['好', '不错', '热', '冷', '棒', '糟', '的', '舒服', '闷
 const BASE = [4.2, 3.6, 3.1, 2.8, 2.4, 1.9, 1.5, 1.2, 0.8, 0.4, 0, -0.5, -1, -1.5, -2.5, -3.5]
 const NAMES = { k: 'top-k', p: 'top-p', m: 'min-p' }
 const V = TOKS.length, X0 = 10, BW = 34
-const pen = ref(1), T = ref(1), topK = ref(0), topP = ref(1), minP = ref(0), seed = ref(1)
+// 默认开着 top-k 和 top-p: 一打开就能看到两级过滤各砍了谁
+const pen = ref(1), T = ref(1), topK = ref(8), topP = ref(0.9), minP = ref(0), seed = ref(1)
+const tempLast = ref(false)
+const NO = computed(() => (tempLast.value ? { T: '⑤', k: '②', p: '③', m: '④' } : { T: '②', k: '③', p: '④', m: '⑤' }))
 const hist = ref(new Set())
 const svg = ref(null)
 const { start } = useDrag()
@@ -89,9 +92,10 @@ const toggle = (i) => { const s = new Set(hist.value); s.has(i) ? s.delete(i) : 
 const logits = computed(() => { const rand = mulberry32(seed.value * 31 + 5); return BASE.map((z) => z + (seed.value > 1 ? 0.8 * randn(rand) : 0)) })
 
 // ★ 与 samplers.sample 同序: rep penalty → /T → top-k → top-p → min-p; 每一级只在上一级的幸存者上重新 softmax
-const pipe = computed(() => {
+// late = true 是对照组: 三级过滤先在 T = 1 的分布上做完, 最后才除温度
+const run = (late) => {
   let z = logits.value.map((v, i) => (hist.value.has(i) && pen.value !== 1 ? (v > 0 ? v / pen.value : v * pen.value) : v))
-  z = z.map((v) => v / T.value)
+  if (!late) z = z.map((v) => v / T.value)
   const pre = softmax(z), by = Array(V).fill('')
   const order = () => z.map((v, i) => i).filter((i) => z[i] > -Infinity).sort((a, b) => z[b] - z[a])
   const kill = (ids, tag) => ids.forEach((i) => { z[i] = -Infinity; by[i] = tag })
@@ -103,15 +107,16 @@ const pipe = computed(() => {
     kill(o.slice(keep), 'p')
   }
   if (minP.value > 0) { const p = softmax(z), pm = Math.max(...p); kill(order().filter((i) => p[i] < minP.value * pm), 'm') }
-  return { pre, post: softmax(z), by }
-})
+  return { pre, post: softmax(z, late ? T.value : 1), by, alive: by.filter((b) => !b).length }
+}
+const pipe = computed(() => run(tempLast.value))
+const aliveBoth = computed(() => [run(false).alive, run(true).alive])
 
 const bars = computed(() => TOKS.map((tok, i) => ({ i, tok, pre: pipe.value.pre[i], post: pipe.value.post[i], by: pipe.value.by[i] }))
   .sort((a, b) => b.pre - a.pre))
 const alive = computed(() => bars.value.filter((b) => !b.by))
 const mass = computed(() => sum(alive.value.map((b) => b.pre)))
 const hPre = computed(() => entropy(pipe.value.pre)), hPost = computed(() => entropy(pipe.value.post))
-const top1 = computed(() => Math.max(...pipe.value.post))
 const cutBy = computed(() => Object.fromEntries(['k', 'p', 'm'].map((t) => [t, bars.value.filter((b) => b.by === t).length])))
 
 // 纵轴按最大概率向上取整到 0.25 的倍数: 柱子够高, 又不会每动一下就缩放

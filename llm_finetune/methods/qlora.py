@@ -33,22 +33,31 @@ NF4_CODEBOOK = torch.tensor([
 
 def nf4_quantize(w: torch.Tensor, block_size: int = 64) -> Tuple[torch.Tensor, torch.Tensor]:
     """w → (packed uint8 [⌈N_pad/2⌉], scales [n_blocks])。N_pad = numel 向上对齐到 block_size。"""
-    flat = w.detach().reshape(-1).float()
-    flat = F.pad(flat, (0, (-flat.numel()) % block_size))             # 末块补 0
+    flat = w.detach().reshape(-1).float()                             # [N] 摊平
+    # (-N) % bs = 补到 bs 整数倍还差几个
+    flat = F.pad(flat, (0, (-flat.numel()) % block_size))             # [N_pad] 末块补 0
     blocks = flat.view(-1, block_size)                                # [n_blocks, bs]
-    scales = blocks.abs().amax(dim=1, keepdim=True).clamp_min(1e-12)  # absmax → 归一化到 [-1, 1]
+    # clamp_min: 整块全 0 时 absmax = 0, 下面要除以它, 垫一个极小值防除零
+    scales = blocks.abs().amax(dim=1, keepdim=True).clamp_min(1e-12)  # [n_blocks, 1] absmax → 归一化到 [-1, 1]
     # 最近邻查码本: [n_blocks, bs, 1] − [16] → argmin (真实实现用二分)
     idx = ((blocks / scales).unsqueeze(-1) - NF4_CODEBOOK.to(w.device)).abs().argmin(dim=-1)
     idx = idx.view(-1).to(torch.uint8)                                # [N_pad]
     if idx.numel() % 2:                                               # block_size 为奇数时 N_pad 可能是奇数:
         idx = F.pad(idx, (0, 1))                                      # 补一个索引凑满最后一个字节
-    return (idx[0::2] << 4) | idx[1::2], scales.view(-1)              # 高 4 位 | 低 4 位
+    # 两个 4-bit 索引拼进一个字节: 偶数位的放高 4 位, 奇数位的放低 4 位
+    return (idx[0::2] << 4) | idx[1::2], scales.view(-1)              # 高 4 位 | 低 4 位; scales [n_blocks]
 
 
 def nf4_dequantize(packed: torch.Tensor, scales: torch.Tensor, shape: torch.Size,
                    block_size: int = 64) -> torch.Tensor:
+    """
+    (packed uint8 [⌈N_pad/2⌉], scales [n_blocks]) → w_hat, 形状 = shape。nf4_quantize 的逆过程。
+    三步: 每个字节拆成两个 4-bit 索引 → 查码本再乘回各块的 scale → 裁掉量化时补的 0。
+    """
+    # [n_bytes, 2] → [2·n_bytes], 即 N_pad 或 N_pad+1 个索引
     idx = torch.stack([packed >> 4, packed & 0x0F], dim=1).view(-1).long()   # 还原交错顺序
-    idx = idx[: scales.numel() * block_size]                          # 丢掉凑字节的那个索引
+    idx = idx[: scales.numel() * block_size]                          # [N_pad] 丢掉凑字节的那个索引
+    # 码本值 [n_blocks, bs] × 每块的 scale [n_blocks, 1]
     flat = NF4_CODEBOOK.to(packed.device)[idx].view(-1, block_size) * scales.view(-1, 1)
     return flat.view(-1)[: shape.numel()].view(shape)                 # 丢掉末块补的 0
 
@@ -61,12 +70,14 @@ class NF4Linear(nn.Module):
         self.in_features, self.out_features = base.in_features, base.out_features
         self.block_size, self.shape = block_size, base.weight.shape
         packed, scales = nf4_quantize(base.weight, block_size)
+        # buffer 不是 Parameter: 不进 optimizer, 但跟着 state_dict 和 .to(device) 走
         self.register_buffer("packed_weight", packed)
         self.register_buffer("scales", scales)
         self.register_buffer("bias", None if base.bias is None else base.bias.detach().clone())
 
     @property
     def weight(self) -> torch.Tensor:
+        """反量化出的 fp32 权重 [d_out, d_in]。每次访问都重算一遍, 不缓存: 常驻内存的只有 4-bit 的 buffer。"""
         return nf4_dequantize(self.packed_weight, self.scales, self.shape, self.block_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

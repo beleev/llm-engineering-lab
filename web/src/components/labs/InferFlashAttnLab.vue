@@ -2,12 +2,12 @@
 <template>
   <LabFrame
     title="FlashAttention — 分块 + online softmax"
-    sub="左边是 $N \times N$ 的注意力分数矩阵 (因果, 右上角被 mask)。它从不完整存在: 每次只有一个 tile (橙色) 进 SRAM。
+    sub="左边是 $N \times N$ 的注意力分数矩阵 (因果, 右上角被 mask)。它从不完整存在: 每次只有一个 tile (高亮的那块) 进 SRAM。
       点左侧的 q 行号, 跟踪一行 query。这一行只靠「运行最大值 $m$」和「运行分母 $l$」两个数。看完最后一个 tile 时, 就得到和整行 softmax 完全相同的结果。"
     module="llm_infer/m11"
     run="python -m llm_infer.m11_flash_attention.demo"
     :challenge="{
-      ask: '单步播放, 盯着右下角的更新记录: 什么时候旧的 l 会被乘上一个小于 1 的数? 如果不乘会怎样?',
+      ask: '单步播放, 盯着右下角的更新记录: 什么时候旧的 l 会被乘上一个小于 1 的数?',
       answer: '当新 tile 里出现了比 $m$ 更大的分数时。\n$l$ 里存的是 $\\sum \\exp(s - m_{\\text{old}})$。基准换成 $m_{\\text{new}}$ 后, 旧的每一项都要乘 $\\exp(m_{\\text{old}} - m_{\\text{new}}) < 1$, 才和新项在同一个基准下。\n- 不乘: 旧 key 的权重会被高估。\n- 干脆不减最大值: exp 在 fp16 下 $s > 11$ 就溢出。\nonline softmax 的全部内容就是这一行重缩放。它让 softmax 变成可以分块累加的量, $N \\times N$ 矩阵不用落地, 显存从 $O(N^2)$ 降到 $O(\\text{块}^2)$。',
     }"
   >
@@ -46,11 +46,10 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>SRAM 工作集 vs 整矩阵</span><b class="good">{{ bs * bs }} vs {{ N * N }} ({{ (N * N / (bs * bs)).toFixed(0) }}×)</b></div>
-      <div class="kv"><span>q{{ row }} 的运行最大值 <Tex text="$m$" /></span><b>{{ state.log.length ? fmt(state.m) : '—' }}</b></div>
-      <div class="kv"><span>q{{ row }} 的运行分母 <Tex text="$l$" /></span><b>{{ state.log.length ? fmt(state.l) : '—' }}</b></div>
+      <div class="kv"><span>SRAM 工作集 vs 整矩阵</span><b :class="bs * bs < N * N ? 'good' : ''">{{ bs * bs }} vs {{ N * N }} ({{ (N * N / (bs * bs)).toFixed(0) }}×)</b></div>
+      <div class="kv"><span>q{{ row }} 的运行最大值 <Tex text="$m$" /> / 分母 <Tex text="$l$" /></span><b>{{ state.log.length ? `${fmt(state.m)} / ${fmt(state.l)}` : '—' }}</b></div>
       <div class="kv"><span><Tex text="$\mathrm{lse} = m + \ln l$" /></span><b>{{ state.log.length ? fmt(state.m + Math.log(state.l)) : '—' }}</b></div>
-      <div class="kv"><span><Tex text="全部行: $\max|\text{online} - \text{整块}|$" /></span><b class="good">{{ maxDiff === 0 ? '0' : maxDiff.toExponential(1) }}</b></div>
+      <div class="kv"><span><Tex text="全部行: $\max|\text{online} - \text{整块}|$" /></span><b :class="maxDiff < 1e-6 ? 'good' : 'bad'">{{ maxDiff === 0 ? '0' : maxDiff.toExponential(1) }}</b></div>
       <p class="lab-note">
         每个 tile 只进 SRAM 一次, 共 {{ tiles.length }} 个 (因果: 整块被 mask 的 tile 直接跳过)。
         真实 kernel 还同步累计输出 O (同样乘 <Tex text="$\exp(m_{\text{old}} - m_{\text{new}})$" />), 并把 lse 存下来供反向和分段合并 (ring attention / chunked prefill) 使用。

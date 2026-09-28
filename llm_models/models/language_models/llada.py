@@ -9,6 +9,10 @@ LLaDA — 掩码扩散语言模型 (Nie et al. 2025, "Large Language Diffusion M
     前向 (加噪):  每个 token 独立以概率 t 变成 [MASK]
     loss = E_t E_mask [ (1/t) · Σ_{i 被遮} −log p(x_i | x_noisy) ] / L        ≥ −log p(x) / L
     采样: 第 s 步 (共 N 步) 后仍遮住的个数 = round(n · (1 − s/N)); 留下置信度高的, 把置信度低的重新遮住
+本库的做法 (教学约定, 不代表原模型):
+    - 零件直接复用 LLaMA 的; [MASK] 固定取词表最后一个 id。
+    - lm_head 与 embedding 共享权重、embedding 乘 √D, 见 models/__init__.py。
+    - 训练时的 t 用分层采样 (见 forward_process), 只为降低小 batch 下 loss 的方差。
 读代码时盯住: `t` (训练时的遮蔽比例) 和 `n_masked` (采样时每步还剩多少 [MASK])。
 """
 
@@ -37,12 +41,16 @@ def forward_process(
     """
     扩散前向过程: 每条序列抽一个 t, 每个 token 独立以概率 t 换成 [MASK]。
 
-    Returns: noisy [B, T], masked [B, T] bool, t [B]
+    x [B, T] 是干净的 token id。
+    Returns: noisy [B, T] (被遮位置换成 mask_id), masked [B, T] bool (True=被遮), t [B]
+    eps: t 的下限。loss 要乘 1/t, t 不能取到 0。
     """
     B, T = x.shape
     # 分层采样: 一个 batch 内的 t 均匀铺满 (eps, 1), 比 B 个独立 U(0,1) 方差小得多 (1/t 权重很吃方差)
-    u = torch.rand(1, generator=generator, device=x.device)
+    u = torch.rand(1, generator=generator, device=x.device)               # [1] 整个 batch 共用的起点
+    # 第 i 条取 (u + i/B) mod 1: B 个点等间隔; 再从 [0, 1) 线性映射到 [eps, 1)
     t = (u + torch.arange(B, device=x.device) / B) % 1 * (1 - eps) + eps  # [B]
+    # t[:, None] 是 [B, 1], 广播到每个 token: 同一条序列内所有位置用同一个 t
     masked = torch.rand(B, T, generator=generator, device=x.device) < t[:, None]  # [B, T]
     return x.masked_fill(masked, mask_id), masked, t
 
@@ -65,8 +73,13 @@ class LLaDALoss(LossComputer):
         t: torch.Tensor = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
+        """
+        model_output: logits [B, T, V]; labels: 干净的 token id [B, T];
+        masked [B, T] bool 和 t [B] 来自 forward_process。返回 {"total_loss": 标量}。
+        """
         # cross_entropy 要求类别维在 dim=1: [B, T, V] -> [B, V, T]
         ce = F.cross_entropy(model_output.transpose(1, 2), labels, reduction="none")  # [B, T]
+        # ce * masked: 没被遮的位置清零。/ t[:, None]: 每条序列按自己的 t 加权, [B] → [B, 1]
         loss = (ce * masked / t[:, None]).sum() / labels.numel()
         return {"total_loss": loss}
 
@@ -78,6 +91,10 @@ class LLaDA(nn.Module):
     词表约定: 最后一个 id (vocab_size − 1) 是 [MASK]。
 
     Args 同 LLaMA; max_len 只用于 RoPE 预计算。
+
+    forward 返回 Tensor; 接受 attention_mask。
+    没有 KV cache: 双向注意力下, 改一个 token 所有位置的输出都变, sample() 每步整段重算。
+    generate() 是本类自己写的 (去噪), 不来自 GenerationMixin。
     """
 
     def __init__(
@@ -116,13 +133,16 @@ class LLaDA(nn.Module):
         self.ln_f = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         self.lm_head.weight = self.token_embedding.weight  # weight tying
-        init_weights(self)
+        init_weights(self)  # weight tying 之后; 初始 logits ≈ 0
 
     def forward(self, idx: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """idx [B, T] (可含 mask_id), attention_mask [B, T] 1=有效 0=pad → logits [B, T, V]"""
+        """
+        idx [B, T] (可含 mask_id), attention_mask [B, T] 1=有效 0=pad → logits [B, T, V]
+        返回 Tensor。没有 cache 参数。
+        """
         if idx.size(1) > self.max_len:
             raise ValueError(f"序列长度 {idx.size(1)} 超过 max_len={self.max_len}")
-        x = self.token_embedding(idx) * math.sqrt(self.d_model)  # [B, T, D]
+        x = self.token_embedding(idx) * math.sqrt(self.d_model)  # [B, T, D]; ·√D 是本库约定
         # 与 LLaMA 唯一的区别: 只有 padding mask, 没有下三角 → 每个位置能看到左右两边
         mask = None if attention_mask is None else attention_mask.bool().unsqueeze(1)  # [B, 1, T]
         for layer in self.layers:
@@ -145,6 +165,8 @@ class LLaDA(nn.Module):
         已经定下来的 token 置信度记为 +inf, 永不重遮 (论文 Algorithm 5)。
 
         Args:
+            x:           [B, T]。要生成的位置填 mask_id, 其余位置是已知 token, 全程不变
+            steps:       去噪步数 N。每步一次完整前向
             remasking:   "low_confidence" (置信度 = 所选 token 的概率) | "random"
             temperature: 0 → argmax; >0 → 按 softmax(logits / temperature) 采样
         Returns:
@@ -152,33 +174,38 @@ class LLaDA(nn.Module):
         """
         assert remasking in ("low_confidence", "random")
         self.eval()
-        x = x.clone()
+        x = x.clone()  # 不改调用方传进来的张量
         n_gen = (x == self.mask_id).sum(1)  # [B] 每行要生成多少个
         history = []
         for s in range(1, steps + 1):
             is_masked = x == self.mask_id  # [B, T]
             logits = self(x)  # [B, T, V]  每步整段重算: 双向注意力下没有 KV cache 可用
             logits[..., self.mask_id] = float("-inf")  # 永远不生成 [MASK] 本身
-            probs = F.softmax(logits, dim=-1)
+            probs = F.softmax(logits, dim=-1)  # [B, T, V] 置信度始终用温度 1 的概率
             if temperature > 0:
                 p = F.softmax(logits / temperature, dim=-1)
+                # multinomial 只收 2 维: [B, T, V] → [B·T, V] → 采样 [B·T, 1] → [B, T]
                 x0 = torch.multinomial(p.flatten(0, 1), 1).view_as(x)  # [B, T]
             else:
                 x0 = probs.argmax(-1)  # [B, T]
             if remasking == "low_confidence":
                 conf = probs.gather(-1, x0.unsqueeze(-1)).squeeze(-1)  # [B, T]
             else:
-                conf = torch.rand(x.shape, device=x.device)
+                conf = torch.rand(x.shape, device=x.device)  # [B, T] 随机重遮: 置信度用随机数顶替
             conf = conf.masked_fill(~is_masked, float("inf"))  # 已定的 token 排在最后, 不会被重遮
 
             x = torch.where(is_masked, x0, x)  # 先全部填上
             n_masked = torch.round(n_gen * (1 - s / steps)).long()  # [B] 线性日程: 本步结束后应剩的 [MASK] 数
+            # argsort 两次: 第一次得到 "排第几的是谁", 第二次得到 "每个位置排第几"
             rank = conf.argsort(1).argsort(1)  # [B, T] 置信度升序名次, 0 = 最没把握
             x = x.masked_fill(rank < n_masked[:, None], self.mask_id)  # 重新遮住最没把握的 n_masked 个
             history.append(x.clone())
         return (x, history) if return_history else x
 
     def generate(self, prompt: torch.Tensor, gen_len: int, steps: int, **kwargs):
-        """prompt [B, P] → [B, P + gen_len]: 在 prompt 后接 gen_len 个 [MASK] 再去噪。"""
+        """
+        prompt [B, P] → [B, P + gen_len]: 在 prompt 后接 gen_len 个 [MASK] 再去噪。
+        **kwargs 原样传给 sample() (remasking / temperature / return_history)。
+        """
         blanks = prompt.new_full((prompt.size(0), gen_len), self.mask_id)
         return self.sample(torch.cat([prompt, blanks], dim=1), steps, **kwargs)

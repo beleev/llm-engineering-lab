@@ -6,7 +6,7 @@
   <LabFrame
     title="激活重算 — 段长 k 怎么选?"
     sub="- 上图: 峰值激活份数随段长 k 的变化, 左右拖动圆点改 k。
-      - 下图: 一次前向 + 反向里每个激活的生死。紫色 = 前向时存下的段边界; 橙色 = 反向时临时重算出来的, 用完即弃。"
+      - 下图: 一次前向 + 反向里每个激活的生死。分两种: 前向时存下的段边界, 和反向时临时重算出来、用完即弃的, 颜色看图例。"
     module="llm_train/m07"
     run="python -m llm_train.m07_activation_checkpointing.demo"
     :challenge="{
@@ -20,7 +20,7 @@
       <StepPlayer :stepper="stepper" :label="frame.label" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="峰值激活随段长变化曲线">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="峰值激活随段长变化曲线, 曲线上的圆点可拖">
       <line :x1="X0" :x2="W - 10" :y1="H - 24" :y2="H - 24" class="axis" />
       <line :x1="X0" :x2="X0" :y1="10" :y2="H - 24" class="axis" />
       <text :x="X0 - 6" :y="py(L + 1) + 4" class="tick" text-anchor="end">{{ L + 1 }}</text>
@@ -45,13 +45,15 @@
         :title="`a${i - 1}: 第 ${i - 1} 层的输入` + (frame.live[i - 1] ? '' : ' (此刻不在显存里)')"
       >{{ i - 1 }}</span>
     </div>
+    <p class="legend">
+      <span class="cell on" /> 前向存下的段边界 <span class="cell hot" /> 反向时重算出来的 <span class="cell dim" /> 此刻不在显存里
+    </p>
 
     <template #stats>
       <div class="kv"><span>此刻活着的激活</span><b>{{ frame.count }}</b></div>
       <div class="kv"><span>峰值 (k = {{ k }})</span><b :class="cur.peak === best.peak ? 'good' : cur.peak > L * 0.8 ? 'bad' : ''">{{ cur.peak }} 份</b></div>
-      <div class="kv"><span>最优 k = {{ best.k }}</span><b class="good">{{ best.peak }} 份</b></div>
-      <div class="kv"><span>前向层调用次数</span><b>{{ cur.fwd }} <small>(不重算 {{ L }})</small></b></div>
-      <div class="kv"><span>额外计算 (F:B = 1:2)</span><b :class="{ bad: cur.extra > 0.3 }">+{{ (cur.extra * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>最优 k = {{ best.k }}</span><b>{{ best.peak }} 份</b></div>
+      <div class="kv"><span>前向层调用 {{ cur.fwd }} 次 (不重算 {{ L }}), 额外计算 (F:B = 1:2)</span><b :class="{ bad: cur.extra > 0.3 }">+{{ (cur.extra * 100).toFixed(1) }}%</b></div>
       <p class="lab-note">
         ★ 峰值出现在反向刚重算完最后一段时: 所有段边界都还在, 再加上这一段的内部激活。
         梯度与不重算逐位相同。换的只是"存"和"算"。
@@ -121,5 +123,6 @@ const py = (p) => 18 + (1 - p / (L.value + 1)) * (H - 46)
 .acts { margin-top: 12px; }
 .acts .cell { min-width: 18px; }
 .cell.now { outline: 2px solid var(--accent); outline-offset: 1px; }
-small { font-size: 10px; color: var(--text-dim); font-weight: 400; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; font-size: 11px; color: var(--text-dim); }
+.legend .cell { min-width: 14px; width: 14px; height: 14px; }
 </style>

@@ -45,10 +45,10 @@ class GatedDeltaNet(nn.Module):
 
     接口与库内注意力层对齐 (可直接装进 PreLNBlock):
         forward(q, k=None, v=None, mask=None, rope=None, position_ids=None)
-    其中 mask / rope 被接受但忽略:
-        - 因果性由递推天然保证 (状态只能从过去流向未来), 不需要 mask
-        - 位置信息由衰减门 α 隐式编码 (越旧的信息衰减越多), 不需要 RoPE
-          (Qwen3-Next 只在全注意力层上用部分 RoPE)
+    其中 rope 被接受但忽略: 位置信息由衰减门 α 隐式编码 (越旧的信息衰减越多), 不需要 RoPE
+    (Qwen3-Next 只在全注意力层上用部分 RoPE)。
+    mask 的含义和注意力层不同: 因果性由递推天然保证 (状态只能从过去流向未来), 不需要因果 mask;
+    这里的 mask 是 [B, T] 的 "哪些是真 token", 用来让 pad 不写进状态 (见 forward)。
 
     Args:
         d_model:   隐藏维度
@@ -82,26 +82,38 @@ class GatedDeltaNet(nn.Module):
         q: torch.Tensor,
         k: Optional[torch.Tensor] = None,
         v: Optional[torch.Tensor] = None,
-        mask: Optional[torch.Tensor] = None,        # 接受但忽略: 递推天然因果
+        mask: Optional[torch.Tensor] = None,        # [B, T] 1=真 token 0=pad; None = 全是真 token
         rope: Optional[nn.Module] = None,            # 接受但忽略: 衰减门隐式编码位置
         position_ids: Optional[torch.Tensor] = None,
         cache: Optional[dict] = None,                # 解码用: cache["state"] 就是全部 "KV cache"
     ) -> torch.Tensor:
+        """q [B, T, D] → [B, T, D]。只做自注意力: k / v 不读, 只用 q。
+
+        mask: [B, T], 只管本次的 T 个 token。pad 位置取 β=0 (不写)、α=1 (不衰减),
+            状态原样传过去, 所以左 pad 不改真 token 的输出。pad 位置自己的输出没有意义。
+        cache: 给了就从 cache["state"] [B, H, Dh, Dh] 接着递推, 结束时写回。
+        """
         x = q                                        # PreLNBlock 传 q=k=v=h
         B, T, D = x.shape
         H, Dh = self.num_heads, self.d_head
 
         def split_heads(t: torch.Tensor) -> torch.Tensor:
-            return t.view(B, T, H, Dh).transpose(1, 2)          # [B, H, T, Dh]
+            return t.view(B, T, H, Dh).transpose(1, 2)          # [B, T, D] → [B, T, H, Dh] → [B, H, T, Dh]
 
         # q/k 按 DeltaNet 惯例做 L2 归一化: 保证 (I - β k k^T) 的谱半径 <= 1,
         # 递推不会数值爆炸 (k k^T 是到 k 方向的投影, β∈(0,1) 时是收缩映射)
-        qh = F.normalize(split_heads(self.w_q(x)), dim=-1)
-        kh = F.normalize(split_heads(self.w_k(x)), dim=-1)
-        vh = split_heads(self.w_v(x))
+        qh = F.normalize(split_heads(self.w_q(x)), dim=-1)      # [B, H, T, Dh], 每个向量模长 1
+        kh = F.normalize(split_heads(self.w_k(x)), dim=-1)      # [B, H, T, Dh]
+        vh = split_heads(self.w_v(x))                           # [B, H, T, Dh]
 
+        # 每步每头一个标量门: [B, T, D] → [B, T, H] → [B, H, T], sigmoid 压到 (0, 1)
         alpha = torch.sigmoid(self.gate_alpha(x)).transpose(1, 2)   # [B, H, T]
         beta = torch.sigmoid(self.gate_beta(x)).transpose(1, 2)     # [B, H, T]
+        if mask is not None:
+            # pad 位置: β=0 写入项为 0, α=1 旧状态不衰减 → S 原样传给下一步
+            real = mask.to(x.dtype).unsqueeze(1)                    # [B, T] → [B, 1, T], 在 head 维广播
+            beta = beta * real
+            alpha = alpha * real + (1 - real)
 
         # 状态矩阵: 每个 (batch, head) 一个 Dh×Dh —— 这就是全部"KV cache"
         # 有 cache 时从上一步的状态接着递推 (大小与已读过多少 token 无关 → O(1))
@@ -110,26 +122,27 @@ class GatedDeltaNet(nn.Module):
         for t in range(T):
             k_t = kh[:, :, t]                        # [B, H, Dh]
             v_t = vh[:, :, t]                        # [B, H, Dh]
-            a_t = alpha[:, :, t, None, None]         # [B, H, 1, 1]
-            b_t = beta[:, :, t, None, None]
+            a_t = alpha[:, :, t, None, None]         # [B, H] → [B, H, 1, 1], 好和状态矩阵广播
+            b_t = beta[:, :, t, None, None]          # [B, H, 1, 1]
 
             # delta rule: 先读出 k_t 方向当前存的值, 擦掉, 再写入新值
             #   S ← α (S - β k (k^T S)) + β k v^T
+            # einsum 下标: d = key 维, e = value 维。"bhd,bhe->bhde" 是外积 k·vᵀ
             k_read = torch.einsum("bhd,bhde->bhe", k_t, state)       # k^T S  [B,H,Dh]
             state = a_t * (state - b_t * torch.einsum("bhd,bhe->bhde", k_t, k_read)) \
-                + b_t * torch.einsum("bhd,bhe->bhde", k_t, v_t)
+                + b_t * torch.einsum("bhd,bhe->bhde", k_t, v_t)      # [B, H, Dh, Dh]
 
-            # 读取: o_t = S^T q_t
-            outs.append(torch.einsum("bhd,bhde->bhe", qh[:, :, t], state))
+            # 读取: o_t = S^T q_t。先写后读, 所以位置 t 能读到自己刚写进去的内容
+            outs.append(torch.einsum("bhd,bhde->bhe", qh[:, :, t], state))   # [B, H, Dh]
 
         if cache is not None:
             cache["state"] = state
 
-        o = torch.stack(outs, dim=2)                 # [B, H, T, Dh]
-        o = o.transpose(1, 2).reshape(B, T, D)
+        o = torch.stack(outs, dim=2)                 # T 个 [B, H, Dh] → [B, H, T, Dh]
+        o = o.transpose(1, 2).reshape(B, T, D)       # [B, H, T, Dh] → [B, T, H, Dh] → [B, T, D]
 
         # 输出门 + 输出投影
-        o = o * F.silu(self.w_gate(x))
+        o = o * F.silu(self.w_gate(x))               # [B, T, D] 逐元素门控
         return self.w_o(o)
 
     def state_size_per_token(self) -> int:

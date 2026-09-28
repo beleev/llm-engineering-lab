@@ -30,6 +30,7 @@ def parse_pairs(s: str):
         obj = json.loads(s, object_pairs_hook=list)
     except ValueError:
         return None
+    # 顶层是数组时 json.loads 也返回 list, 所以再确认文本以 "{" 开头
     return obj if isinstance(obj, list) and s.lstrip().startswith("{") else None
 
 
@@ -51,9 +52,10 @@ def main() -> None:
     banner("M14 - Structured Output (FSM → token mask table)")
 
     # ---- [1] 字符级 FSM ------------------------------------------------
-    print("\n[1] 字符级 FSM + 随机 logits (200 个 seed)")
+    n_seed = 200
+    print(f"\n[1] 字符级 FSM + 随机 logits ({n_seed} 个 seed)")
     tok = CharTokenizer()
-    outs = [char_level_decode(tok, seed) for seed in range(200)]
+    outs = [char_level_decode(tok, seed) for seed in range(n_seed)]
     for s in outs[:3]:
         print(f"    {s}")
     n_pairs = [len(parse_pairs(s) or []) for s in outs]
@@ -86,8 +88,10 @@ def main() -> None:
     print(f"    greedy: {greedy}")
     n_ok = sum(parse_pairs(s) is not None and done for s, done in outs)
     kv(f"约束采样 {N} 次, 合法 JSON", f"{n_ok}/{N}")
-    assert n_ok == N and parse_pairs(greedy) is not None
-    assert all(1 <= len(parse_pairs(s)) <= MAX_PAIRS for s, _ in outs)
+    assert n_ok == N, f"约束采样的每个输出都应是以 EOS 收尾的合法 JSON, 实际 {n_ok}/{N}"
+    assert parse_pairs(greedy) is not None, f"greedy 约束解码的输出应是合法 JSON, 实际 {greedy!r}"
+    assert all(1 <= len(parse_pairs(s)) <= MAX_PAIRS for s, _ in outs), \
+        f"每个输出的 pair 数应在 1..{MAX_PAIRS} 之间"
 
     # ---- [3] 无约束对照 ------------------------------------------------
     print("\n[3] 同一个模型, 不加 mask")
@@ -96,23 +100,25 @@ def main() -> None:
     print(f"    {raw[0][:60]!r}")
     n_raw = sum(parse_pairs(s) is not None for s in raw)
     kv(f"无约束采样 {N} 次, 合法 JSON", f"{n_raw}/{N}")
-    assert n_raw <= N * 0.05
+    assert n_raw <= N * 0.05, f"不加 mask 时合法 JSON 应不超过 5%, 实际 {n_raw}/{N}"
 
     # ---- [4] max_tokens 与强制收尾 --------------------------------------
-    print("\n[4] max_tokens 很紧时 (=12; 本 grammar 最短合法输出 = "
+    tight = 12                                                   # 紧的 max_tokens: 够写完, 但不能乱走
+    print(f"\n[4] max_tokens 很紧时 (={tight}; 本 grammar 最短合法输出 = "
           f"{int(table.need[0].min()) + 1} 个 token 含 EOS)")
     res = {}
     for mode in ("mask", "budget"):
         rng = np.random.RandomState(1)
-        runs = [generate(lm, table, 12, rng, mode) for _ in range(N)]
+        runs = [generate(lm, table, tight, rng, mode) for _ in range(N)]
         res[mode] = sum(done and parse_pairs(s) is not None for s, done in runs)
         kv(f"mode={mode:<6} 完整合法 JSON", f"{res[mode]}/{N}   例: {runs[0][0]!r}")
-    assert res["budget"] == N and res["mask"] < N
+    assert res["budget"] == N, f"budget 模式应在 max_tokens 内全部闭合, 实际 {res['budget']}/{N}"
+    assert res["mask"] < N, "只查 mask 时应有输出被 max_tokens 截断, 否则这一节看不出两种模式的差别"
 
     # ---- [5] 每步开销: 查表 vs 现算 -------------------------------------
     print("\n[5] 每个 decode step 取 mask 的耗时 (遍历全部状态取平均)")
     trans, accept = compile_char_dfa(JsonFSM(max_pairs=MAX_PAIRS))
-    reps = 20
+    reps = 20                                                    # 重复次数, 压掉计时噪声
     t0 = time.perf_counter()
     for _ in range(reps):
         for s in range(S):
@@ -126,7 +132,8 @@ def main() -> None:
     kv("在线现算 O(V·len)", f"{fly_us:.1f} µs/step")
     kv("查表 O(1)", f"{lut_us:.3f} µs/step  ({fly_us / lut_us:.0f}x)")
     kv("预编译摊销", f"≈ {compile_ms * 1e3 / fly_us:.0f} 个 step 的现算成本, 之后全是净赚")
-    assert lut_us < fly_us
+    # 这条依赖墙钟计时, 机器很忙时可能偶发失败, 重跑即可
+    assert lut_us < fly_us, f"查表应比在线现算快: {lut_us:.3f} µs vs {fly_us:.1f} µs"
     print(f"\n  注: 现算成本 ∝ V。按 V 线性外推到 128k 词表 ≈ {fly_us * 128_000 / V / 1e3:.0f} ms/step (本 Python 实现;"
           "\n      C++ 快两个数量级也仍与一次 GPU decode 前向可比), 查表始终是取一行 bitmask。")
 

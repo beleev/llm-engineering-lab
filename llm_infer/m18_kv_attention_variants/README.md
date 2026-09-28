@@ -33,14 +33,14 @@ GQA 代码路径 (`GQALayer.forward`): q reshape 成 `(n_kv, n_head/n_kv, T, d)`
 python -m llm_infer.m18_kv_attention_variants.demo     # < 1 s
 ```
 ```
-config                             KiB/token  max tokens  batch@8192      (fp16, 40 GiB KV 预算)
+配置                               KiB/token  最多 token  batch@8192      (fp16, 40 GiB KV 预算)
 LLaMA-2-7B   MHA  32kv×128, 32L        512.0      81,920          10
 LLaMA-3-8B   GQA   8kv×128, 32L        128.0     327,680          40
 (假想) 7B    MQA   1kv×128, 32L         16.0   2,621,440         320
 (假想) DS-V3 MHA 128kv×128, 61L       3904.0      10,743           1
-DeepSeek-V3  MLA  512+64,   61L         68.6     611,191          74      → MLA 比同尺寸 MHA 省 56.9x
+DeepSeek-V3  MLA    512+64, 61L         68.6     611,191          74      → MLA 比同尺寸 MHA 省 56.9x
 
-variant                     max|Δ|  cache bytes   formula      (增量 decode vs 全量重算, 20 tokens, fp32)
+变体                        max|Δ|   cache 字节    公式值      (增量 decode vs 全量重算, 20 tokens, fp32)
 MHA (n_kv=8)              1.07e-06       61,440    61,440
 GQA (n_kv=2)              1.55e-06       15,360    15,360
 MQA (n_kv=1)              1.43e-06        7,680     7,680

@@ -19,7 +19,8 @@ from typing import List
 class CharTokenizer:
     """字符级 tokenizer。
 
-    词表 = 所有可打印 ASCII + 中文常用字 (按需扩) + 3 个特殊 token。
+    词表 = 3 个特殊 token + 可见 ASCII (32~126) + 换行和 tab, 共 100 个;
+    其他字符 (如中文) 由 extra_chars 传入。
     """
 
     PAD_ID = 0
@@ -30,8 +31,8 @@ class CharTokenizer:
         # 基本词表: 可见 ASCII (32~126) + 换行 + tab
         ascii_chars = "".join(chr(c) for c in range(32, 127)) + "\n\t"
         chars = list(dict.fromkeys(ascii_chars + extra_chars))  # 去重保序
-        self.itos: List[str] = ["<pad>", "<bos>", "<eos>"] + chars
-        self.stoi = {c: i for i, c in enumerate(self.itos)}
+        self.itos: List[str] = ["<pad>", "<bos>", "<eos>"] + chars   # id → 字符; 特殊 token 占 0/1/2
+        self.stoi = {c: i for i, c in enumerate(self.itos)}          # 字符 → id
         self.vocab_size = len(self.itos)
 
     # --- 编码 / 解码 ------------------------------------------------- #

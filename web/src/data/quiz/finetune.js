@@ -86,10 +86,10 @@ export default {
       why: '让 $\\lambda_D n_D \\approx \\lambda_U n_U$。调了准确率 0.988; 不调只有 0.492, EM 0.000。不调时坏样本的梯度压倒一切, 模型把所有回复一起往下压。log π(chosen) 掉到 −30.02, 偏好方向丢了, 生成全崩。',
     },
     {
-      q: '同样 200 步, DPO 的 log π(chosen) 从 −4.03 掉到 −4.25, KTO (1:1) 却升到 −3.73。原因是?',
+      q: '同样 200 步, KTO 脚本里同条件重跑的 DPO 对照, log π(chosen) 从 −4.03 掉到 −4.25, KTO (1:1) 却升到 −3.73。原因是?',
       options: ['好样本有自己的一项, 直接推高 $r$', 'KTO 不用 ref, 没有 KL 拖住 chosen', 'KTO 的 β 更小, policy 离 ref 更远', '参考点 $z_0 > 0$, 把好样本往上拉'],
       answer: 0,
-      why: 'DPO 只看 chosen 与 rejected 的差, 两边可以一起降。KTO 的好样本要高过参考点, 自己就有向上的力。本例 $z_0$ 全程为 0, 所以不是 $z_0$ 的功劳。',
+      why: 'DPO 只看 chosen 与 rejected 的差, 两边可以一起降。KTO 的好样本要高过参考点, 自己就有向上的力。本例 $z_0$ 全程为 0, 所以不是 $z_0$ 的功劳。单独跑 train_dpo 得到的是 −4.18: 两次独立运行, 结论相同。',
     },
     {
       q: 'KTO 的参考点 $z_0$ 用什么估?',
@@ -121,9 +121,9 @@ export default {
   'finetune-merge': [
     {
       q: 'Task Arithmetic 取 $\\lambda = 0.5$, 合并两个任务向量, 结果等于?',
-      options: ['两个微调模型的权重平均', '只保留任务 A', '基座本身', '两个任务向量各加一倍'],
+      options: ['两个微调模型的权重平均', '基座加上两个任务向量的和', 'SLERP $t=0.5$ 的球面插值', '基座加两个任务向量均值的一半'],
       answer: 0,
-      why: '$\\theta_0 + 0.5(\\tau_A + \\tau_B) = (\\theta_A + \\theta_B)/2$。每个任务向量只加了一半, 实测两段全对 EM 只有 0.039; $\\lambda = 1$ 时是 1.000。',
+      why: '$\\theta_0 + 0.5(\\tau_A + \\tau_B) = (\\theta_A + \\theta_B)/2$。每个任务向量只加了一半, 实测两段全对 EM 只有 0.039; $\\lambda = 1$ 时是 1.000。SLERP $t=0.5$ 还要再乘 $1/\\cos(\\Omega/2)$ (本例 1.014), 不等于简单平均。',
     },
     {
       q: 'DARE 以概率 $p$ 丢弃任务向量的坐标后, 为什么要把剩下的除以 $(1-p)$?',
@@ -138,10 +138,10 @@ export default {
       why: '整体正交 ≠ 逐坐标无冲突。随机符号的冲突率就是 50%。cos 是对所有坐标求和后的结论, 正负可以互相抵消。TIES 的 "选符号" 就是冲着逐坐标冲突去的。',
     },
     {
-      q: '每种方法各自在验证集上挑 λ 后, 本例留出集两段全对 EM 最高的是?',
-      options: ['TIES d=0.5 (修剪+选符号)', 'DARE p=0.5 (随机丢一半)', 'SLERP t=0.5 (球面插值)', 'Task Arithmetic'],
+      q: '各方法在验证集上挑过 λ 后, 留出集两段全对 EM: Task Arithmetic 1.000, DARE p=0.5 0.875, TIES d=0.5 0.734。TIES 为什么没赢?',
+      options: ['$\\cos(\\tau_A, \\tau_B) > 0$, 本来就没有符号冲突可修', 'TIES 没调 λ, 固定用 0.5, 每个 τ 只加了一半', '选符号时 B 总输给 A, B 段的更新被整段丢掉', 'τ 只有约 10 万参数, 冗余少, 修剪一半就伤到有用坐标'],
       answer: 3,
-      why: 'Task Arithmetic 1.000, DARE p=0.5 0.875, TIES 0.734, SLERP 0.090。换两个种子仍是 Task Arithmetic 最高。TIES/DARE 的收益依赖大模型任务向量的冗余, 玩具规模上看不到。',
+      why: 'TIES 要修的是大量小幅、冗余的坐标互相冲突。这里 τ 是约 10 万参数的全参更新, 修剪掉一半就伤到了有用的坐标。\n- 符号冲突有 47.4%, 并非没有。\n- TIES 挑到的 λ 是 1.5。\n- A、B 段准确率 0.947 / 0.948, 两段都在。\nSLERP 0.090。换两个种子仍是 Task Arithmetic 最高。TIES/DARE 的收益依赖大模型任务向量的冗余, 玩具规模上看不到。',
     },
   ],
   'finetune-rlaif': [
@@ -231,7 +231,7 @@ export default {
     },
     {
       q: '检查 PEFT 训练脚本"真的只训了 adapter", 最直接的办法是?',
-      options: ['看 loss: base 没冻住的话 loss 会明显震荡', '统计 requires_grad 参数占比, 并核对 optimizer 只拿到它们', '看显存: 只训 adapter 时显存应降到全参训练的零头', '看 checkpoint: 只有几十 KB 就说明只训了 adapter'],
+      options: ['看 loss: base 没冻住的话 loss 会明显震荡', '统计 requires_grad 参数占比, 并核对 optimizer 只拿到它们', '看显存: 只训 adapter 时显存应降到全参训练的零头', '看 checkpoint: 只有几十 KiB 就说明只训了 adapter'],
       answer: 1,
       why: 'loss 下降和显存都不能证明 base 被冻结; 参数统计 (本仓库的 print_trainable_parameters) 才是直接证据。',
     },
@@ -239,7 +239,7 @@ export default {
       q: '手上只有 (问, 答), 显存只够常驻一份权重加上 adapter 的优化器状态。下面哪一组还能用?',
       options: ['DPO + LoRA', 'GRPO 系 (β=0, 不带 ref)', 'LoRA / QLoRA / DoRA', 'SimPO / ORPO (无 ref)'],
       answer: 2,
-      why: '- DPO: 要常驻 policy + ref 两份 (778 KB, 加全参 Adam 合计 1556 KB)。\n- GRPO: 还得有 verifier, 并能在线采样。\n- SimPO / ORPO: 要的是成对偏好。\n只有 (问, 答) 且显存紧, 剩下的就是 PEFT 三兄弟。',
+      why: '- DPO: 要常驻 policy + ref 两份 (778 KiB, 加全参 Adam 合计 1556 KiB)。\n- GRPO: 还得有 verifier, 并能在线采样。\n- SimPO / ORPO: 要的是成对偏好。\n只有 (问, 答) 且显存紧, 剩下的就是 PEFT 三兄弟。',
     },
     {
       q: '线上日志只有单条回复的 👍 / 👎, 同一个 prompt 从没出现过两条回复。下面哪个能直接拿来训?',

@@ -9,6 +9,11 @@ DiT — 用 Transformer 取代 UNet 做扩散去噪骨架 (Peebles & Xie, 2023);
 
 关键数字: N = (H/p)², patch_size 减半 → token ×4 → 注意力算力 ×16 (DiT-XL/2 优于 /4 /8 的代价)。
 CFG: 训练时以 class_dropout 概率把 y 换成 null 类, 推理时 pred = uncond + s·(cond - uncond)。
+与论文的差异:
+    - 位置编码: 原版是固定的 2D sin-cos (不训练), 这里用可学习位置。
+    - 输出通道: 原版还预测方差, 输出 2C 个通道; 这里只输出 C 个通道 (噪声或 velocity)。
+    - 注意力用教学版 MultiHeadAttention (逐头循环), 数学上与标准 MHA 相同。
+本模型不调用 init_weights: 它会把 adaLN 调制层的零初始化改成 N(0, 0.02²), 恒等起点就没了。
 读代码时盯住: c 怎么来 (_make_condition), 以及 unpatchify 的 permute 顺序。
 """
 
@@ -38,7 +43,11 @@ class PatchifyConv(nn.Module):
 
 class DiT(nn.Module):
     """
-    DiT 图像扩散 Transformer (默认配置近似 DiT-B/2 的缩小版)。
+    DiT 图像扩散 Transformer。默认配置 = DiT-S/2 (12 层, d=384, 6 头, patch 2)。
+    对照: DiT-B 是 d=768 / 12 头, DiT-XL 是 28 层 d=1152。
+
+    forward(x, t, y) 返回 Tensor, 与 x 同形 [B, C, H, W]。
+    没有 attention_mask (patch 全部互相可见, 没有 padding), 没有 KV cache (不是自回归)。
 
     Args:
         latent_channels: VAE 潜空间通道 (SD 1.5 为 4)
@@ -82,7 +91,8 @@ class DiT(nn.Module):
 
         # 1) patchify
         self.patchify = PatchifyConv(latent_channels, d_model, patch_size)
-        # 2) 空间位置 (2D ViT 同款, 可学习)
+        # 2) 空间位置 (2D ViT 同款, 可学习), [1, N, D]
+        # 简化: 原版是固定的 2D sin-cos, 这里用可学习位置。分辨率固定, 每个 patch 一个向量就够
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, d_model))
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
@@ -127,20 +137,21 @@ class DiT(nn.Module):
 
         # [B, N, p²·C] → [B, H/p, W/p, p, p, C] → [B, C, H, W]
         x = x.view(B, H_grid, H_grid, p, p, C)
+        # 把 "第几行 patch" 和 "patch 内第几行像素" 挨在一起, 列同理, 下一步才能合并成 H 和 W
         x = x.permute(0, 5, 1, 3, 2, 4).contiguous()      # [B, C, H/p, p, W/p, p]
-        return x.view(B, C, H_grid * p, H_grid * p)
+        return x.view(B, C, H_grid * p, H_grid * p)       # [B, C, H, W]
 
     def _make_condition(
         self, t: torch.Tensor, y: Optional[torch.Tensor], training: bool
     ) -> torch.Tensor:
-        """组合 timestep + class embedding → 单个 c 向量。"""
+        """组合 timestep + class embedding → 单个 c 向量 [B, c_dim]。t [B], y [B] 或 None。"""
         c = self.t_embed(t)                                               # [B, c_dim]
         if self.class_embed is not None and y is not None:
             if training and self.class_dropout > 0:
                 # Classifier-free guidance 训练: 随机把类别换成 "null"
-                drop = torch.rand(y.shape[0], device=y.device) < self.class_dropout
+                drop = torch.rand(y.shape[0], device=y.device) < self.class_dropout   # [B] bool
                 y = torch.where(drop, torch.full_like(y, self.null_class_idx), y)
-            c = c + self.class_embed(y)
+            c = c + self.class_embed(y)                                   # [B, c_dim]
         return c
 
     def forward(
@@ -150,6 +161,8 @@ class DiT(nn.Module):
         y: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
+        返回 Tensor。采样器按位置参数调用 model(x, t, y), 签名顺序不能换。
+
         Args:
             x: [B, C, H, W] 含噪 latent (来自 VAE 潜空间)
             t: [B] 时间步, [0, 1000) 量纲 (用 AddNoiseResult.t_norm, 不要直接传 t∈[0,1])
@@ -159,7 +172,7 @@ class DiT(nn.Module):
         """
         c = self._make_condition(t, y, training=self.training)
 
-        tokens = self.patchify(x) + self.pos_embed                       # [B, N, D]
+        tokens = self.patchify(x) + self.pos_embed                       # [B, N, D] + [1, N, D]
         for block in self.blocks:
             tokens = block(tokens, c=c)
 

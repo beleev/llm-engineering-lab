@@ -9,6 +9,7 @@
 读代码时盯住: `mask` —— KD 项和 CE 项必须用**同一个** mask (label = −100 的位置都不算), 否则 prompt / pad 位置也在被蒸馏。
 forward KL = mode-covering: teacher 有质量的地方 student 都得有。数据来自 teacher / 数据集而不是 student 自己,
 所以 student 从没在**自己会走到的前缀**上被训练过 → 对照 on_policy_distill.py。
+未实现: 只蒸馏输出分布。中间层特征、注意力图的对齐都没有做。
 """
 
 from typing import Dict
@@ -47,7 +48,9 @@ class DistillLoss(LossComputer):
 
     def compute(self, model_output: Dict[str, torch.Tensor], labels: torch.Tensor,
                 **kwargs) -> Dict[str, torch.Tensor]:
+        # s / t: student / teacher 的 logits [B, T, V]; 大写 T 在这个函数里是温度, 不是序列长度
         s, t, T = model_output["student"], model_output["teacher"], self.temperature
+        # 硬标签项: [B, T, V] → [B·T, V], 温度固定为 1
         ce = F.cross_entropy(s.reshape(-1, s.size(-1)), labels.reshape(-1), ignore_index=-100)
 
         mask = labels != -100                                                        # [B, T]

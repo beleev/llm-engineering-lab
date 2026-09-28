@@ -8,6 +8,34 @@
       <p>教程与代码逐行对照, 你看到的每一段叙述都能在 Python 文件里找到出处。</p>
     </div>
 
+    <!-- ── 新手 30 秒导览: 第一次来的人先看这里, 所以紧跟在副标题下面 ───────── -->
+    <section class="section onboarding">
+      <h2>新手 30 秒导览 <span class="lead-inline">第一次来? 先看这里</span></h2>
+      <div class="grid grid-3 onboard-grid">
+        <div class="card onboard-card">
+          <div class="onboard-num">1</div>
+          <h3>这是什么</h3>
+          <p class="desc">
+            一份<strong>边读代码、边看图</strong>的 LLM 全栈教程。每章对应仓库里一段能跑的代码, 点链接直达 GitHub。
+          </p>
+        </div>
+        <div class="card onboard-card">
+          <div class="onboard-num">2</div>
+          <h3>需要先会什么</h3>
+          <p class="desc">
+            会一点 Python + 高中线性代数即可。<span class="muted-line">不需要 PyTorch, 阶段 1 用 numpy 把所有东西摊开。</span>
+          </p>
+        </div>
+        <div class="card onboard-card">
+          <div class="onboard-num">3</div>
+          <h3>怎么读</h3>
+          <p class="desc">
+            <strong>不用全读。</strong>先选档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章)。每章先拖实验台, 再看要点和源码, 最后做自测。
+          </p>
+        </div>
+      </div>
+    </section>
+
     <ChapterIntro
       tldr="一条主线, 把模型从公式带到能行动的系统。依次是: numpy 手写最小闭环 → 现代架构家族 → 规模化训练 → 任务微调 → 推理优化 → Agent 应用层。"
       question="如果一个新人要从零开始, 先看哪一段, 跳过哪一段?"
@@ -24,7 +52,6 @@
         { path: 'llm_infer/' },
         { path: 'llm_agent/' },
       ]"
-      :next-step="{ name: 'basic', label: '阶段 1 — 用 numpy 跑通整个 Transformer' }"
     />
 
     <!-- ── 接着上次学: 进度存在本机 localStorage, 回访时一步回到断点 ─────── -->
@@ -33,50 +60,26 @@
         <div>
           <p class="resume-k">接着上次学</p>
           <p class="resume-t">{{ resume.label }}</p>
-          <p class="desc">已读 {{ readCount }} / {{ learningPath.length }} 章 · 自测全对 {{ masteredCount }} 章</p>
+          <p class="desc">已读 {{ readCount }} / {{ chapters.length }} 章 · 自测全对 {{ masteredCount }} 章</p>
         </div>
         <div class="btn-group">
-          <router-link :to="{ name: resume.route }"><button type="button" class="active">回到这一章 →</button></router-link>
-          <router-link v-if="nextUnread" :to="{ name: nextUnread.route }"><button type="button">下一个没读的: {{ nextUnread.label }}</button></router-link>
+          <router-link :to="{ name: resume.route }" class="btn active">回到这一章 →</router-link>
+          <router-link v-if="nextUnread" :to="{ name: nextUnread.route }" class="btn">{{ levelLabel }}下一个没读的: {{ nextUnread.label }}</router-link>
         </div>
       </div>
     </section>
 
-    <!-- ── 该读哪些: 86 章太多, 先给一条路线 ─────────────────── -->
+    <!-- ── 该读哪些: 章节太多, 先给一条路线。全页只有一个主按钮:
+         第一次来是「从阶段 1 开始」, 回访时让给上面的「回到这一章」 ─────── -->
     <section class="section">
       <div class="card route-cta">
         <div>
-          <p class="cta-k">86 章不用全读</p>
+          <p class="cta-k">{{ chapters.length }} 章不用全读</p>
           <p class="cta-t">主干 {{ coreCount }} 章走完整条链路, 冲刺 {{ sprintCount }} 章一天读完; 其余是分支和深水区, 随时回来补。</p>
         </div>
-        <router-link :to="{ name: 'fast-track' }"><button type="button" class="active">看速成路线 →</button></router-link>
-      </div>
-    </section>
-
-    <!-- ── 新手 30 秒导览 ─────────────────────────────────────── -->
-    <section class="section onboarding">
-      <h2>新手 30 秒导览 <span class="lead-inline">第一次来? 先看这里</span></h2>
-      <div class="grid grid-3 onboard-grid">
-        <div class="card onboard-card">
-          <div class="onboard-num">1</div>
-          <h3>这是什么</h3>
-          <p class="desc">
-            一份<strong>边读代码、边看图</strong>的 LLM 全栈教程。每章对应仓库里一个 Python 文件, 鼠标点击即跳到 GitHub 源码。
-          </p>
-        </div>
-        <div class="card onboard-card">
-          <div class="onboard-num">2</div>
-          <h3>需要先会什么</h3>
-          <p class="desc">
-            会一点 Python + 高中线性代数即可。<span class="muted-line">不需要 PyTorch, 阶段 1 用 numpy 把所有东西摊开。</span>
-          </p>
-        </div>
-        <div class="card onboard-card">
-          <div class="onboard-num">3</div>
-          <h3>怎么读</h3>
-          <p class="desc">
-            <strong>顺序读</strong> 阶段 1→6, 每章先看 "本章一句话", 再点 "对应代码" 链接对照源文件。
-          </p>
+        <div class="cta-go">
+          <router-link :to="{ name: 'basic' }" :class="['btn', { active: !resume }]">从阶段 1 开始 →</router-link>
+          <router-link :to="{ name: 'fast-track' }" class="cta-alt">只有一天? 看速成路线</router-link>
         </div>
       </div>
     </section>
@@ -137,14 +140,13 @@
             <div class="stage-head">
               <span class="stage-idx">{{ s.idx }}</span>
               <span class="stage-code mono">{{ s.code }}</span>
-              <span :class="['stage-pill', s.status]">
-                {{ s.status === 'ready' ? '就绪' : '待补' }}
-              </span>
+              <span v-if="s.status !== 'ready'" :class="['stage-pill', s.status]">待补</span>
             </div>
             <h3 class="stage-title">{{ s.title }}</h3>
             <p class="stage-one">{{ s.oneliner }}</p>
+            <!-- 章节名在侧栏里都有, 卡片上只报数 -->
             <div v-if="s.chapters" class="stage-files">
-              <span v-for="c in s.chapters" :key="c.route" class="mono file-tag">{{ c.label }}</span>
+              <span class="mono file-tag">共 {{ s.chapters.length }} 章</span>
             </div>
             <div v-else-if="s.files" class="stage-files">
               <RepoLink
@@ -167,8 +169,8 @@
     <section class="section">
       <h2>阶段 2 内部 · llm_models 演进时间轴</h2>
       <div class="lead-group">
-        <p>2017 → 2025, 三条主线 (左脑 / 眼耳 / 右脑) 各自的代表模型。</p>
-        <p><strong>悬停看零件配置</strong>; 点击节点跳到对应章节, 那里用一份 PyTorch 实现把零件还原。</p>
+        <p>2017 → 2025, 三条主线 (语言 / 多模态理解 / 图像视频生成) 各自的代表模型。</p>
+        <p><strong>点一个节点看它的零件配置</strong>; 再点一次, 或点卡片里的「去这一章」, 跳到对应章节。那里用一份 PyTorch 实现把零件还原。</p>
       </div>
 
       <div class="legend">
@@ -195,34 +197,37 @@
             <template v-for="(t, k) in tracks" :key="k">
               <line :x1="40" :x2="W - 20" :y1="trackY(k)" :y2="trackY(k)"
                     :stroke="t.color" stroke-opacity="0.25" stroke-width="2" />
-              <text :x="16" :y="trackY(k) + 4" fill="var(--text-muted)" font-size="11">
-                {{ k === 'left' ? '左脑' : k === 'eye' ? '眼耳' : '右脑' }}
+              <text :x="4" :y="trackY(k) + 4" fill="var(--text-muted)" font-size="11">
+                {{ k === 'left' ? '语言' : k === 'eye' ? '多模态' : '生成' }}
               </text>
             </template>
           </g>
 
+          <!-- 第一次点击 / 回车是「选中」, 卡片留在原地; 对已选中的节点再来一次才跳转。
+               悬停和聚焦只是预览。触屏没有悬停, 走的是选中这条路 -->
           <g v-for="m in timeline" :key="m.id"
-             @click="goto(m.id)" @keydown.enter="goto(m.id)" @keydown.space.prevent="goto(m.id)"
+             @click="select(m.id)" @keydown.enter="select(m.id)" @keydown.space.prevent="select(m.id)"
              @mouseenter="hover = m.id" @mouseleave="hover = null"
              @focus="hover = m.id" @blur="hover = null"
-             tabindex="0" role="link" :aria-label="`${m.year} ${m.name}: ${m.blurb}`"
+             tabindex="0" role="button" :aria-pressed="pinned === m.id"
+             :aria-label="`${m.year} ${m.name}: ${m.blurb}。${pinned === m.id ? '再按一次进入对应章节' : '按回车看零件配置'}`"
              class="node">
             <circle :cx="nodeX(m)" :cy="trackY(m.track)"
-                    :r="hover === m.id ? 10 : 7"
+                    :r="shownId === m.id ? 10 : 7"
                     :fill="tracks[m.track].color"
                     stroke="var(--bg-card)" stroke-width="2.5" />
             <text :x="labelX(m)"
                   :y="labelY(m)"
                   text-anchor="middle"
                   font-size="11"
-                  :fill="hover === m.id ? 'var(--text)' : 'var(--text-muted)'"
-                  :font-weight="hover === m.id ? 600 : 400">
+                  :fill="shownId === m.id ? 'var(--text)' : 'var(--text-muted)'"
+                  :font-weight="shownId === m.id ? 600 : 400">
               {{ m.name }}
             </text>
           </g>
         </svg>
 
-        <div v-if="hover" class="hover-card">
+        <div v-if="hovered" class="hover-card" aria-live="polite">
           <div class="hover-head">
             <span :class="['pill', tracks[hovered.track].cls]">{{ hovered.kind }}</span>
             <strong>{{ hovered.name }}</strong>
@@ -237,6 +242,7 @@
           </div>
           <div class="hover-foot mono">
             <RepoLink :path="`llm_models/${hovered.file}`" :label="hovered.file" tiny />
+            <router-link :to="chapterOf(hovered.id)" class="go">去这一章 →</router-link>
           </div>
         </div>
       </div>
@@ -276,7 +282,8 @@
     <QuizCard />
 
 
-    <ChapterNav :next="{ name: 'basic', label: '阶段 1 · llm_basic', hint: '用 numpy 把 forward / backward / 采样 全部手写一遍' }" />
+    <!-- 下一章由 ChapterNav 自己从 learningPath 推 -->
+    <ChapterNav />
   </div>
 </template>
 
@@ -287,7 +294,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { tracks, timeline, years, findModel, stages, learningPath } from '@/data/models.js'
 import { useProgress } from '@/composables/useProgress.js'
-import { inLevel } from '@/data/tiers.js'
+import { LEVELS, inLevel } from '@/data/tiers.js'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import RepoLink from '@/components/RepoLink.vue'
@@ -297,15 +304,22 @@ import Tex from '@/components/Tex.vue'
 const progress = useProgress()
 const chapters = learningPath.filter((p) => p.route !== 'home')
 const resume = computed(() => chapters.find((p) => p.route === progress.state.last) || null)
-const nextUnread = computed(() => chapters.find((p) => !progress.isVisited(p.route)) || null)
+// 「下一个没读的」只在当前档位里找: 选了冲刺的读者不会被带去扩展章
+const nextUnread = computed(() => chapters.find((p) => inLevel(p.route, progress.state.level) && !progress.isVisited(p.route)) || null)
+const levelLabel = computed(() => (progress.state.level === 'all' ? '' : `${LEVELS.find((l) => l.id === progress.state.level)?.label || ''}档`))
 const coreCount = computed(() => chapters.filter((c) => inLevel(c.route, 'core')).length)
 const sprintCount = computed(() => chapters.filter((c) => inLevel(c.route, 'sprint')).length)
-const readCount = computed(() => learningPath.filter((p) => progress.isVisited(p.route)).length)
-const masteredCount = computed(() => learningPath.filter((p) => progress.isMastered(p.route)).length)
+// 分母是章节数 (不含序章 home), 和侧栏进度条同一个口径
+const readCount = computed(() => chapters.filter((p) => progress.isVisited(p.route)).length)
+const masteredCount = computed(() => chapters.filter((p) => progress.isMastered(p.route)).length)
 
+// 时间轴: 悬停是预览, 点击是选中。卡片显示悬停的那个, 没有悬停就显示选中的那个
 const router = useRouter()
 const hover = ref(null)
-const hovered = computed(() => hover.value ? findModel(hover.value) : null)
+const pinned = ref(null)
+const select = (id) => (pinned.value === id ? router.push(chapterOf(id)) : (pinned.value = id))
+const shownId = computed(() => hover.value || pinned.value)
+const hovered = computed(() => shownId.value ? findModel(shownId.value) : null)
 
 const W = 960
 const H = 300
@@ -353,7 +367,7 @@ const pathRows = [
 ]
 
 // 节点 → 章节路由 (集中放在主入口, 避免散落到各章 view 中)
-const goto = (id) => {
+const chapterOf = (id) => {
   const map = {
     transformer: 'blocks', bert: 'blocks',
     gpt3: 'attention', llama: 'attention', mamba: 'models-mamba',
@@ -364,7 +378,7 @@ const goto = (id) => {
     vae: 'diffusion', dit: 'diffusion', mmdit: 'diffusion',
     video_dit: 'diffusion', vae3d: 'diffusion', var: 'models-var',
   }
-  router.push({ name: map[id] || 'compare', query: { focus: id } })
+  return { name: map[id] || 'compare', query: { focus: id } }
 }
 
 // 阶段卡片跳转 — chapters 形式取首章
@@ -377,6 +391,10 @@ const toFor = (s) => {
 
 <style scoped>
 .route-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; border-left: 3px solid var(--accent); }
+.cta-go { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.cta-alt { font-size: 13px; }
+/* 导览紧跟副标题, 下面接 ChapterIntro: 上面的间距副标题已经留了, 下面要自己留 */
+.onboarding { margin-top: 0; margin-bottom: 28px; }
 .cta-k { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; }
 .cta-t { font-size: 14px; margin-top: 4px; max-width: 70ch; line-height: 1.7; }
 .resume { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; border-left: 3px solid var(--left); }
@@ -536,7 +554,6 @@ const toFor = (s) => {
   font-family: "SF Mono", Menlo, monospace;
   letter-spacing: 0.4px;
 }
-.stage-pill.ready   { background: color-mix(in srgb, var(--left) 18%, transparent); color: var(--left); }
 .stage-pill.planned { background: var(--bg-elev); color: var(--text-dim); border: 1px dashed var(--border); }
 
 .stage-title {
@@ -640,6 +657,11 @@ const toFor = (s) => {
 .hover-card .part .k { color: var(--text-dim); display: block; font-size: 11px; }
 .hover-card .part .v { color: var(--text); }
 .hover-card .hover-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);

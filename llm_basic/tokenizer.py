@@ -1,10 +1,10 @@
 """
-tokenizer.py — 字符级 tokenizer：一个字符 = 一个 token，词表来自 prepare.py 写的 meta.npz。
+tokenizer.py — 字符级 tokenizer: 一个字符 = 一个 token, 词表来自 prepare.py 写的 meta.npz。
 
-训练流水线（prepare / train / sample）用的就是它。最朴素的选择：词表只有 65，
-encode/decode 就是查表，没有任何要"训练"的东西。代价是序列长（一个单词 5~10 个 token，
-而注意力是 O(T²)），且模型得自己学拼写 —— bpe.py 演示了怎么解决，但本目录的训练并未接入它。
-读代码时盯住：stoi / itos 这两张互逆的表。
+训练流水线 (prepare / train / sample) 用的就是它。最朴素的选择: 词表只有 65,
+encode/decode 就是查表, 没有任何要"训练"的东西。代价是序列长 (一个单词 5~10 个 token,
+而注意力是 O(T²)), 且模型得自己学拼写 —— bpe.py 演示了怎么解决, 但本目录的训练并未接入它。
+读代码时盯住: stoi / itos 这两张互逆的表。
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ import numpy as np
 
 @dataclass(frozen=True)
 class CharTokenizer:
+    """chars: 词表, 下标就是 token id。stoi: 字符 → id。itos: id → 字符。"""
+
     chars: tuple[str, ...]
     stoi: dict[str, int]
     itos: dict[int, str]

@@ -21,8 +21,16 @@ python -m llm_models.run_models.language_models.bert.train_bert
 ## 运行后应该看到什么 (CPU 实测)
 - infer: 改末尾 token → 位置 0 的 logits 变化 0.0031 (>0, 双向); 改 pad 处 token → 有效位置变化 0.00e+00 (mask 生效)。
 - train: 被选中位置 16/128 (12.5%), 且只有这些位置的 logits 有梯度 (断言);
-  初始 loss 6.321 (ln 500 = 6.215) → 60 步后 0.480。修复初始化前初始 loss 是 **40.76**。
+  初始 loss 6.321 (ln 500 = 6.215) → 60 步后 0.480。若用默认 N(0,1) 初始化, 初始 loss 是 **40.76**。
 - 数据是**固定的随机 batch**, 下降 = 记忆, 不代表学到语言规律。
+
+## 与真实系统的差距
+- **规模**: 2 层、d_model=128、4 头、max_len=64、词表 500。BERT-base 是 12 层、d_model=768、12 头、max_len=512。
+- **Pre-LN**: 本库所有 block 统一用 Pre-LN。原论文是 Post-LN。
+- **只有 MLM**: 没有 NSP (下一句预测) 任务, 也没有下游分类头。demo 不传 `token_type_ids`, segment 全为 0。
+- **没有 [CLS] / [SEP]**: 输入是纯随机 token。模型不特殊处理这两个符号, 它们本该由 tokenizer 加。
+- **数据是合成的**: 固定一个随机 batch (4 条 × 32 token), 被选中的 16 个位置也跟着固定。固定 batch 是本库约定。
+- **注意力是教学版**: 用逐头循环的 `MultiHeadAttention`。
 
 ## 常见误区
 - "BERT 的输出 logits 和 GPT 同形, 所以也能拿来生成" —— 不能。位置 t 的输出已经看过 t 之后的 token, 逐词生成时这些 token 并不存在。

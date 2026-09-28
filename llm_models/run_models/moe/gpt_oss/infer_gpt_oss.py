@@ -7,7 +7,7 @@ GPT-OSS 推理示例 — 交替 SWA/全注意力 + attention sink + MoE, 全部�
     3. 感受野: 改一个 W 之外的 token, SWA 层 (第 0 层) 在当前位置的输出不变, 但整个模型的输出变了
        (奇数层是全注意力, 直接看得到它)
     4. KV cache: SWA 层长度 ≤ W, full 层长度 = 总长度; 有/无 cache 贪心生成逐 token 相同
-模型随机初始化, 生成内容无意义。
+另外断言建模型时每层的注意力只构造一次。模型随机初始化, 生成内容无意义。
 """
 
 import copy
@@ -35,22 +35,31 @@ def attention_mass(attn: GroupedQueryAttention, x: torch.Tensor, mask: torch.Ten
 @torch.inference_mode()
 def main():
     torch.manual_seed(42)
-    V, W, E, K, L = 1000, 8, 4, 2, 4
-    model = GPTOSSMini(vocab_size=V, d_model=128, n_heads=4, num_kv_heads=2, num_layers=L,
-                       num_experts=E, top_k=K, max_len=256, window_size=W).eval()
+    V, W, E, K, L = 1000, 8, 4, 2, 4                      # 词表, 窗口, 专家数, 每 token 选几个专家, 层数
+    # 数一数建模型时 GQA 被构造了几次: 每层应恰好 1 次。先建普通 GQA 再换成带 sink 的,
+    # 每层会多建一遍, 多耗一轮随机数, 之后的初始化就全变了
+    built, orig_init = [], GroupedQueryAttention.__init__
+    GroupedQueryAttention.__init__ = lambda self, *a, **k: (built.append(1), orig_init(self, *a, **k))[1]
+    try:
+        model = GPTOSSMini(vocab_size=V, d_model=128, n_heads=4, num_kv_heads=2, num_layers=L,
+                           num_experts=E, top_k=K, max_len=256, window_size=W).eval()
+    finally:
+        GroupedQueryAttention.__init__ = orig_init
+    assert len(built) == L, f"GQA 被构造了 {len(built)} 次, 应等于层数 {L}"
 
     # ---- 1) 参数量 + 路由等价 ----
     count = lambda m: sum(p.numel() for p in m.parameters())
     total = count(model)
     experts = sum(count(layer.moe.experts) for layer in model.layers)
-    active = total - experts + experts * K // E
-    assert active < total
+    active = total - experts + experts * K // E           # 专家部分每个 token 只用到 K/E
+    assert active < total, "每个 token 只过 K 个专家, 激活参数应少于总参数"
     print(f"[1] 总参数 {total:,} | 每 token 激活 {active:,} ({active / total:.1%})")
 
     T = 40
     idx = torch.randint(1, V, (1, T))
     logits, routing = model(idx)
-    assert logits.shape == (1, T, V) and len(routing) == L
+    assert logits.shape == (1, T, V), "logits 形状应为 [B, T, V]"
+    assert len(routing) == L, "每层应各返回一份路由记录"
     for info in routing:
         top_logits = info["router_logits"].gather(-1, info["selected_experts"])     # [N, K]
         assert torch.allclose(F.softmax(top_logits, dim=-1), info["routing_weights"], atol=1e-6), \
@@ -62,7 +71,8 @@ def main():
     x = torch.randn(1, T, model.d_model)
     causal = model.causal_mask[:, :T, :T]
     mass = attention_mass(attn, x, causal)                # [T, H]
-    assert (mass < 1).all() and (mass > 0).all(), "有 sink 时真实 token 分到的质量必须 < 1"
+    assert (mass < 1).all(), "有 sink 时真实 token 分到的质量必须 < 1"
+    assert (mass > 0).all(), "真实 token 分到的质量必须 > 0 (sink 不会吃掉全部注意力)"
     # 第 0 行只有 1 个 key: 质量 = e^s0 / (e^s0 + e^sink), 是全表最小的
     print(f"[2] 每行注意力质量 (对 head 取平均): 第 0 行 {mass[0].mean():.3f}, "
           f"第 {T - 1} 行 {mass[-1].mean():.3f}  (< 1, 差额进了 sink)")
@@ -71,12 +81,16 @@ def main():
     no_sink.sink.fill_(float("-inf"))                     # sink 列概率 = 0
     plain = GroupedQueryAttention(attn.d_model, attn.num_heads, attn.num_kv_heads)
     plain.load_state_dict(attn.state_dict(), strict=False)   # 同一套 w_q/k/v/o, 只是没有 sink
-    assert torch.allclose(attention_mass(no_sink, x, causal), torch.ones(T, attn.num_heads), atol=1e-6)
-    assert torch.allclose(no_sink(x, mask=causal), plain(x, mask=causal), atol=1e-6)
-    assert not torch.allclose(attn(x, mask=causal), plain(x, mask=causal), atol=1e-4)
+    assert torch.allclose(attention_mass(no_sink, x, causal), torch.ones(T, attn.num_heads), atol=1e-6), \
+        "sink = −inf 时每行注意力质量应回到 1"
+    assert torch.allclose(no_sink(x, mask=causal), plain(x, mask=causal), atol=1e-6), \
+        "sink = −inf 时输出应与无 sink 的 GQA 相同"
+    assert not torch.allclose(attn(x, mask=causal), plain(x, mask=causal), atol=1e-4), \
+        "sink = 0 时输出应与无 sink 的 GQA 不同"
     print("    sink = −inf: 行和回到 1, 输出与无 sink 的 GQA 相同; sink = 0 时输出不同")
 
     # ---- 3) 感受野: SWA 层看不到, 整个模型看得到 ----
+    #      在第 0 层挂 hook 记下它的输出: 先跑改过的输入, 再跑原输入, 两次输出相减
     layer0_out = []
     hook = model.layers[0].register_forward_hook(lambda m, i, o: layer0_out.append(o[0]))
     changed = idx.clone()
@@ -105,8 +119,9 @@ def main():
     print(f"[4] 已读 {cache.pos} 个 token, 每层 cache 长度 {lens} (偶数层 SWA ≤ W={W}, 奇数层 full = {T}); "
           f"比全 full 的 {L * T} 省 {saving:.0%}")
 
-    speedup = benchmark_kv_cache(model, idx[:, :8], max_new_tokens=100)    # 内部 assert 逐 token 相同
-    print(f"    贪心生成 100 token: 有/无 cache 输出完全一致, 加速 {speedup:.1f}x")
+    n_gen = 100
+    speedup = benchmark_kv_cache(model, idx[:, :8], max_new_tokens=n_gen)  # 内部 assert 逐 token 相同
+    print(f"    贪心生成 {n_gen} token: 有/无 cache 输出完全一致, 加速 {speedup:.1f}x")
 
 
 if __name__ == "__main__":

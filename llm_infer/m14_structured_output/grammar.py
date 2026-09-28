@@ -14,7 +14,7 @@ grammar.py — 结构化输出: 字符级 FSM → 预编译成 token 级 mask �
 
 迷你 grammar (JSON 子集, 无嵌套):
     object = "{" pair ("," pair)* "}"        pair 数 ∈ [min_pairs, max_pairs]
-    pair   = string ":" value                ":" 与 "," 之后允许一个可选空格
+    pair   = string ":" value                "{"、":"、"," 之后各允许一个可选空格
     value  = string | number | "true" | "false" | "null"
     string = '"' [a-z]{1,6} '"'              number = [1-9][0-9]{0,3}
 """
@@ -31,6 +31,7 @@ from llm_infer.core import TinyLM, softmax
 
 
 class State(Enum):
+    """FSM 的十个状态。值只是便于打印的标签, 代码里不依赖它。"""
     EXPECT_OPEN = "{"
     EXPECT_KEY_QUOTE = 'key"'
     IN_KEY = "key"
@@ -64,17 +65,21 @@ class JsonFSM:
     max_pairs: int = 3
 
     def key(self) -> Tuple:
+        """当前配置的指纹。key 相同的两个 FSM 后续行为完全相同, 编译 DFA 时合并成一个状态。"""
         if self.state == State.DONE:                     # 写了几对都是同一个接受态
             return (State.DONE,)
         return (self.state, self.n_pairs, self.length, self.lit, self.spaced)
 
     def _separators(self) -> Set[str]:
-        """value 写完后能接什么。所有 value 类型共用这一处 (若 string 分支用 n_pairs、
-        number 分支用 n_pairs+1, 导致 string 结尾时被迫 ≥2 对且可能超过 max_pairs)。"""
+        """value 写完后能接什么。所有 value 类型共用这一处。
+
+        若 string 分支用 n_pairs、number 分支用 n_pairs+1, string 结尾时会被迫 ≥2 对,
+        还可能超过 max_pairs。"""
         n = self.n_pairs + 1                         # 算上刚写完、尚未结算的这一对
         return ({","} if n < self.max_pairs else set()) | ({"}"} if n >= self.min_pairs else set())
 
     def legal_chars(self) -> Set[str]:
+        """当前状态下可以接受的字符集合。DONE 之后返回空集。"""
         s, space = self.state, (set() if self.spaced else {" "})
         if s == State.EXPECT_OPEN:
             return {"{"}
@@ -95,10 +100,11 @@ class JsonFSM:
         return set()                                     # DONE
 
     def advance(self, ch: str) -> None:
+        """吃下一个字符, 原地更新状态。ch 不合法就抛 ValueError。"""
         if ch not in self.legal_chars():
             raise ValueError(f"非法转移: state={self.state}, char={ch!r}")
         s = self.state
-        if ch == " ":
+        if ch == " ":                                    # 空格不换状态, 只记下"已经用过一个"
             self.spaced = True
             return
         self.spaced = False
@@ -136,14 +142,14 @@ class JsonFSM:
 
 def compile_char_dfa(fsm0: JsonFSM) -> Tuple[List[Dict[str, int]], int]:
     """BFS 枚举所有可达配置 → trans[s] = {ch: s'}; 返回 (trans, 接受态 id)。初始态 id = 0。"""
-    ids = {fsm0.key(): 0}
-    frontier, trans, accept = [fsm0], [], -1
+    ids = {fsm0.key(): 0}                                # 配置指纹 → DFA 状态 id
+    frontier, trans, accept = [fsm0], [], -1             # frontier: 本轮要展开的配置
     while frontier:
         nxt = []
         for f in frontier:                               # frontier 顺序 == id 顺序, trans 可直接 append
             row = {}
             for ch in sorted(f.legal_chars()):
-                g = copy.copy(f)
+                g = copy.copy(f)                         # 在副本上试走, 不动 f
                 g.advance(ch)
                 if g.key() not in ids:
                     ids[g.key()] = len(ids)
@@ -173,7 +179,8 @@ def build_vocab() -> List[str]:
              'e"', 'd"', 'e":', 'id":']
     junk = ["[", "]", "\n", "}}", "{{", "::", ",,", "'", "\\"]   # 在本 grammar 下永远非法
     vocab = [EOS] + single + multi + junk
-    assert len(vocab) == len(set(vocab)) <= 128
+    assert len(vocab) == len(set(vocab)) <= 128, \
+        f"词表不能有重复 token, 且不超过 128 个: 共 {len(vocab)} 个, 去重后 {len(set(vocab))} 个"
     return vocab
 
 
@@ -198,15 +205,17 @@ def token_row(trans: List[Dict[str, int]], accept: int, vocab: List[str], s: int
 
 @dataclass
 class TokenTable:
+    """预编译的结果。S = DFA 状态数, V = 词表大小。"""
     vocab: List[str]
     next_state: np.ndarray    # (S, V) int32, -1 = 非法
     mask_table: np.ndarray    # (S, V) bool
     need: np.ndarray          # (S, V) 选 t 之后最少还需几个 token 才能以 EOS 收尾; 非法 = inf
-    accept: int
-    eos_id: int
+    accept: int               # 接受态的 id
+    eos_id: int               # EOS 在词表里的下标
 
 
 def compile_token_table(fsm0: JsonFSM, vocab: List[str]) -> TokenTable:
+    """离线预编译: 对每个 DFA 状态跑一遍 token_row, 再算出 need 表。"""
     trans, accept = compile_char_dfa(fsm0)
     next_state = np.stack([token_row(trans, accept, vocab, s) for s in range(len(trans))])  # (S, V)
     mask_table = next_state >= 0
@@ -214,10 +223,10 @@ def compile_token_table(fsm0: JsonFSM, vocab: List[str]) -> TokenTable:
 
     # dist[s] = 从 s 出发最少几个 token 能结束 (含 EOS); token 图上的最短路, 迭代到不动点
     dist = np.full(len(trans), np.inf)
-    dist[accept] = 1
+    dist[accept] = 1                                             # 接受态只差一个 EOS
     while True:
         via = np.where(mask_table, dist[next_state], np.inf)     # (S, V) 走 t 之后还要多少
-        new = np.minimum(dist, via.min(axis=1) + 1)
+        new = np.minimum(dist, via.min(axis=1) + 1)              # (S,) +1 = 走 t 这一步本身
         if np.array_equal(new, dist):
             break
         dist = new
@@ -239,10 +248,11 @@ def generate(lm: TinyLM, table: TokenTable, max_tokens: int, rng: np.random.Rand
     temperature=0 → greedy。
     """
     s, kv, tok, out = 0, None, table.eos_id, []          # 借 EOS 当 BOS
-    assert mode != "budget" or table.need[0].min() < max_tokens, "max_tokens 连最短合法输出都放不下"
+    assert mode != "budget" or table.need[0].min() < max_tokens, \
+        f"max_tokens={max_tokens} 连最短合法输出都放不下"
     for step in range(max_tokens):
         logits, kv = lm.forward([tok], kv)
-        logits = logits[0].astype(np.float64)            # (V,)
+        logits = logits[0].astype(np.float64)            # (V,); rng.choice 要求概率和在 fp64 精度下为 1
         if mode != "none":
             ok = table.mask_table[s]                     # (V,) bool — O(1) 查表, 与 token 长度无关
             if mode == "budget":
@@ -256,5 +266,5 @@ def generate(lm: TinyLM, table: TokenTable, max_tokens: int, rng: np.random.Rand
             return "".join(out), True
         out.append(table.vocab[tok])
         if mode != "none":
-            s = int(table.next_state[s, tok])
+            s = int(table.next_state[s, tok])            # FSM 前进也是查表, 不再逐字符走
     return "".join(out), False

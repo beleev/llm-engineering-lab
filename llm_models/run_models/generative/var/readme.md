@@ -35,10 +35,20 @@ python -m llm_models.run_models.generative.var.train_var    # tokenizer → tran
 
 CE 停在 0.27 而不是 0: 这个 batch 的理论下界就是 0.2476 —— 8 张图的 1×1 token 只有 3 种取值 (45 出现 4 次), 同一个粗 token 后面跟着不同的 2×2 map, 无条件模型只能学到分布。
 
+## 与真实系统的差距
+
+- **无条件生成**: 第 1 级的输入是一个可学习向量, 没有类别条件, 也没有 CFG。
+- **规模**: 3 级 (1, 2, 4) 共 21 个 token, 码本 64, 图像 16×16, Transformer 是 2 层、d_model=96。VAR / LlamaGen 的码本典型是 4096~16384。
+- **tokenizer 的 loss**: 只有 MSE + vq_loss, 没有感知 loss 和对抗 loss。conv 主干复用 `ImageVAE` 的 encoder / decoder。
+- **上采样后没有卷积**: 各级码字用双线性插值放大后直接相加。
+- **采样没有 KV cache**: 每一级重算全部前缀。L=21 时代价可以忽略。
+- **Transformer 是普通 Pre-LN block**: LayerNorm 加逐头循环的 `MultiHeadAttention`。
+- **数据是合成的**: 固定 8 张低频色块图。固定 batch 是本库约定。
+
 ## 常见误区
 
 - "VAR 就是换了顺序的 next-token": 不是。序列里没有 shift-by-one, 位置 i 的输入不是 token i−1, 而是更粗尺度累计重建在该位置的特征。
-- "需要 BOS token": 第 1 级的输入是一个可学习向量, 不占词表; 词表 = 码本, 采样结果永远是合法码字 (旧实现采到 BOS 后 clamp 成 0 是错的)。
+- "需要 BOS token": 第 1 级的输入是一个可学习向量, 不占词表; 词表 = 码本, 采样结果永远是合法码字。若把 BOS 放进词表, 采样可能采到 BOS, 再 clamp 成 0 得到的是错的码字。
 - "各级 token 是同一张图的不同分辨率版本": 不是, 第 k 级编码的是 **残差**, 解码要把各级上采样后求和。
 - "tokenizer 随便冻结一个就行": 随机码本下 token 与图像内容无关, AR 学到的只是噪声。
 

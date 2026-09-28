@@ -7,12 +7,13 @@
   <LabFrame
     title="形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路"
     sub="每一行是 model.py 里真实的一步, 条的宽度就是输出最后一维 (D / T / H / V) 的相对大小。
-      点任意一行, 右侧告诉你它算什么、形状怎么变、往 cache 里存了什么、为什么反向非要这个值。拖 B/T/D/V/层数, 看参数和激活的总账怎么走。"
+      点任意一行, 右侧告诉你它算什么、形状怎么变、往 cache 里存了什么、为什么反向非要这个值。点橙色的三行 ([B,T,T]) 还会画出 causal mask。
+      拖 B/T/D/V/层数, 看参数和激活的总账怎么走。"
     module="llm_basic/model.py"
     run="cd llm_basic && python train.py --max-iters 300 --out /tmp/c.npz"
     :challenge="{
       ask: '只把 T 从 64 拖到 256, 其它不动。参数量涨多少? 激活字节涨多少? 为什么长上下文的账主要不记在参数表里?',
-      answer: '- 参数: 只有 pos_emb 跟着 T 长, 64×64=4,096 → 256×64=16,384。总量 45,568 → 57,856, 涨 27%。\n- 激活: 21.0 MB → 120 MB, 是 5.7 倍。scores / mask / attn 这三张 [B,T,T] 按 $T^2$ 长, 占激活的比例从 14% 升到 40%。\n参数表里根本没有 $T^2$。长上下文贵在激活和注意力的 $T^2$ 上。\n所以后面会有 KV cache、FlashAttention、activation checkpoint 这一串技术, 而不是去压参数。',
+      answer: '- 参数: 只有 pos_emb 跟着 T 长, 64×64=4,096 → 256×64=16,384。总量 45,568 → 57,856, 涨 27%。\n- 激活: 21.0 MiB → 120 MiB, 是 5.7 倍。scores / mask / attn 这三张 [B,T,T] 按 $T^2$ 长, 占激活的比例从 14% 升到 40%。\n参数表里根本没有 $T^2$。长上下文贵在激活和注意力的 $T^2$ 上。\n所以后面会有 KV cache、FlashAttention、activation checkpoint 这一串技术: 都在对付序列变长带来的开销, 没有一个去压参数。',
     }"
   >
     <template #controls>
@@ -45,16 +46,10 @@
     </div>
 
     <template #stats>
-      <div class="kv">
-        <span>参数合计</span>
-        <b :class="total.params === 45568 ? 'good' : ''">{{ total.params.toLocaleString() }}</b>
-      </div>
+      <div class="kv"><span>参数合计</span><b :class="total.params === 45568 ? 'good' : ''">{{ total.params.toLocaleString() }}</b></div>
       <div class="kv"><span>激活 (float64)</span><b>{{ fmtBytes(total.act * 8) }}</b></div>
       <div class="kv"><span>激活 ÷ 参数</span><b :class="ratio > 100 ? 'bad' : ''">{{ ratio.toFixed(0) }}×</b></div>
-      <div class="kv">
-        <span>[B,T,T] 占激活</span>
-        <b :class="ttShare > 0.3 ? 'bad' : ''">{{ (ttShare * 100).toFixed(0) }}%</b>
-      </div>
+      <div class="kv"><span>[B,T,T] 占激活</span><b :class="ttShare > 0.3 ? 'bad' : ''">{{ (ttShare * 100).toFixed(0) }}%</b></div>
 
       <div class="detail">
         <b class="mono">{{ cur.full }}</b>
@@ -65,7 +60,7 @@
         <p class="kv2"><span class="k">参数</span><span class="mono">{{ cur.params ? `${cur.pf} = ${(cur.params * (cur.blk ? L : 1)).toLocaleString()}` : '0 (纯计算, 没有权重)' }}</span></p>
       </div>
 
-      <div class="mask">
+      <div v-if="cur.tone === 'tt'" class="mask">
         <h4>causal mask <span class="mono">{{ T }}×{{ T }}</span></h4>
         <svg viewBox="0 0 100 100" role="img" :aria-label="`${T} 乘 ${T} 的因果掩码`">
           <rect x="0" y="0" width="100" height="100" class="mk-open" />
@@ -79,15 +74,12 @@
           <Tex text="行 = query $i$, 列 = key $j$。右上角 ($j \gt i$, 未来) 填 −inf, softmax 后权重为 0。" />
           <Tex text="格子按 $T^2$ 长, 有效的只有一半多一点:" /> {{ fmtNum(T * (T + 1) / 2) }} / {{ fmtNum(T * T) }}。
         </p>
+        <p class="lab-note">
+          <strong>全模型只有这里, 不同位置之间才互相说话。</strong>
+          embedding / RMSNorm / MLP / lm_head 都是对每个位置各算各的: 把 [B,T,D] 拍平成 [B·T, D], 结果一模一样。
+        </p>
       </div>
-      <p class="lab-note">
-        <strong>全模型只有这里, 不同位置之间才互相说话。</strong>
-        embedding / RMSNorm / MLP / lm_head 都是对每个位置各算各的: 把 [B,T,D] 拍平成 [B·T, D], 结果一模一样。
-      </p>
-      <p class="lab-note">
-        默认那一列 (V=65, D=64, H=128, T=64, n_layer=1) 的参数合计必须是 45,568,
-        和 <code class="inline">python train.py</code> 开头打印的数字一致。
-      </p>
+      <p v-else class="lab-note">默认那一列 (V=65, D=64, H=128, T=64, n_layer=1) 的参数合计必须是 45,568, 和 <code class="inline">python train.py</code> 开头打印的数字一致。</p>
     </template>
   </LabFrame>
 </template>
@@ -224,34 +216,23 @@ const cur = computed(() => rows.value.find((r) => r.id === sel.value) || rows.va
 <style scoped>
 .flow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .loopline { font-size: 10.5px; color: var(--text-dim); padding: 4px 0 2px 8px; }
-
-.op {
-  display: grid; grid-template-columns: minmax(0, 104px) minmax(24px, 1fr) minmax(0, 98px) minmax(0, 52px);
-  gap: 8px; align-items: center; width: 100%;
-  padding: 4px 6px; text-align: left; background: none; border: 1px solid transparent;
-  border-radius: var(--radius-sm); cursor: pointer;
-}
+.op { display: grid; grid-template-columns: minmax(0, 104px) minmax(24px, 1fr) minmax(0, 98px) minmax(0, 52px); gap: 8px; align-items: center; width: 100%; padding: 4px 6px; text-align: left; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
 .op:hover { background: var(--bg-elev); }
 .op.blk { border-left: 2px solid var(--accent-soft); }
 .op.sel { background: var(--accent-soft); border-color: var(--accent); }
 .nm { font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track { height: 12px; background: var(--bg-elev); border-radius: 2px; overflow: hidden; }
 .bar { display: block; height: 100%; border-radius: 2px; }
-.bar.i { background: var(--text-dim); }
-.bar.d { background: var(--accent); }
-.bar.tt { background: var(--warn); }
-.bar.h { background: var(--left); }
-.bar.v { background: var(--right); }
+.bar.i { background: var(--text-dim); } .bar.d { background: var(--accent); } .bar.tt { background: var(--warn); }
+.bar.h { background: var(--left); } .bar.v { background: var(--right); }
 .sh { font-size: 10.5px; color: var(--text-muted); text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pp { font-size: 10px; color: var(--text-dim); text-align: right; overflow: hidden; white-space: nowrap; }
-
 .mask { display: grid; gap: 6px; }
 .mask h4 { font-size: 12px; color: var(--text-muted); font-weight: 500; }
 .mask svg { width: 126px; height: 126px; }
 .mk-open { fill: var(--accent-soft); stroke: var(--border-strong); }
 .mk-cut { fill: color-mix(in srgb, var(--danger) 28%, transparent); }
 .mk-grid { stroke: var(--border); stroke-width: 0.4; }
-
 .detail { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; display: grid; gap: 6px; }
 .detail > b { color: var(--text); font-size: 11.5px; word-break: break-all; }
 .detail p { line-height: 1.65; }
@@ -259,8 +240,5 @@ const cur = computed(() => rows.value.find((r) => r.id === sel.value) || rows.va
 .detail .k { color: var(--text-dim); }
 .detail .sline { color: var(--accent); font-size: 11.5px; }
 .detail .why { color: var(--text-muted); border-left: 2px solid var(--border-strong); padding-left: 8px; }
-
-@media (max-width: 720px) {
-  .op { grid-template-columns: minmax(0, 88px) minmax(20px, 1fr) minmax(0, 84px) minmax(0, 44px); gap: 5px; }
-}
+@media (max-width: 720px) { .op { grid-template-columns: minmax(0, 88px) minmax(20px, 1fr) minmax(0, 84px) minmax(0, 44px); gap: 5px; } }
 </style>

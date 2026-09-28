@@ -24,6 +24,14 @@ python -m llm_models.run_models.language_models.llama.infer_llama
   - `[3]` `qk_norm=False: 1.20 → 120.31` (权重×10 → logit×100); `qk_norm=True: 3.44 → 3.44`。
   - `[4]` sink→-∞ 等价普通 GQA; 逐 token cache 解码与整段前向一致。
 
+## 与真实系统的差距
+- **规模**: infer 是 4 层、d_model=256、8 个 Q head / 2 个 KV head; train 是 2 层。类的默认参数是 d_model=4096、32 层、32 头。
+- **本库约定, 不是 LLaMA 的特征**: `lm_head` 与 embedding 共享权重, embedding 乘 √D。官方 LLaMA 两者都没有。
+- **GQA**: LLaMA-2 70B 才用 GQA (8 个 KV head)。类的默认 `num_kv_heads=None` 就是 MHA。
+- **QK-Norm、attention sink、RoPE 缩放**: 这三个是本库挂在 LLaMA 上的可选开关, 默认全关。QK-Norm 来自 Qwen3 / OLMo-2, sink 来自 GPT-OSS。
+- **数据是合成的**: 固定一个随机 batch (2 条 × 32 token) 反复训 60 步, 没有 tokenizer 和语料。固定 batch 是本库约定。
+- **注意力的写法**: KV head 先复制成和 Q head 一样多, 再算整张分数矩阵。FlashAttention 这类 kernel 不做这次拷贝。
+
 ## 常见误区
 - "loss 降到 0.06 说明模型好": 数据是固定的一个随机 batch, 这只是 "能背下来"。
 - "左 padding 时 pad 位置输出什么都行, 所以 NaN 无所谓": NaN 会经残差和 loss 的梯度污染整个 batch。

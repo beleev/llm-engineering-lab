@@ -3,9 +3,14 @@ LLaMA (Touvron et al., 2023) — 现代开源 LLM 的事实模板
 
 是什么: decoder-only LM, 把 GPT-3 的四个零件全部换成现代版:
     MHA → GQA (KV cache ÷ 组数) | GELU-FFN → SwiGLU | LayerNorm → RMSNorm | Sin-PE → RoPE
-    外加: 无 bias、无 dropout、lm_head 与 embedding 共享权重。
+    外加: 无 bias、无 dropout。
+与官方实现的差异 (全库统一的教学约定, 见 models/__init__.py):
+    - lm_head 与 embedding 共享权重, embedding 乘 √D。官方 LLaMA 两者都没有。
+    - GQA 自 LLaMA-2 的大模型 (如 70B) 起才用, LLaMA-1 是 MHA。这里默认 num_kv_heads=None, 即 MHA。
 关键数字: d_ff ≈ 8/3·d_model (SwiGLU 有 3 个矩阵, 8/3 让参数量与 4·d 的两矩阵 FFN 持平);
-          初始 CE 必须 ≈ ln V (init_weights 保证; 默认 N(0,1) embedding + weight tying 会给出 ~250)。
+          初始 CE 必须 ≈ ln V (init_weights 保证)。
+          换成 PyTorch 默认的 N(0,1) embedding + weight tying + ·√D, 初始 CE ≈ D
+          (run_models 的 mini 配置 D=256, V=1000 下 ~250)。
 演进: GPT-3 → LLaMA → Mistral (换 mask) / Mixtral (FFN 换 MoE) → DeepSeek-V3 (GQA 换 MLA)。
 读代码时盯住: forward 里的 `past` —— 无 cache 时为 0, 有 cache 时它同时平移 RoPE 位置和 mask 行。
 本文件几乎是纯组装, 零件都在 layers/core/。
@@ -54,6 +59,8 @@ LlamaBlock = PreLNBlock
 class LLaMA(GenerationMixin, nn.Module):
     """
     idx -> Embed·sqrt(D) -> N × PreLNBlock(GQA+SwiGLU+RMSNorm, RoPE 注入 Q/K) -> RMSNorm -> lm_head (tied)
+
+    forward 返回 Tensor; 接受 attention_mask; 支持 KV cache (generate() 来自 GenerationMixin)。
 
     Args:
         vocab_size / d_model / n_heads / num_layers: 常规
@@ -109,6 +116,7 @@ class LLaMA(GenerationMixin, nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         self.lm_head.weight = self.token_embedding.weight     # weight tying
 
+        # 下三角 mask 只建一次, [1, max_len, max_len]。persistent=False: 不进 state_dict
         self.register_buffer(
             "causal_mask", build_causal_mask(max_len, torch.device("cpu")), persistent=False
         )
@@ -117,6 +125,7 @@ class LLaMA(GenerationMixin, nn.Module):
         init_weights(self)
 
     def _causal_mask(self, seq_len: int) -> torch.Tensor:
+        """取左上角 [1, seq_len, seq_len] 的下三角 mask; 超过缓存大小就现建一张。"""
         if seq_len <= self.causal_mask.size(-1):
             return self.causal_mask[:, :seq_len, :seq_len]
         return build_causal_mask(seq_len, self.causal_mask.device)
@@ -128,18 +137,27 @@ class LLaMA(GenerationMixin, nn.Module):
         cache: Optional[KVCache] = None,
         return_hidden: bool = False,                    # True: 返回 ln_f 之后的隐状态 [B, T, D], 不过 lm_head
     ) -> torch.Tensor:                                  # [B, T, V] (return_hidden=True 时 [B, T, D])
+        """
+        idx [B, T] -> logits [B, T, V], 返回 Tensor。
+        attention_mask: [B, past+T], 覆盖 "已缓存的 + 本次的" 全部 token。左 pad 和右 pad 都行:
+            RoPE 只看相对位置, 真 token 的输出与不 pad 时一致。
+        cache: 给了就走 KV cache, idx 只含新 token。
+        return_hidden=True: 返回 hidden [B, T, D] **代替** logits。
+            BERT / Qwen2VLDecoder 的同名参数是返回 (logits, hidden), 语义不同。
+        """
         B, T = idx.shape
         past = cache.pos if cache is not None else 0    # 已缓存的 token 数
         if past + T > self.max_len:
             raise ValueError(f"序列长度 {past + T} 超过 max_len={self.max_len}")
 
-        # ·sqrt(D): 抵消 0.02 的小初始化, 让 embedding 与残差分支同量级
+        # ·√D 是本库约定 (官方 LLaMA 不乘): embedding 每维 std 0.02 → 0.02·√D。
+        # 这里没有加性位置编码要对齐。效果是 embedding 相对残差分支的输出放大 √D 倍
         x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]
 
         position_ids = torch.arange(past, past + T, device=idx.device)   # 新 token 的绝对位置
         # 新 token 是 query (行 past:past+T), 能看到全部历史 (列 :past+T)
         causal = self._causal_mask(past + T)[:, past:]                   # [1, T, past+T]
-        mask = combine_causal_and_padding_mask(causal, attention_mask)
+        mask = combine_causal_and_padding_mask(causal, attention_mask)   # [B 或 1, T, past+T]
 
         for i, layer in enumerate(self.layers):
             x = layer(
@@ -147,7 +165,7 @@ class LLaMA(GenerationMixin, nn.Module):
                 cache=cache.layers[i] if cache is not None else None,
             )
         if cache is not None:
-            cache.pos += T
+            cache.pos += T                                               # 下一次调用从这里接着数
 
-        h = self.ln_f(x)
+        h = self.ln_f(x)                                                 # [B, T, D]
         return h if return_hidden else self.lm_head(h)   # 奖励模型 / critic / PRM 取 h 接自己的头

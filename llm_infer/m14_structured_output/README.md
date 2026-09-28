@@ -49,7 +49,7 @@ python -m llm_infer.m14_structured_output.demo
 - "约束不改变分布": mask 后重新归一化, 会放大模型本来很小的概率; 同一字符串有多种分词
   (`{"` vs `{`+`"`), 强制走模型不习惯的分词会伤质量 (token healing 要解决的问题)。
 - 容易写错的地方: value 写完后能否接 `,`/`}` 的判断, 若 string 分支用 `n_pairs`、number 分支用
-  `n_pairs+1` → string 结尾时被迫 ≥2 对, 且能写出 max_pairs+1 对。现统一到 `_separators()`。
+  `n_pairs+1` → string 结尾时被迫 ≥2 对, 且能写出 max_pairs+1 对。两个分支要走同一个判断, 代码里是 `_separators()`。
 
 ## 自测题
 1. 为什么 `next_state` 必须和 `mask_table` 一起预编译?

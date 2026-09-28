@@ -3,8 +3,12 @@
 没有它: `read_file ../../.ssh/id_rsa` —— 模型 (或注入它的文档) 能读写 agent 进程能碰到的任何文件。
 关键设计: 所有路径先 resolve() (展开 .. 和符号链接) 再判断是否仍在 root 之内;
 先拼接后检查字符串前缀是经典漏洞 (`/root/../etc`、指向外部的 symlink 都能骗过)。
-"/" 开头的路径按"沙箱内的虚拟根"解释, 与 Claude memory tool 的 /memories 约定一致。
-对应: Claude Code 的工作目录限制; Claude API memory tool (memory_20250818) 的客户端实现。
+"/" 开头的路径按"沙箱内的虚拟根"解释, 记忆工具的路径因此写成 /memories/...。
+防什么 / 不防什么见 confine 的 docstring。
+对应: Claude Code 的工作目录限制; Claude API memory tool (memory_20250818) 的思路。
+差异: 真实的 memory_20250818 有 6 个命令 (view / create / str_replace / insert / delete / rename),
+  create 的参数是 file_text。这里只实现了 view / create / str_replace / delete 4 个,
+  参数名也做了简化 (text / old), 不能直接当该工具的后端。
 """
 
 from __future__ import annotations
@@ -17,7 +21,18 @@ from llm_agent.core.tools import Tool, _obj
 
 
 def confine(root: Path, user_path: str) -> Path:
+    """user_path → root 之内的绝对路径; 逃出 root 就抛 PermissionError。
+
+    防: `..` 和指向外部的符号链接。resolve() 先把它们展开, 再判断结果在不在 root 里。
+    不防:
+      - 检查和打开之间路径被换掉 (TOCTOU)。这里先检查、调用方后打开, 中间有空档
+      - 硬链接。root 里的硬链接指向外部文件, 从路径上看不出来
+      - root 之内的敏感文件 (.env、密钥)。围栏只管出不出界, 不管界内有什么
+    真实系统: 用 openat + O_NOFOLLOW 基于目录句柄打开, 或交给 OS 沙箱 (seatbelt / bubblewrap / 容器)。
+    """
     root = Path(root).resolve()
+    # 去掉开头的 "/": 否则 root / "/etc" 会直接变成 /etc (pathlib 遇到绝对路径就丢掉左边),
+    # 下面的检查会拒绝它, "/memories/x" 这种虚拟根写法就用不了
     target = (root / user_path.lstrip("/")).resolve()
     if target != root and not target.is_relative_to(root):
         raise PermissionError(f"path escapes sandbox: {user_path}")
@@ -25,6 +40,8 @@ def confine(root: Path, user_path: str) -> Path:
 
 
 class ReadFileTool(Tool):
+    """读 root 之内的文本文件。越界时 confine 抛异常, ToolRegistry 把它转成失败结果。"""
+
     name = "read_file"
     description = "Read a text file inside the workspace."
     parameters = _obj(["path"], path={"type": "string"})
@@ -37,6 +54,8 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
+    """写 root 之内的文本文件, 整个覆盖。父目录不存在就建。"""
+
     name = "write_file"
     description = "Write a text file inside the workspace."
     parameters = _obj(["path", "text"], path={"type": "string"}, text={"type": "string"})
@@ -54,7 +73,17 @@ class WriteFileTool(Tool):
 
 
 class MemoryTool(Tool):
-    """模型自己管理的跨会话记忆: 它决定记什么、何时查; harness 只提供一个带围栏的目录。"""
+    """模型自己管理的跨会话记忆: 它决定记什么、何时查; harness 只提供一个带围栏的目录。
+
+    参数:
+      command  view (看目录或文件) / create (整个写入) / str_replace (替换一处) / delete
+      path     必须以 /memories 开头
+      text     create 的全文; str_replace 的新文本
+      old      str_replace 要被换掉的原文
+
+    差异: 真实的 memory_20250818 还有 insert / rename, create 的参数叫 file_text。
+    不防: risk 是 medium, 污点锁不拦它。被注入的内容可以写进记忆, 下个会话再读出来。
+    """
 
     name = "memory"
     description = "Persistent memory directory /memories. Check it before starting a task; save what you learn."
@@ -73,7 +102,9 @@ class MemoryTool(Tool):
         (self.root / "memories").mkdir(parents=True, exist_ok=True)
 
     def execute(self, args: Dict[str, Any]) -> ToolResult:
+        """两道检查 (路径以 /memories 开头; confine 到 memories/ 之内) 都过了, 才按 command 分支执行。"""
         path = args["path"]
+        # 先按字符串把门: "/memoriesX" 这种只是前缀相同的路径不算
         if path != "/memories" and not path.startswith("/memories/"):
             return ToolResult(self.name, "path must start with /memories", ok=False)
         # 围栏立在 memories/ 而不是 root: 否则 /memories/../x 能写到记忆目录之外
@@ -84,7 +115,7 @@ class MemoryTool(Tool):
                 files = [f"{p.name}: {p.read_text(encoding='utf-8')[:80]}" for p in sorted(target.iterdir()) if p.is_file()]
                 return ToolResult(self.name, "\n".join(files) or "(empty)")
             return ToolResult(self.name, target.read_text(encoding="utf-8"))
-        if cmd == "create":
+        if cmd == "create":  # 文件已存在就整个覆盖
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(args.get("text", ""), encoding="utf-8")
             return ToolResult(self.name, f"saved {args['path']}")
@@ -92,7 +123,9 @@ class MemoryTool(Tool):
             body = target.read_text(encoding="utf-8")
             if args.get("old", "") not in body:
                 return ToolResult(self.name, "old text not found", ok=False)
+            # 只换第一处。old 出现多次时不报错
             target.write_text(body.replace(args["old"], args.get("text", ""), 1), encoding="utf-8")
             return ToolResult(self.name, f"updated {args['path']}")
+        # 走到这里只剩 delete: 其它取值在参数校验时已被 enum 挡掉 (经 ToolRegistry.execute 调用时)
         target.unlink()
         return ToolResult(self.name, f"deleted {args['path']}")

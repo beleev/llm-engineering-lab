@@ -19,17 +19,17 @@ import numpy as np
 def partial_attention(q: np.ndarray, K: np.ndarray, V: np.ndarray):
     """一段 KV 上的局部 attention。q (...,1,d), K/V (...,Ts,d) → O_s (...,1,d) 已归一化, lse_s (...,1,1)。"""
     S = q @ np.swapaxes(K, -1, -2) / np.sqrt(q.shape[-1])                # (...,1,Ts)
-    m = S.max(-1, keepdims=True)
-    p = np.exp(S - m)
-    l = p.sum(-1, keepdims=True)
-    return (p @ V) / l, m + np.log(l)
+    m = S.max(-1, keepdims=True)                                         # (...,1,1) 减最大值再 exp, 防溢出
+    p = np.exp(S - m)                                                    # (...,1,Ts) 没归一化的权重
+    l = p.sum(-1, keepdims=True)                                         # (...,1,1) 本段的分母
+    return (p @ V) / l, m + np.log(l)                                    # lse_s = log Σ exp(S), 把 m 加回来
 
 
 def flash_decoding(q: np.ndarray, K: np.ndarray, V: np.ndarray, n_splits: int):
     """q (...,1,d), K/V (...,T,d) → (O (...,1,d), lse (...,1,1))。T 不必整除 n_splits (前几段多 1 个 token)。"""
-    bounds = np.linspace(0, K.shape[-2], n_splits + 1).round().astype(int)
+    bounds = np.linspace(0, K.shape[-2], n_splits + 1).round().astype(int)   # (S+1,) 各段的起止下标
     parts = [partial_attention(q, K[..., a:b, :], V[..., a:b, :])          # 各段互不依赖: GPU 上是 S 个并行的 thread block
-             for a, b in zip(bounds[:-1], bounds[1:]) if b > a]
+             for a, b in zip(bounds[:-1], bounds[1:]) if b > a]           # b > a: S 大于 T 时跳过空段
     O_s = np.stack([o for o, _ in parts])                                 # (S,...,1,d)
     lse_s = np.stack([l for _, l in parts])                               # (S,...,1,1)
     lse = np.logaddexp.reduce(lse_s, axis=0)                              # reduce kernel: 全局分母的 log
@@ -52,9 +52,10 @@ def decode_latency_us(B: int, H: int, T: int, S: int) -> tuple[float, float]:
     S>1 时多一个 reduce kernel: 读回 S 份 (O_s fp32 d 维 + lse)。
     """
     units = B * H * S
-    waves = -(-units // N_SM)
+    waves = -(-units // N_SM)                                             # ceil: 要跑几波才能把所有 block 跑完
     per_sm_bytes_per_us = HBM_GBPS * 1e3 / N_SM                           # GB/s → bytes/μs, 再均分给每个 SM
     t = LAUNCH_US + waves * (T / S) * KV_BYTES_PER_TOKEN / per_sm_bytes_per_us
     if S > 1:
+        # 每份读 d=128 维的 O_s 加 1 个 lse, 都是 fp32 (4 字节); reduce 很轻, 按全卡带宽算
         t += LAUNCH_US + units * (128 + 1) * 4 / (HBM_GBPS * 1e3)
     return t, units / (waves * N_SM)

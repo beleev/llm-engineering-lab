@@ -7,6 +7,7 @@
 - 权重 (AWQ): 误差要在输出上看, `Σ_i x_i·ΔW_i` —— 激活大的输入通道对应的权重行最该保护, 量化前先把它们放大。
 
 ## 核心数据结构或公式
+RTN (round-to-nearest) 指不做任何补偿, 直接把每个数舍入到最近的格点。
 ```
 非对称 RTN (int8_weight.quantize_affine):  scale=(max−min)/(2^b−1)   q=round((x−min)/scale)   x̂=q·scale+min   |x−x̂| ≤ scale/2
 对称 INT8  (quantize_int8):                scale=max|x|/127          q=round(x/scale)
@@ -27,14 +28,14 @@ python -m llm_infer.m08_quantization.demo
 ```
 ```
 [A] W (256,256), 激活离群输入通道 [7,50,131,200] ×30, 误差在 held-out 激活上
-  方案                          输出误差    bytes  bit/权重  vs FP16
+  方案                            输出误差      字节  bit/权重  vs FP16
   RTN INT8 per-channel (对称)     0.0068   66,560     8.12    1.97x
   RTN INT4 per-channel (非对称)   0.1058   33,792     4.12    3.88x
   RTN INT4 group=32 (非对称)      0.0759   40,960     5.00    3.20x
   AWQ INT4 group=32 (α=0.4)       0.0273   40,960     5.00    3.20x
   α 网格 (calib): 0:0.0757  0.2:0.0380  0.4:0.0279  0.6:0.0362  0.8:0.0592  1:0.1173
 [B] K (128,64), 离群通道 [3,17,40] ≈ ±8; FP32 65,536 B / FP16 32,768 B
-  bits scheme      K 相对误差  V 相对误差  attn max|Δ|   bytes  vs FP32  vs FP16
+   bit 方案        K 相对误差 V 相对误差  attn max|Δ|    字节  vs FP32  vs FP16
      8 per-token      0.0105     0.0053      0.0036   17,408    3.76x    1.88x
      8 kivi           0.0015     0.0053      0.0021   17,920    3.66x    1.83x
      4 per-token      0.1800     0.0894      0.0911    9,216    7.11x    3.56x

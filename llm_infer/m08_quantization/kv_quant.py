@@ -26,18 +26,19 @@ def quantize_kv(K: np.ndarray, V: np.ndarray, bits: int, scheme: str, group: int
     per-token : 每个 token (行) 一组, scale 形状 (T,1)
     kivi      : K 每 `group` 个 token 内按通道分组, scale 形状 (T/group,1,D); V 同 per-token
     """
-    assert scheme in SCHEMES
+    assert scheme in SCHEMES, f"未知 scheme {scheme!r}, 可选 {SCHEMES}"
     if scheme == "per-tensor":
         return quantize_affine(K, bits, None), quantize_affine(V, bits, None)
     qV = quantize_affine(V, bits, axis=1)                                 # 在 D 上统计 → (T,1)
     if scheme == "per-token":
         return quantize_affine(K, bits, axis=1), qV
     T, D = K.shape
-    # 简化 (ponytail): 要求 T 是 group 的整数倍。真实 KIVI 把最近不足一组的 token 留在 fp16 "residual" 里, 凑满一组再量化
-    assert T % group == 0
+    # 简化: 要求 T 是 group 的整数倍。真实 KIVI 把最近不足一组的 token 留在 fp16 "residual" 里, 凑满一组再量化
+    assert T % group == 0, f"T={T} 必须是 group={group} 的整数倍 (本实现没有 residual 缓冲)"
     return quantize_affine(K.reshape(T // group, group, D), bits, axis=1), qV   # 在组内 token 维上统计
 
 
 def dequantize_kv(qK: QTensor, qV: QTensor):
+    """(QTensor_K, QTensor_V) → 浮点 K, V, 各 (T,D)。"""
     V = qV.dequantize()                                                   # (T,D)
     return qK.dequantize().reshape(V.shape[0], -1), V                     # kivi 的 (T/g,g,D) → (T,D)

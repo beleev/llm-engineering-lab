@@ -7,8 +7,6 @@
       :tldr="page.tldr"
       :question="page.question"
       :code="page.code"
-      :prereq="prev"
-      :next-step="next"
     />
 
     <section v-if="hasLabs" class="section">
@@ -20,9 +18,9 @@
     </section>
 
     <section class="section">
-      <h2>三句话</h2>
+      <h2>要点</h2>
       <p class="lead">
-        这一章全部的内容就这三条。带「重点」的那条是走的时候必须带上的。
+        这一章要带走的就这 {{ page.points.length }} 条。带「重点」的那条是走的时候必须带上的。
       </p>
       <div class="grid grid-3">
         <div v-for="p in page.points" :key="p.title" class="card point-card" :class="{ key: p.key }">
@@ -106,14 +104,12 @@
 
     <QuizCard />
 
-    <ChapterNav :prev="prev" :next="next" />
+    <!-- 上一章 / 下一章由组件自己从 learningPath 推, 这里不用传 -->
+    <ChapterNav />
   </div>
 
-  <div v-else>
-    <h1 class="page-title">章节未找到</h1>
-    <p class="page-subtitle">当前路由没有对应的 topicPages 配置。</p>
-    <ChapterNav :prev="{ name: 'home', label: '主线总览' }" />
-  </div>
+  <!-- 路由在, 但这一章还没有正文: 给读者看的提示和出口, 与地址写错时同一页 -->
+  <NotFound v-else />
 </template>
 
 <script setup>
@@ -128,8 +124,9 @@ import LabMount from '@/components/LabMount.vue'
 import CodeBlock from '@/components/CodeBlock.vue'
 import SourceSnippet from '@/components/SourceSnippet.vue'
 import QuizCard from '@/components/QuizCard.vue'
+import NotFound from '@/views/NotFound.vue'
 import { labMap } from '@/data/labMap.js'
-import { learningPath, stageBy, topicPages } from '@/data/models.js'
+import { stageBy, topicPages } from '@/data/models.js'
 import { looksLikeRepoRef, normalizeRepoRef, splitRefs } from '@/utils/repo.js'
 
 const route = useRoute()
@@ -138,14 +135,6 @@ const hasLabs = computed(() =>
   (page.value?.widgets?.length || 0) + (labMap[route.name]?.length || 0) > 0
 )
 const sources = computed(() => [].concat(page.value?.source || []))
-
-const currentIndex = computed(() =>
-  learningPath.findIndex(item => item.route === route.name)
-)
-
-const toNav = (item) => item ? { name: item.route, label: item.label } : null
-const prev = computed(() => toNav(learningPath[currentIndex.value - 1]))
-const next = computed(() => toNav(learningPath[currentIndex.value + 1]))
 
 const stageCode = computed(() => stageBy[route.meta.stage]?.code || '')
 const contextRefs = computed(() =>

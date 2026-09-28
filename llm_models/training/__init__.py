@@ -1,22 +1,19 @@
 """
-训练模块包导出
-================
+training — 一个 Trainer 跑全库所有模型 (策略模式)
 
-本子包提供一套 "策略模式" 风格的通用训练框架, 适配本教学库的全部模型,
-从 LM (GPT/LLaMA/Mamba) 到 MoE (Mixtral/DeepSeek) 到多模态 (CLIP/Whisper/Omni)
-到生成模型 (VAE/DiT/MM-DiT/Video DiT/VAR)。
-
-核心组件:
-    - Trainer               : 训练循环容器, 与具体模型/损失/数据无关
-    - TrainingConfig        : 不可变 (frozen) 训练配置
-    - LossComputer 子类     : 为不同模型架构封装损失
-    - SyntheticDataGenerator 子类 : 为不同模型架构提供合成 batch
-
-扩散专用:
-    - DDPMScheduler / FlowMatchingScheduler : 噪声调度
-    - DDIMSampler  / EulerFlowSampler       : 采样
-    - DiffusionLoss                          : MSE loss (自动按 scheduler 的 target 类型)
-    - classifier_free_guidance               : CFG 线性外插工具
+是什么: Trainer 只认两个接口, 换模型就是换一对 (数据生成器, 损失)。
+    Trainer                       训练循环, 与具体模型 / 损失 / 数据无关
+    TrainingConfig                不可变 (frozen) 的训练配置
+    LossComputer 子类             每种模型形态一个损失 (loss.py)
+    SyntheticDataGenerator 子类   每种模型形态一个合成 batch (data.py)
+覆盖: LM (GPT / LLaMA / Mamba)、MoE (Mixtral / DeepSeek)、多模态 (CLIP / Whisper / Omni)、
+      生成模型 (VAE / DiT / MM-DiT / Video DiT / VAR)。
+扩散专用 (diffusion.py):
+    DDPMScheduler / FlowMatchingScheduler   噪声调度: 正向加噪 + 给出回归目标
+    DDIMSampler / EulerFlowSampler          采样
+    DiffusionLoss                           MSE; 目标是 ε 还是 velocity, 由 scheduler 造数据时定
+    classifier_free_guidance                CFG 线性外插
+不在本包: LLaDALoss 与 LLaDA 模型放在一起 (models/language_models/llada.py)。
 
 典型用法:
     >>> cfg = TrainingConfig()

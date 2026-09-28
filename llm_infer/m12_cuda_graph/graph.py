@@ -5,7 +5,8 @@ graph.py — CUDA Graph 的 capture / replay 语义, 用 numpy + 一个**人为�
 瓶颈: decode 每步算得很少, GPU kernel 本身几十 µs, 而 host 端每次 launch (Python → 框架 dispatcher → 驱动)
       也要 ~10 µs 量级; 一步几百个 kernel → 延迟被 host 开销主导, GPU 在空等。
 **这是模拟**: 没有 GPU。`FakeGPU.launch` 里用 busy-wait 烧掉 `launch_overhead_us` 微秒来充当 host 开销,
-      demo 的加速比完全来自这个参数 (设为 0 时实测加速比从 ~12× 塌到 ~1.3×, 剩下的 0.3 来自 eager 每步重新分配 buffer)。
+      demo 的加速比完全来自这个参数: 设为 0 时加速比塌到 1 出头, 剩下的差距来自 eager 每步重新分配 buffer。
+      (一次实测: 开销 50 µs 时约 12×, 设为 0 时约 1.3×; 换机器数字会变。)
 读代码盯住: `static_input` / `static_output` — 图里录的是 buffer **地址**, replay 只认地址不认变量名。
 真实系统: `torch.cuda.CUDAGraph`; vLLM `CUDAGraphRunner` / SGLang `CudaGraphRunner` (按 batch size 分桶 capture);
       TensorRT-LLM 同样在 decode 阶段用 CUDA graph。
@@ -25,10 +26,11 @@ class FakeGPU:
         self.tape: Optional[list] = None       # 非 None 表示正在 capture
 
     def _host_overhead(self) -> None:
+        """记一次提交, 并空转 launch_overhead_us 微秒。"""
         self.n_launch += 1
         if not self.launch_overhead_us:
             return
-        end = time.perf_counter() + self.launch_overhead_us * 1e-6
+        end = time.perf_counter() + self.launch_overhead_us * 1e-6   # µs → s
         while time.perf_counter() < end:
             pass
 
@@ -55,6 +57,7 @@ def forward(gpu: FakeGPU, x: np.ndarray, W1: np.ndarray, W2: np.ndarray) -> np.n
     x (B, D), W1 (D, H), W2 (H, D) → (B, D)。各行互不相关, 所以 padding 行不影响真实行。
     """
     B, (D, H) = x.shape[0], W1.shape
+    # 4 个中间 buffer 预先分配好, 每个 kernel 都写进指定的 out。capture 录下的就是这些 buffer 的地址
     h1, h2 = np.empty((B, H), np.float32), np.empty((B, H), np.float32)
     h, y = np.empty((B, D), np.float32), np.empty((B, D), np.float32)
     src = x
@@ -73,11 +76,12 @@ class CudaGraph:
     def __init__(self, gpu: FakeGPU, fn: Callable[[FakeGPU, np.ndarray], np.ndarray], example_input: np.ndarray):
         self.gpu = gpu
         self.static_input = example_input.copy()    # 图私有的输入 buffer, 地址从此固定
-        gpu.tape = []
-        self.static_output = fn(gpu, self.static_input)
-        self.ops, gpu.tape = gpu.tape, None
+        gpu.tape = []                               # 打开录制
+        self.static_output = fn(gpu, self.static_input)   # 照常跑一遍, 每个 kernel 被录进 tape
+        self.ops, gpu.tape = gpu.tape, None         # 取走录好的 kernel 列表, 关闭录制
 
     def replay(self, x: np.ndarray) -> np.ndarray:
+        """x (B, D), 形状必须与 capture 时相同 → static_output (B, D) 的引用。"""
         self.static_input[...] = x                  # 必须**拷进**静态 buffer; 返回值是 static_output 的引用, 下次 replay 会被覆盖
         self.gpu.launch_graph(self.ops)
         return self.static_output
@@ -99,8 +103,9 @@ class BucketedGraphRunner:
         }
 
     def run(self, x: np.ndarray) -> np.ndarray:
+        """x (B, D) → (B, D)。B 任意; 超过最大桶时走 eager。"""
         B = x.shape[0]
-        bucket = next((b for b in self.graphs if b >= B), None)
+        bucket = next((b for b in self.graphs if b >= B), None)   # graphs 按桶大小升序, 第一个装得下的就是最小的
         if bucket is None:
             return self.fn(self.gpu, x)             # 超过最大桶 → 回退 eager (vLLM 同样如此)
         g = self.graphs[bucket]

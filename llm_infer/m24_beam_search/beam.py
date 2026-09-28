@@ -18,6 +18,7 @@ from llm_infer.m10_sampling.samplers import SamplingParams, sample
 
 
 def log_softmax(x: np.ndarray) -> np.ndarray:
+    """logits (V,) → log 概率 (V,)。先减最大值再 exp, 防溢出。"""
     x = x - x.max()
     return x - np.log(np.exp(x).sum())
 
@@ -35,18 +36,19 @@ def beam_search(lm, prompt: Sequence[int], width: int, max_new: int,
     for _ in range(max_new):
         cand = [(s + lp[t], toks + [int(t)], kv)
                 for s, toks, kv, lp in beams for t in np.argsort(-lp)[: width + 1]]
-        cand.sort(key=lambda c: -c[0])
+        cand.sort(key=lambda c: -c[0])                    # 按累计 log 概率从高到低
         beams = []
         for rank, (s, toks, kv) in enumerate(cand):
             if toks[-1] == eos_id:
-                if rank < width:
+                if rank < width:                          # 排在 width 名之外的 EOS 候选直接丢掉
                     finished.append((s, toks))
                 continue
             logits, kv2 = lm.decode_step(toks[-1], kv)    # 每条活 beam 各自一份 KV (真实系统用 m02 的 ref_count 共享前缀块)
             beams.append((s, toks, kv2, log_softmax(logits)))
             if len(beams) == width:
                 break
-    finished += [(s, toks) for s, toks, _, _ in beams]
+    finished += [(s, toks) for s, toks, _, _ in beams]    # 到 max_new 还没结束的也算候选
+    # 长度惩罚只在这里起作用: alpha=0 按累计 log 概率排, alpha=1 按每 token 平均 log 概率排
     return sorted(finished, key=lambda f: -f[0] / len(f[1]) ** alpha)
 
 

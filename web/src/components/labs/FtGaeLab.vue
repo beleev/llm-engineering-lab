@@ -8,8 +8,7 @@
     title="GAE: 从 TD(0) 滑到 Monte-Carlo"
     sub="一条 6 个 token 的回复。上图的点是 critic 给每个前缀的估值 $V(s_t)$, 可以上下拖。
       下图的柱是 GAE 算出的优势 $A_t$:
-      - 圆点: TD(0) 的 $\delta_t$。
-      - 菱形: MC 回报减 $V(s_t)$。
+      - 圆点是 TD(0) 的 $\delta_t$, 菱形是 MC 回报减 $V(s_t)$。
       拖 λ, 看柱子从圆点滑到菱形。"
     module="llm_finetune/methods/ppo.py"
     run="python -m llm_finetune.run_finetune.ppo.train_ppo"

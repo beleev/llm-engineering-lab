@@ -5,6 +5,7 @@
 前提是它的 KV 还在 GPU 上。用户一多, GPU 装不下所有人的历史, LRU 把别人的 block 挤掉, 下一轮又得
 从头 prefill。分层卸载的想法: **被挤掉的 block 不丢, 降级到更大更慢的一层; 再命中时搬回 GPU**。
 搬运 1 token 的 KV 通常比重算它快一个数量级。但并非总是如此 —— 所以还要一个 "加载 vs 重算" 的判断。
+下文用 TTFT (首 token 延迟) 衡量效果。
 
 > 本模块没有真的搬数据: **所有时间来自代价模型 (`CostModel` + `Tier` 的可见参数), 不是实测**。
 
@@ -31,14 +32,14 @@ python -m llm_infer.m20_kv_offload.demo     # < 1 s
 代价模型参数: block=16, KV=131,072 B/token (LLaMA-3-8B fp16), 重算 8000 tok/s = 2.00 ms/block;
 GPU 64 blocks; CPU 192 blocks / 25 GB/s / 0.2 ms (0.084 ms/block); disk 4096 / 3 GB/s / 2 ms (0.699 ms/block)。
 ```
-[1] 8 users × 6 turns 轮流发言, 最终历史 ≈442 blocks (GPU 只放得下 64)
-config            hit GPU  hit CPU hit disk    miss     mean TTFT(模拟)
-GPU only            13.3%     0.0%     0.0%   86.7%          51.50 ms
+[1] 多轮对话: 8 个用户 × 6 轮, 最终历史共 ≈442 blocks (GPU 只放得下 64)
+配置              GPU命中  CPU命中 disk命中    miss     平均 TTFT(模拟)
+仅 GPU              13.3%     0.0%     0.0%   86.7%          51.50 ms
 GPU+CPU             13.3%    29.5%     0.0%   57.2%          34.81 ms
 GPU+CPU+disk        13.3%    29.5%    41.4%   15.7%          19.50 ms
-no cache (全量重算)                                           59.42 ms
+无 cache (全量重算)                                           59.42 ms
 
-[2] disk: n=1 load 2.70 vs recompute 2.00 ms → recompute;  n=2 load 3.40 vs 4.00 → load;  n* = 1.54 blocks
+[2] disk: n=1 加载 2.70 vs 重算 2.00 ms → 重算;  n=2 加载 3.40 vs 4.00 → 加载;  n* = 1.54 blocks
 
 [3] 慢链路 remote (0.5 GB/s, 20 ms → 4.194 ms/block, 比重算 2.00 ms/block 还慢)
 GPU+CPU (无慢层)            34.81 ms
@@ -64,5 +65,5 @@ GPU+CPU (无慢层)            34.81 ms
 ## 自测题
 1. 把 disk 的 latency 从 2 ms 提到 10 ms, 交叉点变成多少? **答**: 10 / (2.00 − 0.699) ≈ 7.7 blocks (≈123 tokens)。
 2. 为什么三种配置的 GPU 命中率都是 13.3%? **答**: 下层只接收 GPU 驱逐出来的块, 不改变 GPU 层自身的 LRU 内容。
-3. KV 换成 MLA (m18, 约 70 KiB/token → 此处为 1/1.9) 对卸载意味着什么? **答**: 每块加载时间同比缩小,
+3. KV 换成 MLA (m18: 约 70 KiB/token, 是本模块 128 KiB/token 的 1/1.9) 对卸载意味着什么? **答**: 每块加载时间同比缩小,
    交叉点更小、慢链路也可能变得划算 —— 这是 DeepSeek 能做磁盘 KV 缓存的原因之一。

@@ -23,7 +23,7 @@
       </div>
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="pass@k 真值与朴素估计的期望随通过率变化">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="pass@k 真值与朴素估计的期望随通过率变化, 曲线上的圆点可拖">
       <line :x1="X0" :x2="W - 10" :y1="py(0)" :y2="py(0)" class="axis" />
       <line :x1="X0" :x2="X0" :y1="py(0)" :y2="py(1)" class="axis" />
       <g v-for="t in [0, 0.25, 0.5, 0.75, 1]" :key="t">
@@ -45,12 +45,12 @@
 
     <template #stats>
       <div class="kv"><span>p = {{ p.toFixed(2) }}: 真值</span><b>{{ truth(p).toFixed(4) }}</b></div>
-      <div class="kv"><span>无偏估计的期望</span><b class="good">{{ unbMean(p).toFixed(4) }}</b></div>
+      <div class="kv"><span>无偏估计的期望</span><b :class="Math.abs(unbMean(p) - truth(p)) < 0.005 ? 'good' : 'bad'">{{ unbMean(p).toFixed(4) }}</b></div>
       <div class="kv"><span>朴素公式的期望</span><b :class="bias < -0.005 ? 'bad' : ''">{{ naiveMean(p).toFixed(4) }}</b></div>
       <div class="kv"><span>朴素偏差</span><b :class="bias < -0.005 ? 'bad' : 'good'">{{ bias >= 0 ? '+' : '' }}{{ bias.toFixed(4) }}</b></div>
       <div class="lab-note">
         <p>★ 无偏公式与 Python 的 pass_at_k 相同: 1 − ∏(1 − k/i), i 从 n−c+1 到 n。</p>
-        <p>m21 数据集级实测 (300 题, p ~ Beta(0.5, 2), n=20): k=10 真值 0.5864, 无偏 0.5861, 朴素 0.5470 (−0.0394)。</p>
+        <p>m21 数据集级实测, 不随滑杆变化 (300 题, p ~ Beta(0.5, 2), n=20): k=10 真值 0.5864, 无偏 0.5861, 朴素 0.5470 (−0.0394)。</p>
       </div>
     </template>
   </LabFrame>

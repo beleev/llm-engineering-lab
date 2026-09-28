@@ -6,16 +6,18 @@
           训练集 / 留出集按 prompt 的 token 和 mod 5 严格不相交 → 可以报告**留出集**指标。
 序列布局:  [x_1 … x_L  SEP | y_1 … y_L  EOS]     prompt 段长 P = L+1 (含 SEP), 回复段长 R = L+1 (含 EOS)
 三种用法:  SFT → 留出集 exact-match;  偏好 → 正确回复 vs 损坏回复;  RLVR → `verify()` 程序化判分。
-读代码时盯住: `make_labels` —— 全章唯一做 "右移一位 + prompt mask" 的地方。
+读代码时盯住: `make_labels` —— 全章唯一做 "labels 左移一位 + prompt mask" 的地方。
+依赖 llm_models: `exact_match` 调 `model.generate(prompts, max_new_tokens, temperature)`。
+                 本章都不传 eos_token_id, 所以 generate 总是采满指定的 token 数, EOS 之后的部分靠 `completion_mask` 裁掉。
 """
 
 from typing import Tuple
 
 import torch
 
-PAD, SEP, EOS = 0, 1, 2
+PAD, SEP, EOS = 0, 1, 2   # 补齐 / prompt 与回复的分隔符 / 回复结束
 FIRST_SYMBOL = 3          # 内容 token 取 [3, V)
-IGNORE = -100
+IGNORE = -100             # F.cross_entropy 默认的 ignore_index: label 是它的位置不算 loss
 
 
 def make_labels(seq: torch.Tensor, prompt_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -35,7 +37,7 @@ def make_labels(seq: torch.Tensor, prompt_len: int) -> Tuple[torch.Tensor, torch
     labels[labels == PAD] = IGNORE                      # 右 pad 不计 loss
     idx = seq
     # 被监督的位置数必须恰好等于回复长度 (含 EOS); 差一位的 bug 会在这里立刻炸
-    n_response = (seq[:, prompt_len:] != PAD).sum(dim=1)
+    n_response = (seq[:, prompt_len:] != PAD).sum(dim=1)     # [B] 每条回复的真实长度 (含 EOS, 不含 pad)
     assert torch.equal((labels != IGNORE).sum(dim=1), n_response), "prompt mask 差一位"
     return idx, labels
 
@@ -60,17 +62,18 @@ class SeqTask:
         """[n, P]。留出集 = token 和 ≡ 0 (mod 5) 的 prompt, 训练集 = 其余 → 两者不相交。"""
         keep = []
         while sum(len(k) for k in keep) < n:
-            x = torch.randint(FIRST_SYMBOL, self.vocab_size, (4 * n, self.length))
-            is_test = x.sum(dim=1) % 5 == 0
+            # 一次采 4n 条再筛: 留出集只占约 1/5 (和 mod 5 = 0), 采少了凑不够 n 条就得多转几圈
+            x = torch.randint(FIRST_SYMBOL, self.vocab_size, (4 * n, self.length))    # [4n, L]
+            is_test = x.sum(dim=1) % 5 == 0                                           # [4n]
             keep.append(x[is_test if split == "test" else ~is_test])
-        x = torch.cat(keep)[:n]
-        return torch.cat([x, torch.full((n, 1), SEP)], dim=1)
+        x = torch.cat(keep)[:n]                                                       # [n, L]
+        return torch.cat([x, torch.full((n, 1), SEP)], dim=1)                         # 末尾接一列 SEP → [n, P]
 
     def target(self, prompts: torch.Tensor) -> torch.Tensor:
         """prompts [n, P] → 正确回复 [n, R] (含 EOS)。"""
-        x = prompts[:, : self.length]
-        y = {"copy": x, "reverse": x.flip(1), "sort": x.sort(dim=1).values}[self.kind]
-        return torch.cat([y, torch.full((len(x), 1), EOS)], dim=1)
+        x = prompts[:, : self.length]                                  # [n, L] 去掉末尾的 SEP
+        y = {"copy": x, "reverse": x.flip(1), "sort": x.sort(dim=1).values}[self.kind]   # [n, L]
+        return torch.cat([y, torch.full((len(x), 1), EOS)], dim=1)     # 末尾接一列 EOS → [n, R]
 
     def corrupt(self, response: torch.Tensor) -> torch.Tensor:
         """
@@ -79,14 +82,15 @@ class SeqTask:
         """
         n, R = response.shape
         bad = response.clone()
-        pos = torch.randint(0, R - 1, (n,))                       # 不动 EOS
+        pos = torch.randint(0, R - 1, (n,))                       # [n] 每条要动的位置; 上界 R−1 取不到 → 不动 EOS
         rows = torch.arange(n)
         # 换成另一个内容 token: 在 V-3 个符号上加一个非零偏移再取模, 保证一定不等于原 token
         n_sym = self.vocab_size - FIRST_SYMBOL
-        shift = torch.randint(1, n_sym, (n,))
+        shift = torch.randint(1, n_sym, (n,))                     # [n] 偏移取 1 … n_sym−1, 不会是 0
         bad[rows, pos] = (bad[rows, pos] - FIRST_SYMBOL + shift) % n_sym + FIRST_SYMBOL
-        drop = torch.rand(n) < 0.5
+        drop = torch.rand(n) < 0.5                                # [n] 这一半改成 "漏一个 token"
         for i in torch.nonzero(drop).flatten().tolist():           # 删掉 pos 处 token, 左移, 末尾补 PAD
+            # 从原回复 response 出发 (不是已经改错的 bad): 这一半只漏不改
             p = int(pos[i])
             bad[i] = torch.cat([response[i, :p], response[i, p + 1:], torch.tensor([PAD])])
         return bad
@@ -96,6 +100,7 @@ class SeqTask:
         """
         completions [n, C≥R] → reward [n] ∈ {0, 1}: 前 R 个 token 与正确回复完全一致 (含 EOS) 才得 1 分。
         纯规则、依赖 prompt: 策略不看 prompt 就拿不到分, 也没有 reward model 可以被 hack。
+        只看前 R 个 token: RL 脚本会多采 2 个 (max_new = R+2), 多出来的不参与判分。
         """
         return (completions[:, : self.response_len] == self.target(prompts)).all(dim=1).float()
 
@@ -111,10 +116,18 @@ class SeqTask:
         prompts = self.sample_prompts(n, split)
         out = model.generate(prompts, max_new_tokens=self.response_len, temperature=temperature)
         torch.set_rng_state(state)                                # 评估不扰动训练的随机流
-        return float(self.verify(prompts, out[:, self.prompt_len:]).mean())
+        return float(self.verify(prompts, out[:, self.prompt_len:]).mean())   # out [n, P+R] 切掉 prompt → [n, R]
 
 
 def completion_mask(completions: torch.Tensor) -> torch.Tensor:
-    """[n, C] → bool [n, C]: 第一个 EOS (含) 之前为 True。EOS 之后的 token 不是 "回复" 的一部分。"""
-    after_eos = (completions == EOS).long().cumsum(dim=1) - (completions == EOS).long()
+    """
+    [n, C] → bool [n, C]: 第一个 EOS (含) 之前为 True。EOS 之后的 token 不是 "回复" 的一部分。
+
+    GRPO / PPO / on-policy 蒸馏 / RLAIF / 蒸馏的评估 (completion_kl) 都靠它裁回复: 它们调 generate() 时
+    不传 eos_token_id, 模型会一直采满 C 个 token, 只能事后裁。
+    简化: 不传 eos_token_id 是有意的。batch 里每条都采满同样长度, 张量形状整齐, 裁剪集中在这一个函数里。
+    """
+    # cumsum = 到本位置为止 (含本位置) 出现过几个 EOS; 减去 "本位置是不是 EOS" = 本位置**之前**有几个。
+    # 之前有 0 个才算回复, 所以第一个 EOS 自己算在内, 它后面的全是 False。
+    after_eos = (completions == EOS).long().cumsum(dim=1) - (completions == EOS).long()   # [n, C]
     return after_eos == 0

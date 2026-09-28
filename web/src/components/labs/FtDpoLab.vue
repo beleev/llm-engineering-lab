@@ -23,7 +23,7 @@
       <LabSlider v-model="beta" label="β" :min="0.05" :max="1" :step="0.05" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 330" role="img" aria-label="DPO loss 与梯度权重曲线">
+    <svg ref="svgEl" viewBox="0 0 640 330" role="group" aria-label="DPO loss 与梯度权重曲线">
       <!-- 排错区 (Δ<0) 底色 -->
       <rect :x="sx(-XM)" y="14" :width="sx(0) - sx(-XM)" height="290" fill="var(--danger)" opacity="0.06" />
       <text :x="sx(-XM) + 6" y="28" class="t" fill="var(--danger)">Δ &lt; 0: 排错了 (rejected 涨得更多)</text>
@@ -59,7 +59,7 @@
     <template #stats>
       <div class="kv"><span>batch 平均 loss</span><b>{{ meanLoss.toFixed(3) }}</b></div>
       <div class="kv"><span>偏好准确率 (Δ &gt; 0)</span><b :class="acc === 1 ? 'good' : ''">{{ (acc * 100).toFixed(0) }}%</b></div>
-      <div class="kv"><span>排错样本拿走的梯度</span><b :class="wrongShare > 0.5 ? 'bad' : ''">{{ (wrongShare * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>排错样本拿走的梯度</span><b :class="wrongShare > 1 - acc ? 'good' : ''">{{ (wrongShare * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>最"对"的样本的权重</span><b :class="minW < 0.05 ? 'good' : ''">{{ minW.toFixed(3) }}</b></div>
       <p class="lab-note">
         <Tex text="$\partial\,\text{loss}/\partial\Delta = -\beta\cdot\sigma(-\beta\Delta)$。" />权重 → 0 的样本等于自动退出训练;
@@ -104,6 +104,7 @@ const wPath = computed(() => curve(wOf, wy))
 
 const meanLoss = computed(() => sum(pts.value.map((p) => p.loss)) / pts.value.length)
 const acc = computed(() => pts.value.filter((p) => p.d > 0).length / pts.value.length)
+// 排错样本分到的梯度占比。它高于排错样本的条数占比 (1 − acc), 说明梯度在往排错的样本上集中
 const wrongShare = computed(() => sum(pts.value.filter((p) => p.d < 0).map((p) => p.w)) / sum(pts.value.map((p) => p.w)))
 const minW = computed(() => Math.min(...pts.value.map((p) => p.w)))
 </script>

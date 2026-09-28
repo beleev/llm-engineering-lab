@@ -26,12 +26,12 @@ def tree_shape(widths: List[int]) -> Tuple[np.ndarray, np.ndarray]:
     widths[d] = 第 d 层每个节点的孩子数。返回 parents (n,), depth (n,); parents[0] = -1。
     [3,2,1] → parents = [-1, 0,0,0, 1,1,2,2,3,3, 4,5,6,7,8,9]
     """
-    parents, depth, level = [-1], [0], [0]
+    parents, depth, level = [-1], [0], [0]                # level: 当前这一层的节点号
     for d, w in enumerate(widths):
         nxt = []
         for p in level:
             for _ in range(w):
-                nxt.append(len(parents))
+                nxt.append(len(parents))                  # 新节点的编号 = 目前已有的节点数
                 parents.append(p)
                 depth.append(d + 1)
         level = nxt
@@ -43,13 +43,13 @@ def ancestor_matrix(parents: np.ndarray) -> np.ndarray:
     n = len(parents)
     anc = np.eye(n, dtype=bool)
     for i in range(1, n):
-        anc[i] |= anc[parents[i]]
+        anc[i] |= anc[parents[i]]                         # i 的祖先 = 自己 + 父亲的全部祖先
     return anc
 
 
 def tree_mask(anc: np.ndarray, n_ctx: int) -> np.ndarray:
     """加性 mask (n_rows, n_ctx + n_cols): 上下文全可见; 树内只看祖先 + 自己。"""
-    tree = np.where(anc, 0.0, -np.inf).astype(np.float32)
+    tree = np.where(anc, 0.0, -np.inf).astype(np.float32)   # astype: np.where 默认给 fp64, 会把分数升精度
     return np.concatenate([np.zeros((anc.shape[0], n_ctx), np.float32), tree], axis=1)
 
 
@@ -69,7 +69,7 @@ class TreeDrafter:
 
     def propose(self, out: List[int]) -> np.ndarray:
         """返回树上每个节点的 token (n,), tokens[0] = out[-1]。"""
-        n_fed = 0 if self.kv is None else self.kv[0][0].shape[0]
+        n_fed = 0 if self.kv is None else self.kv[0][0].shape[0]   # draft KV 里已有的 token 数
         # 第 0 层: 因果地追平上轮接受的 token, 最后一行就是根
         logits, kv = self.lm.forward(out[n_fed:], self.kv)
         self.calls += 1
@@ -78,13 +78,13 @@ class TreeDrafter:
         for d, w in enumerate(self.widths):
             top = np.argsort(-logits, axis=-1)[:, :w]     # (n_prev, w) 每个节点的 top-w 孩子
             tokens += top.ravel().tolist()                # 行优先展开 = BFS 序, 与 tree_shape 对齐
-            e = s + top.size
+            e = s + top.size                              # [s, e) = 刚长出来的这一层的节点号范围
             if d + 1 < len(self.widths):                  # 叶子层不用再 forward
                 mask = tree_mask(self.anc[s:e, :e], n_ctx)               # (n_level, n_ctx + e)
                 logits, kv = self.lm.forward(tokens[s:e], kv, positions=n_ctx + self.depth[s:e], mask=mask)
                 self.calls += 1
             s = e
-        # ponytail: draft 侧不做 gather, 直接丢掉整棵树的 KV, 下轮把接受的 token 重喂一遍
+        # 简化: draft 侧不做 gather, 直接丢掉整棵树的 KV, 下轮把接受的 token 重喂一遍
         # (并进第 0 层那次 forward, 不多花调用); 真实系统里 draft 也 gather
         self.kv = truncate_kv(kv, len(out))
         return np.array(tokens)
@@ -99,7 +99,7 @@ def accept_tree(tokens: np.ndarray, parents: np.ndarray, t_logits: np.ndarray) -
     t_pred = t_logits.argmax(-1)                          # (n,)
     path = [0]
     while True:
-        kids = np.flatnonzero(parents == path[-1])
+        kids = np.flatnonzero(parents == path[-1])        # 当前节点的所有孩子
         hit = kids[tokens[kids] == t_pred[path[-1]]]      # top-k 互不相同 → 至多命中一个
         if len(hit) == 0:
             return path, int(t_pred[path[-1]])
@@ -121,10 +121,12 @@ def tree_speculative_decode(target: TinyLM, drafter: TreeDrafter, prompt, max_ne
                                     mask=tree_mask(drafter.anc, n_ctx))      # (n, V)
         target_calls += 1
         path, nxt = accept_tree(tokens, parents, logits)
+        # 留下: 原有上下文的 n_ctx 行 + 被接受路径上的节点 (树节点 i 在 KV 里是第 n_ctx + i 行)
         kv = gather_kv(kv, np.concatenate([np.arange(n_ctx), n_ctx + np.array(path)]))
-        out += tokens[path[1:]].tolist() + [nxt]
+        out += tokens[path[1:]].tolist() + [nxt]                             # path[0] 是根, 已经在 out 里
         trace.append({"tokens": tokens, "path": path, "t_pred": logits.argmax(-1)})
 
+    # 最后一轮可能产出超过 max_new, 截掉多的
     return out[: len(prompt) + max_new], target_calls, trace
 
 

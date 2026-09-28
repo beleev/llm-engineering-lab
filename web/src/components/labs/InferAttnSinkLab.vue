@@ -8,14 +8,14 @@
     module="llm_infer/m16"
     run="python -m llm_infer.m16_attention_sinks.demo"
     :challenge="{
-      ask: '把「保留的 sink 数」从 4 拖到 0 (纯滑动窗口), 丢失的注意力质量和幸存权重的放大倍数怎么变? 再把 sink 强度拖到 0 试试。',
-      answer: 'softmax 的权重和恒为 1: 当前 token 没什么可看时, 多余的注意力被倒在开头几个 token 上。\n- 纯滑动窗口: 把这几个 token 逐出后, 分母突然少了一大块, 所有幸存权重被放大好几倍。注意力输出远离训练时见过的分布 → 困惑度爆炸。\n- 留住 4 个 sink: 分母基本不变, 丢掉的只是中间那些本来就没分到多少注意力的 token。\nsink 强度为 0 (没有 sink 现象) 时, 留不留开头就无所谓了。这正是随机权重模型上看不到效果的原因。',
+      ask: '把「保留的 sink 数」从 4 拖到 0 (纯滑动窗口), 幸存权重会被放大多少倍?',
+      answer: '默认参数下从 1.24× 涨到 4.70×, 丢掉的注意力质量从 19.2% 涨到 78.7%。\nsoftmax 的权重和恒为 1: 当前 token 没什么可看时, 多余的注意力被倒在开头几个 token 上。\n- 纯滑动窗口: 把这几个 token 逐出后, 分母突然少了一大块, 所有幸存权重被放大好几倍。注意力输出远离训练时见过的分布 → 困惑度爆炸。\n- 留住 4 个 sink: 分母基本不变, 丢掉的只是中间那些本来就没分到多少注意力的 token。\nsink 强度拖到 0 (没有 sink 现象) 时, 留 4 个是 1.86×, 不留是 1.95×, 留不留开头就无所谓了。这正是随机权重模型上看不到效果的原因。',
     }"
   >
     <template #controls>
       <LabSlider v-model="T" label="流长度 T" :min="16" :max="128" unit=" tok" />
       <LabSlider v-model="win" label="最近窗口 window" :min="4" :max="64" unit=" tok" />
-      <LabSlider v-model="nSink" label="保留的 sink 数" :min="0" :max="8" />
+      <LabSlider v-model="nSink" label="保留的 sink 数" :min="0" :max="N_SINK" />
       <LabSlider v-model="strength" label="sink 强度 (植入的 logit)" :min="0" :max="6" :step="0.5" />
       <div class="row">
         <button type="button" :class="{ active: reindex }" @click="reindex = true">位置按槽位重编号</button>
@@ -29,7 +29,7 @@
         <text x="0" y="-2" class="ax">{{ ri ? '逐出后 (只在 cache 内重新归一化)' : '完整上下文的注意力' }}</text>
         <rect
           v-for="(p, j) in row" :key="j" :x="j * bw" :y="RH - (p / m.peak) * (RH - 10)" :width="Math.max(1, bw - 0.6)"
-          :height="(p / m.peak) * (RH - 10)" :class="['bar', j < 4 ? 'sink' : '', { hl: j === hl }]" :opacity="m.kept[j] ? 1 : ri ? 0 : 0.25"
+          :height="(p / m.peak) * (RH - 10)" :class="['bar', j < N_SINK ? 'sink' : '', { hl: j === hl }]" :opacity="m.kept[j] ? 1 : ri ? 0 : 0.25"
         />
         <line x1="0" :x2="W" :y1="RH" :y2="RH" class="base" />
       </g>
@@ -41,7 +41,7 @@
     <div class="slots">
       <button
         v-for="(abs, s) in m.slots" :key="s" type="button" class="cell slot"
-        :class="[abs < 4 ? 'hot' : 'on', { hl: abs === hl }]" :title="`槽位 ${s} ← 绝对位置 ${abs}`"
+        :class="[abs < N_SINK ? 'hot' : 'on', { hl: abs === hl }]" :title="`槽位 ${s} ← 绝对位置 ${abs}`"
         @click="hl = abs" @mouseenter="hl = abs"
       >{{ abs }}</button>
     </div>
@@ -53,7 +53,7 @@
     <template #stats>
       <div class="kv"><span>逐出丢掉的注意力质量</span><b :class="m.lost > 0.4 ? 'bad' : m.lost < 0.25 ? 'good' : ''">{{ (m.lost * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>幸存权重被放大</span><b :class="m.lost > 0.4 ? 'bad' : m.lost < 0.25 ? 'good' : ''">{{ (1 / (1 - m.lost)).toFixed(2) }}×</b></div>
-      <div class="kv"><span>cache 条目 / 流长度</span><b class="good">{{ m.slots.length }} / {{ T }}</b></div>
+      <div class="kv"><span>cache 条目 / 流长度</span><b>{{ m.slots.length }} / {{ T }}</b></div>
       <div class="kv">
         <span>喂给 RoPE 的最大位置 (训练长度 {{ TRAIN }})</span>
         <b :class="maxPos >= TRAIN ? 'bad' : 'good'">{{ maxPos }}</b>
@@ -79,6 +79,7 @@ import LabSlider from '@/components/lab/LabSlider.vue'
 import { mulberry32, randn, softmax, range, sum } from '@/utils/labmath.js'
 
 const W = 640, RH = 90, TRAIN = 64
+const N_SINK = 4   // sink 只植入在开头 4 个 token 上, 所以最多也只值得留 4 个
 const T = ref(96), win = ref(16), nSink = ref(4), strength = ref(4), seed = ref(1)
 const reindex = ref(true), hl = ref(0)
 
@@ -86,7 +87,7 @@ const m = computed(() => {
   const rand = mulberry32(seed.value), n = T.value
   const noise = range(128).map(() => 0.4 * randn(rand))                    // 先抽满 128 个, 拖 T 时旧 token 的噪声不变
   // 合成 logit: 开头 4 个 token 的 sink 加成 + 越近越高的 recency + 噪声
-  const logits = range(n).map((j) => (j < 4 ? strength.value : 0) + 3 * Math.exp(-(n - 1 - j) / 6) + noise[j])
+  const logits = range(n).map((j) => (j < N_SINK ? strength.value : 0) + 3 * Math.exp(-(n - 1 - j) / 6) + noise[j])
   const full = softmax(logits)
   const kept = range(n).map((j) => j < nSink.value || j >= n - win.value) // ★ SinkCache 留下的: 开头 n_sink 个 + 最近 window 个
   const lost = sum(full.filter((_, j) => !kept[j]))

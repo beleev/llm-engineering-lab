@@ -29,13 +29,16 @@
       </div>
     </template>
 
-    <svg class="tl" :viewBox="`0 0 ${W} 190`" role="img" aria-label="同卡与分离两种部署的时间线">
+    <svg class="tl" :viewBox="`0 0 ${W} 190`" role="group" aria-label="同卡与分离两种部署的时间线">
       <g v-for="(lane, li) in lanes" :key="lane.name">
         <text x="0" :y="lane.y + 15" class="lbl">{{ lane.name }}</text>
+        <!-- decode 格子成百上千, 不进 Tab 序列; prefill 和传输这几段可以聚焦 -->
         <rect
           v-for="(s, i) in lane.segs" :key="i" :x="X0 + s.t0 * sx" :y="lane.y" :width="Math.max(1, (s.t1 - s.t0) * sx - 1)" height="22" rx="2"
-          :class="['seg', s.kind, { hov: hov === `${li}-${i}` }]" tabindex="0" role="img" :aria-label="`${s.label} ${(s.t1 - s.t0).toFixed(1)} ms`"
-          @mouseenter="hov = `${li}-${i}`" @focus="hov = `${li}-${i}`"
+          :class="['seg', s.kind, { hov: shown === `${li}-${i}` }]"
+          :tabindex="s.steps ? undefined : 0" :role="s.steps ? undefined : 'button'" :aria-label="`${s.label} ${(s.t1 - s.t0).toFixed(1)} ms`"
+          @mouseenter="hov = `${li}-${i}`" @mouseleave="hov = ''" @focus="hov = `${li}-${i}`" @blur="hov = ''"
+          @click="pin = pin === `${li}-${i}` ? '' : `${li}-${i}`" @keydown.enter="pin = pin === `${li}-${i}` ? '' : `${li}-${i}`"
         />
       </g>
       <line :x1="X0 + arrive * sx" :x2="X0 + arrive * sx" y1="0" y2="168" class="arr" />
@@ -45,11 +48,9 @@
     <p class="legend"><span class="sw dec" />decode 步 <span class="sw pre" />prefill <span class="sw xfer" />KV 传输 <span class="sw neo" />新请求 decode</p>
 
     <template #stats>
-      <div class="kv"><span>同卡: 最大 ITL</span><b class="bad">{{ fmtMs(coloItl) }}</b></div>
-      <div class="kv"><span>分离: 最大 ITL</span><b class="good">{{ fmtMs(STEP) }}</b></div>
-      <div class="kv"><span>KV {{ kvGB.toFixed(2) }} GB · 传输</span><b>{{ fmtMs(xfer) }}</b></div>
-      <div v-if="wrongUnit" class="kv"><span>错算 (忘了 ÷8)</span><b class="bad">{{ fmtMs(xferWrong) }}</b></div>
-      <div class="kv"><span>新请求第 2 个 token 推迟</span><b :class="xfer < prefillMs ? 'good' : 'bad'">+{{ fmtMs(xfer) }}</b></div>
+      <div class="kv"><span>最大 ITL: 同卡 → 分离</span><b :class="STEP < coloItl ? 'good' : ''">{{ fmtMs(coloItl) }} → {{ fmtMs(STEP) }}</b></div>
+      <div class="kv"><span>传 {{ kvGB.toFixed(2) }} GB KV, 第 2 个 token 推迟</span><b :class="xfer < prefillMs ? 'good' : 'bad'">+{{ fmtMs(xfer) }}</b></div>
+      <div v-if="wrongUnit" class="kv"><span>错算 (忘了 ÷8)</span><b :class="xferWrong < xfer ? 'bad' : ''">{{ fmtMs(xferWrong) }}</b></div>
       <div class="kv"><span>盈亏带宽</span><b>{{ isFinite(breakEven) ? breakEven.toFixed(1) + ' Gbps' : '∞' }}</b></div>
       <div class="lab-note">
         <p>盈亏带宽: 传输耗时 = 它换掉的那次 prefill 卡顿 ({{ fmtMs(prefillMs) }})。当前链路是它的 {{ (gbps / breakEven).toFixed(1) }}×。</p>
@@ -77,7 +78,8 @@ const kTok = ref(4)
 const bwIdx = ref(3)
 const latency = ref(1)
 const wrongUnit = ref(false)
-const hov = ref('')
+const hov = ref(''), pin = ref('')
+const shown = computed(() => hov.value || pin.value)   // 悬停优先; 点一下固定, 触屏和键盘也能看
 
 const gbps = computed(() => LINKS[bwIdx.value])
 const kvBytes = computed(() => kTok.value * 1024 * MODELS[model.value].kib * 1024)
@@ -90,25 +92,29 @@ const coloItl = computed(() => prefillMs.value + STEP) // 上一个 token → (�
 const breakEven = computed(() => (prefillMs.value > latency.value ? (kvBytes.value * 8) / ((prefillMs.value - latency.value) / 1e3) / 1e9 : Infinity))
 
 const arrive = WARM * STEP
+const pEnd = computed(() => arrive + prefillMs.value)
+const xEnd = computed(() => pEnd.value + xfer.value)
+const nD = computed(() => Math.ceil((xEnd.value + USERS_AFTER * STEP) / STEP))   // D 节点那一行最长, 它定横轴
+const sx = computed(() => (W - X0) / (nD.value * STEP))
 const lanes = computed(() => {
-  const dec = (t0, n, kind = 'dec') => range(n).map((i) => ({ t0: t0 + i * STEP, t1: t0 + (i + 1) * STEP, kind, label: kind === 'neo' ? '新请求 decode 步' : 'decode 步' }))
-  const pEnd = arrive + prefillMs.value, xEnd = pEnd + xfer.value
-  const nD = Math.ceil((xEnd + USERS_AFTER * STEP) / STEP)
+  const name = (kind) => (kind === 'neo' ? '新请求 decode 步' : 'decode 步')
+  // 一格不到 3px 就看不清也点不中: 合并成一条色带
+  const dec = (t0, n, kind = 'dec') => (STEP * sx.value < 3
+    ? [{ t0, t1: t0 + n * STEP, kind, steps: n, label: `${n} 个 ${name(kind)}, 每步 ${STEP} ms, 合计` }]
+    : range(n).map((i) => ({ t0: t0 + i * STEP, t1: t0 + (i + 1) * STEP, kind, steps: 1, label: name(kind) })))
   return [
-    { name: '同卡 GPU', y: 6, segs: [...dec(0, WARM), { t0: arrive, t1: pEnd, kind: 'pre', label: 'prefill (所有 decode 停住)' }, ...dec(pEnd, USERS_AFTER)] },
-    { name: '分离 · D 节点', y: 50, segs: dec(0, nD) },
-    { name: '分离 · P 节点', y: 80, segs: [{ t0: arrive, t1: pEnd, kind: 'pre', label: 'prefill → 首 token' }] },
-    { name: '分离 · 链路', y: 110, segs: [{ t0: pEnd, t1: xEnd, kind: 'xfer', label: `KV 传输 ${kvGB.value.toFixed(2)} GB` }] },
-    { name: '新请求 @ D', y: 140, segs: dec(xEnd, 3, 'neo') },
+    { name: '同卡 GPU', y: 6, segs: [...dec(0, WARM), { t0: arrive, t1: pEnd.value, kind: 'pre', label: 'prefill (所有 decode 停住)' }, ...dec(pEnd.value, USERS_AFTER)] },
+    { name: '分离 · D 节点', y: 50, segs: dec(0, nD.value) },
+    { name: '分离 · P 节点', y: 80, segs: [{ t0: arrive, t1: pEnd.value, kind: 'pre', label: 'prefill → 首 token' }] },
+    { name: '分离 · 链路', y: 110, segs: [{ t0: pEnd.value, t1: xEnd.value, kind: 'xfer', label: `KV 传输 ${kvGB.value.toFixed(2)} GB` }] },
+    { name: '新请求 @ D', y: 140, segs: dec(xEnd.value, 3, 'neo') },
   ]
 })
 // 悬停文字从当前 lanes 现算: 拖滑杆后不会留下过期的数字
 const hovText = computed(() => {
-  const [li, i] = hov.value.split('-').map(Number), lane = lanes.value[li], s = lane?.segs[i]
-  return s ? `${lane.name} · ${s.label}: ${(s.t1 - s.t0).toFixed(1)} ms` : '悬停任一段看它的时长。'
+  const [li, i] = shown.value.split('-').map(Number), lane = lanes.value[li], s = lane?.segs[i]
+  return s ? `${lane.name} · ${s.label}: ${(s.t1 - s.t0).toFixed(1)} ms` : '悬停或点任一段看它的时长。'
 })
-const total = computed(() => Math.max(...lanes.value.flatMap((l) => l.segs.map((s) => s.t1))))
-const sx = computed(() => (W - X0) / total.value)
 </script>
 
 <style scoped>

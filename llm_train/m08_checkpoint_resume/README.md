@@ -11,7 +11,7 @@ AMP 还要加 loss scale (见 full_loop)。
 
 ## 运行后应该看到什么
 ```
-checkpoint 大小               = 3047 B (其中 RNG 状态 ~2.5KB, 比模型还大)
+checkpoint 大小               = 3047 B (其中 RNG 状态 2496 B, 模型参数只有 40 B)
 完整恢复: max |Δ| vs 不中断    = 0.0e+00
 漏掉 RNG 状态                 = 3.1e-02
 漏掉 optimizer 状态           = 5.8e-02

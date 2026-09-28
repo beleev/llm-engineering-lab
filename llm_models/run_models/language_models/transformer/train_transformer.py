@@ -31,6 +31,7 @@ def main():
         src_vocab_size=V_src, tgt_vocab_size=V_tgt,
         batch_size=config.batch_size, src_len=config.seq_len, tgt_len=config.seq_len,
     )
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, config, data_gen, StandardLMLoss()).train()
 
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]

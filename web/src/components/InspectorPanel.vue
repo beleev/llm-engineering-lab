@@ -4,12 +4,12 @@
     <div class="shape-bar card">
       <div class="shape-bar-head">
         <h3 style="margin: 0;">张量形状参数 <span class="tag">所有数值随滑条实时变化</span></h3>
-        <button class="reset" @click="resetCtx">重置为 LLaMA-7B 默认</button>
+        <button type="button" class="reset" @click="resetCtx">重置为 LLaMA-7B 默认</button>
       </div>
       <div class="shape-grid">
         <div v-for="k in sliderKeys" :key="k" class="shape-slider">
-          <label>{{ sliderMeta[k].label }}</label>
-          <input type="range"
+          <label :for="`${uid}-${k}`">{{ sliderMeta[k].label }}</label>
+          <input type="range" :id="`${uid}-${k}`"
                  :min="sliderMeta[k].min"
                  :max="sliderMeta[k].max"
                  :step="sliderMeta[k].step"
@@ -44,7 +44,7 @@
 
       <div class="body-grid">
         <div class="params-col">
-          <div class="col-label">权重参数 <span class="hint-inline">鼠标停上去, 看它被哪一步用到</span></div>
+          <div class="col-label">权重参数 <span class="hint-inline">鼠标停上去或点一下, 看它被哪一步用到</span></div>
           <ParamsTable
             :params="activeSpec.params"
             :ctx="ctx"
@@ -60,12 +60,12 @@
           </div>
           <FlowDiagram :steps="activeSpec.flow" :ctx="ctx" :active-param="hotParam" />
           <div class="legend">
-            <span class="legend-dot" style="background:#60a5fa;"></span> matmul
-            <span class="legend-dot" style="background:#3dd68c;"></span> activation
-            <span class="legend-dot" style="background:#9ca3af;"></span> reshape
-            <span class="legend-dot" style="background:#c084fc;"></span> attention
-            <span class="legend-dot" style="background:#f5a623;"></span> 条件/RoPE
-            <span class="legend-dot" style="background:#ec4899;"></span> route
+            <span class="legend-dot" style="background:var(--code-fn);"></span> matmul
+            <span class="legend-dot" style="background:var(--left);"></span> activation
+            <span class="legend-dot" style="background:var(--text-dim);"></span> reshape
+            <span class="legend-dot" style="background:var(--code-kw);"></span> attention
+            <span class="legend-dot" style="background:var(--eye);"></span> 条件/RoPE
+            <span class="legend-dot" style="background:var(--right);"></span> route
           </div>
         </div>
       </div>
@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, useId, watch } from 'vue'
 import FlowDiagram from './FlowDiagram.vue'
 import ParamsTable from './ParamsTable.vue'
 import Tex from './Tex.vue'
@@ -86,7 +86,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:tab'])
 
-// 鼠标停在左边哪个权重上 —— 右边用到它的步骤会亮
+// 滑杆和它的 label 靠 id 关联, 读屏器才读得出滑杆的名字。uid 保证一页放两个面板时 id 不撞
+const uid = useId()
+
+// 左边选中了哪个权重 (悬停、键盘聚焦、点一下都算) —— 右边用到它的步骤会亮
 const hotParam = ref('')
 
 // --- shape context (所有 flow 共用) ---

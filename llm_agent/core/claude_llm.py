@@ -1,4 +1,7 @@
-"""ClaudeLLM: 用真实的 Claude Messages API 实现同一个 LLM 协议 (opt-in, 默认 demo 从不导入本文件)。
+"""ClaudeLLM: 用真实的 Claude Messages API 实现同一个 LLM 协议 (opt-in)。
+
+默认 demo 不会实例化 ClaudeLLM, 不发网络请求。
+m15 和 m19 导入了本文件的 to_api_messages, 它是纯函数, 不需要 SDK 和 key。
 
 没有它: 学员会怀疑 "toy LLM 能跑, 换真模型是不是要重写 loop" —— 不用, 只换这一个对象。
 关键设计:
@@ -10,7 +13,7 @@
 依赖: `pip install anthropic` + 环境变量 ANTHROPIC_API_KEY。模型默认 claude-opus-5
 (另有 claude-sonnet-5 / claude-haiku-4-5, 用 LLM_AGENT_MODEL 覆盖)。
 未启用服务端 refusal fallbacks (需 beta 端点: betas=["server-side-fallback-2026-07-01"], fallbacks="default"),
-这里只识别 stop_reason == "refusal" 并如实返回。
+这里只识别 stop_reason == "refusal", 返回一句固定文本。
 """
 
 from __future__ import annotations
@@ -22,18 +25,21 @@ from llm_agent.core.schema import Message, ModelAction, ToolCall
 
 
 def to_api_messages(messages: List[Message]) -> Tuple[str, List[Dict[str, Any]]]:
-    """内部 transcript → (system 字符串, Messages API 的 messages 列表)。"""
+    """内部 transcript → (system 字符串, Messages API 的 messages 列表)。
+
+    Message.name 字段在转换时丢掉, 真实 API 的消息里没有它。
+    """
     system: List[str] = []
     out: List[Dict[str, Any]] = []
     for msg in messages:
-        if msg.role == "system" and not out:
+        if msg.role == "system" and not out:  # 第一条 user / assistant 消息之前的 system 消息
             system.append(msg.text)
             continue
         if msg.role == "system":  # 对话中途的 harness 注入: 降级成 user 侧提示, 任何模型都支持
             role, blocks = "user", [{"type": "text", "text": f"<system-reminder>\n{msg.text}\n</system-reminder>"}]
         else:
             role, blocks = msg.role, list(msg.blocks)
-        if out and out[-1]["role"] == role:
+        if out and out[-1]["role"] == role:  # 相邻同角色并成一条: tool_result 和随后注入的提示同属一条 user 消息
             out[-1]["content"] += blocks
         else:
             out.append({"role": role, "content": blocks})
@@ -43,6 +49,8 @@ def to_api_messages(messages: List[Message]) -> Tuple[str, List[Dict[str, Any]]]
 
 
 class ClaudeLLM:
+    """真实模型。构造时就检查 SDK 和 key, 缺哪个都抛 RuntimeError, 不会等到第一次请求才失败。"""
+
     def __init__(self, model: str = "", max_tokens: int = 16000) -> None:
         try:
             import anthropic  # 延迟导入: 没装 SDK 时, 包的其余部分照常工作
@@ -53,9 +61,10 @@ class ClaudeLLM:
         self.client = anthropic.Anthropic()  # key 由 SDK 从环境变量读取, 代码里不经手
         self.model = model or os.environ.get("LLM_AGENT_MODEL", "claude-opus-5")
         self.max_tokens = max_tokens
-        self._tools: List[Dict[str, Any]] = []
+        self._tools: List[Dict[str, Any]] = []  # 上一次请求带的工具定义, 摘要请求时沿用
 
     def next(self, messages: List[Message], tools: List[Dict[str, Any]]) -> ModelAction:
+        """发一次 Messages API 请求 (非流式), 把响应翻译成 ModelAction。会计费。"""
         system, api_messages = to_api_messages(messages)
         kwargs: Dict[str, Any] = {
             "model": self.model,
@@ -81,4 +90,6 @@ class ClaudeLLM:
             return ModelAction.final(text + "\n[输出在 max_tokens 处被截断]")
         if calls and tools:
             return ModelAction(kind="tool", content=text, tool_calls=calls, raw_content=raw)
+        # 没给工具 (如摘要请求) 模型却发了 tool_use: 不执行, 只取文本, 也不存 raw。
+        # raw 里的 tool_use 没有对应的 tool_result, 写进 transcript 会让配对不合法
         return ModelAction(kind="final", content=text, raw_content=None if calls else raw)

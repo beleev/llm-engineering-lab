@@ -32,7 +32,7 @@ Agent 每次调用模型都要重发整个上下文, 长会话既贵又迟早撑
        头 2 条 + 尾 2 条按字符裁剪, 中间每条只留 32 字符拼成一行, 预算用完就切
 ```
 
-关键设计决定:
+关键设计:
 
 - 清理时保留 `tool_result` block 本身, 只换 `content`: `tool_use / tool_result` 的配对不被破坏, 视图仍可直接发给真实 API; 占位符里的字符数也告诉模型"这里曾有数据, 需要可以重新取"。
 - `keep` 参数来自 pre_compact hook: 由人指定"摘要里必须留下什么", 不把关键约束的去留交给摘要模型自行决定。
@@ -42,8 +42,7 @@ Agent 每次调用模型都要重发整个上下文, 长会话既贵又迟早撑
 ## 运行后应该看到什么
 
 ```bash
-cd llm-engineering-lab
-python3 -m llm_agent.m04_context_memory.demo
+cd <仓库根目录> && python3 -m llm_agent.m04_context_memory.demo
 ```
 
 ```
@@ -52,7 +51,7 @@ python3 -m llm_agent.m04_context_memory.demo
   应该用什么风格回答               : ['回答风格.md']
 
 [2] 第 1 档: 清旧工具结果 —— 零模型开销, 对话结构原样保留
-  chars                   : 3993 -> 1230
+  字符数                     : 3993 -> 1230
 
 [3] 第 2 档: 模型写摘要, 替换掉旧轮次 (保留当前轮)
   [compact summary of 36 messages]
@@ -60,14 +59,14 @@ python3 -m llm_agent.m04_context_memory.demo
   已完成: search_docs(topic 1); search_docs(topic 2); ... search_docs(topic 9)
   关键结果: 主题 1 的结论是 fact-1; 主题 2 的结论是 fact-2; ... 主题 9 的结论是 fact-9
   保留: 用户偏好中文
-  chars                   : 3993 -> 952
+  字符数                     : 3993 -> 952
 
 [4] 反例: 同等预算下硬截断 —— 每条消息留个开头, 预算用完就一刀切
-  chars                   : 3993 -> 896
+  字符数                     : 3993 -> 896
   丢失的结论                   : [6, 7, 8, 9]
 ```
 
-`assert` 验证的内容:
+断言验证的内容:
 
 - [1] 英文查询首个命中是 `permissions.md`; 中文查询 `应该用什么风格回答` 首个命中是 `回答风格.md` (靠 bigram `风格`、`回答`)。
 - [2] 字符数降到原来的 40% 以下; `validate_transcript(cleared) == []`; 只有最近一个结果 (`fact-10`) 保留正文; 原 `messages` 里的 `fact-1` 仍在, 即清理没有改动 transcript。

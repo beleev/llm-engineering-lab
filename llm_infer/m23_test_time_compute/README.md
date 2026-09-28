@@ -4,8 +4,8 @@
 一道 K 步的推理题, 每步答对 p, 整条答对只有 p^K (p=0.75, K=4 → 0.32)。一步错, 后面全在错的值上"正确地"算。
 
 换更大的模型很贵。另一条路是**推理时多花 token**:
-- **并行**: 采 N 条, 挑一个。可以靠 ORM 看终点挑 (best-of-N), 也可以取最终答案的众数 (self-consistency)。
-- **按步搜索**: 每步多采几个候选, 让 PRM 给这一步打分, 错步当场剪掉 (beam search)。
+- **并行**: 采 N 条, 挑一个。可以靠 ORM (outcome reward model, 只给最终答案打分) 挑 (best-of-N), 也可以取最终答案的众数 (self-consistency)。
+- **按步搜索**: 每步多采几个候选, 让 PRM (process reward model, 给每一步打分) 给这一步打分, 错步当场剪掉 (beam search)。
 - **串行**: 写完再自查, 发现错就重写。budget forcing 控制想多久: 到上限截断, 想停时追加 "Wait"。
 
 效果取决于**靠什么挑**。错误分两种:
@@ -78,7 +78,7 @@ python -m llm_infer.m23_test_time_compute.demo     # ~2 s
 - 前三档预算 PRM beam > 同 token 数 BoN; σ=0 的 4×4 比 σ=0.5 高 0.1 以上。
 - budget forcing B=2 < 0.1 < B=4; B=64 比 B=4 高 0.2 以上; B=64 时陷阱题比无陷阱题低 0.4 以上。
 
-## 与真实系统的差距 (诚实边界)
+## 与真实系统的差距
 - 玩具里随机错**只来自采样噪声**, 所以 T=0 greedy 直接拿到 0.675 (= 无陷阱比例), 比 T=1 单条好得多。
   真实模型的 greedy 也会犯随机错, 长思考和采样的收益比这里更实在。这里不要读成"greedy 就够了"。
 - PRM beam 只在**小预算**赢 (8–28 token)。52 token 以上与 best-of-N 打平甚至略输 (0.830 vs 0.849)。

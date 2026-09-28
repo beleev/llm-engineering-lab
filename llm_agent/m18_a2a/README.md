@@ -101,6 +101,7 @@ cd <仓库根目录> && python3 -m llm_agent.m18_a2a.demo
     线上  message/send  -> error -32004: task task-1 is completed; cannot continue (completed -> working)
     线上  tasks/cancel  -> error -32002: task task-1 is completed (completed -> canceled)
     线上  tasks/get     -> error -32001: task task-404 not found
+    线上  message/stream -> error -32601: Method not found
 ```
 
 断言验证的内容:
@@ -114,13 +115,13 @@ cd <仓库根目录> && python3 -m llm_agent.m18_a2a.demo
 - [4] 超限任务结局是 `failed`, 没有 artifact。
 - [5] 非法转移:
   - 四个本地非法转移都抛 `InvalidTransition`。
-  - 三个线上请求分别得到 -32004 / -32002 / -32001。
+  - 四个线上请求分别得到 -32004 / -32002 / -32001 / -32601。最后一个是服务端没实现的 `message/stream`, 回的是 JSON-RPC 规范本身的 "Method not found"。
   - 被拒绝之后任务仍是 `completed`, 状态轨迹仍是 5 步 (拒绝没有产生任何副作用)。
 
 ## 与真实系统的差距
 
 - **没有 HTTP**: 真实 A2A 走 JSON-RPC 2.0 over HTTPS, Agent Card 在 `https://<host>/.well-known/agent-card.json` (旧版本叫 `agent.json`)。这里用字符串收发模拟, 形状一致, 但没有鉴权、TLS、超时。
-- **没有流式和推送**: 真实 A2A 有 `message/stream` (SSE 推 `TaskStatusUpdateEvent` / `TaskArtifactUpdateEvent`) 和 push notification (长任务回调 webhook)。这里 `message/send` 同步跑完才返回。
+- **没有流式和推送**: 真实 A2A 有 `message/stream` (SSE 推 `TaskStatusUpdateEvent` / `TaskArtifactUpdateEvent`) 和 push notification (长任务回调 webhook)。这里 `message/send` 同步跑完才返回, 发 `message/stream` 得到 -32601。
 - **状态不全**: 规范里还有 `rejected`、`auth-required`、`unknown`。转移表是本模块自己写死的教学版本, 规范本身没有给出这么严格的表。
 - **Agent Card 没有鉴权声明和签名**: 真实 card 里有 `securitySchemes`, 可以签名防伪造。按 tag 选人也很粗: 真实系统会用描述做语义匹配, 或者有注册中心。
 - **不透明是双刃剑**: 调用方看不到对方内部, 也就没法审计对方做了什么。跨组织协作时要靠合同、日志和 artifact 本身的可验证性, 这里没有涉及。

@@ -1,2 +1,2 @@
-"""Training stability tricks demo."""
+"""训练稳定性技巧演示。"""
 

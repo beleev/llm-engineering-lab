@@ -52,6 +52,7 @@ def all_reduce_sum(tensors: List[np.ndarray], ring: bool = False) -> List[np.nda
     if ring:
         return ring_all_reduce_sum(tensors)
     n = len(tensors)
+    # 捷径: 直接把 N 份加起来。通信量按 ring 算法的公式记账, 不按这里的算法
     total = tensors[0].copy()
     for t in tensors[1:]:
         total = total + t
@@ -76,7 +77,7 @@ def ring_all_reduce_sum(tensors: List[np.ndarray]) -> List[np.ndarray]:
     shape = tensors[0].shape
     # chunks[r][c]: rank r 上的第 c 块, 形状约 [S/N]
     chunks = [np.array_split(t.reshape(-1).copy(), n) for t in tensors]
-    sent = 0
+    sent = 0                                         # 全部 rank 发出的字节数之和
     for phase in ("reduce", "gather"):
         for t in range(n - 1):
             shift = 0 if phase == "reduce" else 1
@@ -86,8 +87,8 @@ def ring_all_reduce_sum(tensors: List[np.ndarray]) -> List[np.ndarray]:
                 dst = (r + 1) % n
                 chunks[dst][c] = chunks[dst][c] + buf if phase == "reduce" else buf
                 sent += buf.nbytes
-    comm.add("ring_all_reduce", sent / n)
-    return [np.concatenate(ch).reshape(shape) for ch in chunks]
+    comm.add("ring_all_reduce", sent / n)            # 除以 n: 计数器记的是每个 rank 的平均
+    return [np.concatenate(ch).reshape(shape) for ch in chunks]   # N 块拼回 [S] → 原形状
 
 
 def all_gather(shards: List[np.ndarray], axis: int = 0) -> List[np.ndarray]:
@@ -112,7 +113,8 @@ def reduce_scatter_sum(tensors: List[np.ndarray], axis: int = 0) -> List[np.ndar
 def all_to_all(shards_by_rank: List[List[np.ndarray]]) -> List[List[np.ndarray]]:
     """out[dst][src] = in[src][dst], 即 "发送矩阵" 的转置。MoE / Ulysses 的核心原语。"""
     world = len(shards_by_rank)
-    assert all(len(row) == world for row in shards_by_rank)
+    assert all(len(row) == world for row in shards_by_rank), \
+        "发送矩阵必须是 world × world: 每个 rank 给每个 rank 各备一份"
     off_diag = sum(
         shards_by_rank[s][d].nbytes for s in range(world) for d in range(world) if s != d
     )

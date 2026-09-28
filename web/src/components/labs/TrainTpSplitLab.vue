@@ -79,7 +79,8 @@ import { heat, mulberry32, randn, range } from '@/utils/labmath.js'
 
 const N = 2, T = 2, D = 4, HID = 8
 const splitA = ref('col'), splitB = ref('row'), seed = ref(1)
-const sync = ref([false, false, true])
+// 默认一个同步点都没开: 通信插在哪, 留给读者自己试
+const sync = ref([false, false, false])
 const kindText = { full: '完整 (每卡一份)', shard: '一段列 (拼起来才完整)', partial: '部分和 (加起来才对)' }
 
 const matmul = (a, b) => a.map((row) => b[0].map((_, j) => row.reduce((s, v, k) => s + v * b[k][j], 0)))

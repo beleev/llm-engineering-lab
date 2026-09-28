@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import time
 
+# 顺序 = 学习路径。每个名字对应 run_finetune/<name>/train_<name>.py 里的 main()
 SCRIPTS = ["sft", "lora", "dora", "qlora", "merge", "rm", "prm", "dpo", "kto", "simpo_orpo", "rlaif", "ppo", "grpo", "distill", "on_policy_distill"]
 
 

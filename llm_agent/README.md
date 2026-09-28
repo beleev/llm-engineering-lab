@@ -8,9 +8,9 @@
 
 - **原理优先**: 默认"模型"是 `RuleBasedLLM` (关键词规则), 行为完全确定 —— 所以每个 demo 都能用 `assert` 证明自己声称的行为, 而不是无条件打印 OK。
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
-- **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对; 落盘的 JSONL 可原样发给真实 API。
+- **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
 - **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 唯一的子进程是 m09 用 `sys.executable` 拉起本包自己的 MCP server。
-- **零依赖**: 默认路径只用 stdlib, Python 3.10 – 3.14 均通过。
+- **零依赖**: 默认路径只用 stdlib。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 学习路径
 
@@ -98,7 +98,7 @@ python -m llm_agent.m15_claude_api.demo
 | 检索 | partial | m08 TF-IDF; m16 切块 + BM25 + 字符级稠密 + RRF + rerank; 无神经 embedding / ANN |
 | Computer use / A2A | partial | m17 模拟浏览器 (无真实渲染); m18 进程内 A2A (无 HTTP / 流式 / 推送) |
 | Context editing / compaction / memory tool | yes | m14; 预算按字符, token 为估算 |
-| Prompt injection 防护 / 脱敏 | partial | 正则特征 + 轮级污点; 无信息流追踪 |
+| Prompt injection 防护 / 脱敏 | partial | 正则特征 + 轮级污点; 无信息流追踪。各层挡不住什么, 见 m03 / m07 / m09 / m12 / m17 的「与真实系统的差距」 |
 | Evals | partial | 小任务集; 无 LLM-as-judge、置信区间 |
 | 真实 LLM | opt-in | m15; 无 streaming / 重试 |
 | Prompt caching | partial | m19 离线模拟计费与 TTL; m15 的真实调用未启用 |

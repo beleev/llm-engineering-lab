@@ -25,7 +25,7 @@
       <LabSlider v-model="r" label="每段行数 r" :min="1" :max="16" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="成为候选的概率随 Jaccard 变化的 S 曲线">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="成为候选的概率随 Jaccard 变化的 S 曲线, 曲线上的圆点可拖">
       <line :x1="X0" :x2="W - 10" :y1="py(0)" :y2="py(0)" class="axis" />
       <line :x1="X0" :x2="X0" :y1="py(0)" :y2="py(1)" class="axis" />
       <g v-for="t in [0, 0.2, 0.4, 0.6, 0.8, 1]" :key="t">
@@ -51,12 +51,12 @@
     <template #stats>
       <div class="kv"><span>哈希总数 b·r</span><b :class="b * r === 128 ? 'good' : ''">{{ b * r }}</b></div>
       <div class="kv"><span>S 曲线拐点 (1/b)^(1/r)</span><b>{{ thr.toFixed(2) }}</b></div>
-      <div class="kv"><span>s = {{ s.toFixed(2) }} 成候选</span><b>{{ P(s).toFixed(3) }}</b></div>
+      <!-- 拖动的那个点的读数直接写在图上, 这里不重复 -->
       <div class="kv"><span>最低的转载 (0.48) 成候选</span><b :class="P(0.48) > 0.7 ? 'good' : 'bad'">{{ P(0.48).toFixed(3) }}</b></div>
       <div class="kv"><span>模板页 (0.32) 成候选</span><b :class="P(0.32) < 0.3 ? 'good' : 'bad'">{{ P(0.32).toFixed(3) }}</b></div>
       <div class="lab-note">
         <p>★ 成候选只是 "被比较", 不是 "被删"。m17 还要用签名估的 Jaccard ≥ 0.5 再校验一次。</p>
-        <p>m17 实测 (32 × 4): 召回 0.967, 误杀 0, 候选对 162; 精确哈希召回只有 0.258。</p>
+        <p>m17 实测, 不随滑杆变化 (32 × 4): 召回 0.967, 误杀 0, 候选对 162; 精确哈希召回只有 0.258。</p>
       </div>
     </template>
   </LabFrame>

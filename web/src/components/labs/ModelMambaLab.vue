@@ -55,7 +55,7 @@
       <div class="kv"><span>“7” 在最终状态的占比</span><b :class="sim.share[KEY] > 0.5 ? 'good' : 'bad'">{{ (sim.share[KEY] * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>“7” 的信号强度 (绝对贡献)</span><b>{{ sim.contrib[KEY].toFixed(3) }}</b></div>
       <div class="kv"><span><Tex text="经过 “7” 时旧状态保留 $\exp(-\Delta \cdot a)$" /></span><b>{{ Math.exp(-sim.d[KEY] * a).toFixed(2) }}</b></div>
-      <div class="kv"><span>状态大小 (与序列长度无关)</span><b class="good">O(1)</b></div>
+      <p class="lab-note">状态大小是 O(1), 与序列长度无关。</p>
       <p class="lab-note">
         <Tex :text="selective ? '每个 $\\Delta_t$ 同时干两件事: 写入强度 $\\Delta_t \\cdot x_t$, 和对旧状态的保留率 $\\exp(-\\Delta_t \\cdot a)$。废话 token 的 $\\Delta$ 拖到 0 附近 = 既不写入也不衰减, 信息 “穿过” 它。'
           : 'LTI: 贡献只取决于离结尾多远, 最后一个 token 永远占大头。“7” 的占比上限 = $1/10$ ($\\Delta \\to 0$ 时)。'" />

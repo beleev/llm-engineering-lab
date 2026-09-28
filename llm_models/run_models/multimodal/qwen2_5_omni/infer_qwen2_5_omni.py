@@ -16,22 +16,25 @@ def main():
     model = Qwen2_5_OmniModel(**TINY).eval()
     n = lambda m: sum(p.numel() for p in m.parameters())
     print(f"Omni Tiny | 总参数 {n(model):,} | Thinker {n(model.thinker):,} | Talker {n(model.talker):,}")
-    assert model.thinker_to_talker is not None                         # Talker(32 维) 比 Thinker(64 维) 窄 ⇒ 需要桥接投影
+    # Talker(32 维) 比 Thinker(64 维) 窄 ⇒ 需要桥接投影
+    assert model.thinker_to_talker is not None, "Talker 与 Thinker 宽度不同时应建桥接投影 thinker_to_talker"
 
-    B, T, T_A = 2, 10, 12
-    ids = torch.randint(1, V_TEXT, (B, T))
-    codec = torch.randint(1, V_AUDIO, (B, T_A))
+    B, T, T_A = 2, 10, 12                                              # batch, 文本长度, 语音 codec 序列长度
+    ids = torch.randint(1, V_TEXT, (B, T))                             # 文本 token, 进 Thinker
+    codec = torch.randint(1, V_AUDIO, (B, T_A))                        # 语音 codec token, 进 Talker
     img, spec, vid = torch.randn(B, 3, IMAGE, IMAGE), torch.randn(B, 1, *SPEC), torch.randn(B, 3, *VIDEO)
 
     with torch.inference_mode():
         out = model(ids, images=img, audio_spectrograms=spec, videos=vid, audio_input_ids=codec)
         text_logits, audio_logits = out["text_logits"], out["audio_logits"]
-        assert text_logits.shape == (B, 3 * N_LAT + T, V_TEXT)         # [vision 4; video 4; audio 4; text 10]
-        assert audio_logits.shape == (B, T_A, V_AUDIO)
+        # 序列排布: [vision 4; video 4; audio 4; text 10]
+        assert text_logits.shape == (B, 3 * N_LAT + T, V_TEXT), "文本 logits 的长度应为 3 个模态前缀 (各 N_LAT) 加文本长度 T"
+        assert audio_logits.shape == (B, T_A, V_AUDIO), "语音 logits 形状应为 [B, T_A, V_AUDIO]"
 
         # 1) 少给一个模态 ⇒ 前缀变短; 不给 codec token ⇒ 不跑 Talker
         o2 = model(ids, images=img)
-        assert o2["text_logits"].shape == (B, N_LAT + T, V_TEXT) and o2["audio_logits"] is None
+        assert o2["text_logits"].shape == (B, N_LAT + T, V_TEXT), "只给图像时前缀应只有 N_LAT 个 token"
+        assert o2["audio_logits"] is None, "不给 codec token 时不应跑 Talker, audio_logits 应为 None"
 
         # 2) 换图 → Talker 输出改变 (图 → Thinker hidden → cross-attn → Talker)
         o3 = model(ids, images=torch.randn_like(img), audio_spectrograms=spec, videos=vid, audio_input_ids=codec)
@@ -45,7 +48,9 @@ def main():
         o5 = model(ids, images=img, audio_spectrograms=spec, videos=vid, audio_input_ids=codec2)
         d_causal = (o5["audio_logits"][:, :-1] - audio_logits[:, :-1]).abs().max().item()
     print(f"换图→语音 logits 变化 {d_img:.1e} | 换 codec→文本 logits 变化 {d_back:.1e} | 改未来 codec→过去变化 {d_causal:.1e}")
-    assert d_img > 1e-6 and d_back == 0 and d_causal < 1e-6
+    assert d_img > 1e-6, "图像没有传到 Talker: 换图后语音 logits 应改变"
+    assert d_back == 0, "Talker 回流到了 Thinker: 换 codec token 后文本 logits 应一位都不变"
+    assert d_causal < 1e-6, "Talker 的因果 mask 失效: 改未来的 codec token 影响了过去"
 
 
 if __name__ == "__main__":

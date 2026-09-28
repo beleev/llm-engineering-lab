@@ -49,6 +49,14 @@ train:
 没有 index_loss 时 indexer 的梯度是 None —— top-k 不可导, 语言模型损失传不回去, 等于一直拿一个随机 indexer 做稀疏选择, 召回率就停在 0.450。
 数据是固定的一个随机 batch: 这些数字说明的是 "机制能跑通", 不是泛化。
 
+## 与真实系统的差距
+
+- **算力没有真的省下来**: 本库仍构造稠密的 `[B, T, S]` mask, 对全部 key 算分数, 再把没选中的填成 -inf。生产版靠自定义 kernel 跳过未选中的 K/V。
+- **indexer 是简化版**: 官方 indexer 还有按 query 生成的 head 权重 `w[t,h]` 和它自己的 RoPE, 本库都省了。
+- **规模**: infer 是 T=24、k=8; train 是 2 层、d_model=128、序列长 32、k=8、indexer 2 个 head。类的默认 `sparse_top_k` 是 128。
+- **三个阶段都很短**: 稠密 60 步、预热 80 步、稀疏 40 步, 全在同一个固定随机 batch (4 条 × 32 token) 上。召回率 0.922 是在背下来的注意力分布上测的。
+- **继承自 V3 的部分**: 没有 MTP、FP8、专家并行; weight tying 和 embedding 乘 √D 是本库约定。`attention_mask` 也照常可用: indexer 先 mask 再选 top-k, pad 不会被选中。
+
 ## 常见误区
 
 - "indexer 跟着 LM loss 端到端训练": top-k 切断了梯度, 必须有单独的对齐 loss。

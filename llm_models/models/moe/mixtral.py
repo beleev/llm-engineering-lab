@@ -8,6 +8,7 @@ Mixtral (Mistral AI, 2024) — LLaMA 骨架 + 每层 FFN 换成稀疏 MoE
 forward 返回 (logits, all_routing_info), 与 DeepSeekV3 同接口。
 读代码时盯住: MixtralBlock.forward 里 moe 返回的 routing_info —— 它一路传到 loss。
 教学省略: 真实 Mixtral 的 sliding-window attention (window=4096)。
+本库约定 (不代表原模型): lm_head 与 embedding 共享权重, embedding 乘 √D, 见 models/__init__.py。
 """
 
 import math
@@ -26,7 +27,13 @@ from llm_models.utils.masks import build_causal_mask, combine_causal_and_padding
 
 
 class MixtralBlock(nn.Module):
-    """Pre-RMSNorm Block:  x → norm → GQA → +  → norm → MixtralMoE → +  (顺带返回 routing_info)"""
+    """
+    Pre-RMSNorm Block:  x → norm → GQA → +  → norm → MixtralMoE → +  (顺带返回 routing_info)
+
+    forward: x [B, T, D], mask [B 或 1, T, S] -> (x [B, T, D], routing_info)。
+    routing_info 是 MixtralMoE 返回的 dict, N = B·T:
+        router_logits [N, E] / selected_experts [N, K] / routing_weights [N, K] / routing_probs [N, E]
+    """
 
     def __init__(
         self,
@@ -37,11 +44,12 @@ class MixtralBlock(nn.Module):
         num_experts: int,
         top_k: int,
         dropout: float = 0.0,
+        use_sink: bool = False,   # GQA 每 head 一个可学 sink logit; Mixtral 不用, GPTOSSBlock 传 True
     ):
         super().__init__()
 
         self.attn = GroupedQueryAttention(
-            d_model=d_model, num_heads=n_heads, num_kv_heads=num_kv_heads,
+            d_model=d_model, num_heads=n_heads, num_kv_heads=num_kv_heads, use_sink=use_sink,
         )
         self.moe = MixtralMoE(
             d_model=d_model, d_ff=d_ff,
@@ -59,7 +67,7 @@ class MixtralBlock(nn.Module):
         position_ids: Optional[torch.Tensor] = None,
         cache: Optional[dict] = None,
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        # 子层 1: GQA self-attention
+        # 子层 1: GQA self-attention。只传 q: k、v 缺省就是自注意力
         h = self.norm1(x)
         h = self.attn(q=h, mask=mask, rope=rope, position_ids=position_ids, cache=cache)
         x = x + self.dropout(h)
@@ -77,6 +85,8 @@ class Mixtral(GenerationMixin, nn.Module):
 
     默认参数即 Mixtral 8x7B: d_model=4096, 32 头 / 8 KV 头, 32 层, 8 专家 top-2。
     d_ff 默认 int(8/3·D) 向上对齐到 64。generate() 来自 GenerationMixin (GQA KV cache)。
+
+    forward 返回 tuple (logits, all_routing_info); 接受 attention_mask; 支持 KV cache。
     """
 
     def __init__(
@@ -123,15 +133,17 @@ class Mixtral(GenerationMixin, nn.Module):
 
         self.ln_f = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.token_embedding.weight
+        self.lm_head.weight = self.token_embedding.weight  # weight tying (本库约定)
 
         causal = build_causal_mask(max_len, torch.device("cpu"))  # [1, L, L]
         self.register_buffer("causal_mask", causal, persistent=False)
 
-        # 默认 N(0,1) embedding + tying + ·sqrt(D) 会让初始 CE ≈ 127; N(0, 0.02²) 后 ≈ ln V
+        # 换成 PyTorch 默认的 N(0,1) embedding + tying + ·sqrt(D) 会怎样: 初始 CE ≈ D
+        # (run_models 的 mini 配置 D=128, V=1000 下 ≈ 127); N(0, 0.02²) 后 ≈ ln V
         init_weights(self)
 
     def _causal_mask(self, seq_len: int) -> torch.Tensor:
+        """取左上角 [1, seq_len, seq_len] 的下三角 mask; 超过缓存大小就现建一张。"""
         if seq_len <= self.causal_mask.size(-1):
             return self.causal_mask[:, :seq_len, :seq_len]
         return build_causal_mask(seq_len, self.causal_mask.device)
@@ -142,17 +154,23 @@ class Mixtral(GenerationMixin, nn.Module):
         attention_mask: Optional[torch.Tensor] = None,  # [B, past+T], 1=有效 0=pad
         cache: Optional[KVCache] = None,
     ) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
-        """返回 (logits [B, T, V], 每层一份 routing_info)。"""
+        """
+        idx [B, T] -> 返回 tuple (logits [B, T, V], all_routing_info)。
+        all_routing_info: list, 每层一个 dict (键见 MixtralBlock)。训练时交给 MoELMLoss 算 aux loss。
+        attention_mask: [B, past+T], 1=有效 0=pad。
+        cache: 给了就走 KV cache, idx 只含新 token。
+        """
         B, T = idx.shape
         past = cache.pos if cache is not None else 0  # 已缓存 token 数: 同时平移 RoPE 位置和 mask 行
         if past + T > self.max_len:
             raise ValueError(f"序列长度 {past + T} 超过 max_len={self.max_len}")
 
-        x = self.token_embedding(idx) * math.sqrt(self.d_model)  # [B, T, D]
+        x = self.token_embedding(idx) * math.sqrt(self.d_model)  # [B, T, D]; ·√D 是本库约定
 
-        position_ids = torch.arange(past, past + T, device=idx.device)
+        position_ids = torch.arange(past, past + T, device=idx.device)  # [T] 新 token 的绝对位置
+        # 行 past: 是新 token (query), 列 :past+T 是全部历史 (key)
         causal = self._causal_mask(past + T)[:, past:]  # [1, T, past+T]
-        mask = combine_causal_and_padding_mask(causal, attention_mask)
+        mask = combine_causal_and_padding_mask(causal, attention_mask)  # [B 或 1, T, past+T]
 
         all_routing_info: List[Dict[str, torch.Tensor]] = []
         for i, layer in enumerate(self.layers):
@@ -162,6 +180,6 @@ class Mixtral(GenerationMixin, nn.Module):
             )
             all_routing_info.append(routing_info)
         if cache is not None:
-            cache.pos += T
+            cache.pos += T  # 下一次调用从这里接着数
 
-        return self.lm_head(self.ln_f(x)), all_routing_info
+        return self.lm_head(self.ln_f(x)), all_routing_info  # logits [B, T, V]

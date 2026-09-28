@@ -15,9 +15,11 @@ from llm_models.training import Trainer, TrainingConfig, StandardLMLoss, VisionL
 
 
 class SameTextDifferentImage(VisionLanguageDataGenerator):
+    """每条样本的文本输入都换成第 0 条的, 图和标签不动: 不看图就分不清这几条样本。"""
+
     def _sample(self):
         batch = super()._sample()
-        batch["input_ids"] = batch["input_ids"][:1].repeat(self.batch_size, 1)
+        batch["input_ids"] = batch["input_ids"][:1].repeat(self.batch_size, 1)   # [1, T] → [B, T]
         return batch
 
 
@@ -41,12 +43,14 @@ def main():
         image_size=IMG, num_vision_tokens=N_LAT,
     )
     labels = data_gen.generate_batch()["labels"]                       # [B, N_LAT + T]
-    assert (labels[:, :N_LAT] == -100).all() and (labels[:, N_LAT:] != -100).all()   # 视觉位置不计 loss
+    assert (labels[:, :N_LAT] == -100).all(), "视觉位置的 label 应全是 -100 (不计 loss)"
+    assert (labels[:, N_LAT:] != -100).all(), "文本位置都应有真实 label"
 
     metrics = Trainer(model, config, data_gen, StandardLMLoss()).train()
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss {first:.3f} (ln V = {math.log(V):.3f}) -> 终态 {last:.3f} (不看图的下界 ln 2 = {math.log(2):.3f})")
     assert abs(first - math.log(V)) < 0.5, "初始 loss 应 ≈ ln V"
+    # 两条样本二选一的下界是 ln 2; 阈值取 0.5·ln 2, 比下界再低一半才算数
     assert last < 0.5 * math.log(2), "loss 低于 ln 2 才说明文本用上了视觉前缀"
 
 

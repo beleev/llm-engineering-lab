@@ -24,7 +24,7 @@ def modulate(
     x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor
 ) -> torch.Tensor:
     """FiLM 调制 (1 + scale)·x + shift。"+1" 让 scale=0 (零初始化) 时退化为恒等。"""
-    # x: [B, T, D];  shift/scale: [B, D] → 插入 T 维后广播
+    # x: [B, T, D];  shift/scale: [B, D] → unsqueeze(1) 成 [B, 1, D], 同一份条件广播给所有 T 个 token
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
@@ -49,6 +49,7 @@ class TimestepEmbedding(nn.Module):
         self.d_model = d_model
         self.max_period = max_period
 
+        # sinusoidal 特征是固定的; 过一个 MLP 让模型自己学 "时间该怎么用"
         self.mlp = nn.Sequential(
             nn.Linear(d_model, d_model * 4),
             nn.SiLU(),
@@ -62,7 +63,8 @@ class TimestepEmbedding(nn.Module):
         )
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
-        return self.mlp(self._sin_embed(t))
+        """t [B] ([0, 1000) 量纲) → [B, d_model]。"""
+        return self.mlp(self._sin_embed(t))      # [B] → [B, d_model] → MLP → [B, d_model]
 
 
 class AdaLNZeroBlock(nn.Module):
@@ -119,11 +121,11 @@ class AdaLNZeroBlock(nn.Module):
         # 1) 自注意力子层: adaLN(γ, β) 调制 → Attn → gate α 缩放 → 残差
         h = modulate(self.norm1(x), shift_a, scale_a)
         h = self.attn(q=h, k=h, v=h, mask=attn_mask)                  # [B, T, D]
-        x = x + gate_a.unsqueeze(1) * h
+        x = x + gate_a.unsqueeze(1) * h                               # gate [B, D] → [B, 1, D]; 初始 0 ⇒ x 原样通过
 
         # 2) FFN 子层: 同样的结构
         h = modulate(self.norm2(x), shift_f, scale_f)
-        h = self.ffn(h)
+        h = self.ffn(h)                                               # [B, T, D]
         x = x + gate_f.unsqueeze(1) * h
         return x
 
@@ -155,6 +157,7 @@ class FinalLayer(nn.Module):
         nn.init.zeros_(self.linear.bias)
 
     def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        shift, scale = self.ada_modulation(c).chunk(2, dim=-1)       # 2 × [B, D]
-        x = modulate(self.norm(x), shift, scale)
-        return self.linear(x)
+        """x [B, T, D], c [B, c_dim] → [B, T, patch_out_dim]。最后一层没有残差, 所以不需要 gate。"""
+        shift, scale = self.ada_modulation(c).chunk(2, dim=-1)       # [B, 2D] → 2 × [B, D]
+        x = modulate(self.norm(x), shift, scale)                     # [B, T, D]
+        return self.linear(x)                                        # [B, T, patch_out_dim]

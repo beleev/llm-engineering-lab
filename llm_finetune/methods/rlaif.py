@@ -10,6 +10,10 @@ RLAIF / Constitutional AI (Bai et al., 2022; Lee et al., 2023)
 代价 / 上限: 标签质量 = judge 质量。judge 漏检的违规, 在偏好对里 chosen 和 rejected 同时带着, 训练对它没有直接压力。
             这里的 judge 是规则函数 (不是 LLM), 这个上限一眼可见: 宪法写了 "变体 14 也算脏话", 规则只查了 15。
 读代码时盯住: `CONSTITUTION` —— 每条原则 = (名字, 条文, 检查函数, 修改函数); 条文是给人看的, 真正生效的是后两个。
+与论文的差异: 本库的做法是把 "改写前 / 改写后" 直接当偏好对交给 DPO, 一段完成。
+              CAI 论文分两段: 先 "批评 → 改写", 在改写后的回复上做 SFT;
+              再让 AI 比较成对的回复打标签, 训出偏好模型后做 RL。
+依赖 llm_models: AIPreferenceData 继承 SyntheticDataGenerator, Trainer 每步调它的 generate_batch()。
 """
 
 from typing import Callable, Dict, List, NamedTuple
@@ -63,8 +67,8 @@ def revise(response: torch.Tensor) -> torch.Tensor:
     for p in CONSTITUTION:
         y = p.fix(y)
     R = len(response)
-    y = y[: R - 1] + [EOS]
-    return torch.tensor(y + [PAD] * (R - len(y)))
+    y = y[: R - 1] + [EOS]                          # 最多留 R−1 个内容 token, 给 EOS 让出一位
+    return torch.tensor(y + [PAD] * (R - len(y)))   # [R]
 
 
 def violation_rate(responses: torch.Tensor) -> Dict[str, float]:
@@ -81,13 +85,13 @@ def build_preference_pairs(prompts: torch.Tensor, responses: torch.Tensor) -> Di
     返回 PairwiseForward / DPOLoss 需要的全部张量: {chosen,rejected}_{input_ids,attention_mask} + labels。
     """
     responses = responses.masked_fill(~completion_mask(responses), PAD)     # EOS 之后的 token 不属于回复
-    keep = [i for i in range(len(prompts)) if critique(responses[i])]
-    x, bad = prompts[keep], responses[keep]
-    good = torch.stack([revise(r) for r in bad])
+    keep = [i for i in range(len(prompts)) if critique(responses[i])]      # 被 judge 批评了的样本下标, 共 M 个
+    x, bad = prompts[keep], responses[keep]                                 # [M, P], [M, R]
+    good = torch.stack([revise(r) for r in bad])                            # [M, R]
     P = prompts.shape[1]
     batch, labels = {}, {}
     for name, resp in (("chosen", good), ("rejected", bad)):
-        idx, labels[name] = make_labels(torch.cat([x, resp], dim=1), P)
+        idx, labels[name] = make_labels(torch.cat([x, resp], dim=1), P)     # [M, P+R] ×2
         batch[f"{name}_input_ids"] = idx
         batch[f"{name}_attention_mask"] = (idx != PAD).long()
     batch["labels"] = labels
@@ -97,14 +101,14 @@ def build_preference_pairs(prompts: torch.Tensor, responses: torch.Tensor) -> Di
 class AIPreferenceData(SyntheticDataGenerator):
     """离线 DPO: 偏好对只造一次 (一轮 RLAIF), 之后每步从这个池子里随机取一个 batch。"""
 
-    fixed = False
+    fixed = False       # 基类的缓存开关。False = 每步重新抽; True 会把第一个 batch 缓存下来反复用
 
     def __init__(self, pairs: Dict[str, torch.Tensor], batch_size: int = 64) -> None:
         self.pairs, self.batch_size = pairs, batch_size
         self.n = len(pairs["chosen_input_ids"])
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        i = torch.randint(0, self.n, (self.batch_size,))
+        i = torch.randint(0, self.n, (self.batch_size,))       # [B] 有放回地抽 B 个偏好对的下标
         batch = {k: v[i] for k, v in self.pairs.items() if k != "labels"}
         batch["labels"] = {k: v[i] for k, v in self.pairs["labels"].items()}
         return batch

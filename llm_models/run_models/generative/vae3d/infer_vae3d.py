@@ -18,25 +18,32 @@ def main():
     x = torch.rand(1, 3, 8, 16, 16) * 2 - 1                              # [B, 3, T, H, W]
     with torch.no_grad():
         mean = model.encode(x)["mean"]
-        assert mean.shape == (1, 4, 4, 4, 4)                              # T÷2, H/W÷4
-        print(f"x {tuple(x.shape)} → z {tuple(mean.shape)}: token 数 {8 * 16 * 16} → {4 * 4 * 4}")
+        # T÷2, H/W÷4
+        assert mean.shape == (1, 4, 4, 4, 4), "time_levels=1、spatial_levels=2: 时间 ÷2、空间 ÷4, latent 4 通道"
+        print(f"x {tuple(x.shape)} → z {tuple(mean.shape)}: token 数 {x[0, 0].numel()} → {mean[0, 0].numel()}")
 
         # encoder 因果性: 改第 6、7 帧 → 只有 latent 第 3 帧 (覆盖原始帧 4..6) 可以变
         x2 = x.clone()
-        x2[:, :, 6:] += 1.0
+        t0 = 6                                                           # 从第 t0 帧改到最后一帧
+        x2[:, :, t0:] += 1.0
+        # amax(dim=(0, 1, 3, 4)): 除时间维外全部取最大 → [T'] 每个 latent 帧的最大变化
         d_enc = (model.encode(x2)["mean"] - mean).abs().amax(dim=(0, 1, 3, 4))
-        print("改 x 的 6-7 帧 → latent 各帧变化:", [f"{v:.3f}" for v in d_enc.tolist()])
-        assert d_enc[:3].max() == 0 and d_enc[3] > 0
+        print(f"改 x 的 {t0}-{x.size(2) - 1} 帧 → latent 各帧变化:", [f"{v:.3f}" for v in d_enc.tolist()])
+        assert d_enc[:3].max() == 0, "encoder 因果性失效: 改第 6、7 帧影响了 latent 的第 0..2 帧"
+        assert d_enc[3] > 0, "latent 第 3 帧应随输入的第 6、7 帧改变"
 
         # decoder 因果性: 改 latent 第 3 帧 → 只有输出第 6、7 帧可以变
         z = torch.randn(1, 4, 4, 4, 4)
         z2 = z.clone()
-        z2[:, :, 3:] += 1.0
+        k = 3                                                            # 改 latent 的最后一帧 (第 k 帧)
+        z2[:, :, k:] += 1.0
         d_dec = (model.decode(z2) - model.decode(z)).abs().amax(dim=(0, 1, 3, 4))
-        print("改 z 的第 3 帧 → 输出各帧变化:", [f"{v:.3f}" for v in d_dec.tolist()])
-        assert d_dec[:6].max() == 0 and d_dec[6:].min() > 0
+        print(f"改 z 的第 {k} 帧 → 输出各帧变化:", [f"{v:.3f}" for v in d_dec.tolist()])
+        assert d_dec[:6].max() == 0, "decoder 因果性失效: 改 latent 第 3 帧影响了输出的第 0..5 帧"
+        assert d_dec[6:].min() > 0, "输出的第 6、7 帧都应随 latent 第 3 帧改变"
 
     # 短训练: 背下一段低频 "视频" (固定 batch), 只验证梯度通路
+    # 低频视频的造法: 2×4×4 的随机小块三线性放大到 8×16×16, 再用 tanh 压进 (-1, 1)
     video = F.interpolate(torch.randn(1, 3, 2, 4, 4), size=(8, 16, 16), mode="trilinear").tanh()
     model.train()
     opt = torch.optim.Adam(model.parameters(), lr=2e-3)
@@ -49,7 +56,7 @@ def main():
         opt.step()
         history.append(losses["recon_loss"].item())
     print(f"recon: {history[0]:.4f} → {history[-1]:.4f}")
-    assert history[-1] < 0.5 * history[0]
+    assert history[-1] < 0.5 * history[0], "训练 40 步后重建 loss 应至少降一半"
 
 
 if __name__ == "__main__":

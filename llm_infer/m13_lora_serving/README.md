@@ -3,7 +3,7 @@
 ## 直觉
 一个底模要同时服务很多客户, 每个客户有自己的 LoRA 微调。两条朴素路线都不行:
 **合并权重** (W' = W + ΔW) → 每个客户一份完整 W', 显存 ×N, 且不同客户的请求没法同 batch;
-**逐客户串行** → batch 小, GPU 吃不饱。解法: **不合并**。底模部分全 batch 共享一次 gemm,
+**逐客户串行** → batch 小, GPU 吃不饱。解法: **不合并**。底模部分全 batch 共享一次 gemm (通用矩阵乘),
 LoRA 部分是两个很瘦的矩阵, 按每个 token 的 adapter id 去取各自的 A/B 来算。
 
 ## 核心数据结构或公式
@@ -27,7 +27,7 @@ python -m llm_infer.m13_lora_serving.demo      # ~0.2 s
 [1] A.shape / B.shape / ΔW.shape = (4, 64) / (96, 4) / (96, 64);  B=0 时 |LoRA 输出 - 底模输出| = 0.0
 [2] loop / BGMV / SGMV vs 合并权重 = 7.15e-07 (三者相同)
     (对照) LoRA 对输出的改变量 = 3.97e+00;  全部错用 adapter 0 的误差 = 3.89e+00
-[3] 底模 W 24576 B, 单个 adapter 2560 B = r·(d_in+d_out)·4 (10.4% of W)
+[3] 底模 W 24576 B, 单个 adapter 2560 B = r·(d_in+d_out)·4 (W 的 10.4%)
     1000 个 adapter: 合并 24.58 MB / 不合并 2.58 MB (9.5x);  d=4096, r=16 时 adapter/W = 0.78%
 [4] 500 条 decode 请求: 底模 gemm 500 次 vs 1 次; loop 2.01 ms, BGMV 0.81 ms, SGMV 0.58 ms
 ```

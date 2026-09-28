@@ -20,19 +20,20 @@
       :codes="[
         { path: 'llm_models/layers/core/blocks.py', label: 'blocks.py · PreLNBlock' },
       ]"
-      :prereq="{ name: 'position', label: '位置编码 & RoPE' }"
-      :next-step="{ name: 'moe', label: 'MoE 路由 — 把 ffn 槽位换成稀疏专家' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
-    <div class="grid" style="grid-template-columns: 260px 1fr 300px; gap: 20px;">
+    <div class="grid assembler">
       <!-- 零件选择 -->
       <div class="card">
         <h3>零件库 <span class="tag">4 个槽位</span></h3>
         <div v-for="slot in slots" :key="slot.key" class="slot-section">
           <div class="slot-title">{{ slot.label }}</div>
           <div class="slot-options">
-            <button v-for="opt in slot.options" :key="opt.id"
+            <button v-for="opt in slot.options" :key="opt.id" type="button"
                     :class="{ active: config[slot.key] === opt.id }"
+                    :aria-pressed="config[slot.key] === opt.id"
                     @click="config[slot.key] = opt.id">
               {{ opt.name }}
             </button>
@@ -70,6 +71,7 @@
           </h3>
           <div class="match-name" :style="{ color: modelMatch.color }">{{ modelMatch.name }}</div>
           <p class="desc"><Tex :text="modelMatch.blurb" /></p>
+          <p v-if="modelMatch.repoNote" class="desc repo-note"><b>本仓库实现:</b> {{ modelMatch.repoNote }}</p>
           <pre class="code" style="margin-top: 12px;">{{ generatedCode }}</pre>
         </div>
 
@@ -103,11 +105,14 @@
           <li><b>attn:</b> 从 MHA 砍到 GQA, 再压成 MLA。</li>
           <li><b>pos:</b> 从正余弦换成 RoPE。</li>
         </ul>
+        <p>
+          预设填的是本仓库里这个模型的搭法。BERT 和 GPT-3 各有一处和原版不同, 按钮上标了「本仓库实现」, 载入后「匹配模型」卡片写明差在哪。
+        </p>
       </div>
       <div class="btn-group">
-        <button v-for="preset in presets" :key="preset.name"
+        <button v-for="preset in presets" :key="preset.name" type="button"
                 @click="loadPreset(preset)">
-          {{ preset.name }} <span style="color: var(--text-dim); font-size: 10px; margin-left: 4px;">{{ preset.year }}</span>
+          {{ preset.name }} <span style="color: var(--text-muted); font-size: 10px; margin-left: 4px;">{{ preset.year }}<template v-if="preset.repoNote"> · 本仓库实现</template></span>
         </button>
       </div>
     </section>
@@ -158,8 +163,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'position', label: '位置编码 & RoPE', hint: '本章 pos 槽位的所有候选项的来历' }"
-      :next="{ name: 'moe', label: 'MoE 路由', hint: '把 ffn 槽位拆成多专家 — Mixtral / DeepSeek 的两条路' }"
+      :prev="{ ...prevChapter, hint: '本章 pos 槽位的所有候选项的来历' }"
+      :next="{ ...nextChapter, hint: '把 ffn 槽位拆成多专家 — Mixtral / DeepSeek 的两条路' }"
     />
   </div>
 </template>
@@ -168,13 +173,18 @@
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import { ref, reactive, computed } from 'vue'
-import { tracks } from '@/data/models.js'
+import { tracks, learningPath } from '@/data/models.js'
 import InspectorPanel from '@/components/InspectorPanel.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
 import Tex from '@/components/Tex.vue'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'blocks')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
 const inspectorTab = ref('attn')
 
@@ -214,18 +224,23 @@ const config = reactive({
   pos: 'rope',
 })
 
+// 颜色只用主题变量: 这些值既当边框也当文字色, 写死色值在浅色主题下看不清
+const C = {
+  old: 'var(--text-muted)', a: 'var(--accent)', b: 'var(--left)',
+  c: 'var(--eye)', d: 'var(--right)', e: 'var(--warn)',
+}
 const partColorMap = {
   // attn
-  mha: '#9ca3af', gqa: '#60a5fa', mla: '#34d399', dsa: '#ec4899', ssm: '#c084fc',
+  mha: C.old, gqa: C.a, mla: C.b, dsa: C.d, ssm: C.e,
   // ffn
-  relu: '#9ca3af', gelu: '#60a5fa', swiglu: '#34d399',
-  moe_mx: '#f5a623', moe_ds: '#ec4899',
+  relu: C.old, gelu: C.a, swiglu: C.b,
+  moe_mx: C.c, moe_ds: C.d,
   // norm
-  post_ln: '#9ca3af', pre_ln: '#60a5fa', pre_rms: '#34d399', ada_ln: '#ec4899',
+  post_ln: C.old, pre_ln: C.a, pre_rms: C.b, ada_ln: C.d,
   // pos
-  sin: '#9ca3af', learn: '#9ca3af', rope: '#34d399', mrope: '#f5a623',
+  sin: C.old, learn: C.old, rope: C.b, mrope: C.c,
 }
-const partColor = (k) => partColorMap[config[k]] || '#fff'
+const partColor = (k) => partColorMap[config[k]] || C.old
 
 const findOpt = (slot, id) => slots.find(s => s.key === slot).options.find(o => o.id === id)
 const partName = (slot) => findOpt(slot, config[slot])?.name
@@ -234,8 +249,11 @@ const partNote = (slot) => findOpt(slot, config[slot])?.note || ''
 // --- 模型匹配 ---
 const presets = [
   { name: 'Transformer', year: 2017, config: { attn: 'mha', ffn: 'relu',   norm: 'post_ln', pos: 'sin'   } },
-  { name: 'BERT',        year: 2018, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'learn' } },
-  { name: 'GPT-3',       year: 2020, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'sin'   } },
+  // 这两个预设跟着本仓库的实现走, 和原版各差一处, repoNote 会显示在界面上
+  { name: 'BERT',        year: 2018, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'learn' },
+    repoNote: 'norm 填的是 Pre-LN, 因为本仓库的 BERT 用 PreLNBlock 搭。原版 BERT 是 Post-LN。' },
+  { name: 'GPT-3',       year: 2020, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'sin'   },
+    repoNote: 'pos 填的是 Sinusoidal, 这是本仓库 GPT3 的默认值。原版 GPT-3 用可学位置编码。' },
   { name: 'LLaMA',       year: 2023, config: { attn: 'gqa', ffn: 'swiglu', norm: 'pre_rms', pos: 'rope'  } },
   { name: 'Mixtral',     year: 2024, config: { attn: 'gqa', ffn: 'moe_mx', norm: 'pre_rms', pos: 'rope'  } },
   { name: 'DeepSeek-V3', year: 2024, config: { attn: 'mla', ffn: 'moe_ds', norm: 'pre_rms', pos: 'rope'  } },
@@ -312,25 +330,25 @@ const modelMatch = computed(() => {
   )
   if (match) {
     const meta = {
-      'Transformer': { track: 'left', color: '#9ca3af',
+      'Transformer': { track: 'left', color: C.old,
         blurb: '原始 encoder-decoder + Post-LN, 全部零件最朴素' },
-      'BERT': { track: 'left', color: '#60a5fa',
+      'BERT': { track: 'left', color: C.a,
         blurb: '双向注意力 + MLM, 理解任务里程碑' },
-      'GPT-3': { track: 'left', color: '#60a5fa',
+      'GPT-3': { track: 'left', color: C.a,
         blurb: '把 Transformer 纯 decoder 堆到 175B, 生成式范式起点' },
-      'LLaMA': { track: 'left', color: '#3dd68c',
+      'LLaMA': { track: 'left', color: C.b,
         blurb: '现代开源 LLM 的事实模板: 四个零件全部换成最新版' },
-      'Mixtral': { track: 'left', color: '#f5a623',
+      'Mixtral': { track: 'left', color: C.c,
         blurb: 'LLaMA 骨架, FFN 换成 softmax top-k MoE' },
-      'DeepSeek-V3': { track: 'left', color: '#ec4899',
+      'DeepSeek-V3': { track: 'left', color: C.d,
         blurb: '把 KV cache 压到 latent + MoE 切更细, 671B/37B 激活' },
-      'DeepSeek-V3.2': { track: 'left', color: '#ec4899',
+      'DeepSeek-V3.2': { track: 'left', color: C.d,
         blurb: 'V3 + DSA, 把算力从 $O(T^2)$ 降到 $O(T\\cdot k)$' },
-      'Mamba': { track: 'left', color: '#c084fc',
+      'Mamba': { track: 'left', color: C.e,
         blurb: '非注意力分支: SSM 线性 $O(T)$, 另一条主线' },
-      'DiT': { track: 'right', color: '#ec4899',
+      'DiT': { track: 'right', color: C.d,
         blurb: '扩散 Transformer 骨架, adaLN-Zero 注入 timestep' },
-      'Qwen2-VL': { track: 'eye', color: '#f5a623',
+      'Qwen2-VL': { track: 'eye', color: C.c,
         blurb: 'LLaMA + M-RoPE, 视觉/文本共用 decoder' },
     }
     return { ...match, ...meta[match.name], color: meta[match.name]?.color || 'var(--accent)' }
@@ -340,7 +358,7 @@ const modelMatch = computed(() => {
     year: '—',
     track: null,
     color: 'var(--text-muted)',
-    blurb: '这个组合不对应历史上的主流模型, 但也许是你下一篇论文的起点?',
+    blurb: '这组零件没有对应的主流模型。',
   }
 })
 
@@ -387,19 +405,29 @@ const ffnNote = computed(() => {
 })
 const kvNote = computed(() => {
   const d = 4096, h = 32
-  const kb = (x) => (x * 2 / 1024).toFixed(1) + ' KB'
+  const kb = (x) => (x * 2 / 1024).toFixed(1) + ' KiB'
   switch (config.attn) {
     case 'mha': return kb(2 * d)  // K+V 全维
     case 'gqa': return kb(2 * d / 4) + ' (kv_heads=8)'
     case 'mla': return kb(512 + 64) + ' (latent + rope)'
     case 'dsa': return kb(512 + 64) + ' + 稀疏'
-    case 'ssm': return 'O(d_state) ≈ 0.1 KB'
+    case 'ssm': return 'O(d_state) ≈ 0.1 KiB'
   }
   return '—'
 })
 </script>
 
 <style scoped>
+/* 三栏: 零件库 | 数据流 | 匹配模型。窄屏叠成单列, 否则右栏会被 .main 的 overflow-x: hidden 裁掉 */
+.assembler {
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: 20px;
+}
+@media (max-width: 960px) {
+  .assembler { grid-template-columns: minmax(0, 1fr); }
+}
+.repo-note { margin-top: 8px; font-size: 12px; }
+
 .slot-section { margin-top: 14px; }
 .slot-section:first-child { margin-top: 0; }
 .slot-title {

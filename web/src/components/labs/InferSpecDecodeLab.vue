@@ -9,8 +9,8 @@
     module="llm_infer/m07"
     run="python -m llm_infer.m07_speculative_decoding.demo"
     :challenge="{
-      ask: 'α = 0.6 时把 K 从 4 拖到 10, 期望产出涨了多少? 再把 draft 成本 c 调到 0.2, 加速比最高的 K 是几? 如果 draft 模型很烂 (α≈0.1), 输出质量会变差吗?',
-      answer: '- $\\alpha=0.6$: $K=4$ → 2.31, $K=10$ → 2.49, 上限 $1/(1-\\alpha)=2.5$。第一个猜错后面全废, 长 draft 的尾巴几乎从不被用到。\n- $c=0.2$: 加速比 $E/(1+K \\cdot c)$ 在 $K=2$ 就见顶 (1.40×), 再长反而更慢。\ndraft 再烂也不改变输出:\n- greedy: 只接受与 target argmax 相同的 token。\n- 采样: 以 $\\min(1, p/q)$ 接受, 拒绝就从归一化残差 $\\max(0, p-q)$ 重采样, 两步合起来恰好是 target 分布 $p$。\n烂 draft 只会让你更慢, 不会让你更错。',
+      ask: 'α = 0.6 时把 K 从 4 拖到 10, draft 长了一倍多。每轮的期望产出涨了多少?',
+      answer: '- $\\alpha=0.6$: $K=4$ → 2.31, $K=10$ → 2.49, 上限 $1/(1-\\alpha)=2.5$。第一个猜错后面全废, 长 draft 的尾巴几乎从不被用到。\n- 再把 draft 成本调到 $c=0.2$: 加速比 $E/(1+K \\cdot c)$ 在 $K=2$ 就见顶 (1.40×), 再长反而更慢。\ndraft 再烂 ($\\alpha \\approx 0.1$) 也不改变输出:\n- greedy: 只接受与 target argmax 相同的 token。\n- 采样: 以 $\\min(1, p/q)$ 接受, 拒绝就从归一化残差 $\\max(0, p-q)$ 重采样, 两步合起来恰好是 target 分布 $p$。\n烂 draft 只会让你更慢, 不会让你更错。',
     }"
   >
     <template #controls>
@@ -38,7 +38,7 @@
         :cx="sx(K)" :cy="sy(E(K))" r="8" class="handle draggable" tabindex="0" role="slider" aria-label="拖动改变 K"
         :aria-valuenow="K" aria-valuemin="1" aria-valuemax="10"
         @pointerdown="start($event, { svg, onMove })"
-        @keydown.left="K = clamp(K - 1, 1, 10)" @keydown.right="K = clamp(K + 1, 1, 10)"
+        @keydown.left.prevent="K = clamp(K - 1, 1, 10)" @keydown.right.prevent="K = clamp(K + 1, 1, 10)"
       />
     </svg>
     <div class="legend">
@@ -52,8 +52,7 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>期望产出 (公式)</span><b>{{ E(K).toFixed(2) }}</b></div>
-      <div class="kv"><span>模拟 {{ ROUNDS }} 轮均值</span><b :class="Math.abs(sim.mean - E(K)) < 0.05 ? 'good' : 'bad'">{{ sim.mean.toFixed(2) }}</b></div>
+      <div class="kv"><span>期望产出: 公式 / 模拟 {{ ROUNDS }} 轮</span><b :class="Math.abs(sim.mean - E(K)) < 0.05 ? 'good' : 'bad'">{{ E(K).toFixed(2) }} / {{ sim.mean.toFixed(2) }}</b></div>
       <div class="kv"><span>加速比 <Tex text="$E/(1+K \cdot c)$" /></span><b :class="speed(K) > 1 ? 'good' : 'bad'">{{ speed(K).toFixed(2) }}×</b></div>
       <div class="kv"><span>省掉的 target 调用</span><b>{{ ((1 - 1 / E(K)) * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>回放至今: token / target 调用</span><b>{{ soFar.tokens }} / {{ soFar.calls }}</b></div>

@@ -6,7 +6,7 @@
   <LabFrame
     title="交错 1F1B — 把气泡再除以 v"
     sub="每张卡不再拿连续的一大段层, 而是拿 $v$ 个小段 (颜色深浅 = 第几段)。一个 micro-batch 要在所有卡上绕 $v$ 圈。
-      悬停任意一格, 同一个 micro-batch 的全部足迹会亮起来。拖 $v$, 看气泡怎么缩、在途激活怎么涨。"
+      悬停或点击任意一格 (或按下面的编号), 同一个 micro-batch 的全部足迹会亮起来。拖 $v$, 看气泡怎么缩、在途激活怎么涨。"
     module="llm_train/m04"
     run="python -m llm_train.m04_pipeline_parallel.demo"
     :challenge="{
@@ -18,6 +18,11 @@
       <LabSlider v-model="pp" label="流水线级数 PP" :min="2" :max="4" />
       <LabSlider v-model="groups" label="M (须为 PP 的倍数)" :min="1" :max="3" :format="(g) => g * pp" />
       <LabSlider v-model="v" label="每卡虚拟 stage 数 v" :min="1" :max="4" :format="(x) => (x === 1 ? '1 (普通 1F1B)' : x)" />
+      <div class="row">
+        <span class="lbl">跟踪 micro-batch:</span>
+        <button v-for="m in M" :key="m" type="button" class="mb mono" :class="{ active: pinM === m - 1 }" :aria-pressed="pinM === m - 1"
+                @click="pinM = pinM === m - 1 ? -1 : m - 1">{{ m - 1 }}</button>
+      </div>
       <StepPlayer :stepper="stepper" :label="`t = ${stepper.step.value}`" />
     </template>
 
@@ -26,20 +31,20 @@
         <span class="row-label mono">卡 {{ s }}</span>
         <span
           v-for="(c, t) in row" :key="t" class="cell"
-          :class="[c && (c.op === 'F' ? 'f' : 'b'), { dim: t > stepper.step.value || (hoverM >= 0 && (!c || c.m !== hoverM)), trace: c && c.m === hoverM }]"
+          :class="[c && (c.op === 'F' ? 'f' : 'b'), { dim: t > stepper.step.value || (traceM >= 0 && (!c || c.m !== traceM)), trace: c && c.m === traceM }]"
           :style="c ? { '--k': 0.25 + 0.6 * (c.chunk + 1) / v } : null"
           :title="c ? `${c.op}${c.m} · 卡${s} 的第 ${c.chunk} 段 (虚拟 stage ${c.chunk * pp + s})` : '气泡'"
-          @mouseenter="hoverM = c ? c.m : -1"
+          @mouseenter="hoverM = c ? c.m : -1" @click="pinM = c && pinM !== c.m ? c.m : -1"
         >{{ c && c.head ? c.op + c.m : '' }}</span>
       </template>
     </div>
 
     <template #stats>
-      <div class="kv"><span>气泡 (模拟)</span><b :class="{ good: v > 1 }">{{ (sim.bubble * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span><Tex text="公式 $(PP-1)/(v \cdot M + PP - 1)$" /></span><b>{{ (formula * 100).toFixed(1) }}%</b></div>
+      <!-- 颜色都是和 v=1 (普通 1F1B) 的数值比出来的 -->
+      <div class="kv"><span><Tex text="气泡: 模拟 / 公式 $\frac{PP-1}{v \cdot M + PP - 1}$" /></span><b :class="{ good: sim.bubble < base.bubble - 1e-9 }">{{ (sim.bubble * 100).toFixed(1) }}% / {{ (formula * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>在途激活峰值 (份 1/{{ v }}-stage)</span><b>[{{ sim.peak.join(', ') }}]</b></div>
-      <div class="kv"><span>折算成整 stage (卡 0)</span><b :class="{ bad: v > 1 }">{{ (sim.peak[0] / v).toFixed(1) }} <small>(v=1 时 {{ Math.min(pp, M) }})</small></b></div>
-      <div class="kv"><span>每个 micro-batch 的 P2P 次数</span><b :class="{ bad: v > 1 }">{{ 2 * (pp * v - 1) }}</b></div>
+      <div class="kv"><span>折算成整 stage (卡 0)</span><b :class="{ bad: sim.peak[0] / v > base.peak }">{{ (sim.peak[0] / v).toFixed(1) }} <small>(v=1 时 {{ base.peak }})</small></b></div>
+      <div class="kv"><span>每个 micro-batch 的 P2P 次数</span><b :class="{ bad: 2 * (pp * v - 1) > base.p2p }">{{ 2 * (pp * v - 1) }} <small>(v=1 时 {{ base.p2p }})</small></b></div>
       <p class="lab-note">
         <Tex text="时间轴 1 格 = $1/v$ 个 stage 的前向, B 占 2 格。★ 与普通 1F1B 唯一的区别是 warmup 更长:" />
         <code class="inline">(PP−1−s)·2 + (v−1)·PP</code> 个 F 之后才开始 1F1B 交替。
@@ -57,8 +62,11 @@ import StepPlayer from '@/components/lab/StepPlayer.vue'
 import { useStepper } from '@/composables/useStepper.js'
 import { range } from '@/utils/labmath.js'
 
-const pp = ref(4), groups = ref(2), v = ref(2), hoverM = ref(-1)
+const pp = ref(4), groups = ref(2), v = ref(2)
+const hoverM = ref(-1), pinM = ref(-1)                   // 悬停的 / 点击固定的 micro-batch
+const traceM = computed(() => (hoverM.value >= 0 ? hoverM.value : pinM.value))
 const M = computed(() => groups.value * pp.value)
+watch(M, (m) => { if (pinM.value >= m) pinM.value = -1 })
 const TF = 1, TB = 2
 
 // 卡 s 按什么顺序执行自己的 M·v 个 F 和 M·v 个 B (Megatron 交错顺序)
@@ -101,6 +109,8 @@ const sim = computed(() => {
   return { grid, T, peak, bubble: 1 - (Mn * V * (TF + TB)) / T }
 })
 const formula = computed(() => (pp.value - 1) / (v.value * M.value + pp.value - 1))
+// v=1 (普通 1F1B) 的三个数, 读数的颜色拿它当基准
+const base = computed(() => ({ bubble: (pp.value - 1) / (M.value + pp.value - 1), peak: Math.min(pp.value, M.value), p2p: 2 * (pp.value - 1) }))
 
 const stepper = useStepper(() => sim.value.T, { interval: 220 })
 watch(sim, (s) => { stepper.pause(); stepper.step.value = s.T - 1 }, { immediate: true })
@@ -108,7 +118,9 @@ watch(sim, (s) => { stepper.pause(); stepper.step.value = s.T - 1 }, { immediate
 
 <style scoped>
 .row-label { font-size: 11px; color: var(--text-dim); align-self: center; }
-.sched .cell { min-width: 18px; font-size: 9px; color: var(--text); }
+.sched .cell { min-width: 18px; font-size: 9px; color: var(--text); cursor: pointer; }
+.lbl { font-size: 12px; color: var(--text-muted); }
+.mb { min-width: 30px; min-height: 28px; padding: 2px 6px; }
 .cell.f { background: color-mix(in srgb, var(--accent) calc(var(--k) * 100%), transparent); border-color: var(--accent); }
 .cell.b { background: color-mix(in srgb, var(--left) calc(var(--k) * 100%), transparent); border-color: var(--left); }
 .cell.trace { outline: 2px solid var(--warn); outline-offset: -1px; }

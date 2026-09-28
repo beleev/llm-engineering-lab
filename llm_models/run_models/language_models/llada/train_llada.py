@@ -38,8 +38,9 @@ def eval_loss(model: LLaDA, x: torch.Tensor, seed: int = 123) -> float:
 
 
 def train(steps: int = 400, seed: int = 0, log_interval: int = 100):
+    """造一个随机置换 π 并在它的链上训练 LLaDA; 返回 (model, perm), perm[i] = π(i), 形状 [P]。"""
     torch.manual_seed(seed)
-    order = torch.randperm(P)
+    order = torch.randperm(P)  # 环上的访问顺序
     perm = torch.empty(P, dtype=torch.long)
     perm[order] = order.roll(-1)  # 单个 P-环: 避免短环让任务退化成 "重复 3 个 token"
     model = LLaDA(vocab_size=P + 1, d_model=64, n_heads=4, num_kv_heads=2, num_layers=2, max_len=L)
@@ -48,6 +49,7 @@ def train(steps: int = 400, seed: int = 0, log_interval: int = 100):
     for step in range(1, steps + 1):
         model.train()
         x = make_batch(perm, 64)  # [B, L] 每步新数据
+        # noisy: 部分位置换成 [MASK] 的输入; masked: 哪些位置被遮; t: 每条序列的遮蔽概率 [B]
         noisy, masked, t = forward_process(x, model.mask_id)  # 每步新遮蔽
         loss = loss_fn.compute(model(noisy), x, masked=masked, t=t)["total_loss"]
         opt.zero_grad()
@@ -55,7 +57,7 @@ def train(steps: int = 400, seed: int = 0, log_interval: int = 100):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         if step == 1 or step % log_interval == 0:
-            print(f"step {step:4d} | loss {loss.item():.3f}")
+            print(f"第 {step:4d} 步 | loss {loss.item():.3f}")
     return model, perm
 
 
@@ -64,7 +66,7 @@ def infill_accuracy(model: LLaDA, x: torch.Tensor, known: slice, steps: int, rem
     noisy = torch.full_like(x, model.mask_id)
     noisy[:, known] = x[:, known]
     out = model.sample(noisy, steps, remasking=remasking)
-    hidden = noisy == model.mask_id
+    hidden = noisy == model.mask_id  # 只在被遮的位置上算准确率, 已知位置不算
     return (out[hidden] == x[hidden]).float().mean().item()
 
 
@@ -84,23 +86,24 @@ def main():
     model, perm = train()
     held_out = make_batch(perm, 1024, torch.Generator().manual_seed(999))
     final_loss = eval_loss(model, held_out)
-    floor = math.log(P) / L
+    floor = math.log(P) / L  # 只有起点有 ln P 的不确定性, 摊到 L 个 token 上
     print(f"训练后 held-out loss {final_loss:.3f}  (理论下界 ln P / L = {floor:.3f})")
     assert final_loss < 0.5 * init_loss, "loss 未明显下降"
+    # 0.05 是余量: final_loss 是 1024 条样本、一次随机遮蔽的估计, 有采样误差
     assert final_loss > floor - 0.05, "ELBO 是 NLL 的上界, 不该低于下界"
 
     # ---- 采样器结构性检查: 无 [MASK] / prompt 不被改 / [MASK] 个数走线性日程 ----
-    prompt = held_out[:, :1]
+    prompt = held_out[:, :1]  # [1024, 1] 只给首 token
     out, history = model.generate(prompt, L - 1, steps=4, return_history=True)
     assert not (out == model.mask_id).any(), "输出里不应有 [MASK]"
     assert (out[:, :1] == prompt).all(), "prompt 不应被改动"
     counts = [int((h[0] == model.mask_id).sum()) for h in history]
     expect = [round((L - 1) * (1 - s / 4)) for s in range(1, 5)]
     print(f"每步剩余 [MASK] 数 {counts}  期望 {expect}")
-    assert counts == expect
+    assert counts == expect, "每步剩余的 [MASK] 个数应服从线性日程"
 
     # ---- 填空准确率: 三种方向 × 两种重遮策略 (chance = 1/P) ----
-    print(f"\n填空准确率 (held-out 1024 条, chance = {1 / P:.3f})")
+    print(f"\n填空准确率 (held-out {held_out.size(0)} 条, chance = {1 / P:.3f})")
     cases = {"给首 token 续写": slice(0, 1), "给末 token 倒推": slice(L - 1, L), "给中间 token 两头填": slice(8, 9)}
     acc = {}
     for name, known in cases.items():

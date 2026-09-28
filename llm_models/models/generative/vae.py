@@ -8,6 +8,10 @@ VAE — Latent Diffusion 的前置压缩器 (Kingma & Welling 2013; Rombach et a
     loss = MSE(Decoder(z), x) + kl_weight · KL,   KL = -0.5·Σ(1 + logσ² - μ² - σ²)
 
 关键数字: SD 的 kl_weight ~1e-6 —— 几乎就是 AE, 只要 latent 别离 N(0,I) 太远。
+简化 (相对 SD 的 VAE):
+    - 主干只有 Conv → GroupNorm → SiLU 的直筒堆叠; SD 用 ResNet block, 瓶颈处还有注意力。
+    - 重建 loss 只用 MSE; SD 还加了感知 loss 和对抗 loss。
+    - 默认下采样 2 次 (空间 ÷4); SD 是 3 次 (÷8)。
 读代码时盯住: ImageVAE.reparameterize, 以及 encoder 的两个 1×1 头 (mean_head / logvar_head)。
 """
 
@@ -31,9 +35,12 @@ class ImageVAEEncoder(nn.Module):
     """
     VAE 图像 encoder
 
+    forward: x [B, 3, H, W] -> tuple (mean, logvar), 各 [B, latent_dim, H/2^L, W/2^L],
+    L = downsample_levels。logvar 是 log σ², 这里还没 clamp。
+
     Args:
         in_channels:   输入图像通道 (3 for RGB)
-        base_channels: 最内层通道数, 每次下采样翻倍 (128 → 256 → 512)
+        base_channels: 首层通道数, 每次下采样翻倍 (默认 64 → 128 → 256)
         latent_dim:    潜空间通道数 (SD 1.5 用 4; 教学默认 4)
         downsample_levels: 下采样次数 (3 → 空间 ÷8; 教学默认 2 → ÷4)
     """
@@ -70,6 +77,8 @@ class ImageVAEEncoder(nn.Module):
 class ImageVAEDecoder(nn.Module):
     """
     VAE 图像 decoder (与 encoder 镜像)
+
+    forward: z [B, latent_dim, h, w] -> [B, 3, h·2^L, w·2^L], 值域 [-1, 1] (末尾 tanh)。
     """
 
     def __init__(
@@ -115,6 +124,8 @@ class ImageVAE(nn.Module):
         recon_loss = ||x - x̂||²
         kl_loss    = -0.5 · Σ (1 + logσ² - μ² - σ²)
 
+    forward 返回 dict, 四个键 (见 forward)。没有 attention_mask, 没有 KV cache。
+
     Args:
         image_channels / base_channels / latent_dim / levels 见 encoder/decoder
     """
@@ -139,21 +150,33 @@ class ImageVAE(nn.Module):
         )
 
     def encode(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """x [B, 3, H, W] -> {"mean", "logvar"}, 各 [B, latent_dim, h, w]。"""
         mean, logvar = self.encoder(x)
-        # 数值安全: clamp logvar 避免 exp 爆炸 (SD 常见做法)
+        # 数值安全: clamp logvar 避免 exp 爆炸 (SD 常见做法)。
+        # σ = exp(logvar / 2) 被限制在 [exp(-15), exp(10)]: 不会溢出成 inf, 也不会下溢成 0
         logvar = logvar.clamp(-30.0, 20.0)
         return {"mean": mean, "logvar": logvar}
 
     @staticmethod
     def reparameterize(mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """z = μ + σ·ε。随机性全在 ε 里, 梯度能穿过 μ 和 σ 回到 encoder。"""
         std = torch.exp(0.5 * logvar)                       # logσ² → σ
-        eps = torch.randn_like(std)
+        eps = torch.randn_like(std)                         # ε ~ N(0, I), 不带梯度
         return mean + std * eps                             # [B, latent_dim, h, w]
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
+        """z [B, latent_dim, h, w] -> 图像 [B, 3, H, W], 值域 [-1, 1]。"""
         return self.decoder(z)
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        x [B, 3, H, W] (值域 [-1, 1]) -> 返回 dict, 四个键:
+            "recon":  [B, 3, H, W]            重建图像
+            "z":      [B, latent_dim, h, w]   采样出的 latent, h = H / 2^levels
+            "mean":   [B, latent_dim, h, w]   μ
+            "logvar": [B, latent_dim, h, w]   log σ², 已 clamp 到 [-30, 20]
+        loss 不在这里算, 见 training/loss.py::VAELoss。
+        """
         enc = self.encode(x)
         z = self.reparameterize(enc["mean"], enc["logvar"])
         recon = self.decode(z)

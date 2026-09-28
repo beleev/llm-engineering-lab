@@ -1,6 +1,6 @@
 # Full Loop — 把全部机制拼成一个 mini harness
 
-用 `core/` 的零件组装一个 Claude-Code 式的 agent, 连续跑 5 个场景并逐一断言, 最后检查整份落盘 transcript 仍是合法的 Messages API 序列。
+用 `core/` 的零件组装一个 Claude-Code 式的 agent, 连续跑 5 个场景并逐一断言, 最后检查整份落盘 transcript 里 tool_use / tool_result 的配对完整。
 
 ## 直觉
 
@@ -19,7 +19,7 @@
 | 检索 | `core/retrieval.py` `TfidfIndex` / `VectorSearchTool` | 工具名仍是 `search_docs` |
 | 子智能体 | `core/subagents.py` `DelegateTool` | `researcher` 类型只有检索工具; `transcript_dir` 让子 transcript 落盘 |
 | MCP | `core/mcp.py` `MCPClient` / `mcp_tools` | 用 `sys.executable` 拉起 `m09_mcp/server.py` 真实子进程 |
-| 权限 | `core/permissions.py` `PermissionGate("auto")` | deny `shell` `*rm -rf*`; allow `mcp__weather__*` |
+| 权限 | `core/permissions.py` `PermissionGate("auto")` | deny `shell` `*rm -rf*`; allow `mcp__weather__*`; allow `delegate` |
 | 护栏 | `core/guardrails.py` `Guardrails` | 不可信输出包 `<untrusted_data>`、污点、密钥脱敏 |
 | 记忆 / hooks / 持久化 | `core/memory.py` `core/hooks.py` `core/persistence.py` | `FileMemory`; session_start / post_tool_use / stop / subagent_stop; `JsonlSessionStore` |
 
@@ -29,7 +29,7 @@
 model → tool_use
   → 先把 assistant 消息写进 transcript (执行中崩溃也有审计记录)
   → pre_tool_use hook (可拦截 / 改写)
-  → 污点检查: 本轮已混入不可信数据 且 工具 risk == high → 拒绝
+  → 污点检查: 这批调用发出之前本轮已混入不可信数据 且 工具 risk == high → 拒绝
   → PermissionGate.evaluate(改写后的最终调用): deny > ask > allow > 模式兜底
   → 执行 (多个已批准的调用并行)
   → redact 密钥 → 不可信工具的输出 wrap_untrusted 并置污点
@@ -37,10 +37,12 @@ model → tool_use
   → _append: 再脱敏一次 → 内存 messages + JSONL
 ```
 
-设计取舍:
+关键设计:
 
 - deny 规则与命令走同一个 `normalize_command`: 写规则的人只写 `*rm -rf*`, `rm -fr`、`RM -r -f` 同样命中。
 - MCP 工具一律 `risk="high"`、`untrusted_output=True`: 第三方 server 自报的注解不可信, 所以必须有一条显式 allow 规则才放行 (否则 `auto` 模式会去问人, 没人可问即拒绝)。
+- `delegate` 是 `risk="high"`, 同样要一条 allow 规则; 读过不可信数据的那一轮里, 污点锁会拦下委托。
+- 检索结果 (`search_docs`) 和子级摘要 (`delegate`) 也按不可信数据处理: 语料和子级读到的东西都是别人写的。所以场景 [1] 写进笔记的文本带着 `<untrusted_data>` 标签; 污点只锁 high, `write_note` 是 medium, 照常写入。
 - hook 注释、skill 正文、记忆都走各自的消息, 不拼进用户 prompt 或工具数据: 这样检索词是干净的用户原话, 写进笔记的只有工具数据。
 - 子智能体只回一段有长度上限的摘要, 完整过程写进自己的 JSONL: 父上下文干净, 审计仍可追。
 - 脱敏发生在进入 transcript 之前, 而不是打印时: 上下文、日志、下一次模型请求三处同时受益。
@@ -57,7 +59,7 @@ cd <仓库根目录> && python3 -m llm_agent.full_loop.demo
 [1] skill → 检索 → 写笔记
   [full] turn 1: model -> tool_use toolu_0001 skill {'name': 'debug'}
   [full] turn 2: model -> tool_use toolu_0002 search_docs {'query': '排查 agent loop，并写入笔记'}
-  [full] tool_result toolu_0002 -> [0.55] agent_loop: Agent loop = assemble context, call model, dispatch tool, check perm...
+  [full] tool_result toolu_0002 -> <untrusted_data> [0.55] agent_loop: Agent loop = assemble context, call model, dispatch...
 [3] MCP 工具 (真实子进程)
   [full] permission mcp__weather__get_weather -> allow (rule: trusted local weather server)
   [full] tool_result toolu_0005 -> <untrusted_data> Shanghai: sunny, 24C, light wind </untrusted_data>
@@ -66,26 +68,35 @@ cd <仓库根目录> && python3 -m llm_agent.full_loop.demo
   [full] permission shell -> deny (rule: never allow destructive shell)
 [5] 抓回来的文档夹带指令和密钥
   [full] tool_result toolu_0007 -> <untrusted_data injection_suspected="ignore previous instructions; AGENT:"> Restart wit...
-  jsonl messages          : 32
-  llm calls / input tokens: 12 / 7604
-  child transcripts       : ['child_00_researcher.jsonl']
-  hook events             : ['stop', 'subagent_stop:researcher', 'stop', 'stop', 'stop', 'stop']
+  JSONL 消息条数              : 31
+  模型调用次数 / 输入 tokens      : 12 / 8063
+  子级 transcript 文件        : ['child_00_researcher.jsonl']
+  hook 事件                 : ['stop', 'subagent_stop:researcher', 'stop', 'stop', 'stop', 'stop']
 ```
 
-`assert` 验证的内容:
+断言验证的内容:
 
 - [1] 工具序列恰为 `skill → search_docs → write_note`; 笔记第一条命中 `agent_loop` (检索词没有被 skill 正文污染); 笔记里没有 `[audit]` 也没有 skill 正文 "排查流程"。
 - [2] 只调用了 `delegate`; 最终回答含子级检索到的 "isolated transcripts"; 子 transcript 文件存在; `subagent_stop:researcher` 事件被触发。
 - [3] 通过真实子进程拿到 "Shanghai: sunny"。
 - [4] `rm -fr` 被 `*rm -rf*` 规则拒绝, 回答含 `DENIED: never allow destructive shell`, `shell.executed == []`。
 - [5] 回答里带 `injection_suspected` 标记, 正常内容 `systemctl restart billing` 仍可用, shell 未被调用。
-- 全局: JSONL 原文不含 `sk-live` 且含 `[REDACTED]`; `validate_transcript(store.load_all()) == []`; `stop` 事件恰好 5 次 (子 agent 不带父级的 stop hook); `session_start` 注入在 5 次 `run()` 里只出现 1 次。
+- 全局:
+  - JSONL 原文不含 `sk-live` 且含 `[REDACTED]`。
+  - `validate_transcript(store.load_all()) == []`。
+  - `stop` 事件恰好 5 次 (子 agent 不带父级的 stop hook)。
+  - `session_start` 注入在 5 次 `run()` 里只出现 1 次。
 
 ## 与真实系统的差距
 
 - 模型是 `RuleBasedLLM`: 场景 [5] 里 shell 没被调用首先是因为 toy LLM 默认不服从工具结果里的指令; 污点锁这条确定性兜底在本 demo 没有被触发 (m12 用 `gullible=True` 专门演示)。
 - `ShellTool` 只模拟、从不执行; deny 规则是字符串黑名单, `/bin/rm`、`find -delete`、`python -c` 都绕得过。Claude Code 靠命令解析、allowlist 与 OS 级沙箱, 黑名单只是最后一道便宜的网。
 - 脱敏是 4 条正则; 子 agent 通过 `DelegateTool(guardrails=Guardrails())` 拿到同样的护栏, 但"密钥未落盘"的断言只检查了父会话的 JSONL。
+- 各层护栏的缺口在组装之后都还在:
+  - 子 agent 的权限门里没有规则, 父级的 deny `*rm -rf*` 不继承 (m07)。
+  - MCP 工具的描述原样进模型上下文 (m09)。
+  - 污点只锁高风险工具, 下一条用户消息到来就清零 (m12)。
+- `validate_transcript` 只查 tool_use / tool_result 的 id 配对。通过它不等于 JSONL 能原样发给真实 API: system 角色的消息还要经 `to_api_messages` 转换 (m15)。
 - `FileMemory` 接进了 agent (每轮按 prompt 关键词现查现拼), 但没有任何断言验证它对回答的影响。
 - 上下文预算设为 6000 字符, 全程没有触发清理或压缩; 压缩与其它机制 (如 session_start 注入在压缩后的去向) 的交互在这里没有被覆盖。
 - 没有人在环: `auto` 模式拿不准就拒绝 (fail closed), 没有交互式审批、没有"本次会话始终允许"。
@@ -94,7 +105,7 @@ cd <仓库根目录> && python3 -m llm_agent.full_loop.demo
 
 ## 常见误区
 
-- "每个模块都单测通过了, 拼起来自然是对的。" 组合 bug 出在接缝: demo 的注释里就记着一个真实回归 —— skill 文本漏进检索词, 第一名从 `agent_loop` 变成了 `subagents`。所以要断言工具序列和笔记内容, 而不只是"跑完了"。
+- "每个模块都单测通过了, 拼起来自然是对的。" 组合 bug 出在接缝。例: skill 文本一旦漏进检索词, 检索的第一名就从 `agent_loop` 变成 `subagents` (demo 的注释里记着这个例子)。所以要断言工具序列和笔记内容, 而不只是"跑完了"。
 - "MCP 工具来自我自己启动的 server, 输出是可信的。" harness 把所有 MCP 输出按不可信处理 (包 `<untrusted_data>` 并置污点)。信任 server 能被调用 (allow 规则) 与信任它返回的文本是两件事。
 - "deny 规则挡住了 `rm -fr`, 说明黑名单够用了。" 归一化只堵最廉价的绕过 (大小写、空白、短 flag 顺序与拆分)。它证明的是规则与命令必须走同一个归一化, 不是黑名单可以当安全边界。
 

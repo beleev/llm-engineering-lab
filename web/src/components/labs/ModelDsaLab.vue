@@ -8,8 +8,8 @@
     title="DSA — 先粗选 top-k, 再精算注意力"
     sub="一个 query 面对 48 个历史 key。
       - 上排: 主注意力的实际概率, 稠密算出来的 “标准答案”。
-      - 下排: indexer 的打分。亮色 = 被 top-k 选中; 红色 = 主注意力很看重、却被 indexer 漏掉的 key。
-      悬停任一列上下对照。点右下曲线上的点, 直接设 k。"
+      - 下排: indexer 的打分。被 top-k 选中的、主注意力很看重却被漏掉的, 各用一种颜色标出, 见图例。
+      悬停或点击任一列上下对照。点下方曲线上的点, 直接设 k。"
     module="llm_models/layers/core/attention.py"
     run="python -m llm_models.run_models.moe.deepseek_v3_2.train_deepseek_v3_2"
     :challenge="{
@@ -23,25 +23,32 @@
       <div class="row"><button type="button" @click="seed++">换一个 query</button></div>
     </template>
 
-    <div class="rows" @mouseleave="hov = -1">
+    <!-- 整组只有一个 Tab 停靠点: 悬停临时看, 点击固定, 方向键左右移动固定的那一列 -->
+    <div class="rows" tabindex="0" role="group" aria-label="48 个 key 的两排柱子, 方向键左右换一列"
+         @mouseleave="hov = -1" @keydown.left.prevent="move(-1)" @keydown.right.prevent="move(1)">
       <p class="cap">主注意力概率 p (标准答案)</p>
       <div class="strip">
-        <div v-for="j in S" :key="j" class="c" :class="cls(j - 1)" @mouseenter="hov = j - 1"><div :style="{ height: (sim.p[j - 1] / pMax) * 100 + '%' }" /></div>
+        <div v-for="j in S" :key="j" class="c" :class="cls(j - 1)" @mouseenter="hov = j - 1" @click="pin = pin === j - 1 ? -1 : j - 1"><div :style="{ height: (sim.p[j - 1] / pMax) * 100 + '%' }" /></div>
       </div>
       <p class="cap">indexer 分数 softmax(I): 只用来排序选 top-{{ k }}</p>
       <div class="strip">
-        <div v-for="j in S" :key="j" class="c idx" :class="cls(j - 1)" @mouseenter="hov = j - 1"><div :style="{ height: (sim.qi[j - 1] / qMax) * 100 + '%' }" /></div>
+        <div v-for="j in S" :key="j" class="c idx" :class="cls(j - 1)" @mouseenter="hov = j - 1" @click="pin = pin === j - 1 ? -1 : j - 1"><div :style="{ height: (sim.qi[j - 1] / qMax) * 100 + '%' }" /></div>
       </div>
-      <p class="cap mono">{{ hov < 0 ? '悬停某一列查看' : `key ${hov}: p = ${sim.p[hov].toFixed(3)}, indexer 排名第 ${sim.rank[hov] + 1}, ${sim.rank[hov] < k ? '选中' : '未选中'}` }}</p>
+      <p class="cap legend">
+        <i class="sw p" /> 上排被选中 <i class="sw i" /> 下排被选中 <i class="sw m" /> 漏掉的重要 key (p &gt; 0.04) <i class="sw n" /> 其余
+      </p>
+      <p class="cap mono" aria-live="polite">{{ cur < 0 ? '悬停或点击某一列查看' : `key ${cur}: p = ${sim.p[cur].toFixed(3)}, indexer 排名第 ${sim.rank[cur] + 1}, ${sim.rank[cur] < k ? '选中' : '未选中'}` }}</p>
     </div>
 
-    <svg viewBox="0 0 520 130" role="group" aria-label="输出误差随 k 变化, 点击设置 k">
+    <svg viewBox="0 0 520 130" tabindex="0" role="slider" aria-label="输出误差随 k 变化; 点击圆点或按方向键设置 k"
+         aria-valuemin="1" :aria-valuemax="S" :aria-valuenow="k" :aria-valuetext="`k = ${k}, 误差 ${(sim.curve[k - 1] * 100).toFixed(1)}%`"
+         @keydown.left.prevent="k = Math.max(1, k - 1)" @keydown.right.prevent="k = Math.min(S, k + 1)">
       <line x1="34" x2="514" :y1="ey(0.05)" :y2="ey(0.05)" class="ok" /><text x="514" :y="ey(0.05) - 3" class="lg">5% 误差线</text>
       <text x="30" :y="ey(1) + 8" class="yl">100%</text><text x="30" :y="ey(0) + 3" class="yl">0</text>
       <polyline :points="sim.curve.map((e, i) => `${ex(i + 1)},${ey(e).toFixed(1)}`).join(' ')" class="curve" />
       <circle
         v-for="(e, i) in sim.curve" :key="i" :cx="ex(i + 1)" :cy="ey(e)" :r="i + 1 === k ? 6 : 3.5" class="pt" :class="{ now: i + 1 === k }"
-        tabindex="0" role="button" :aria-label="`设 k = ${i + 1}`" @click="k = i + 1" @keydown.enter="k = i + 1"
+        @click="k = i + 1"
       />
       <text x="274" y="126" class="xl">k (点任意点设置) → 输出相对误差 ‖o_稀疏 − o_稠密‖ / ‖o_稠密‖</text>
     </svg>
@@ -50,7 +57,7 @@
       <div class="kv"><span>选中 key 覆盖的注意力质量</span><b :class="sim.mass > 0.9 ? 'good' : 'bad'">{{ (sim.mass * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>输出相对误差</span><b :class="sim.curve[k - 1] < 0.05 ? 'good' : 'bad'">{{ (sim.curve[k - 1] * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span><Tex text="对齐 loss $\mathrm{KL}(p \,\|\, \mathrm{softmax}(I))$" /></span><b>{{ sim.kl.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="主注意力计算量 $k / S$" /></span><b class="good">{{ ((k / S) * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span><Tex text="主注意力计算量 $k / S$" /></span><b>{{ ((k / S) * 100).toFixed(0) }}%</b></div>
       <p class="lab-note">KL 对齐 loss 只要求 “分布形状像”, 影响结果的是排序: top-k 里有没有包含 p 最大的那几个 key。</p>
     </template>
   </LabFrame>
@@ -64,7 +71,11 @@ import LabSlider from '@/components/lab/LabSlider.vue'
 import { mulberry32, randn, softmax, range, sum } from '@/utils/labmath.js'
 
 const S = 48, DV = 4
-const k = ref(8), align = ref(1), seed = ref(2), hov = ref(-1)
+// 默认对齐程度 0.3: indexer 还没学好, 打开就能看到漏选的 key 和很大的误差
+const k = ref(8), align = ref(0.3), seed = ref(2)
+const hov = ref(-1), pin = ref(-1)                       // 悬停的列 / 点击固定的列
+const cur = computed(() => (hov.value >= 0 ? hov.value : pin.value))
+const move = (d) => { pin.value = Math.min(S - 1, Math.max(0, (cur.value < 0 ? 0 : cur.value + d))); hov.value = -1 }
 
 const sim = computed(() => {
   const r = mulberry32(seed.value * 31)
@@ -91,7 +102,7 @@ const sim = computed(() => {
 })
 const pMax = computed(() => Math.max(...sim.value.p))
 const qMax = computed(() => Math.max(...sim.value.qi))
-const cls = (j) => ({ picked: sim.value.rank[j] < k.value, missed: sim.value.rank[j] >= k.value && sim.value.p[j] > 0.04, hov: hov.value === j })
+const cls = (j) => ({ picked: sim.value.rank[j] < k.value, missed: sim.value.rank[j] >= k.value && sim.value.p[j] > 0.04, hov: cur.value === j })
 
 const ex = (i) => 34 + ((i - 1) / (S - 1)) * 480
 const ey = (e) => 108 - Math.min(1, e) * 96
@@ -99,8 +110,11 @@ const ey = (e) => 108 - Math.min(1, e) * 96
 
 <style scoped>
 .cap { font-size: 11px; color: var(--text-dim); margin: 4px 0; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; background: var(--border-strong); margin-left: 6px; }
+.sw.p { background: var(--accent); margin-left: 0; } .sw.i { background: var(--eye); } .sw.m { background: var(--danger); }
 .strip { display: flex; gap: 1px; height: 64px; align-items: flex-end; border-bottom: 1px solid var(--border-strong); min-width: 430px; }
-.c { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: crosshair; }
+.c { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: pointer; }
 .c div { width: 100%; min-height: 2px; background: var(--border-strong); border-radius: 1px 1px 0 0; }
 .c.picked div { background: var(--accent); }
 .c.idx.picked div { background: var(--eye); }
@@ -111,6 +125,6 @@ const ey = (e) => 108 - Math.min(1, e) * 96
 .yl { text-anchor: end; font-size: 9px; fill: var(--text-dim); }
 .xl { text-anchor: middle; font-size: 9px; fill: var(--text-dim); }
 .curve { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.pt { fill: var(--accent); cursor: pointer; outline: none; }
-.pt.now, .pt:focus-visible { fill: var(--eye); stroke: var(--text); stroke-width: 1.5; }
+.pt { fill: var(--accent); cursor: pointer; }
+.pt.now { fill: var(--eye); stroke: var(--text); stroke-width: 1.5; }
 </style>

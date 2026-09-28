@@ -4,7 +4,9 @@
 关键设计:
   - 规则三态且有序: deny 永远赢; ask 强制问人 (即使有更宽的 allow); 都没命中才轮到模式。
   - auto 模式按工具风险分级, 危险词只检查 shell 的 command 与文件工具的 path —— 不会误杀 `search "tokenizer"`。
-  - 复合命令逐段评估; 命令先归一化。但字符串黑名单本质上很弱, [4] 会当场演示绕过。
+  - shell 命令按引号规则切段, 复合命令逐段评估; 带输出重定向的段不享受 allow 规则; 每段先归一化。
+    但字符串黑名单本质上很弱, [4] 会当场演示绕过。
+  - dont_ask 只放行 allow 规则预先批准的调用, 其余直接拒绝, 不问人 ([6])。
 对应: Claude Code settings.json 的 permissions.allow / ask / deny 与 permission modes。
 """
 
@@ -30,9 +32,12 @@ def main() -> None:
     tools = ToolRegistry([CalculatorTool(), SearchDocsTool({}), ShellTool(), WriteNoteTool([])])
 
     def show(gate: PermissionGate, call: ToolCall, expect: str, source: str) -> None:
+        """评估一次调用, 打印结论, 并断言 (结论, 是谁下的结论) 与预期一致。"""
         out = gate.evaluate(call, tools.get(call.name))
         print(f"  {call.name:<11} {str(list(call.args.values())[0]):<34} -> {out.decision:<5} {out.source}: {out.reason}")
-        assert (out.decision, out.source) == (expect, source), (call, out)
+        assert (out.decision, out.source) == (expect, source), (
+            f"{call.name} {call.args} 应得到 {expect} (来自 {source}), 实际: {out}"
+        )
 
     rules = [
         PermissionRule("shell", "*rm -rf*", Decision.DENY, "destructive"),
@@ -54,15 +59,20 @@ def main() -> None:
     show(gate, ToolCall("shell", {"command": "git push origin main"}), "deny", "human")  # ask 规则压过更宽的 allow
     show(gate, ToolCall("shell", {"command": "rm -rf /tmp/demo"}), "deny", "rule")
     show(gate, ToolCall("write_note", {"text": "no rule matches"}), "deny", "human")  # 没规则 → 问人 → 人说不
-    assert asked == [{"command": "git push origin main"}, {"text": "no rule matches"}]
+    assert asked == [{"command": "git push origin main"}, {"text": "no rule matches"}], (
+        f"只有 ask 规则命中和没有规则命中这两次应当问人, 实际问了: {asked}"
+    )
 
-    print("\n[2] 归一化堵住最廉价的绕过; 复合命令逐段评估")
+    print("\n[2] 归一化堵住最廉价的绕过; 按引号切段, 逐段评估")
     print(f"  normalize('RM  -r -f /') = {normalize_command('RM  -r -f /')!r}")
     for cmd in ("rm -fr /tmp/demo", "RM  -rf /tmp/demo", "rm -r -f /tmp/demo"):
         show(gate, ToolCall("shell", {"command": cmd}), "deny", "rule")
     show(gate, ToolCall("shell", {"command": "echo hi && rm -rf /"}), "deny", "rule")  # 整串其实匹配 allow "echo *"
     show(gate, ToolCall("shell", {"command": "echo hi & find / -delete"}), "deny", "human")  # 后台符 & 也是分隔符
     show(gate, ToolCall("shell", {"command": "echo $(find / -delete)"}), "deny", "human")  # 命令替换: allow 规则不生效
+    show(gate, ToolCall("shell", {"command": "echo 'a; b'"}), "allow", "rule")  # 引号里的分号是普通字符, 不切段
+    show(gate, ToolCall("shell", {"command": "echo x > ~/.bashrc"}), "deny", "human")  # 输出重定向: allow 规则不算
+    show(gate, ToolCall("shell", {"command": "echo 'unclosed"}), "deny", "parser")  # 引号没配对: 看不懂就拒绝
 
     print("\n[3] auto 模式: 按风险分级, 危险词只看 shell command / 文件 path")
     auto = PermissionGate("auto")
@@ -72,16 +82,25 @@ def main() -> None:
     show(auto, ToolCall("shell", {"command": "cat token.txt > /tmp/x"}), "deny", "auto")
     show(auto, ToolCall("shell", {"command": "ls"}), "deny", "human")  # 高风险且拿不准 → 问人; 没人 → fail closed
 
-    print("\n[4] 诚实的部分: 字符串黑名单挡不住的写法 (以下全部漏过 deny 规则)")
-    loose = PermissionGate("dont_ask", rules)
+    print("\n[4] 字符串黑名单挡不住的写法 (以下全部漏过 deny 规则)")
+    # bypass_permissions: deny 规则仍生效, 没命中规则的放行。下面三条命令都没命中 "*rm -rf*", 所以全部放行
+    loose = PermissionGate("bypass_permissions", rules)
     for cmd in ("/bin/rm --recursive --force /", "find / -delete", "python -c 'import shutil; shutil.rmtree(\"/\")'"):
-        show(loose, ToolCall("shell", {"command": cmd}), "allow", "dont_ask")
+        show(loose, ToolCall("shell", {"command": cmd}), "allow", "bypass_permissions")
     print("  → 所以真实系统: 解析命令 AST + 默认拒绝的 allowlist + OS 沙箱; deny 列表只是最外层的便宜网。")
 
     print("\n[5] plan 模式: 只读; allow 规则也放不了写操作")
     plan = PermissionGate("plan", [PermissionRule("write_note", "", Decision.ALLOW)])
     show(plan, ToolCall("search_docs", {"query": "anything"}), "allow", "plan")
     show(plan, ToolCall("write_note", {"text": "blocked until approved"}), "deny", "plan")
+
+    print("\n[6] dont_ask 模式: 只放行 allow 规则预先批准的, 其余直接拒绝, 不问人")
+    strict = PermissionGate("dont_ask", rules, ask_policy=human)
+    asked_before = len(asked)
+    show(strict, ToolCall("shell", {"command": "git status"}), "allow", "rule")
+    show(strict, ToolCall("shell", {"command": "git push origin main"}), "deny", "dont_ask")  # ask 规则也不问, 直接拒
+    show(strict, ToolCall("write_note", {"text": "no rule matches"}), "deny", "dont_ask")
+    assert len(asked) == asked_before, f"dont_ask 模式有 ask_policy 也不该问人, 实际多问了: {asked[asked_before:]}"
 
     print("\n  OK: 权限是 agent 能动性的刹车和方向盘 —— 以及一份对黑名单局限性的清醒认识。")
 

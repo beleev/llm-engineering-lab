@@ -7,6 +7,10 @@ CLIP — 图文对比学习双塔 (Radford et al., OpenAI, 2021)
 关键公式: logits = exp(t) · norm(img) @ norm(txt)ᵀ   [B, B]
          loss = ½ [CE(logits, diag) + CE(logitsᵀ, diag)];  初始 1/τ = exp(t) = 1/0.07 ≈ 14.3, 上限 100
          未训练时各向量几乎无区分度 ⇒ 初始 loss ≈ ln B。
+与官方实现的差异:
+    - 官方视觉塔在进 Transformer 之前还有一层 LayerNorm (ln_pre), 这里省了。
+    - 官方靠 "EOT 的 id 在词表里最大" 用 argmax 找句尾; 这里显式传 eos_token_id。
+    - 文本塔没有 padding mask (官方也没有): 因果 mask 下, 句尾之后的 pad 影响不到句尾。
 读代码时盯住: [B, B] 相似度矩阵的对角线 —— batch 内其余 B−1 个样本就是免费的负样本。
 """
 
@@ -28,6 +32,8 @@ class CLIPTextEncoder(nn.Module):
     文本塔: GPT 式因果 Transformer, 取 [EOS] 位置的 hidden 作句向量, 再线性投影到共享空间。
 
     为什么是 EOS 而不是 [CLS]: 因果 mask 下只有最后一个 token 看得到全句。
+
+    forward 返回 Tensor [B, embed_dim]。不接受 attention_mask, 没有 KV cache (不做生成)。
     """
 
     def __init__(
@@ -63,6 +69,7 @@ class CLIPTextEncoder(nn.Module):
         self.ln_f = nn.LayerNorm(d_model)
         self.text_projection = nn.Linear(d_model, embed_dim, bias=False)
 
+        # 下三角 mask 只建一次, [1, max_len, max_len]。persistent=False: 不进 state_dict
         self.register_buffer("causal_mask", build_causal_mask(max_len, torch.device("cpu")), persistent=False)
 
     def forward(
@@ -70,29 +77,39 @@ class CLIPTextEncoder(nn.Module):
         input_ids: torch.Tensor,
         eos_token_id: Optional[int] = None,
     ) -> torch.Tensor:
-        """input_ids [B, T] -> [B, embed_dim] (未归一化)。eos_token_id=None 时取每行最后一个位置。"""
+        """
+        input_ids [B, T] (T ≤ max_len) -> [B, embed_dim] (未归一化)。
+        eos_token_id=None 时取每行最后一个位置, 这要求 batch 内没有右 pad。
+        """
         B, T = input_ids.shape
-        position_ids = torch.arange(T, device=input_ids.device)
+        position_ids = torch.arange(T, device=input_ids.device)        # [T], 广播到 batch
 
+        # 可学习绝对位置, 直接相加; 不乘 √D (与官方一致)
         x = self.token_embedding(input_ids) + self.position_embedding(position_ids)   # [B, T, D]
         causal = self.causal_mask[:, :T, :T]                           # [1, T, T]
 
         for layer in self.layers:
             x = layer(x, mask=causal)
-        x = self.ln_f(x)
+        x = self.ln_f(x)                                               # [B, T, D]
 
         if eos_token_id is not None:
-            # argmax 取第一个 EOS: 它之后都是 padding, 因果 mask 保证 padding 影响不到它。(行内没有 EOS 会落到位置 0)
+            # argmax 取第一个 EOS: 它之后都是 padding, 因果 mask 保证 padding 影响不到它。
+            # (行内没有 EOS 会落到位置 0)
             eos_pos = (input_ids == eos_token_id).long().argmax(dim=-1)  # [B]
         else:
             eos_pos = torch.full((B,), T - 1, device=input_ids.device, dtype=torch.long)
 
-        pooled = x[torch.arange(B, device=x.device), eos_pos]          # [B, D]
+        # 每行各取一个位置: 行下标 [B] 配列下标 [B], 逐对取值
+        pooled = x[torch.arange(B, device=x.device), eos_pos]          # [B, T, D] → [B, D]
         return self.text_projection(pooled)                            # [B, embed_dim]
 
 
 class CLIPVisionEncoder(nn.Module):
-    """视觉塔: ViT。patch 序列前拼一个可学习 [CLS], 双向 attention 后取 [CLS] 位置, 线性投影到共享空间。"""
+    """
+    视觉塔: ViT。patch 序列前拼一个可学习 [CLS], 双向 attention 后取 [CLS] 位置, 线性投影到共享空间。
+
+    forward: images [B, 3, H, W] -> Tensor [B, embed_dim]。H = W = image_size, 分辨率固定。
+    """
 
     def __init__(
         self,
@@ -112,6 +129,7 @@ class CLIPVisionEncoder(nn.Module):
         )
         num_patches = self.patch_embed.num_patches
 
+        # 两个裸 Parameter, init_weights 不碰它们; 这里直接按 std 0.02 初始化。+1 是 [CLS] 的位置
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
         self.position_embedding = nn.Parameter(torch.randn(1, num_patches + 1, d_model) * 0.02)
 
@@ -134,13 +152,14 @@ class CLIPVisionEncoder(nn.Module):
         """images [B, 3, H, W] -> [B, embed_dim] (未归一化)"""
         B = images.size(0)
         x = self.patch_embed(images)                                   # [B, N, D]
-        cls = self.cls_token.expand(B, -1, -1)                         # [B, 1, D]
-        x = torch.cat([cls, x], dim=1)                                 # [B, N+1, D]
-        x = x + self.position_embedding
+        cls = self.cls_token.expand(B, -1, -1)                         # [1, 1, D] → [B, 1, D]
+        x = torch.cat([cls, x], dim=1)                                 # [B, N+1, D], [CLS] 在位置 0
+        x = x + self.position_embedding                                # [1, N+1, D] 广播到 batch
 
         for layer in self.layers:
             x = layer(x)                                               # 双向, 无 mask
-        return self.visual_projection(self.ln_f(x)[:, 0])              # 取 [CLS] -> [B, embed_dim]
+        # [:, 0] 取 [CLS]: [B, N+1, D] → [B, D] → 投影 [B, embed_dim]
+        return self.visual_projection(self.ln_f(x)[:, 0])
 
 
 class CLIPModel(nn.Module):
@@ -149,6 +168,8 @@ class CLIPModel(nn.Module):
     (特征单独暴露, 方便直接拿去做检索 / 零样本分类)。
 
     ViT-B/32 原版: embed_dim=512, 文本 12 层 d=512 max_len=77, 视觉 12 层 d=768 patch=32。
+
+    forward 返回 dict (三个键见 forward)。不接受 attention_mask, 没有 KV cache。
     """
 
     def __init__(
@@ -182,15 +203,17 @@ class CLIPModel(nn.Module):
         # 学的是 log(1/τ): 保证温度恒正, 且梯度尺度与 τ 无关
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / 0.07)))
 
-        init_weights(self)
+        init_weights(self)   # 只动 Linear / Embedding; logit_scale、cls_token、位置参数保持原样
 
     def encode_image(self, images: torch.Tensor) -> torch.Tensor:
+        """images [B, 3, H, W] -> [B, embed_dim], 已做 L2 归一化 (每行范数 1)。"""
         x = self.vision_encoder(images)
         return F.normalize(x, dim=-1)
 
     def encode_text(
         self, input_ids: torch.Tensor, eos_token_id: Optional[int] = None
     ) -> torch.Tensor:
+        """input_ids [B, T] -> [B, embed_dim], 已做 L2 归一化。"""
         x = self.text_encoder(input_ids, eos_token_id=eos_token_id)
         return F.normalize(x, dim=-1)
 
@@ -200,7 +223,13 @@ class CLIPModel(nn.Module):
         input_ids: torch.Tensor,
         eos_token_id: Optional[int] = None,
     ) -> Dict[str, torch.Tensor]:
-        """images [B, 3, H, W], input_ids [B, T] -> {image_features [B, E], text_features [B, E] (均 L2 归一化), logit_scale 标量}"""
+        """
+        images [B, 3, H, W], input_ids [B, T] -> 返回 dict, 三个键:
+            "image_features": [B, E]  L2 归一化
+            "text_features":  [B, E]  L2 归一化
+            "logit_scale":    标量, = exp(t) = 1/τ
+        相似度矩阵不在这里算: logits = logit_scale · image_features @ text_features.T, [B, B]。
+        """
         return {
             "image_features": self.encode_image(images),
             "text_features": self.encode_text(input_ids, eos_token_id=eos_token_id),

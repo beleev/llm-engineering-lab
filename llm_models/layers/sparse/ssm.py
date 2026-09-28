@@ -58,9 +58,11 @@ class SelectiveSSM(nn.Module):
         通用的 init_weights 会把 Linear bias 清零 (→ Δ≈0.69, 所有通道同一时间尺度),
         所以外层模型调完 init_weights 后必须再调一次本方法。
         """
+        # 在 log 域均匀采样再 exp: 得到的 dt 在 [dt_min, dt_max] 上对数均匀, [D]
         dt = torch.exp(torch.empty(self.d_model).uniform_(math.log(self.dt_min), math.log(self.dt_max)))
+        # softplus⁻¹(y) = log(e^y - 1) = y + log(1 - e^{-y})。用 expm1 算 1 - e^{-y}: y 很小时不丢精度
         self.dt_proj.bias.copy_(dt + torch.log(-torch.expm1(-dt)))   # softplus⁻¹(dt)
-        bound = self.dt_rank ** -0.5
+        bound = self.dt_rank ** -0.5                                 # 权重在 ±1/sqrt(dt_rank) 内均匀分布
         nn.init.uniform_(self.dt_proj.weight, -bound, bound)
 
     def forward(self, x: torch.Tensor, cache: Optional[dict] = None) -> torch.Tensor:
@@ -75,6 +77,7 @@ class SelectiveSSM(nn.Module):
         A_bar = torch.exp(delta * A)                           # [B, T, D, N], ∈ (0, 1)
         Bx = delta * B_t.unsqueeze(2) * x.unsqueeze(-1)        # [B, T, D, N]  = B̄_t · x_t
 
+        # h: 隐状态 [B, D, N]。有 cache 就接着上一步的状态, 否则从 0 开始
         h = cache["h"] if cache and "h" in cache else x.new_zeros(B, D, N)
         ys = []
         for t in range(T):  # 教学版顺序 scan; 生产用并行 scan kernel

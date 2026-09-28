@@ -6,38 +6,39 @@
   <LabFrame
     title="INT4 权重量化 — RTN vs AWQ 激活感知缩放"
     sub="$W$ 是 32×8 的权重, $X$ 是 64 条校准激活, 其中一个输入通道是离群通道。
-      - 上图: 每个输入通道的激活幅度 $\mathrm{mean}|x|$。拖那根橙色柱子改离群幅度, 点别的柱子把离群通道搬过去。
-      - 中图: 输出误差随 $\alpha$ 的变化, 点圆点选 $\alpha$。
-      - 下图: 每个输入通道对输出误差的贡献。"
+      - 图 ①: 每个输入通道的激活幅度 $\mathrm{mean}|x|$。拖虚线框里那根柱子改离群幅度, 点别的柱子把离群通道搬过去。
+      - 图 ② ③: 输出误差随 $\alpha$ 的变化 (点圆点选 $\alpha$), 和每个输入通道对输出误差的贡献。"
     module="llm_infer/m08"
     run="python -m llm_infer.m08_quantization.demo"
     :challenge="{
-      ask: 'α = 0 就是 RTN。先猜: α 一路拖到 1.0, 误差是单调下降吗? 再把离群幅度拖到 1× (没有离群通道), AWQ 还有用吗? 把 group 从 32 调到 4, RTN 和 AWQ 的差距怎么变?',
-      answer: '不是单调的, 是 U 形。\n- 收益: $XW = (X/s) \\cdot (s \\odot W)$。把离群通道那一行权重放大 $s$ 倍再量化, 它的相对舍入误差缩小约 $s$ 倍。\n- 陪绑: 放大同时撑大了所在 group 的 min/max 范围, 同组其它行的格点变粗。\n$\\alpha$ 太大时陪绑的损失超过收益, 所以 $\\alpha$ 要在校准集上网格搜索。真实 demo: INT4 g32 RTN 0.0759 → AWQ 0.0273, 最优 $\\alpha=0.4$。\n没有离群通道时各通道 $s \\approx 1$, 曲线几乎是平的, AWQ 无事可做。\ngroup 越小, 离群行只污染更少的邻居, RTN 本身就变好, AWQ 的相对收益缩小。代价是 scale/zero 的开销: $4 + 32/g$ bit/权重。',
+      ask: 'α = 0 就是 RTN。先猜: α 一路拖到 1.0, 误差是单调下降吗?',
+      answer: '不是单调的, 是 U 形。\n- 收益: $XW = (X/s) \\cdot (s \\odot W)$。把离群通道那一行权重放大 $s$ 倍再量化, 它的相对舍入误差缩小约 $s$ 倍。\n- 陪绑: 放大同时撑大了所在 group 的 min/max 范围, 同组其它行的格点变粗。\n$\\alpha$ 太大时陪绑的损失超过收益, 所以 $\\alpha$ 要在校准集上网格搜索。真实 demo: INT4 g32 RTN 0.0759 → AWQ 0.0273, 最优 $\\alpha=0.4$。\n把离群幅度拖到 1× (没有离群通道): 各通道 $s \\approx 1$, 曲线几乎是平的, AWQ 无事可做。\n把 group 从 32 调到 4: group 越小, 离群行只污染更少的邻居, RTN 本身就变好, AWQ 的相对收益缩小。代价是 scale/zero 的开销: $4 + 32/g$ bit/权重。',
     }"
   >
     <template #controls>
       <LabSlider v-model="bits" label="比特数" :min="2" :max="8" unit=" bit" />
       <LabSlider v-model="gi" label="group 大小 g" :min="0" :max="3" :format="(i) => GS[i]" />
       <LabSlider v-model="ak" label="AWQ 指数 α" :min="0" :max="10" :format="(k) => (k / 10).toFixed(1)" />
-      <LabSlider v-model="mag" label="离群通道幅度" :min="1" :max="20" :step="0.5" unit="×" />
       <div class="row"><button type="button" @click="seed++">换一组 W / X</button><button type="button" @click="ak = best">跳到最优 α</button></div>
     </template>
 
     <svg ref="svg" viewBox="0 0 560 330" role="group" aria-label="激活幅度、误差曲线与逐通道误差贡献">
-      <text x="4" y="10" class="cap">① 激活幅度 mean|x_i| (拖橙柱 / 点其它柱)</text>
+      <text x="4" y="10" class="cap">① 激活幅度 mean|x_i|, 离群通道 ×{{ mag }} (拖虚线框里的柱 / 点其它柱)</text>
       <g v-for="(a, i) in m.act" :key="`a${i}`">
-        <rect v-if="i !== oc" :x="bx(i)" y="14" :width="BW - 3" height="92" class="hit" tabindex="0" role="button" :aria-label="`把离群通道移到 ${i}`" @click="oc = i" @keydown.enter="oc = i" />
+        <rect v-if="i !== oc" :x="bx(i)" y="14" :width="BW - 3" height="92" class="hit" @click="oc = i" />
         <rect :x="bx(i)" :y="106 - ah(a)" :width="BW - 3" :height="ah(a)" :class="['abar', { out: i === oc }]" pointer-events="none" />
       </g>
-      <rect :x="bx(oc) - 2" y="14" :width="BW + 1" height="92" class="grab draggable" tabindex="0" role="slider" aria-label="拖动改变离群幅度"
-        :aria-valuenow="mag" aria-valuemin="1" aria-valuemax="20" @pointerdown="start($event, { svg, onMove })"
-        @keydown.up.prevent="mag = clamp(mag + 0.5, 1, 20)" @keydown.down.prevent="mag = clamp(mag - 0.5, 1, 20)" />
+      <!-- 图 ① 只有这一个 Tab 停靠点: 上下键改幅度, 左右键把离群通道搬到邻居 -->
+      <rect :x="bx(oc) - 2" y="14" :width="BW + 1" height="92" class="grab draggable" tabindex="0" role="slider"
+        :aria-label="`离群通道 ${oc} 的幅度; 左右键换通道`" :aria-valuenow="mag" aria-valuemin="1" aria-valuemax="20"
+        @pointerdown="start($event, { svg, onMove })"
+        @keydown.up.prevent="mag = clamp(mag + 0.5, 1, 20)" @keydown.down.prevent="mag = clamp(mag - 0.5, 1, 20)"
+        @keydown.left.prevent="oc = clamp(oc - 1, 0, DI - 1)" @keydown.right.prevent="oc = clamp(oc + 1, 0, DI - 1)" />
 
       <text x="4" y="130" class="cap">② 输出误差 ‖XW − XŴ‖ / ‖XW‖ 随 α (0 = RTN)</text>
       <line x1="30" x2="550" y1="215" y2="215" class="axis" />
       <polyline :points="m.errs.map((e, k) => `${ex(k)},${ey(e)}`).join(' ')" class="curve" />
-      <g v-for="(e, k) in m.errs" :key="`e${k}`" tabindex="0" role="button" :aria-label="`α = ${k / 10}`" class="pt" @click="ak = k" @keydown.enter="ak = k">
+      <g v-for="(e, k) in m.errs" :key="`e${k}`" class="pt" @click="ak = k">
         <circle :cx="ex(k)" :cy="ey(e)" r="10" class="hit" />
         <circle :cx="ex(k)" :cy="ey(e)" :r="k === ak ? 6 : 3.5" :class="{ cur: k === ak, best: k === best }" />
         <text :x="ex(k)" y="227" class="tick">{{ (k / 10).toFixed(1) }}</text>
@@ -52,8 +53,10 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>RTN 误差 (<Tex text="$\alpha = 0$" />)</span><b class="bad">{{ m.errs[0].toFixed(4) }}</b></div>
-      <div class="kv"><span>AWQ 误差 (<Tex text="$\alpha$" /> = {{ (ak / 10).toFixed(1) }})</span><b :class="m.errs[ak] < m.errs[0] ? 'good' : 'bad'">{{ m.errs[ak].toFixed(4) }}</b></div>
+      <div class="kv">
+        <span>误差: RTN → AWQ (<Tex text="$\alpha$" /> = {{ (ak / 10).toFixed(1) }})</span>
+        <b :class="m.errs[ak] < m.errs[0] ? 'good' : m.errs[ak] > m.errs[0] ? 'bad' : ''">{{ m.errs[0].toFixed(4) }} → {{ m.errs[ak].toFixed(4) }}</b>
+      </div>
       <div class="kv"><span>最优 <Tex text="$\alpha$" /> / 误差降到</span><b>{{ (best / 10).toFixed(1) }} / {{ (m.errs[best] / m.errs[0] * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>等效 bit / 权重 (含 fp16 scale+zero)</span><b>{{ (bits + 32 / GS[gi]).toFixed(2) }}</b></div>
       <div class="kv"><span>离群通道的 <Tex text="$s_i$" /></span><b>{{ m.s[oc].toFixed(2) }}</b></div>
@@ -131,16 +134,16 @@ svg { min-width: 540px; touch-action: pan-x pan-y; }
 .cap { font-size: 10px; fill: var(--text-muted); }
 .axis { stroke: var(--border-strong); }
 .hit { fill: transparent; cursor: pointer; }
-.hit:hover, .hit:focus-visible { fill: var(--accent-soft); outline: none; }
+.hit:hover { fill: var(--accent-soft); }
 .abar { fill: var(--accent); opacity: 0.7; }
 .abar.out { fill: var(--warn); opacity: 1; }
-.grab { fill: transparent; stroke: var(--warn); stroke-dasharray: 3 3; stroke-width: 1; }
+.grab { fill: transparent; stroke: var(--warn); stroke-dasharray: 3 3; stroke-width: 1; outline: none; }
+.grab:focus-visible { stroke-width: 2.5; stroke-dasharray: none; }
 .curve { fill: none; stroke: var(--accent); stroke-width: 2; }
-.pt { cursor: pointer; outline: none; }
+.pt { cursor: pointer; }
 .pt circle:not(.hit) { fill: var(--bg-elev); stroke: var(--accent); stroke-width: 1.5; }
 .pt circle.best { stroke: var(--left); fill: var(--left); }
 .pt circle.cur { fill: var(--accent); stroke: var(--text); }
-.pt:focus-visible circle:not(.hit) { stroke: var(--warn); stroke-width: 3; }
 .tick { font-size: 9px; fill: var(--text-dim); text-anchor: middle; }
 .tick.good { fill: var(--left); }
 .cr { fill: var(--text-dim); opacity: 0.6; }

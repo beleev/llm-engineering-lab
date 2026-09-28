@@ -15,11 +15,26 @@ hash_to_block: {hash → 物理 block}      block_to_hash: 反向, 供失效用
   只有分配器要覆盖它时 `BlockManager.on_evict → PrefixCache.evict`。free_list 顺序天然是 LRU
 
 ## 运行后应该看到什么
-`python -m llm_infer.m04_prefix_cache.demo` (bs=4, pool=10)
-- A 冷启动命中 0, 页表 `[0,1,2,3]`; B 命中 8 token, 页表 `[0,1,4,5]`, 共享 block 的 ref_count `[2,2]`
-- C 第 2 块分叉 → 只命中 4; 三条请求占用 8 个 block (无缓存要 11)
-- A/B/C 全部 free 后, 同样的 prompt 仍命中 12 token (释放 ≠ 失效)
-- 一条 40 token (id ≥ 256) 的请求占满 pool 后, A 的 prompt 命中 0 —— 被覆盖的 block 索引已同步删除
+```bash
+python -m llm_infer.m04_prefix_cache.demo      # bs=4, pool=10
+```
+```
+[1] A 冷启动 → 全 miss
+  A 命中 token / 页表                  = 0 / [0, 1, 2, 3]
+[2] B 共享 SYSTEM → 命中前 2 块, 物理 block 与 A 相同
+  B 命中 token / 页表                  = 8 / [0, 1, 4, 5]
+  共享 block 的 ref_count             = [2, 2]
+[3] C 只有第 1 块相同 → 命中 4 token (链式 hash: 第 2 块内容不同, 后面全断)
+  C 命中 token                       = 4
+  占用 block: 无缓存 vs 实际              = 11 vs 8
+[4] A、B、C 全部结束 → block 回到 free_list, 但内容和索引还在 → 新请求 D 照样命中
+  D (= A 的 prompt) 命中 token        = 12
+[5] 来一条占满整个 pool 的请求 → 旧 block 被覆盖, 索引同步失效 (不会命中到脏数据)
+  pool 被占满后 A 的 prompt 命中          = 0
+  索引里的 block 数                     = 10
+```
+- [4] 说明释放 ≠ 失效: A/B/C 全部 free 后, 同样的 prompt 仍命中 12 token。
+- [5] 那条请求有 40 个 token, id 都 ≥ 256。它占满 pool 后, 被覆盖的 block 的索引已同步删除, 所以 A 的 prompt 命中 0。
 
 ## 与真实系统的差距
 - 每次 `register` 从头重算 hash 链 O(T); vLLM 把每块 hash 存在 request 上增量算, 并用更快的非加密哈希
@@ -29,7 +44,7 @@ hash_to_block: {hash → 物理 block}      block_to_hash: 反向, 供失效用
 
 ## 常见误区
 - "free 时要把缓存项删掉" —— 那样缓存只在并发请求之间有效; 正确做法是**惰性失效**: 留到 block 被覆盖那一刻
-- "从不失效也行" —— 旧代码就是这样: block 被别人覆盖后索引还指着它 → 命中脏 KV, 输出悄悄错掉
+- "从不失效也行" —— block 被别人覆盖后, 索引还指着它 → 命中脏 KV, 输出悄悄错掉
 - "prompt 全命中就不用 prefill" —— 还是得算最后一个 token 才有 logits, 所以命中上限是 len-1
 - `bytes(token_ids)` 当哈希输入: token id ≥ 256 直接抛 ValueError, 要用定宽整数的 `tobytes()`
 

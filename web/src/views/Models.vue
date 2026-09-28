@@ -19,7 +19,7 @@
       question="拿到没读过的模型, 能不能先认出它只换了哪几个零件, 而不是从头读整套架构?"
       :goals="[
         '用同一张零件表读懂 Transformer / LLaMA / Mixtral / DeepSeek',
-        '把多模态和扩散模型放回 “先 token 化, 再过 Transformer block” 这条主线',
+        '把多模态和扩散模型放回「先 token 化, 再过 Transformer block」这条主线',
         '知道每个小标题该对着哪一组源码看',
       ]"
       :codes="[
@@ -28,8 +28,8 @@
         { path: 'llm_models/layers/sparse/' },
         { path: 'llm_models/models/generative/' },
       ]"
-      :prereq="{ name: 'basic-optim-sample', label: '阶段 1.4 · Adam 与采样' }"
-      :next-step="{ name: 'attention', label: '阶段 2.1 · 注意力演进' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <ModelArchitectureLab />
@@ -42,7 +42,7 @@
             <b>注意力:</b> 它直接决定长上下文的推理成本。一个 token 在全部层上的 KV:
             LLaMA-2-7B (MHA) 要 512 KiB, LLaMA-3-8B 换成 GQA 后 128 KiB, DeepSeek-V3 换成 MLA 后 68.6 KiB。
           </li>
-          <li><b>位置编码和 Block 组装。</b></li>
+          <li><b>位置编码和 Block 组装:</b> 决定零件怎么接。</li>
           <li><b>两条分支:</b> MoE 把 FFN 拆稀疏, 扩散换一套生成方式。</li>
         </ol>
         <p>每一章的形状都一样: 上一代哪里疼, 这一代怎么止疼, 又引出了什么新疼。</p>
@@ -63,7 +63,7 @@
 
     <section class="section">
       <h2>四个源码入口</h2>
-      <p class="lead">读一个模型时先来这四个文件认槽位。认完再去看它自己的实现文件，一般只剩几十行。</p>
+      <p class="lead">读一个模型时先来这四个文件认槽位。认完再去看它自己的实现文件, 一般只剩几十行。</p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="models-table">
           <thead>
@@ -87,8 +87,8 @@
     <section class="section">
       <h2>模型族谱</h2>
       <p class="lead">
-        时间线上这 {{ timeline.length }} 个模型共用同一套元数据，源码列直接跳到 GitHub。
-        按年份读一遍：新模型几乎从不从零开始，都是在上一个的某个槽位上改。
+        时间线上这 {{ timeline.length }} 个模型共用同一套元数据, 源码列直接跳到 GitHub。
+        按年份读一遍: 新模型几乎从不从零开始, 都是在上一个的某个槽位上改。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="models-table">
@@ -120,8 +120,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'basic-optim-sample', label: '阶段 1.4 · Adam 与采样', hint: '从最小闭环进入现代模型结构' }"
-      :next="{ name: 'attention', label: '阶段 2.1 · 注意力演进', hint: '先拆 KV cache 成本最高的 attention 槽位' }"
+      :prev="{ ...prevChapter, hint: '从最小闭环进入现代模型结构' }"
+      :next="{ ...nextChapter, hint: '先拆 KV cache 成本最高的 attention 槽位' }"
     />
   </div>
 </template>
@@ -134,7 +134,12 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { modelChapters, timeline } from '@/data/models.js'
+import { modelChapters, timeline, learningPath } from '@/data/models.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'models')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
 const sourceRows = [
   { slot: 'Attention', problem: '每个 token 要缓存多少东西: MHA → GQA → MLA → DSA 一路在砍这个数', file: 'llm_models/layers/core/attention.py' },

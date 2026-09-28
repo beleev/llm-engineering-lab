@@ -36,7 +36,7 @@
           :class="{ dim: t > stepper.step.value || (sel >= 0 && c?.id !== sel), held: c?.held, now: t === stepper.step.value }"
           :style="c ? { background: c.held ? 'transparent' : fill(c.id), borderColor: color(c.id) } : null"
           :title="c ? `R${c.id}${c.held ? ' 已结束, 槽位空转' : ''} · t=${t}` : '空闲'"
-          @mouseenter="c && (sel = c.id)"
+          @mouseenter="pick(c)" @click="pick(c)"
         >{{ c && c.head ? c.id : '' }}</span>
       </template>
     </div>
@@ -44,13 +44,13 @@
       <template v-if="selReq">R{{ selReq.id }}: 到达 t={{ selReq.arrive }}, 需要 {{ selReq.dur }} 步 (1 步 prefill + {{ selReq.dur - 1 }} 步 decode) ·
         开始 t={{ cur.start[selReq.id] }}, 结束 t={{ cur.finish[selReq.id] }} → 延迟 {{ cur.finish[selReq.id] - selReq.arrive }} 步
         (排队 {{ cur.start[selReq.id] - selReq.arrive }} 步)</template>
-      <template v-else>悬停格子或点上面的 R 按钮, 高亮一条请求的全部格子。</template>
+      <template v-else>悬停或点格子, 或点上面的 R 按钮, 高亮一条请求的全部格子。</template>
     </p>
 
     <template #stats>
       <div class="kv head"><span></span><span class="mono">静态 → 连续</span></div>
-      <div class="kv"><span>槽位利用率</span><b :class="gapCls">{{ pct(sims.static.util) }} → {{ pct(sims.cont.util) }}</b></div>
-      <div class="kv"><span>平均延迟 (步)</span><b :class="gapCls">{{ sims.static.lat.toFixed(1) }} → {{ sims.cont.lat.toFixed(1) }}</b></div>
+      <div class="kv"><span>槽位利用率</span><b :class="cmp(sims.cont.util, sims.static.util)">{{ pct(sims.static.util) }} → {{ pct(sims.cont.util) }}</b></div>
+      <div class="kv"><span>平均延迟 (步)</span><b :class="cmp(sims.static.lat, sims.cont.lat)">{{ sims.static.lat.toFixed(1) }} → {{ sims.cont.lat.toFixed(1) }}</b></div>
       <div class="kv"><span>全部完成 (步)</span><b>{{ sims.static.T }} → {{ sims.cont.T }}</b></div>
       <div class="kv"><span>吞吐 (token/步)</span><b>{{ sims.static.thr.toFixed(2) }} → {{ sims.cont.thr.toFixed(2) }}</b></div>
       <div class="lab-note">
@@ -123,7 +123,9 @@ const simulate = (kind) => {
 const sims = computed(() => ({ static: simulate('static'), cont: simulate('cont') }))
 const cur = computed(() => sims.value[mode.value])
 const selReq = computed(() => reqs.value.find((r) => r.id === sel.value))
-const gapCls = computed(() => (mode.value === 'cont' ? 'good' : 'bad'))
+// 颜色跟数值走: 连续批那一侧更好才绿, 更差才红, 打平不上色
+const cmp = (better, worse) => (better > worse ? 'good' : better < worse ? 'bad' : '')
+const pick = (c) => { if (c) sel.value = c.id }
 
 const stepper = useStepper(() => cur.value.T, { interval: 300 })
 watch(cur, (c) => { stepper.pause(); stepper.step.value = c.T - 1 }, { immediate: true })

@@ -31,13 +31,16 @@ ToolRegistry.execute
 close(): 关 stdin --------------------------------------->  读到 EOF, 循环结束, 退出码 0
 ```
 
-关键设计 (为什么这样做):
+关键设计:
 
 - **换行分隔 + stdout 专用**: stdio 传输里 stdout 就是协议通道, 所以 server 的日志只能写 stderr, 每条响应后必须 `flush()`, 否则客户端一直等到超时。
 - **读线程 + 队列**: `readline()` 没有超时参数。后台线程把 stdout 的每一行放进 `queue.Queue`, `request()` 用 `get(timeout=5.0)` 取, server 卡死时抛 `MCPError` 而不是把 agent 挂住。
 - **一把锁**: loop 会用线程池并行执行同一 turn 的多个调用 (demo [4]), 它们共用一条管道。客户端的假设是"发完请求后读到的下一行就是它的响应", 所以"发送 + 取响应"必须在锁内成对完成。
 - **命名空间前缀**: 防止两个 server 的工具重名, 也让权限规则可以按 server 粒度写。
-- **`MCPTool.risk = "high"`, `untrusted_output = True`**: 一律按第三方代码处理, 不读 server 自报的注解。auto 模式下高风险工具会走 `_ask`; demo 没有配 `ask_policy` (没人可问), 于是 fail closed —— 这就是输出里 `deny (human: ...)` 的来历。`untrusted_output` 只有在 Agent 配了 `Guardrails` 时才生效 (见 m12), 本 demo 没配。
+- **`MCPTool.risk = "high"`, `untrusted_output = True`**: 一律按第三方代码处理, 不读 server 自报的注解。
+  - auto 模式下高风险工具会走 `_ask`。demo 没有配 `ask_policy` (没人可问), 于是 fail closed。输出里的 `deny (human: ...)` 就是这么来的。
+  - `untrusted_output` 只有在 Agent 配了 `Guardrails` 时才生效 (见 m12), 本 demo 没配。配了之后, `isError` 的报错文本和正常输出一样包进 `<untrusted_data>` 并置污点: 报错文本也是 server 写的。
+  - 同一批里的两个 MCP 调用不会互相锁死: 污点只看这批调用发出之前已经返回的结果 (见 m12)。
 - **两种失败分开**: 方法不存在是协议错误 (JSON-RPC `error`, 客户端抛 `MCPError`); 工具自己执行失败是正常的 `result` 加 `isError: true`, 变成 `ToolResult(ok=False)` 回给模型, 让它有机会改参数重试。
 - **唯一的子进程**: 只 spawn 调用方给的 argv 列表 (`sys.executable` + 同目录 `server.py`), 不经过 shell, 没有字符串拼接命令。
 
@@ -58,8 +61,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m llm_agent.m09_mcp.demo
     mcp__weather__get_weather  {'city': {'type': 'string'}}
 
 [2] 两种失败: 协议错误 vs 工具错误
-  protocol error          : weather: -32601 Method not found
-  tool error              : isError=True tool error: KeyError('city')
+  协议错误                    : weather: -32601 Method not found
+  工具错误                    : isError=True tool error: KeyError('city')
 
 [3] 同一个权限门: 没有 allow 规则, auto 模式不放行第三方工具
   [no-rule] turn 1: model -> tool_use toolu_0001 mcp__weather__get_weather {'city': 'Beijing'}
@@ -75,7 +78,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m llm_agent.m09_mcp.demo
   [with-rule] tool_result toolu_0002 -> Shanghai: sunny, 24C, light wind
 ```
 
-`assert` 验证的事:
+断言验证的内容:
 
 - 发现到的工具名恰好是 `mcp__weather__add` 和 `mcp__weather__get_weather`。
 - `resources/list` 抛 `MCPError` 且含 `-32601`; 绕过本地校验直接 `call_tool("get_weather", {})` 得到 `isError=True` 而不是异常。
@@ -88,7 +91,15 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m llm_agent.m09_mcp.demo
 - 只实现了 tools。MCP 规范还有 resources、prompts、sampling、roots、elicitation, 以及 ping、进度、取消、`tools/list` 分页, 这里都没有。
 - 只有 stdio 传输。没有 Streamable HTTP, 因而也没有 OAuth 授权、会话管理、断线重连。
 - 没有真正的能力协商: 客户端发空的 `capabilities`, 不检查 server 返回的 `protocolVersion` 和 `capabilities`; 不处理 `notifications/tools/list_changed`, 工具清单在启动时读一次就固定了。
-- 严格的一问一答 (一把锁串行化所有请求): 请求 id 在锁内取号, 迟到的旧响应按 id 丢弃, stdout 上的非 JSON 行报 `MCPError`; 但 server 主动发来的请求 / 通知会被直接丢掉。真实客户端用 `id -> 等待者` 的映射做多路复用, 并处理 server→client 的消息。
+- 严格的一问一答, 一把锁串行化所有请求:
+  - 请求 id 在锁内取号, 迟到的旧响应按 id 丢弃, stdout 上的非 JSON 行报 `MCPError`。
+  - server 主动发来的请求 / 通知会被直接丢掉。
+  - 真实客户端用 `id -> 等待者` 的映射做多路复用, 并处理 server→client 的消息。
+- 工具描述和 schema 也是第三方文本, 这里没有处理:
+  - 被当作不可信数据包装的只有工具的**输出** (包括报错文本)。
+  - `MCPTool` 把 server 给的 `description` 和 `inputSchema` 原样放进发给模型的工具定义, 不经过 `wrap_untrusted`。
+  - server 可以在描述里写指令, 模型会把它当成工具说明来读。这种攻击叫 tool poisoning。
+  - 真实系统在接入 server 时人工审阅工具描述, 并锁定版本。
 - `call_tool` 只拼接 `type == "text"` 的内容块, 忽略图片、音频、嵌入资源和 `structuredContent`。
 - Claude Code 从 `.mcp.json` 等配置加载 server、逐个 server 让用户确认是否信任; 这里 argv 写死在 demo 里, server 崩溃后也不会重启。
 

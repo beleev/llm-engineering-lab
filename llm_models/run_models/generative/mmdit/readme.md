@@ -30,11 +30,23 @@ python -m llm_models.run_models.generative.mmdit.train_mmdit
 初始 ≈ 2: 零初始化输出 0 → `MSE = E[(ε−x_0)²] = Var(ε)+Var(x_0) = 2` (只有 512 个元素, 估计标准差 ≈ 0.125)。
 **固定 batch, 下降 = 背下 2 个样本**。
 
+## 与真实系统的差距
+
+- **没有文本编码器**: `text_embeds` 和 `text_pooled` 是 `randn` 出来的。真实系统由预训练的文本编码器给出这两个量。
+- **latent 是随机数**: x_0 从 N(0, I) 采, 没有接 VAE。
+- **规模**: train 是 2 层、d_model=96, 图像 16 个 token、文本 16 个 token。固定 2 个样本训 60 步, 固定 batch 是本库约定。
+- **t 均匀采样**: 训练时 t ~ U(0,1), 没有实现其他采样分布, 也没有按 t 给 loss 加权。
+- **文本流多了一份位置嵌入**: 本库给文本 token 加了可学习的 `text_pos`。文本超过 `text_seq_len` 会被截断, 不足时不补齐。
+- **没有文本的 CFG**: 采样器的引导走 `class_labels`。MM-DiT 没有 "空文本" 条件, demo 的 Euler 采样没有开引导。
+- **所有层都是双流**: 没有两种模态共用一套参数的单流 block。
+
 ## 常见误区
 
 - "Flow Matching 的 t∈[0,1] 直接喂 TimestepEmbedding": sinusoidal 频率族 (max_period=10000) 是为跨度上千的位置设计的, [0,1] 内大部分频率几乎不动: 不缩放时 t=0.1 与 t=0.9 的嵌入余弦相似度高达 0.98, 模型根本分不清早晚。SD3 同样把 t ×1000。插值系数仍用 t∈[0,1], 只有 **给模型看的 t** 要缩放; 采样器必须用同一量纲 (`EulerFlowSampler.time_scale`)。
 - "双流 = 两个独立 Transformer": 注意力是共享的一次 softmax, 文本 token 能看图像 token, 反之亦然。
-- "velocity 依赖 t": 直线路径上 v = ε − x_0 与 t 无关; 依赖 t 的是模型的输入 x_t。
+- "回归目标 v 依赖 t": 对一对固定的 (x_0, ε), 直线路径上 v = ε − x_0 与 t 无关。
+  - 但同一个 x_t 可能来自很多对 (x_0, ε), 模型学到的是它们的条件平均 E[ε − x_0 | x_t, t]。
+  - 这个速度场依赖 t, 所以 t 仍要喂给模型。
 
 ## 自测题
 

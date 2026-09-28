@@ -1,2 +1,2 @@
-"""Integrated mini training loop."""
+"""把各模块的技术接在一起的最小训练循环。"""
 

@@ -15,10 +15,11 @@ import numpy as np
 
 from llm_infer.core import TinyLM, ModelConfig
 
-KVCache = List[Tuple[np.ndarray, np.ndarray]]
+KVCache = List[Tuple[np.ndarray, np.ndarray]]               # 每层一个 (K (T,D), V (T,D))
 
 
 def kv_nbytes_formula(n_layer: int, n_tokens: int, d_model: int, itemsize: int) -> int:
+    """KV cache 的字节数。itemsize: 每个元素几个字节 (fp16 = 2, fp32 = 4)。"""
     return 2 * n_layer * n_tokens * d_model * itemsize       # 2 = K 和 V
 
 
@@ -29,6 +30,7 @@ def serialize_kv(kv_cache: KVCache) -> Tuple[tuple, str, bytes]:
 
 
 def deserialize_kv(shape: tuple, dtype: str, payload: bytes) -> KVCache:
+    """serialize_kv 的逆操作: bytes → 每层一个 (K, V)。"""
     arr = np.frombuffer(payload, dtype=dtype).reshape(shape)  # (n_layer, 2, T, D), 只读视图; decode 只会 concat 出新数组, 不会写它
     return [(layer[0], layer[1]) for layer in arr]
 
@@ -37,17 +39,19 @@ def deserialize_kv(shape: tuple, dtype: str, payload: bytes) -> KVCache:
 class KVLink:
     """P→D 链路的**代价模型** (不 sleep, 不是实测): time = latency + bytes / (Gbps·1e9/8)。"""
     link_gbps: float                 # 标称带宽, 单位 Gbit/s (网卡、IB 都这么标)
-    latency_ms: float = 0.0
-    bytes_sent: int = 0
+    latency_ms: float = 0.0          # 每次传输的固定延迟 (建连、握手), 与字节数无关
+    bytes_sent: int = 0              # 累计发出的字节数
 
     @property
     def bytes_per_s(self) -> float:
         return self.link_gbps * 1e9 / 8                      # bit → byte
 
     def transfer_ms(self, nbytes: int) -> float:
-        return self.latency_ms + nbytes / self.bytes_per_s * 1e3
+        """传 nbytes 个字节要多少毫秒 (代价模型算出来的)。"""
+        return self.latency_ms + nbytes / self.bytes_per_s * 1e3   # s → ms
 
     def send(self, payload: bytes) -> Tuple[bytes, float]:
+        """→ (原样的 payload, 模型算出的传输耗时 ms)。不真的等待。"""
         self.bytes_sent += len(payload)
         return payload, self.transfer_ms(len(payload))
 
@@ -59,6 +63,7 @@ class PrefillNode:
         self.lm = TinyLM(cfg)
 
     def run(self, prompt_ids: np.ndarray):
+        """prompt (T,) → (首 token id, (shape, dtype, payload))。"""
         logits, kv_cache = self.lm.prefill(prompt_ids)       # logits (T, V); kv: n_layer × (K (T,D), V (T,D))
         return int(np.argmax(logits[-1])), serialize_kv(kv_cache)
 
@@ -70,9 +75,10 @@ class DecodeNode:
         self.lm = TinyLM(cfg)
 
     def run(self, first_token: int, wire_kv, max_new: int) -> List[int]:
+        """wire_kv: (shape, dtype, payload)。返回 max_new 个 token, 第 1 个就是 first_token。"""
         kv_cache = deserialize_kv(*wire_kv)
         out = [first_token]
-        for _ in range(max_new - 1):
+        for _ in range(max_new - 1):                         # 首 token 已由 P 节点给出
             logits, kv_cache = self.lm.decode_step(out[-1], kv_cache)   # (V,)
             out.append(int(np.argmax(logits)))
         return out

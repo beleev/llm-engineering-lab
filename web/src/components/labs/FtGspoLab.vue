@@ -8,8 +8,10 @@
     title="GSPO — 比率该按 token 算, 还是按整条序列算"
     sub="每根柱子是一条回答里某个 token 的 $\log\rho_t = \log\pi_{\text{new}} - \log\pi_{\text{old}}$, 上下拖动柱顶。
       - 黄线之外: 这个 token 在 GRPO 里被单独 clip, 变灰 = 没有梯度。
-      - 绿线: GSPO 的序列级比率 $\log s$ = 所有柱子的平均。"
+      - 绿线: GSPO 的序列级比率 $\log s$ = 所有柱子的平均。
+      拖「噪声」或「漂移」滑杆会重新生成 12 根柱子, 手拖过的位置不保留。"
     module="llm_finetune/methods/grpo.py"
+    run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
       ask: '把噪声拖到 0.3 以上: GRPO 下有几个 token 被 clip? 此时 GSPO 的 s 离 1 有多远? 再看「不做长度归一的 Πρ_t」: 如果序列有 1000 个 token 它会怎样?',
       answer: '每个 $\\rho_t$ 都只基于「这个位置采到的这一个 token」, 是方差很大的单样本重要性权重。\n- 噪声 0.3 时: 常有三四个 token 越界被 clip, 剩下的照常更新。同一条序列、同一个 $\\hat{A}$, 有的 token 学有的不学, 哪些被 clip 基本是随机的。\n- MoE 模型里: 路由一变, token 级比率抖得更厉害。这是 GSPO 论文报告的 GRPO 训练崩溃来源。\n序列级比率取平均后, 噪声按 $1/\\sqrt{T}$ 缩小, $s$ 通常离 1 很近。所以 GSPO 的 $\\varepsilon$ 取得极小 (论文里是 3e-4 ~ 4e-4 量级), 越界时整条序列一起放弃。\n必须取几何平均: 不做长度归一的 $\\prod\\rho_t = \\exp(\\sum\\log\\rho_t)$ 会随长度指数发散或归零, 长序列几乎必然被 clip。',
@@ -26,7 +28,7 @@
       <LabSlider v-model="epsSeq" label="GSPO 的 ε (序列级)" :min="0.01" :max="0.2" :step="0.01" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 300" role="img" aria-label="各 token 的对数重要性比率">
+    <svg ref="svgEl" viewBox="0 0 640 300" role="group" aria-label="各 token 的对数重要性比率">
       <rect x="40" :y="sy(HI)" width="590" :height="sy(LO) - sy(HI)" fill="var(--warn)" opacity="0.08" />
       <line v-for="b in [HI, LO]" :key="b" x1="40" x2="630" :y1="sy(b)" :y2="sy(b)" stroke="var(--warn)" />
       <text x="632" :y="sy(HI) - 4" text-anchor="end" class="t" fill="var(--warn)">log(1+0.2): token 级上界</text>

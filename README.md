@@ -5,8 +5,8 @@
 numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调对齐 → 推理优化 → Agent 应用层。
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
-- 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……），不是打印一句 OK。
-- 配套 **交互式 Web 教程**：84 个可拖、可点、可单步播放的实验台，218 道章末自测，还有术语速查。页面上的代码直接取自仓库里的 Python 源文件。
+- 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
+- 配套 **交互式 Web 教程**：108 个可拖、可点、可单步播放的实验台，284 道章末自测，195 条术语速查。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -29,9 +29,11 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
                           / RAG / Computer use / A2A / Prompt caching
 ```
 
-推荐节奏：**先在网页上拖实验台建立直觉 → 做章末自测 → 再跑对应的 Python demo 读源码**。每个模块目录下的 README 都是同一个结构：
+推荐节奏：**先在网页上拖实验台建立直觉 → 做章末自测 → 再跑对应的 Python demo 读源码**。模块目录下的 README 大体按这个顺序写：
 
 > 直觉 → 核心公式 → 运行后应该看到什么（真实数字）→ 与真实系统的差距 → 常见误区 → 3 道自测题
+
+各包的小标题略有出入：公式一节在有的包里叫「核心数据结构或公式」或「核心数据结构与控制流」。
 
 ## 安装与运行
 
@@ -82,7 +84,7 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 序列建模 | 滑动窗口（Mistral）、滑窗/全局交替（GPT-OSS-mini）、Gated DeltaNet 混合（Qwen3-Next）、Mamba 选择性 SSM |
 | MoE | Mixtral softmax top-k；DeepSeekMoE sigmoid + 共享专家 + **真正会更新的** aux-loss-free 路由偏置 |
 | 训练目标 | next-token、MTP 多 token 预测、LLaDA 掩码扩散语言模型 |
-| 生成 | 所有 decoder LM 共用带 KV cache 的 `GenerationMixin`（有/无 cache 输出 `torch.equal`） |
+| 生成 | 9 个自回归 LM（GPT-3、LLaMA、Mistral、Mamba、MTP、Qwen3-Next、Mixtral、DeepSeek-V3、GPT-OSS）共用带 KV cache 的 `GenerationMixin`（有/无 cache 输出 `torch.equal`）。多模态的 `Qwen2VLDecoder`、`OmniTalkerDecoder` 没有接，不支持 `generate()` |
 | 多模态 | CLIP、Whisper、Qwen2-VL、Qwen2.5-Omni |
 | 视觉生成 | VAE / 因果 3D VAE、DiT、MM-DiT（Rectified Flow）、Video DiT、VAR（真 next-scale + 多尺度残差 VQ） |
 
@@ -98,14 +100,14 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | m07 | 激活重算（真反向） | 梯度与全存基线逐位相同；峰值 = L/k + k |
 | m08 | 断点续训（含 RNG、数据游标） | 漏恢复任何一项都有断言量化偏差 |
 | m09 | 集合通信 + ring all-reduce + 通信量计数 | all_reduce = reduce_scatter + all_gather |
-| m10 | warmup / cosine / WSD、裁剪、NaN guard | — |
-| m11 | 专家并行（两次真 all-to-all）+ aux-loss-free 均衡 | 与 dense MoE 一致 |
+| m10 | warmup / cosine / WSD、裁剪、NaN guard | WSD 稳定段不随总步数变；裁剪只缩长度不改方向；坏 step 不改参数 |
+| m11 | 专家并行（dispatch、combine 两步真 all-to-all）+ aux-loss-free 均衡 | 与 dense MoE 一致；all-to-all 计数 3 次（dispatch 把 token 和专家 id 分两次发） |
 | m12 / m16 | Ring Attention（zigzag 均衡）/ Ulysses | 与完整 attention 一致 |
-| m13 / m15 | FP8 配方消融 / MXFP4 · NVFP4 | 四臂消融各动一个变量 |
+| m13 / m15 | FP8 配方消融 / MXFP4 · NVFP4 | FP32 基线 + A–E 五臂消融（相邻两臂只差一个旋钮：scaling / 反向格式 / 粒度 / master）；量化误差 FP8 < NVFP4 < MXFP4 |
 | m14 | Muon（Newton–Schulz）+ QK-clip | 含 Adam 反而更好的反例 |
-| m17 | 数据流水线：MinHash-LSH 去重、质量过滤、温度采样配比 | 近似重复召回 0.258 → 0.967 |
+| m17 | 数据流水线：MinHash-LSH 去重、质量过滤、数据源温度配比 | 近似重复召回 0.258 → 0.967 |
 | m18 | Sequence packing + 文档间 attention mask | 与逐篇单独 forward 误差 1e-15；不加 mask 就串文档 |
-| m19 | Scaling law：36 个 (N, D) 点真训后拟合 | 玩具规模指数与 Chinchilla 不同，照实写 |
+| m19 | Scaling law：36 个 (N, D) 点真训后拟合 | 拟合出的 E 接近噪声方差；指数 α≈1.08、β≈1.13，与 Chinchilla 论文的 0.34 / 0.28 不同 |
 | m20 | μP 超参迁移 | 最优 lr 在三种宽度下不动；SP 下会漂 |
 | m21 | 评测：perplexity、污染检测、pass@k 无偏估计、judge 位置偏差 | 朴素 pass@k 偏低；交换判消掉位置偏差 |
 | full_loop | DDP + 累积 + AMP + 分片 Adam + 裁剪 + 续训 | 续训逐位相同；fp32 下与单卡差 6e-8 |
@@ -144,7 +146,7 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 |------|------|
 | 循环 | Agent 循环（`tool_use` / `tool_result` content block）· JSON Schema 工具 + 并行调用 |
 | 安全 | 权限门（deny > ask > allow，六种模式，命令归一化与分段）· 护栏（注入、路径围栏、脱敏） |
-| 上下文 | 压缩与文件记忆 · 上下文工程 · BM25 检索（中文 bigram）· RAG（切块、混合检索、RRF、rerank）· Prompt caching |
+| 上下文 | 压缩与文件记忆 · 上下文工程 · TF-IDF 检索（中文 bigram）· RAG（切块、BM25 + 稠密混合检索、RRF、rerank）· Prompt caching |
 | 扩展 | Hooks · Skills 渐进式披露 · 真 MCP（stdio JSON-RPC）· A2A（agent 之间的任务协议） |
 | 操作界面 | Computer use（无障碍树观察、按元素 ref 点击） |
 | 编排 | 计划模式 · 子智能体 · orchestrator–workers |
@@ -160,8 +162,8 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 档位 | 章数 | 用时 (粗估) | 读完能干什么 |
 |------|-----:|------------|--------------|
 | ★ 冲刺 | 12 | 约 1.7 小时 | 每个阶段最核心的那一两页, 接得上下一阶段 |
-| ● 主干 | 42 | 约 5.7 小时 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
-| ○ 全部 | 86 | 约 11.2 小时 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+| ● 主干 | 42 | 约 5.9 小时 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
+| ○ 全部 | 86 | 约 11.5 小时 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
 
 分层只是阅读建议, 不影响任何章节的内容。侧栏可以按档位收起扩展章, 每章开头标着它属于哪一层,
 章内最该带走的那条结论有「重点」徽章。用时按内容字数粗估, 只用来排计划。
@@ -170,7 +172,7 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 - **真源码**：章节里的代码块在构建期直接读 `llm_*/**/*.py` 并按符号截取，CI 校验每个引用都有效，不会和仓库漂移。
 - **学习辅助**：章末自测（全对侧栏打 ✓）、学习进度与"接着上次学"（只存本机）、术语速查页、键盘 ← / → 翻章、移动端可用。
 - **加内容只加文件**：实验台、章节、自测、术语都按阶段分文件自动注册，见 [`web/LABS.md`](web/LABS.md)。章节正文全部住在 `web/src/data/topics/<stage>.js`。
-- **说人话**：86 章正文按四条规矩写成——先说具体的再说抽象的、拆掉名词堆、一个数字胜过一个形容词、先说为什么疼再说怎么治。每章的三条要点里，最该带走的那条有「重点」徽章。
+- **说人话**：章节正文按 [`web/LABS.md`](web/LABS.md)「写文案的规矩」写，共 7 条。前四条是：先说具体的再说抽象的、拆掉名词堆、一个数字胜过一个形容词、先说为什么疼再说怎么治。每章有 3–7 条要点，最该带走的那条有「重点」徽章。
 
 ## 这个教具的边界
 
@@ -182,11 +184,11 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 
 - 随机权重的小模型**没有 attention sink 现象**，稀疏解码的块打分也**不优于随机选块**。这两个效应只在植入了 sink / needle 的合成数据上演示。
 - FP8 的 per-tensor 与 block scaling 在玩具任务上**打平**，outlier 要超过约 1e5 倍才拉开差距。
-- `llm_basic` 的 2 层配置**不优于** 1 层（val 2.045 vs 1.981）。
+- `llm_basic` 的 2 层配置**不优于** 1 层（val 2.042 vs 1.986）。
 - CUDA Graph 的加速比来自**显式注入的 launch 开销模型**，不是实测。
 - 同步数下**全参微调优于 LoRA**（留出集 EM 0.809 vs 0.352）。LoRA 买的是显存和分发，不是收敛速度。
 
-这些都如实写在程序输出和文档里，没有构造数据让结论好看。
+这些结论都写在程序输出和文档里。数据没有为了让结论好看而调过。
 
 ## 参考文献
 

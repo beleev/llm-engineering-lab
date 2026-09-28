@@ -18,12 +18,14 @@ import numpy as np
 
 @dataclass
 class LoRAAdapter:
+    """一个 adapter 的两块低秩矩阵。等效的权重增量 ΔW = (alpha / r)·B·A。"""
     A: np.ndarray               # (r, d_in)   down-projection, 随机初始化
     B: np.ndarray               # (d_out, r)  up-projection,   零初始化 → 训练开始时 ΔW = 0, 模型行为与底模完全一致
-    alpha: float = 16.0
+    alpha: float = 16.0         # 缩放系数; 实际乘到 ΔW 上的是 alpha / r
 
     @property
     def r(self) -> int:
+        """秩, 即中间瓶颈的宽度。"""
         return self.A.shape[0]
 
     @property
@@ -31,10 +33,12 @@ class LoRAAdapter:
         return self.alpha / self.r
 
     def delta_w(self) -> np.ndarray:
+        """合并用的完整增量 ΔW (d_out, d_in)。不合并的前向路径用不到它。"""
         return self.scale * self.B @ self.A                 # (d_out, r) @ (r, d_in) → (d_out, d_in)
 
 
 def init_adapter(d_in: int, d_out: int, r: int, seed: int) -> LoRAAdapter:
+    """按 LoRA 的约定初始化: A 随机 (std = 1/√d_in), B 全零。"""
     rs = np.random.RandomState(seed)
     return LoRAAdapter(A=(rs.randn(r, d_in) / np.sqrt(d_in)).astype(np.float32),
                        B=np.zeros((d_out, r), np.float32))
@@ -55,6 +59,11 @@ def loop_forward(xs: List[np.ndarray], ids: List[int], W: np.ndarray, adapters: 
 
 
 def _flatten(xs: List[np.ndarray], ids: List[int]):
+    """把各请求拼成一个大 batch → (x, tok_adapter, splits)。
+
+    splits: 各请求在大 batch 里的分界下标, 算完后交给 np.split 还原成逐请求的列表。
+    [:-1]: 最后一个累计和等于总长度, 不是分界点。
+    """
     x = np.concatenate(xs, axis=0)                                           # (N_tok, d_in) 所有请求的 token 拼成一个大 batch
     tok_adapter = np.repeat(ids, [len(v) for v in xs])                       # (N_tok,) 每个 token 的 adapter id
     return x, tok_adapter, np.cumsum([len(v) for v in xs])[:-1]
@@ -76,8 +85,10 @@ def bgmv_forward(xs: List[np.ndarray], ids: List[int], W: np.ndarray, adapters: 
 
 
 def sgmv_forward(xs: List[np.ndarray], ids: List[int], W: np.ndarray, adapters: List[LoRAAdapter]):
-    """SGMV (segmented gather mat-vec, Punica 论文的叫法; 每段实际是一次 gemm): 把同 adapter 的 token 归成一段, 每段一次 gemm。prefill (每请求很多 token) 时比 BGMV 划算。
+    """SGMV (segmented gather mat-vec): 把同 adapter 的 token 归成一段, 每段一次 gemm。
 
+    名字是 Punica 论文的叫法; 虽然叫 mat-vec, 每段实际做的是一次 gemm。
+    prefill (每请求很多 token) 时比 BGMV 划算。
     这里用 Python 循环遍历段; 真实 kernel 把所有段放进一次 grouped-GEMM launch。
     """
     x, tok_adapter, splits = _flatten(xs, ids)

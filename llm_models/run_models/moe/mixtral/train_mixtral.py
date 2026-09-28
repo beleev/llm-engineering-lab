@@ -17,6 +17,7 @@ from llm_models.training import DecoderOnlyDataGenerator, MoELMLoss, Trainer, Tr
 
 
 def check_aux_loss_extremes(E: int = 8, K: int = 2, N: int = 64):
+    """手工造两份路由 (完全均衡 / 完全坍塌), 断言 aux loss 分别等于 K 和 E。N 是 token 数。"""
     aux = MoELMLoss._compute_load_balancing_loss
     t = torch.arange(N)
 
@@ -32,12 +33,14 @@ def check_aux_loss_extremes(E: int = 8, K: int = 2, N: int = 64):
 
     a_bal, a_col = aux([balanced]).item(), aux([collapsed]).item()
     print(f"aux loss 极值 (E={E}, K={K}): 均衡 = {a_bal:.4f} (应为 K), 坍塌 = {a_col:.4f} (应为 E)")
-    assert abs(a_bal - K) < 1e-5 and abs(a_col - E) < 1e-5
+    assert abs(a_bal - K) < 1e-5, "完全均衡时 aux loss 应等于 K"
+    assert abs(a_col - E) < 1e-5, "完全坍塌时 aux loss 应等于 E"
 
     # 没有 MoE 层 (routing_info 为空) 时 aux 必须是与 logits 同设备的 0, total == lm
     logits = torch.zeros(1, 4, 10)
     out = MoELMLoss().compute((logits, []), torch.zeros(1, 4, dtype=torch.long))
-    assert out["aux_loss"].device == logits.device and out["total_loss"] == out["lm_loss"]
+    assert out["aux_loss"].device == logits.device, "没有 MoE 层时 aux_loss 应与 logits 在同一设备上"
+    assert out["total_loss"] == out["lm_loss"], "没有 MoE 层时 total_loss 应等于 lm_loss"
 
 
 def main():
@@ -50,24 +53,25 @@ def main():
     )
     torch.manual_seed(cfg.seed)
 
-    vocab_size = 1000
+    vocab_size, E, K = 1000, 4, 2                       # 词表, 专家数, 每 token 选几个专家
     model = Mixtral(
         vocab_size=vocab_size, d_model=128, n_heads=4, num_kv_heads=2,
-        num_layers=2, num_experts=4, top_k=2, max_len=64,
+        num_layers=2, num_experts=E, top_k=K, max_len=64,
     )
     print(f"Mixtral Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
     data_gen = DecoderOnlyDataGenerator(
         vocab_size=vocab_size, batch_size=cfg.batch_size, seq_len=cfg.seq_len,
     )
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, MoELMLoss(aux_loss_weight=cfg.aux_loss_weight)).train()
 
     first, last = metrics[0], metrics[-1]
     print(f"lm_loss {first['lm_loss']:.4f} (ln V = {math.log(vocab_size):.4f}) → {last['lm_loss']:.4f} | "
-          f"aux_loss {first['aux_loss']:.4f} → {last['aux_loss']:.4f} (均衡值 K = 2, 坍塌值 E = 4)")
+          f"aux_loss {first['aux_loss']:.4f} → {last['aux_loss']:.4f} (均衡值 K = {K}, 坍塌值 E = {E})")
     assert abs(first["lm_loss"] - math.log(vocab_size)) < 0.5, "初始 loss 应 ≈ ln V"
     assert last["lm_loss"] < first["lm_loss"] - 1.0, "loss 未下降"
-    assert abs(first["aux_loss"] - 2.0) < 0.1, "小初始化下路由近似均匀, aux 应 ≈ K"
+    assert abs(first["aux_loss"] - K) < 0.1, "小初始化下路由近似均匀, aux 应 ≈ K"
 
 
 if __name__ == "__main__":

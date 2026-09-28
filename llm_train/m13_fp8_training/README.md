@@ -24,10 +24,19 @@ TE 用 E5M2 的**范围**兜住梯度; V3 用更细的 **scale** 兜住范围, �
     1e+04            0.026        0.026          1.9%
     1e+05            0.126        0.026         17.8%
     1e+06            0.982        0.026         97.0%
-[3] FP32 基线 1.02e-08 | A 无 scaling 1.31e-02 | B per-tensor(TE) 4.54e-04 | C block(V3) 4.61e-04 | D 无 master 2.69e-01
-    scaling 的收益 A/B = 29x;  master 的收益 D/C = 584x;  粒度的收益 B/C = 0.99x
+[3] FP32 基线 1.02e-08 | A 无 scaling 1.31e-02 | B per-tensor(TE) 4.54e-04 | C per-tensor 全程 E4M3 4.64e-04
+    | D block(V3) 4.61e-04 | E 无 master 2.69e-01
+    scaling 的收益 A/B = 29x;  反向 E5M2→E4M3 的收益 B/C = 0.98x;  粒度的收益 C/D = 1.01x;  master 的收益 E/D = 584x
 ```
-**诚实结论**: E4M3 自带 2¹⁵ 的动态范围, outlier 在 1e4× 以内 per-tensor 完全扛得住; 干净数据上 B 与 C 打平。细粒度 scaling 的价值只在重尾/outlier 出现时才体现。
+**结论**: E4M3 自带 2¹⁵ 的动态范围, outlier 在 1e4× 以内 per-tensor 扛得住; 干净数据上 C 与 D 打平。细粒度 scaling 的价值只在重尾/outlier 出现时才体现。
+
+[3] 的相邻两臂只差一个旋钮, demo 用断言钉住了这一点:
+- A → B 只加 scaling (无 → per-tensor)。
+- B → C 只换反向格式 (E5M2 → E4M3)。
+- C → D 只换 scaling 粒度 (per-tensor → block)。
+- D → E 只去掉 master。
+
+B 是 TE 配方, D 是 V3 配方。两者之间差了两个旋钮。C 把它拆成两步: 换反向格式差 2%, 换粒度差 1%。
 
 ## 与真实系统的差距
 - 假量化: 量化后立刻反量化再用 FP32 做矩阵乘, 只模拟舍入, 不模拟 FP8 GEMM 的速度和累加位宽。

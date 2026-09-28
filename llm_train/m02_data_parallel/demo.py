@@ -19,8 +19,8 @@ def main() -> None:
     rs = np.random.RandomState(2)
     world, batch, lr = 4, 16, 0.1
     model = LinearModel.init(d_in=6, d_out=2, seed=3)
-    x = rs.randn(batch, 6).astype(np.float32)
-    y = rs.randn(batch, 2).astype(np.float32)
+    x = rs.randn(batch, 6).astype(np.float32)         # [16, 6]
+    y = rs.randn(batch, 2).astype(np.float32)         # [16, 2]
 
     # 基线: 单卡吃整个 batch
     dense = model.copy()
@@ -29,7 +29,7 @@ def main() -> None:
 
     # DDP: x [16,6] -> 4 × [4,6]; 每个 rank 只看到自己的那片
     replicas = [model.copy() for _ in range(world)]
-    x_shards, y_shards = np.split(x, world), np.split(y, world)
+    x_shards, y_shards = np.split(x, world), np.split(y, world)   # 4 × [4, 6], 4 × [4, 2]
     local_grads = [rep.loss_and_grads(xs, ys)[1] for rep, xs, ys in zip(replicas, x_shards, y_shards)]
 
     comm.reset()
@@ -42,11 +42,13 @@ def main() -> None:
     kv("local grad 彼此不同", f"{max_abs_diff(local_grads[0], local_grads[1]):.3f}")
     kv("梯度大小", f"{grad_bytes} B")
     kv("通信量", comm.summary())
-    kv("max |single - ddp| after step", f"{max_abs_diff(dense.params(), replicas[0].params()):.2e}")
+    kv("更新一步后 max |single - ddp|", f"{max_abs_diff(dense.params(), replicas[0].params()):.2e}")
 
-    assert max_abs_diff(dense.params(), replicas[0].params()) < 1e-6
+    assert max_abs_diff(dense.params(), replicas[0].params()) < 1e-6, \
+        "DDP 走一步后的参数必须等于单卡大 batch"
     assert all(max_abs_diff(replicas[0].params(), r.params()) == 0 for r in replicas[1:]), "副本必须逐位一致"
-    assert abs(comm.total - 2 * (world - 1) / world * grad_bytes) < 1e-9
+    assert abs(comm.total - 2 * (world - 1) / world * grad_bytes) < 1e-9, \
+        "通信量必须等于 2(N-1)/N · |grad|"
     print("\n  OK: DDP == 单卡大 batch; 代价是每步 2(N-1)/N·|grad| 的 all-reduce。")
     print("      真实 DDP 还把梯度装桶 (bucket, 默认 25MB), 边反向边通信来隐藏这部分时间。")
 

@@ -48,8 +48,8 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>全量常驻</span><b class="bad">{{ fmtNum(allIn) }} tok</b></div>
-      <div class="kv"><span>渐进披露</span><b class="good">{{ fmtNum(progressive) }} tok</b></div>
+      <div class="kv"><span>全量常驻</span><b :class="allIn > progressive ? 'bad' : ''">{{ fmtNum(allIn) }} tok</b></div>
+      <div class="kv"><span>渐进披露</span><b :class="progressive < allIn ? 'good' : ''">{{ fmtNum(progressive) }} tok</b></div>
       <div class="kv"><span>节省倍数</span><b>{{ (allIn / progressive).toFixed(1) }}×</b></div>
       <div class="kv"><span>全量占 200K 窗口</span><b :class="allIn > 100000 ? 'bad' : ''">{{ (allIn / 2000).toFixed(1) }}%</b></div>
       <div class="lab-note">

@@ -19,11 +19,11 @@ from llm_train.core import banner, comm, kv, make_rng, max_abs_diff, ring_shift,
 
 
 def full_attention(q, k, v):
-    """单卡基线: 一次成形的 [T, T] 因果注意力。"""
+    """单卡基线: 一次成形的 [T, T] 因果注意力。q/k/v 各 [T, d] → [T, d]。"""
     t, d = q.shape
-    scores = q @ k.T / np.sqrt(d)
-    scores[np.triu_indices(t, k=1)] = -np.inf
-    return softmax(scores) @ v
+    scores = q @ k.T / np.sqrt(d)                                        # [T, d] @ [d, T] → [T, T]
+    scores[np.triu_indices(t, k=1)] = -np.inf                            # 上三角 = k 在 q 之后 = 未来, 屏蔽
+    return softmax(scores) @ v                                           # [T, T] @ [T, d] → [T, d]
 
 
 def shard_positions(t_total: int, world: int, zigzag: bool):
@@ -35,13 +35,19 @@ def shard_positions(t_total: int, world: int, zigzag: bool):
 
 
 def ring_attention(q, k, v, world: int, zigzag: bool = False):
+    """q/k/v 各 [T, d] → (out [T, d], work [D, D])。D = world。
+
+    每卡常驻自己的 Q [T/D, d]。KV 块 [T/D, 2d] 沿环走 D-1 步,
+    每到一块就用 online softmax 并入三个累计量 (m, den, acc)。
+    work[step, rank] = 这一轮这张卡算了多少个 q·k 对。
+    """
     t_total, d = q.shape
     pos = shard_positions(t_total, world, zigzag)
     q_loc = [q[p] for p in pos]                                          # D × [T/D, d], 常驻不动
     kv_blk = [np.concatenate([k[p], v[p]], axis=1) for p in pos]         # D × [T/D, 2d], 沿环流动
     kv_pos = [p.copy() for p in pos]                                     # KV 块自带位置, 因果 mask 要用
 
-    n_loc = t_total // world
+    n_loc = t_total // world                                             # 每卡的 token 数 T/D
     m = [np.full(n_loc, -1e30) for _ in range(world)]                    # 已见分数的逐行最大值 (有限值, 防全 mask 行出 NaN)
     den = [np.zeros(n_loc) for _ in range(world)]                        # softmax 分母
     acc = [np.zeros((n_loc, d)) for _ in range(world)]                   # 未归一化的 Σ p·v
@@ -53,13 +59,13 @@ def ring_attention(q, k, v, world: int, zigzag: bool = False):
             if not mask.any():
                 continue                                                 # 整块在未来: 跳过 (但这一轮别的卡还在算)
             work[step, r] = mask.sum()
-            kb, vb = kv_blk[r][:, :d], kv_blk[r][:, d:]
-            s = np.where(mask, q_loc[r] @ kb.T / np.sqrt(d), -np.inf)
-            m_new = np.maximum(m[r], s.max(axis=1))
+            kb, vb = kv_blk[r][:, :d], kv_blk[r][:, d:]                  # 前 d 列是 K, 后 d 列是 V; 各 [T/D, d]
+            s = np.where(mask, q_loc[r] @ kb.T / np.sqrt(d), -np.inf)    # [T/D, T/D] 这一块的分数
+            m_new = np.maximum(m[r], s.max(axis=1))                      # [T/D] 每行到目前为止的最大分数
             fix = np.exp(m[r] - m_new)                                   # 旧累计量换到新基准
-            p = np.exp(s - m_new[:, None])
-            den[r] = den[r] * fix + p.sum(axis=1)
-            acc[r] = acc[r] * fix[:, None] + p @ vb
+            p = np.exp(s - m_new[:, None])                               # [T/D, T/D] 减最大值再 exp, 不溢出
+            den[r] = den[r] * fix + p.sum(axis=1)                        # [T/D]
+            acc[r] = acc[r] * fix[:, None] + p @ vb                      # [T/D, d]
             m[r] = m_new
         if step < world - 1:
             kv_blk = ring_shift(kv_blk)                                  # rank r 发给 r+1: [T/D, 2d]
@@ -67,7 +73,7 @@ def ring_attention(q, k, v, world: int, zigzag: bool = False):
 
     out = np.empty_like(q)
     for r in range(world):
-        out[pos[r]] = acc[r] / den[r][:, None]                           # 按原位置写回
+        out[pos[r]] = acc[r] / den[r][:, None]                           # [T/D, d] / [T/D, 1], 按原位置写回
     return out, work
 
 
@@ -76,7 +82,7 @@ def main() -> None:
 
     rs = make_rng(11)
     world, T, d = 4, 32, 16
-    q, k, v = rs.randn(T, d), rs.randn(T, d), rs.randn(T, d)
+    q, k, v = rs.randn(T, d), rs.randn(T, d), rs.randn(T, d)             # 各 [T, d]
     base = full_attention(q, k, v)
 
     results = {}
@@ -88,14 +94,14 @@ def main() -> None:
     print("\n[1] 正确性 (online softmax 跨块合并是精确的, 不是近似)")
     for name, (diff, _, _) in results.items():
         kv(f"max |full - ring| {name}", f"{diff:.1e}")
-        assert diff < 1e-12
+        assert diff < 1e-12, f"ring attention ({name}) 必须精确等于完整注意力"
 
     print("\n[2] 因果注意力的每卡工作量 (q·k 对数; 行 = 环上第几轮, 列 = rank)")
-    block = (T // world) ** 2
+    block = (T // world) ** 2                                            # 一整块的 q·k 对数: (T/D)²
     for name, (_, work, _) in results.items():
         print(f"    {name}:")
         for step, row in enumerate(work):
-            print(f"      step {step}: {row.tolist()}   本轮耗时 ∝ max = {row.max()}")
+            print(f"      轮 {step}: {row.tolist()}   本轮耗时 ∝ max = {row.max()}")
     wall = {name: int(work.max(axis=1).sum()) for name, (_, work, _) in results.items()}
     total = {name: int(work.sum()) for name, (_, work, _) in results.items()}
     per_rank = {name: work.sum(axis=0) for name, (_, work, _) in results.items()}
@@ -105,17 +111,21 @@ def main() -> None:
     kv("墙钟 Σ_step max_rank", f"连续 {wall['连续切分']} → zigzag {wall['zigzag']}  ({wall['连续切分'] / wall['zigzag']:.2f}x)")
     kv("不利用因果性的墙钟", world * block)
 
-    assert total["连续切分"] == total["zigzag"] == T * (T + 1) // 2
+    assert total["连续切分"] == total["zigzag"] == T * (T + 1) // 2, \
+        "两种切法的总计算量相同, 都是因果注意力的 T(T+1)/2 对"
     assert wall["连续切分"] == per_rank["连续切分"].max() > 0.85 * world * block, \
         "连续切分: 计算省了一半, 墙钟却只省 ~10% —— 最后一张卡每轮都在算整块, 所有人等它"
     assert per_rank["zigzag"].max() == per_rank["zigzag"].min(), "zigzag: 每卡工作量完全相同"
-    assert per_rank["连续切分"].max() > 3 * per_rank["连续切分"].min()
-    assert wall["zigzag"] < 0.6 * wall["连续切分"]
+    assert per_rank["连续切分"].max() > 3 * per_rank["连续切分"].min(), \
+        "连续切分: 最忙的卡工作量是最闲的 3 倍以上"
+    assert wall["zigzag"] < 0.6 * wall["连续切分"], "zigzag 的墙钟应低于连续切分的 60%"
 
     print("\n[3] 显存与通信")
     kv("每卡常驻 KV", f"{T // world * d * 2} / {T * d * 2} floats (1/{world})")
     kv("通信量", f"{results['zigzag'][2]:.0f} B/rank = (D-1) 轮 × 一个 KV 块; 与是否 zigzag 无关")
-    assert results["zigzag"][2] == results["连续切分"][2] == (world - 1) * (T // world) * 2 * d * 8
+    # 一个 KV 块 [T/D, 2d], float64 每个数 8 字节
+    assert results["zigzag"][2] == results["连续切分"][2] == (world - 1) * (T // world) * 2 * d * 8, \
+        "两种切法通信量相同: (D-1) 轮, 每轮一个 KV 块"
 
     print("\n  OK: Ring Attention 精确等于完整注意力; 因果场景必须 zigzag (或 striped) 才能把省下的计算变成省下的时间。")
 

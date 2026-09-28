@@ -10,8 +10,8 @@
     module="llm_infer/m24"
     run="python -m llm_infer.m24_beam_search.demo"
     :challenge="{
-      ask: '把 α 放在 0.5, 短候选还赢吗? 那 α 至少要多大, 长候选才能翻盘?',
-      answer: '$\\alpha=0.5$ 时短候选仍赢: $-3/1 = -3$ 比 $-35/\\sqrt{15} \\approx -9.0$ 高。\n翻盘点: $3 = 35/15^\\alpha$, 即 $\\alpha^* = \\ln(35/3)/\\ln 15 \\approx 0.91$。\n这和 demo 的实测一致: EOS logit +3 后, $\\alpha=0$ 和 $0.5$ 的平均长度都是 1.3 token, $\\alpha=1$ 才到 15.7 (greedy 11.4)。\nHF 的 length_penalty 是除以 $\\text{len}^\\alpha$, $\\alpha \\gt 0$ 反而鼓励长序列。它只影响已结束的候选之间怎么比。',
+      ask: '图 ② 里 α 至少要拖到多大, 15 个 token 的长候选才能翻盘?',
+      answer: '约 0.91。翻盘点: $3 = 35/15^\\alpha$, 即 $\\alpha^* = \\ln(35/3)/\\ln 15 \\approx 0.91$。\n$\\alpha=0.5$ 时短候选仍赢: $-3/1 = -3$ 比 $-35/\\sqrt{15} \\approx -9.0$ 高。\n这和 demo 的实测一致: EOS logit +3 后, $\\alpha=0$ 和 $0.5$ 的平均长度都是 1.3 token, $\\alpha=1$ 才到 15.7 (greedy 11.4)。\nHF 的 length_penalty 是除以 $\\text{len}^\\alpha$, $\\alpha \\gt 0$ 反而鼓励长序列。它只影响已结束的候选之间怎么比。',
     }"
   >
     <template #controls>
@@ -21,7 +21,7 @@
     </template>
 
     <svg ref="svg" viewBox="0 0 560 330" role="group" aria-label="beam 宽度与 log 概率和重复率; 长度惩罚下两条候选的分数">
-      <text x="4" y="12" class="cap">① 柱 = 重复率 rep-2 (左轴), 线 = logP/token (右轴)</text>
+      <text x="4" y="12" class="cap">① 实测, 不随 α 变化: 柱 = 重复率 rep-2 (左轴), 线 = logP/token (右轴)</text>
       <g v-for="(w, i) in W" :key="w" class="grp" tabindex="0" role="button" :aria-label="`w=${w}`" @click="wi = i" @keydown.enter="wi = i">
         <rect :x="bx(i) - 30" y="18" width="60" height="140" class="hit" :class="{ sel: i === wi }" />
         <rect :x="bx(i) - 16" :y="ry(REP[i])" width="32" :height="158 - ry(REP[i])" class="rep" />
@@ -33,7 +33,7 @@
       <text x="552" :y="ly(-2.2) + 3" class="tick end">−2.2</text>
       <text x="552" :y="ly(-2.7) + 3" class="tick end">−2.7</text>
 
-      <text x="4" y="196" class="cap">② 归一化分数 score / len^α (越高越优先)</text>
+      <text x="4" y="196" class="cap">② 前端现算, 不随 w 变化: 归一化分数 score / len^α (越高越优先)</text>
       <line x1="40" x2="540" :y1="sy(0)" :y2="sy(0)" class="grid" />
       <polyline :points="curve(SHORT)" class="cand short" />
       <polyline :points="curve(LONG)" class="cand long" />
@@ -42,20 +42,22 @@
       <text v-for="a in [0, 0.5, 1, 1.5]" :key="a" :x="ax(a)" y="320" class="tick">{{ a }}</text>
       <text x="44" :y="sy(score(SHORT, 0)) - 4" class="tick start short-t">1 token 就收尾 (logP −3)</text>
       <text x="44" :y="sy(score(LONG, 0)) + 12" class="tick start long-t">15 token (logP −35)</text>
-      <line :x1="ax(alpha)" :x2="ax(alpha)" y1="204" y2="306" class="cursor" />
-      <rect :x="ax(alpha) - 8" y="204" width="16" height="102" class="grab draggable" tabindex="0" role="slider" aria-label="拖动改变 α"
-        :aria-valuenow="alpha" @pointerdown="start($event, { svg, onMove })"
-        @keydown.right.prevent="alpha = step(0.05)" @keydown.left.prevent="alpha = step(-0.05)" />
+      <g class="draggable knob" tabindex="0" role="slider" aria-label="拖动改变 α" aria-valuemin="0" aria-valuemax="1.5" :aria-valuenow="alpha"
+        @pointerdown="start($event, { svg, onMove })"
+        @keydown.right.prevent="alpha = step(0.05)" @keydown.left.prevent="alpha = step(-0.05)">
+        <rect :x="ax(alpha) - 8" y="204" width="16" height="102" class="grab" />
+        <line :x1="ax(alpha)" :x2="ax(alpha)" y1="204" y2="306" class="cursor" />
+        <rect :x="ax(alpha) - 5" y="292" width="10" height="14" rx="3" class="handle" />
+      </g>
     </svg>
 
     <template #stats>
-      <div class="kv"><span>w = {{ W[wi] }}: logP/token</span><b :class="wi > 0 ? 'good' : ''">{{ LOGP[wi].toFixed(3) }}</b></div>
+      <div class="kv"><span>w = {{ W[wi] }}: logP/token</span><b :class="LOGP[wi] > LOGP[0] ? 'good' : ''">{{ LOGP[wi].toFixed(3) }}</b></div>
       <div class="kv"><span>重复率 rep-2 (greedy 0.453)</span><b :class="REP[wi] > 0.5 ? 'bad' : ''">{{ REP[wi].toFixed(3) }}</b></div>
       <div class="kv"><span>输给 greedy 的 prompt (共 10)</span><b :class="LOSE[wi] ? 'bad' : 'good'">{{ LOSE[wi] }}</b></div>
-      <div class="kv"><span>采样 T=1: logP/token / rep-2</span><b>−4.303 / 0.003</b></div>
       <div class="kv"><span>② α = {{ alpha.toFixed(2) }} 时胜出</span><b :class="win === 'long' ? 'good' : 'bad'">{{ win === 'long' ? '15 token 的候选' : '1 token 就收尾' }}</b></div>
-      <div class="kv"><span>实测平均长度 α = 0 / 0.5 / 1</span><b>1.3 / 1.3 / 15.7</b></div>
       <div class="lab-note">
+        <p>对照 (demo 实测): 采样 T=1 的 logP/token 是 −4.303, rep-2 是 0.003。EOS logit +3 后, α = 0 / 0.5 / 1 的平均长度是 1.3 / 1.3 / 15.7。</p>
         <p>① 与实测长度来自 demo 的 [1] [3] 段。② 的两条候选取 README 自测题里的量级 (−3 与 −35), 分数按公式现算。</p>
         <p>多样性 (demo [2]): 同一 prompt 的 8 条 beam 候选平均只差 3.5/20 个位置, 8 条采样差 19.7。</p>
       </div>
@@ -118,5 +120,8 @@ svg { min-width: 540px; touch-action: pan-x pan-y; }
 .long-t { fill: var(--left); }
 .star { stroke: var(--text-muted); stroke-dasharray: 2 3; }
 .cursor { stroke: var(--warn); stroke-dasharray: 3 3; }
-.grab { fill: transparent; cursor: ew-resize; }
+.grab { fill: transparent; }
+.knob { cursor: ew-resize; outline: none; }
+.handle { fill: var(--warn); stroke: var(--bg-card); }
+.knob:focus-visible .handle { stroke: var(--text); stroke-width: 2; }
 </style>

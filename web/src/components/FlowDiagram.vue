@@ -129,13 +129,13 @@ const usesParam = (step) =>
   border-color: var(--warn);
 }
 
-/* 分类颜色 (左边框) */
-.flow-node.op.matmul      { border-left: 3px solid #60a5fa; }
-.flow-node.op.activation  { border-left: 3px solid #3dd68c; }
-.flow-node.op.reshape     { border-left: 3px solid #9ca3af; }
-.flow-node.op.attn        { border-left: 3px solid #c084fc; }
-.flow-node.op.cond        { border-left: 3px solid #f5a623; }
-.flow-node.op.route       { border-left: 3px solid #ec4899; }
+/* 分类颜色 (左边框)。用主题变量, 明暗两套主题下都看得清; InspectorPanel 的图例用的是同一组 */
+.flow-node.op.matmul      { border-left: 3px solid var(--code-fn); }
+.flow-node.op.activation  { border-left: 3px solid var(--left); }
+.flow-node.op.reshape     { border-left: 3px solid var(--text-dim); }
+.flow-node.op.attn        { border-left: 3px solid var(--code-kw); }
+.flow-node.op.cond        { border-left: 3px solid var(--eye); }
+.flow-node.op.route       { border-left: 3px solid var(--right); }
 
 .flow-node.op.highlight {
   background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev));

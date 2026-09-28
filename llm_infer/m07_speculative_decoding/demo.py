@@ -1,5 +1,7 @@
 """
 m07 demo — 投机解码的两个承诺, 都用 assert 验:
+
+运行: python -m llm_infer.m07_speculative_decoding.demo
     [1][2] greedy: 输出与 target 单独 greedy 逐 token 相同, target 调用数更少
     [3]    sampling: 输出分布 == target 单独采样的分布 (经验 TV / 卡方, 对照一个故意写错的规则)
 算法全部在 speculative.py; 这里只有实验。
@@ -25,13 +27,13 @@ def exact_marginals(target: TinyLM, prompt, n_new: int, temperature: float) -> n
     """枚举所有前缀, 精确算出 target 采样时第 1..n_new 个新 token 的边缘分布 (n_new, V)。"""
     V = target.cfg.vocab_size
     marg = np.zeros((n_new, V))
-    prefixes = [((), 1.0)]
+    prefixes = [((), 1.0)]                                # (已生成的前缀, 这个前缀出现的概率)
     for d in range(n_new):
         nxt = []
         for pre, p_pre in prefixes:
             logits, _ = target.forward(list(prompt) + list(pre))
             p = softmax(logits[-1].astype(np.float64) / temperature)       # (V,)
-            marg[d] += p_pre * p
+            marg[d] += p_pre * p                          # 全概率公式: 按前缀概率加权求和
             if d + 1 < n_new:
                 nxt += [(pre + (v,), p_pre * p[v]) for v in range(V)]
         prefixes = nxt
@@ -39,6 +41,7 @@ def exact_marginals(target: TinyLM, prompt, n_new: int, temperature: float) -> n
 
 
 def plain_sampling(target: TinyLM, prompt, max_new: int, temperature: float, rng) -> list:
+    """对照组: target 自己逐 token 采样, 不用 draft。返回 max_new 个新 token。"""
     logits, cache = target.prefill(np.asarray(prompt))
     out, logits = [], logits[-1]
     for _ in range(max_new):
@@ -52,9 +55,9 @@ def tv_and_chi2(samples: np.ndarray, exact: np.ndarray):
     N, V = len(samples), exact.shape[1]
     tv, chi2 = [], []
     for d in range(exact.shape[0]):
-        obs = np.bincount(samples[:, d], minlength=V)
-        tv.append(0.5 * np.abs(obs / N - exact[d]).sum())
-        chi2.append(((obs - N * exact[d]) ** 2 / (N * exact[d])).sum())
+        obs = np.bincount(samples[:, d], minlength=V)     # (V,) 每个 token 被采到的次数
+        tv.append(0.5 * np.abs(obs / N - exact[d]).sum())                 # TV = ½·Σ|经验频率 - 精确概率|
+        chi2.append(((obs - N * exact[d]) ** 2 / (N * exact[d])).sum())   # χ² = Σ(观测 - 期望)² / 期望
     return np.array(tv), np.array(chi2)
 
 
@@ -78,50 +81,55 @@ def main() -> None:
         drafter = ModelDrafter(d)
         out, calls, acc = speculative_decode(target, drafter, prompt, max_new, K)
         assert out == ref, f"{name}: greedy 投机输出必须与 target greedy 逐 token 相同"
-        assert calls == 1 + len(acc)                      # 1 次 prefill + 每轮 1 次验证
+        assert calls == 1 + len(acc), f"{name}: target 调用数应为 1 次 prefill + 每轮 1 次验证"
         calls_by_name[name] = calls
         kv(name, f"target 调用 {calls:>2} ({max_new / calls:.2f}x), 每轮接受 {np.mean(acc):.2f}/{K}, "
                  f"draft 调用 {drafter.calls}")
     print("  (加速按 target 调用数算; 没计 draft 自身开销 —— draft 越贵, 真实加速越打折)")
-    assert calls_by_name["draft == target (上限)"] == 1 + -(-(max_new - 1) // (K + 1))
-    assert calls_by_name["权重加噪 10% (模拟蒸馏 draft)"] < max_new
+    # draft 全中时每轮产出 K+1 个; prefill 已出 1 个, 剩 max_new-1 个要 ceil((max_new-1)/(K+1)) 轮
+    assert calls_by_name["draft == target (上限)"] == 1 + -(-(max_new - 1) // (K + 1)), \
+        "draft 与 target 相同时每轮应全部接受, 调用数达到下限"
+    assert calls_by_name["权重加噪 10% (模拟蒸馏 draft)"] < max_new, \
+        "加噪 draft 仍能猜中一部分, target 调用数应少于逐 token 解码"
     # 猜不中的 draft 每轮仍白送 1 个纠错 token → 调用数不超过 baseline + 1 (只亏 draft 开销)
-    assert calls_by_name["独立随机 1 层小模型"] <= max_new + 1
+    assert calls_by_name["独立随机 1 层小模型"] <= max_new + 1, \
+        "draft 一个都猜不中时, target 调用数也不应超过 baseline + 1"
 
-    print("\n[3] sampling: 投机采样的输出分布 == target 单独采样? (小词表便于精确枚举)")
+    print("\n[3] 采样: 投机采样的输出分布 == target 单独采样? (小词表便于精确枚举)")
     tgt = TinyLM(ModelConfig(vocab_size=16, d_model=32, d_mlp=64, n_layer=2))
     drf = make_draft(tgt, n_layer=1, noise=0.3)
-    p_small, n_new, K3, T, N = [1, 5, 9], 4, 2, 1.0, 2500
+    p_small, n_new, K3, T, N = [1, 5, 9], 4, 2, 1.0, 2500   # prompt, 新 token 数, draft 长度, 温度, 重复次数
     t0 = time.perf_counter()
     exact = exact_marginals(tgt, p_small, n_new, T)       # (4, 16), 枚举 1+16+256+4096 个前缀
     rng = np.random.default_rng(0)
-    runs = {"plain target 采样": [], "投机采样 (min(1,p_t/p_d)+残差)": [], "错误规则: 全收 draft": []}
+    runs = {"target 直接采样": [], "投机采样 (min(1,p_t/p_d)+残差)": [], "错误规则: 全收 draft": []}
     acc_all = []
     for _ in range(N):
-        runs["plain target 采样"].append(plain_sampling(tgt, p_small, n_new, T, rng))
+        runs["target 直接采样"].append(plain_sampling(tgt, p_small, n_new, T, rng))
         out, _, acc = speculative_decode(tgt, ModelDrafter(drf), p_small, n_new, K3, T, rng)
         runs["投机采样 (min(1,p_t/p_d)+残差)"].append(out[len(p_small):])
         acc_all += acc
         out, _, _ = speculative_decode(tgt, ModelDrafter(drf), p_small, n_new, K3, T, rng,
                                        accept=always_accept)
         runs["错误规则: 全收 draft"].append(out[len(p_small):])
-    kv("设置", f"V=16, T={T}, K={K3}, N={N} 条 × {n_new} token, 每轮接受 {np.mean(acc_all):.2f}/{K3}")
+    kv("设置", f"V={tgt.cfg.vocab_size}, T={T}, K={K3}, N={N} 条 × {n_new} token, 每轮接受 {np.mean(acc_all):.2f}/{K3}")
     res = {}
     for name, s in runs.items():
         res[name] = tv_and_chi2(np.array(s), exact)
         kv(name, "TV " + " ".join(f"{x:.3f}" for x in res[name][0])
            + " | χ² " + " ".join(f"{x:5.1f}" for x in res[name][1]))
-    kv("耗时", f"{time.perf_counter() - t0:.1f} s  (第 1 个 token 来自 prefill, 第 2~4 个走接受/残差/bonus)")
+    kv("耗时", f"{time.perf_counter() - t0:.1f} s  (第 1 个 token 来自 prefill, 第 2~{n_new} 个走接受/残差/bonus)")
 
     CHI2_CRIT = 37.70                                      # χ²(df=15) 的 99.9% 分位
-    tv_plain, _ = res["plain target 采样"]
+    tv_plain, _ = res["target 直接采样"]
     tv_spec, chi_spec = res["投机采样 (min(1,p_t/p_d)+残差)"]
     tv_bad, chi_bad = res["错误规则: 全收 draft"]
     assert (chi_spec < CHI2_CRIT).all(), "投机采样的边缘分布应与精确 target 分布无法区分"
     assert (tv_spec < 2 * tv_plain.max()).all(), "TV 应与同样 N 的 plain 采样噪声同量级"
-    assert chi_bad[1:].max() > 10 * CHI2_CRIT and tv_bad[1:].max() > 3 * tv_plain.max(), \
-        "全收 draft 的错误规则必须被同一个检验抓出来"
-    print("  ✓ 投机采样通过 (χ² < 37.7, TV ≈ 采样噪声); 错误规则在同一检验下被抓出")
+    # [1:]: 第 1 个 token 来自 target 的 prefill, 不经过接受规则, 错误规则影响不到它
+    assert chi_bad[1:].max() > 10 * CHI2_CRIT, "全收 draft 的错误规则必须被卡方检验抓出来"
+    assert tv_bad[1:].max() > 3 * tv_plain.max(), "全收 draft 的错误规则, TV 应远超采样噪声"
+    print(f"  ✓ 投机采样通过 (χ² < {CHI2_CRIT:.1f}, TV ≈ 采样噪声); 错误规则在同一检验下被抓出")
 
 
 if __name__ == "__main__":

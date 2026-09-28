@@ -6,10 +6,9 @@
 <template>
   <LabFrame
     title="YaRN / NTK — 每个频率该不该被压缩"
-    sub="- 柱子: RoPE 的一个频率 (d_head=64 → 32 对维度, 与 infer_rope_scaling 同设定)。高度 = 波长, 即转一圈要多少个 token, 对数轴。
-      - 虚线: 训练长度 2048。
-      - 红柱: 这个维度此刻的旋转角, 训练时从没出现过。
-      拖底部的位置标尺, 把 token 放到 2048 之外。点一根柱子, 右边表盘显示它见过的角度范围。"
+    sub="每根柱子是 RoPE 的一个频率, 高度 = 波长 (转一圈要多少个 token, 对数轴)。d_head=64 → 32 对维度, 与 infer_rope_scaling 同设定。
+      - 红柱: 这个维度此刻的旋转角, 训练时 (长度 2048, 图上的虚线) 从没出现过。
+      - 操作: 拖底部的位置标尺, 把 token 放到 2048 之外。点一根柱子, 右边表盘显示它见过的角度范围。"
     module="llm_models/layers/core/position_encoding.py"
     run="python -m llm_models.run_models.foundation.rope_scaling.infer_rope_scaling"
     :challenge="{
@@ -30,10 +29,15 @@
         <template v-for="e in [1, 2, 3, 4, 5, 6]" :key="e">
           <line :x1="X0" :x2="X1" :y1="py(e)" :y2="py(e)" class="grid" /><text :x="X0 - 5" :y="py(e) + 3" class="yl">1e{{ e }}</text>
         </template>
-        <g v-for="f in freqs" :key="f.i" class="barg" tabindex="0" role="button" :aria-label="`频率 ${f.i}`" :aria-pressed="sel === f.i" @click="sel = f.i" @keydown.enter="sel = f.i">
-          <rect :x="bx(f.i)" :y="py(f.lw)" :width="BW" :height="Y1 - py(f.lw)" class="bar" :class="{ ood: f.ood, sel: sel === f.i }" />
-          <line :x1="bx(f.i) - 2" :x2="bx(f.i) + BW + 2" :y1="py(f.lw0)" :y2="py(f.lw0)" class="orig" />
-          <text v-if="f.i % 4 === 0 || f.i === NF - 1" :x="bx(f.i) + BW / 2" :y="Y1 + 12" class="xl">{{ f.i }}</text>
+        <!-- 32 根柱子只占一个 Tab 停靠点, 左右方向键换选中的那根 -->
+        <g class="bars" tabindex="0" role="slider" aria-label="选中的频率编号, 左右方向键切换" aria-valuemin="0" :aria-valuemax="NF - 1" :aria-valuenow="sel"
+          :aria-valuetext="`频率 ${sel}, ${cur.ood ? '当前角度从未见过' : '当前角度在见过的范围内'}`"
+          @keydown.left.prevent="sel = Math.max(0, sel - 1)" @keydown.right.prevent="sel = Math.min(NF - 1, sel + 1)">
+          <g v-for="f in freqs" :key="f.i" class="barg" @click="sel = f.i">
+            <rect :x="bx(f.i)" :y="py(f.lw)" :width="BW" :height="Y1 - py(f.lw)" class="bar" :class="{ ood: f.ood, sel: sel === f.i }" />
+            <line :x1="bx(f.i) - 2" :x2="bx(f.i) + BW + 2" :y1="py(f.lw0)" :y2="py(f.lw0)" class="orig" />
+            <text v-if="f.i % 4 === 0 || f.i === NF - 1" :x="bx(f.i) + BW / 2" :y="Y1 + 12" class="xl">{{ f.i }}</text>
+          </g>
         </g>
         <line :x1="X0" :x2="X1" :y1="py(Math.log10(L))" :y2="py(Math.log10(L))" class="train" />
         <text :x="X0 + 4" :y="py(Math.log10(L)) - 4" class="tl">训练长度 L = 2048</text>
@@ -45,7 +49,7 @@
         <rect :x="X0" y="302" :width="px(L) - X0" height="8" class="seen" />
         <text :x="px(L)" y="326" class="xl">2048</text><text :x="px(L * s)" y="326" class="xl" v-if="s > 1">{{ L * s }}</text>
         <g class="draggable" tabindex="0" role="slider" aria-label="拖动 token 位置" :aria-valuenow="pos"
-          @pointerdown="start($event, { svg, onMove })" @keydown.left="pos = clamp(pos - 256, 0, PMAX)" @keydown.right="pos = clamp(pos + 256, 0, PMAX)">
+          @pointerdown="start($event, { svg, onMove })" @keydown.left.prevent="pos = clamp(pos - 256, 0, PMAX)" @keydown.right.prevent="pos = clamp(pos + 256, 0, PMAX)">
           <rect :x="px(pos) - 14" y="290" width="28" height="32" fill="transparent" />
           <circle :cx="px(pos)" cy="306" r="8" class="handle" :class="{ bad: nOod > 0 }" />
         </g>
@@ -66,8 +70,10 @@
       <div class="kv"><span><Tex text="相邻 token 分辨率 $\theta'_0/\theta_0$" /></span><b :class="hi < 0.6 ? 'bad' : 'good'">{{ (hi * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>完全没被改动的频率数</span><b>{{ untouched }} / {{ NF }}</b></div>
       <div class="kv"><span>最低频被压缩倍数</span><b>{{ lo.toFixed(2) }}×</b></div>
-      <div class="kv"><span>温度补偿 mscale</span><b>{{ mscale.toFixed(4) }}</b></div>
-      <p class="lab-note"><Tex :text="MODES.find((m) => m.id === mode).note" /></p>
+      <div class="lab-note">
+        <p><Tex :text="MODES.find((m) => m.id === mode).note" /></p>
+        <p v-if="mode === 'yarn'">此刻温度补偿 mscale = {{ mscale.toFixed(4) }}; 其余三种方案恒为 1。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -83,7 +89,7 @@ import { clamp, range } from '@/utils/labmath.js'
 const D = 64, NF = D / 2, BASE = 10000, L = 2048, PMAX = 32768, BETA_FAST = 32, BETA_SLOW = 1 // 与 infer_rope_scaling 同设定
 const MODES = [
   { id: 'none', label: '不缩放 (直接外推)', note: '直接外推: 高频维度转过无数圈, 什么角度都见过, 没事。低频维度训练时只走过一小段弧, 超长后走到弧外, 注意力分数失真, 困惑度爆炸。' },
-  { id: 'pi', label: 'PI 位置内插', note: "PI: $\\theta' = \\theta/s$, 等价于把位置 $m$ 压成 $m/s$。所有角度回到训练范围, 但高频也被压, 局部顺序信息被抹糊。" },
+  { id: 'pi', label: 'PI 位置内插', note: "PI: $\\theta' = \\theta/s$, 等价于把位置 $m$ 压成 $m/s$。所有角度回到训练范围, 但高频也被压, 局部顺序信息被抹糊。Python 的 scaled_inv_freq 没有这一支, 这里只作对照。" },
   { id: 'ntk', label: 'NTK-aware', note: "NTK-aware: $\\text{base}' = \\text{base} \\cdot s^{d/(d-2)}$。$\\theta_0$ 不变、$\\theta_{\\text{last}}$ 恰好 $\\div s$, 中间按指数过渡。免微调就能用, 但中段低频压得不够。" },
   { id: 'yarn', label: 'YaRN', note: 'YaRN (NTK-by-parts): 按训练期圈数 $r$ 分段, $r>32$ 不动, $r<1$ 按 PI $\\div s$, 中间线性混合; 另乘 mscale 调 softmax 温度。' },
 ]
@@ -138,10 +144,12 @@ const onMove = ({ x }) => { pos.value = clamp(Math.round((((x - X0) / (X1 - X0))
 .yl { text-anchor: end; font-size: 9px; fill: var(--text-dim); }
 .xl { text-anchor: middle; font-size: 9px; fill: var(--text-dim); }
 .cap { font-size: 10px; fill: var(--text-dim); }
-.barg { cursor: pointer; outline: none; }
+.bars { outline: none; }
+.barg { cursor: pointer; }
 .bar { fill: color-mix(in srgb, var(--left) 45%, transparent); stroke: var(--left); }
 .bar.ood { fill: color-mix(in srgb, var(--danger) 45%, transparent); stroke: var(--danger); }
-.bar.sel, .barg:focus-visible .bar { stroke: var(--accent); stroke-width: 2.5; }
+.bar.sel { stroke: var(--accent); stroke-width: 2.5; }
+.bars:focus-visible .bar.sel { stroke: var(--text); stroke-width: 3; }
 .orig { stroke: var(--text-muted); stroke-width: 1.5; }
 .train { stroke: var(--eye); stroke-dasharray: 5 4; }
 .tl { text-anchor: start; font-size: 10px; fill: var(--eye); }

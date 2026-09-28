@@ -20,13 +20,14 @@ max |dense - EP|              = 0.0e+00
 aux loss 60 步       [7, 9, 8, 7, 8, 9, 8, 8]        1.12x     0     17
 aux-loss-free bias   [8, 8, 8, 8, 8, 8, 8, 8]        1.00x     0     16
 ```
-combine 是**真的**第二次 all-to-all: 专家卡按来源切块寄回, 源卡用自己留着的行号写回并乘 gate。
+combine 也是一次**真的** all-to-all: 专家卡按来源切块寄回, 源卡用自己留着的行号写回并乘 gate。
+计数器一共记 3 次 all-to-all (demo 有断言): dispatch 把 token 和专家 id 分两次发, combine 一次。
 
 ## 与真实系统的差距
 - top-1 路由; 真实模型 top-2 ~ top-8, 还有 shared expert。
 - router 这里**只**用 aux loss 训练, 是为了隔离它的作用; 真实训练是 `L_task + α·L_aux` (α≈0.01), 两者有拉扯 —— 这正是 aux-loss-free 方法的动机。
 - 真实 all-to-all 要先交换各块大小 (变长), 再用 grouped GEMM 算专家; DeepEP 等库还做 FP8 dispatch 和机内/机间两级路由。
-- 没有反向 (反向是同样的两次 all-to-all, 方向相反)。
+- 没有反向 (反向是同样的 dispatch、combine 两步 all-to-all, 方向相反)。
 
 ## 常见误区
 - "MoE 的通信像 DDP 一样可预测" —— all-to-all 的量取决于数据和 router, 每步都不同。
@@ -36,4 +37,4 @@ combine 是**真的**第二次 all-to-all: 专家卡按来源切块寄回, 源�
 ## 自测题
 1. 64 token、8 专家、cf=1.25, capacity = ? **答: ⌈1.25·8⌉ = 10。**
 2. 为什么 aux loss 里 f 当常数? **答: f 来自 argmax, 不可导; 梯度只经由 P 回传。**
-3. EP 的一次 MoE 层前向有几次 all-to-all? 反向呢? **答: 前向 2 次, 反向 2 次。**
+3. EP 的一次 MoE 层前向有几次 all-to-all? 反向呢? **答: 逻辑上前向 2 次 (dispatch、combine), 反向 2 次。demo 的计数器是 3 次, 因为 dispatch 把 token 和专家 id 分两次发。**

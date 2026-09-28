@@ -31,8 +31,14 @@ python -m llm_models.run_models.foundation.rope_scaling.infer_rope_scaling
 - 高频维 (r>32) 9 个: YaRN 原封不动; PI 把相邻 token 角度差 1.00 → 0.25 rad。
 - mscale = 0.1·ln 4 + 1 = 1.1386 (logits × 1.2965)。三种方式都保持 ⟨q_m, k_n⟩ 只依赖 m−n。
 
+## 与真实系统的差距
+- **没有训练模型, 没有测 ppl**: 本 demo 只验证了角度/频率层面的性质。"YaRN 的 ppl 优于 NTK" 是论文结论, 这里没有复现。
+- **规模**: d_head=64, L=2048, s=4。gpt-oss 的配置是 YaRN 4K → 131K (`base=150000, factor=32`)。
+- **缩放倍数固定**: `factor` 在构造 `RotaryPositionalEncoding` 时定死, cos/sin 表只算一次。没有实现按当前序列长度调 s 的 dynamic 版本。
+- **PI 不是库里的选项**: `scaled_inv_freq` 只支持 `None / "ntk" / "yarn"`。表里 PI 一列是脚本用 `plain / s` 手算的对照。
+- **温度的实现方式**: 本库把 mscale 乘进 cos/sin 表, q 和 k 各乘一次, 内积就乘了 mscale²。没有单独改 softmax 的温度。
+
 ## 常见误区
-- 本 demo **没有训练模型、没有测 ppl**, 只验证了角度/频率层面的性质; "YaRN 的 ppl 优于 NTK" 是论文结论, 这里没有复现。
 - "r_i ≥ 1 的维比值 4.00 也是越界": 不是, 转满过整圈的维所有角度都见过, 比值没有意义。
 - "NTK 缩放 s 倍就能用满 s·L": 中间频率仍轻微越界, 实际可用长度打折 (所以有 dynamic-NTK)。
 - "mscale 是随便的经验数": 序列变长后 softmax 分母项变多、分布变平, 乘 >1 的系数把注意力重新变尖。

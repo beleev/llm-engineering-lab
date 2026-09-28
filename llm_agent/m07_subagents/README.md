@@ -11,7 +11,9 @@
 
 ## 核心数据结构与控制流
 
-- `core/subagents.py: DelegateTool(agent_types, hooks, transcript_dir, llm_factory, max_summary_chars=200)` — 一个普通 `Tool`。`agent_types` 是 `{类型名: 返回 ToolRegistry 的工厂}`; 参数 schema 为 `{task (必填), agent_type (enum)}`。
+- `core/subagents.py: DelegateTool(agent_types, hooks, transcript_dir, llm_factory, max_summary_chars=200)` — 一个普通 `Tool`。
+  - `agent_types` 是 `{类型名: 返回 ToolRegistry 的工厂}`。
+  - 参数 schema 为 `{task (必填), agent_type (enum)}`。
 - `DelegateTool.children` — 每个子级一条记录 `{type, task, messages, usage, path}`, 供 demo / 审计读取; 追加时加锁, 因为 `execute` 可能被父 loop 的线程池并发调用。
 - `core/agent.py: Agent` — 子级就是同一个 `Agent` 类的另一个实例, 没有第二套运行时。
 - `core/hooks.py: HookManager.on_subagent_stop(agent_type, summary)` — 子级结束时通知。
@@ -19,7 +21,7 @@
 ```
 parent.run(prompt)
   └ model -> tool_use delegate {task, agent_type}
-       └ 父级权限门 (delegate 是 low risk → auto 放行)
+       └ 污点锁 + 父级权限门 (delegate 是 high risk → 要有 allow 规则; 父级本轮读过不可信数据时直接拒)
             └ DelegateTool.execute:
                  child = Agent(llm_factory(),
                                tools       = agent_types[agent_type](),   # 每次新建, 子级之间也不共享
@@ -28,17 +30,20 @@ parent.run(prompt)
                                max_turns   = 4)
                  summary = child.run(task, verbose=False)                 # 子级跑完自己的完整 loop
                  hooks.on_subagent_stop(agent_type, summary)
-                 return "[<type>] " + shorten(summary, max_summary_chars)
+                 summary 是 "stopped: max_turns reached" → 返回 ok=False (is_error)
+                 否则 return "[<type>] " + shorten(summary, max_summary_chars)
   └ tool_result(摘要) 进父 transcript → 父模型据此作答
 ```
 
-关键设计决策:
+关键设计:
 
 - **delegate 只是工具**。不需要新的调度器: 权限、校验、tool_result 回填、并行执行全部复用现有 loop。父模型在同一 turn 发多个 `delegate`, 线程池自然把它们并行化 —— 这就是 m11 的 orchestrator-workers 扇出。
 - **子级的权限门是 `auto` 且没有 `ask_policy`**。子级运行时没有人可问, `_ask` 会 fail closed; 所以低 / 中风险工具放行, 高风险工具一律拒绝。
 - **摘要有硬上限**。`shorten(summary, max_summary_chars)` 在 harness 侧截断, 不依赖子级"自觉写短"; 子级再啰嗦也淹不了父上下文。
 - **子 transcript 落盘但不回流**。细节可审计 (`child_00_researcher.jsonl`), 但不占父上下文; `usage` 也分开记, 才能区分"总花费"和"父上下文占用"。
 - **工具集用工厂而非实例**。每次委托都新建, 避免子级之间通过有状态的工具互相影响。
+- **delegate 是高风险工具**。`risk="high"`: auto 模式下父级要有一条 allow `delegate` 规则; 父级读过不可信数据之后, 污点锁拦下委托, 读过注入的父级不能把"去执行 shell"写进 task, 交给一个干净的子级。它还标了 `untrusted_output`: 子级读到的不可信数据会写进摘要, 摘要回到父级时照样包装、置污点。
+- **没做完就报失败**。子级跑满 `max_turns` 还没给出最终回答, 交回的是 `ok=False` 的结果, 父级从 `is_error` 就能看出委托失败, 不用读文本。
 
 ## 运行后应该看到什么
 
@@ -48,21 +53,22 @@ cd <仓库根目录> && python3 -m llm_agent.m07_subagents.demo
 
 ```
   [parent] turn 1: model -> tool_use toolu_0001 delegate {'task': '请委托子智能体调研 agent loop', 'agent_type': 'researcher'}
-  [parent] permission delegate -> allow (auto: low-risk tool)
+  [parent] permission delegate -> allow (rule: delegation is reviewed)
   [parent] tool_result toolu_0001 -> [researcher] 基于工具结果完成： search_docs: agent_loop: The loop is small; harness systems arou...
 
-[parent transcript]
+[父级 transcript]
   user      请委托子智能体调研 agent loop
   assistant [tool_use delegate {"task": "请委托子智能体调研 agent loop", "agent_type": "researcher"}]
   user      [researcher] 基于工具结果完成： search_docs: agent_loop: The loop is small; harness systems around it carry m
   ...
-[child transcript — 只在磁盘上, 不在父上下文里]
+[子级 transcript — 只在磁盘上, 不在父上下文里]
   user      请委托子智能体调研 agent loop
   assistant [tool_use search_docs {"query": "请委托子智能体调研 agent loop"}]
   user      agent_loop: The loop is small; harness systems around it carry most complexity. detail detail detail
   ...
-  parent peak context tokens: 107
-  child  peak context tokens: 279
+  父级峰值上下文 tokens          : 107
+  子级峰值上下文 tokens          : 279
+  子级没做完时的结果               : ok=False [researcher] subagent stopped after max_turns=4 without a final answer
 ```
 
 断言验证的内容:
@@ -71,16 +77,22 @@ cd <仓库根目录> && python3 -m llm_agent.m07_subagents.demo
 - 父 transcript 恰好 4 条 (user / tool_use / tool_result 摘要 / final), 子级的 4 条消息一条都没进来。
 - `subagent_stop` hook 被触发一次, 收到 `"researcher"`。
 - 子 transcript 已写入 JSONL, 行数与子级 messages 数一致。
-- 父级峰值上下文 token 小于子级: 带 30 个 `detail` 的长文档只撑大了子级上下文。
+- 父级峰值上下文 token 小于子级: 带 120 个 `detail` 的长文档只撑大了子级上下文。
+- 子级模型换成一个永远要再搜一次的替身, 跑满 `max_turns=4` 后委托结果是 `ok=False`。
 
 ## 与真实系统的差距
 
 - 任务简报是 toy LLM 把原 prompt 原样转发 (子级收到的还是"请委托子智能体..."); 真实系统里委托 prompt 的质量 (目标、输出格式、边界、可用工具提示) 是多智能体效果的决定因素。
 - 摘要是对子级最终回答的字符级硬截断, 不是语义压缩; 真实系统让子模型自己写面向父级的报告。截断可能正好切掉结论。
-- `DelegateTool` 的 `hooks` 只用于 `subagent_stop`; 子 `Agent` 没有拿到父级的 HookManager 和 memory (guardrails 可通过 `DelegateTool(guardrails=...)` 传下去, 本 demo 未传)。也就是说父级的 `pre_tool_use` 安全 hook 管不到子级内部的工具调用, 而 Claude Code 的 hook 对子智能体的工具调用同样生效。
-- 父级权限门只看得到 `delegate` 这一层 (`risk="low"`, `read_only=False` —— 所以 plan 模式下委托会被拒, 不能靠子级绕过只读); 子级实际能做什么由 `agent_types` 的工具集和子级自己的 `auto` 门决定, 且子级没有人可问。
+- 子级的权限门是一扇空门, 父级的安全配置没有传下来:
+  - 门里没有任何规则。父级写的 deny 规则 (比如 `*rm -rf*`) 不继承, 子级只靠 auto 分类器和它的工具集受限。
+  - `DelegateTool` 的 `hooks` 只用于 `subagent_stop`。子 `Agent` 没有拿到父级的 HookManager, 父级的 `pre_tool_use` 安全 hook 管不到子级内部的工具调用。Claude Code 的 hook 对子智能体的工具调用同样生效。
+  - 子 `Agent` 也没有拿到父级的 memory。guardrails 可通过 `DelegateTool(guardrails=...)` 传下去, 本 demo 未传。
+- 父级权限门只看得到 `delegate` 这一层 (`risk="high"`, `read_only=False`):
+  - 所以 plan 模式下委托会被拒, 不能靠子级绕过只读; auto 模式下没有 allow 规则也会被拒。
+  - 子级实际能做什么由 `agent_types` 的工具集和子级自己的 `auto` 门决定, 且子级没有人可问。
 - Claude Code 的子智能体由带 frontmatter 的 markdown 文件定义 (description、工具白名单、模型、独立 system prompt), 可按类型选不同模型; 这里只有一个工具集工厂和一句固定 system prompt。
-- 没有子级超时 / 取消 / 总预算控制, 只有 `max_turns=4`; 没有后台运行, 也不能向已结束的子级追问。
+- 简化: 子级只有 `max_turns=4` 这一个上限。没有超时、重试、取消、总预算控制, 没有后台运行, 也不能向已结束的子级追问。这些属于任务调度, 本模块只讲上下文隔离。
 - 本 demo 只有一个子级、串行执行; 并行扇出与 token 两本账见 m11。
 
 ## 常见误区

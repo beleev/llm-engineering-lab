@@ -40,7 +40,7 @@ export const fmtNum = (n) => {
   return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 export const fmtBytes = (b) => {
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'] // 按 1024 换算, 单位就写二进制前缀
   let i = 0
   while (b >= 1024 && i < u.length - 1) { b /= 1024; i++ }
   return b.toFixed(b >= 100 || i === 0 ? 0 : 1) + ' ' + u[i]

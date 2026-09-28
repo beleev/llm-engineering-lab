@@ -1,7 +1,7 @@
 # llm_train — 大模型规模化训练教学章节
 
 > 用纯 `numpy` 单进程模拟大模型训练里的分布式、显存、数值和容错技术。一个 "rank" 就是 Python list 里的一个元素。
-> 不依赖 GPU; 每个模块独立可跑 (多数 < 1 秒; m19 / m20 要真训几十个小模型, 各约 4 秒), 全部跑完约 10 秒。
+> 不依赖 GPU; 每个模块独立可跑 (多数 < 1 秒; m19 / m20 要真训几十个小模型, 分别约 3.5 秒和 4.5 秒), 全部跑完约 10 秒。
 
 ## 设计约定
 
@@ -9,7 +9,7 @@
 - **每个 demo 以真实的 `assert` 结尾**: 凡数学上应与单卡基线等价的, 都断言等价 (多数是逐位相同)。
 - **通信有账本**: `core.comm` 按 ring 算法记录每 rank 发送的字节, 各模块打印自己的通信成本。
 - **共享件进 `core/`**: 通信原语 (含真实逐步传 chunk 的 ring all-reduce)、低精度浮点假量化 (BF16/FP8/FP4 共用)、Adam、checkpoint 读写、溢出检测。
-- **每个模块目录有 README**: 直觉 / 核心公式 / 运行后应该看到什么 / 与真实系统的差距 / 常见误区 / 3 道自测题。
+- **每个模块目录有 README**: 直觉 / 核心公式 (m08、m13、full_loop 换成状态清单、配方对照、步骤清单) / 运行后应该看到什么 / 与真实系统的差距 / 常见误区 / 3 道自测题。
 
 ## 学习路径
 
@@ -36,21 +36,21 @@
 | 03 | [Tensor Parallel](m03_tensor_parallel/) | 列切 + 行切, f / g 算子 | 输出、全部梯度、**dX** == dense |
 | 04 | [Pipeline Parallel](m04_pipeline_parallel/) | GPipe / 1F1B / Interleaved 1F1B, B 占 2 格 | 1F1B 峰值 == [PP-s]; 气泡 == (PP-1)/(vM+PP-1) |
 | 05 | [ZeRO / FSDP](m05_zero_fsdp/) | 真 Adam, stage 1/2/3 三条代码路径, gather→compute→free | 各 stage 与 DDP 逐位相同; 字节 == 2+2+12 公式 |
-| 06 | [Mixed Precision](m06_mixed_precision/) | FP16 vs BF16 (模拟), 真实 fp16 溢出, 动态 scaler, master | 下溢/上溢/舍入各一条断言 |
+| 06 | [Mixed Precision](m06_mixed_precision/) | FP16 vs BF16 (模拟), 真实 fp16 溢出, 动态 scaler, master | 下溢/上溢/舍入各一条断言; 溢出步 master 不动, 有效步 master 必动 |
 | 07 | [Activation Checkpointing](m07_activation_checkpointing/) | 真实分段重算反向 | 梯度逐位相同; 峰值 == L/k + k |
 | 08 | [Checkpoint / Resume](m08_checkpoint_resume/) | 参数 + 优化器 + 数据 seed/cursor + RNG | 续训逐位相同; 漏任一项都偏 |
 | 09 | [Collectives](m09_collectives/) | 四个原语 + 逐步 ring all-reduce + 字节计数 | ring 实测字节 == 公式 |
 | 10 | [Training Stability](m10_training_stability/) | cosine / **WSD**, 全局裁剪, NaN guard | WSD 稳定段与总步数无关 |
-| 11 | [Expert Parallel](m11_expert_parallel/) | 两次**真实** all-to-all, capacity, aux loss, aux-loss-free bias | EP == 单卡; 两种均衡都降低丢弃 |
+| 11 | [Expert Parallel](m11_expert_parallel/) | dispatch / combine 两步**真实** all-to-all, capacity, aux loss, aux-loss-free bias | EP == 单卡; all-to-all 计数 == 3 (dispatch 把 token 和专家 id 分两次发); 两种均衡都降低丢弃 |
 | 12 | [Context Parallel](m12_sequence_parallel/) | Ring Attention, online softmax, **zigzag** | == 完整注意力; zigzag 每卡工作量相同 |
-| 13 | [FP8 Training](m13_fp8_training/) | E4M3/E5M2, TE vs DeepSeek-V3 配方, 三臂消融 | scaling 29×, master 584×, 粒度仅在 outlier 下有效 |
-| 14 | [Muon](m14_muon_optimizer/) | Newton–Schulz 正交化动量, QK-clip | 非轴对齐病态问题上胜过调好的 AdamW |
+| 13 | [FP8 Training](m13_fp8_training/) | E4M3/E5M2, TE vs DeepSeek-V3 配方, FP32 基线 + A–E 五臂消融, 相邻两臂只差一个旋钮 | 无 scaling 差 > 10× (实测 29×); 无 master 差 > 100× (实测 584×); 反向格式、粒度在干净数据上都差 < 25% (实测 0.98×、1.01×) |
+| 14 | [Muon](m14_muon_optimizer/) | Newton–Schulz 正交化动量, QK-clip | 非轴对齐病态问题上, loss 不到扫过 lr 的 Adam 的一半 (两边 weight decay 都为 0) |
 | 15 | [FP4 Microscaling](m15_fp4_microscaling/) | E2M1, MXFP4, NVFP4, 对照 FP8 / INT4 | 误差 FP8 < NVFP4 < MXFP4 |
 | 16 | [Ulysses](m16_ulysses_sequence_parallel/) | all-to-all 序列切 ↔ 头切 | == 完整注意力; 通信随 P 下降; P ≤ 头数 |
-| 17 | [Data Pipeline](m17_data_pipeline/) | MinHash-LSH 去重, 启发式质量过滤, 温度配比采样 | 召回 0.97 vs 精确哈希 0.26; 代码被规则误杀; batch 内配比误差 < 2/batch |
-| 18 | [Sequence Packing](m18_sequence_packing/) | FFD packing, 文档 mask + 位置重置 + 边界 label | 有效 token 0.29 → 0.99; == 逐篇 forward; 无 mask 串文档 |
-| 19 | [Scaling Laws](m19_scaling_laws/) | 36 个真训点拟合 L(N,D), 算力最优 N/D | E ≈ 噪声底; IsoFLOP 实测最优 ≈ 预测 |
-| 20 | [μP](m20_mup/) | SP vs μP 扫 lr, 宽度 32 → 512 | μP 最优 lr 不动, SP 左移 6 格 |
+| 17 | [Data Pipeline](m17_data_pipeline/) | MinHash-LSH 去重, 启发式质量过滤, 温度配比采样 | 召回 > 0.95 (实测 0.967), 精确哈希 < 0.3 (实测 0.258); 代码被规则误杀; batch 内配比误差 < 2/batch |
+| 18 | [Sequence Packing](m18_sequence_packing/) | FFD packing, 文档 mask + 位置重置 + 边界 label | 有效 token 从 < 0.5 到 > 0.95 (实测 0.285 → 0.990); == 逐篇 forward; 无 mask 串文档 |
+| 19 | [Scaling Laws](m19_scaling_laws/) | 36 个真训点拟合 L(N,D), 算力最优 N/D | E 在噪声方差的 0.5–1.5 倍内 (实测 0.0080 vs 0.01); 预测 N_opt 在 IsoFLOP 实测最优的 0.5–2 倍内 (实测 89 vs 81) |
+| 20 | [μP](m20_mup/) | SP vs μP 扫 lr, 宽度 32 → 512 | μP 最优 lr 移动 ≤ 1 格 (实测 0 格); SP 左移 ≥ 3 格 (实测 6 格) |
 | 21 | [LLM Eval](m21_llm_eval/) | PPL, n-gram 污染检测, pass@k, judge 位置偏差 | 朴素 pass@k 偏低; 交换判消掉位置偏差 |
 | ★ | [Full Loop](full_loop/) | DP × 累积 × AMP × 分片 Adam × clip × NaN guard × 分片 checkpoint | ≈ 单卡; 续训逐位相同 |
 
@@ -78,7 +78,7 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | Expert parallel (MoE) | partial | `m11` 前向, top-1; 无反向、无 top-k / shared expert |
 | Context parallel (Ring) | partial | `m12` 前向 + zigzag; 无反向 |
 | Sequence parallel (Ulysses) | partial | `m16` 前向 |
-| 数据去重 / 过滤 / 配比 | partial | `m17` MinHash-LSH + 规则 + 温度采样; 无质量分类器、无分布式 |
+| 数据去重 / 过滤 / 配比 | partial | `m17` MinHash-LSH + 规则 + 数据源温度配比; 无质量分类器、无分布式 |
 | Sequence packing | yes | `m18` 文档 mask + 位置重置 + label 屏蔽; mask 为显式矩阵, 非 varlen kernel |
 | Scaling laws | partial | `m19` 玩具 MLP 上真训拟合; 指数不可外推到 LLM |
 | μP / 超参迁移 | partial | `m20` 只迁移 lr、只沿宽度 |

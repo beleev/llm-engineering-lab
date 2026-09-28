@@ -95,9 +95,9 @@ export default {
     },
     {
       q: 'm13 的 FP8 消融里, "去掉 scaling"和"去掉 fp32 master weights"哪个伤害更大?',
-      options: ['去掉 scaling (差 29×)', '两者一样', '去掉 master (差 584×)', '都没有影响'],
+      options: ['去掉 scaling (差 29×)', '两者差距在 2× 以内', '去掉 master (差 584×)', '去掉 scaling (差 584×)'],
       answer: 2,
-      why: '两者缺一不可, 但 master 更要命:\n- scaling: 决定数值能不能进 FP8 的网格。\n- master: 没有高精度 master 时, 小更新每一步都被舍掉, 训练根本不收敛。',
+      why: '终点误差: 去掉 scaling 涨 29×, 去掉 master 涨 584×。两者缺一不可, 但 master 更要命:\n- scaling: 决定数值能不能进 FP8 的网格。\n- master: 没有高精度 master 时, 小更新每一步都被舍掉, 训练根本不收敛。',
     },
   ],
   'train-moe-seq': [
@@ -183,7 +183,7 @@ export default {
   'train-low-precision': [
     {
       q: 'FP8 E4M3 训练里, per-tensor scale 和 block-128 scale 在普通张量上的差距有多大?',
-      options: ['block 好约 5 倍 (0.126 vs 0.026), 普通张量也如此', '基本打平 (4.54e-4 vs 4.61e-4), 有大 outlier 才拉开', 'per-tensor 会让小值大面积下溢, 误差高一个量级', 'block 明显更差: 每块 scale 的舍入抵消了收益'],
+      options: ['block 好约 5 倍 (0.126 vs 0.026), 普通张量也如此', '基本打平 (4.64e-4 vs 4.61e-4), 有大 outlier 才拉开', 'per-tensor 会让小值大面积下溢, 误差高一个量级', 'block 明显更差: 每块 scale 的舍入抵消了收益'],
       answer: 1,
       why: 'E4M3 自带 $2^{15}$ 以上的动态范围, 没有极端 outlier 时一个 scale 就够; 细粒度 scale 是给 outlier 上的保险 (1e5 倍时误差 0.126 vs 0.026)。',
     },
@@ -191,7 +191,7 @@ export default {
       q: '同为 block 16 的 FP4, E4M3 scale (NVFP4) 为什么比 E8M0 scale (MXFP4) 准?',
       options: ['E8M0 只能取 2 的幂, 贴不准 amax; E4M3 能贴到 6', 'E4M3 的指数范围比 E8M0 大, 能覆盖更极端的 block', 'E8M0 scale 占 8 位, 挤占了元素的尾数位', 'scale 精度相同, 差距来自 NVFP4 多一层 per-tensor scale'],
       answer: 0,
-      why: 'E2M1 的最大值是 6。scale 对不准 amax, 要么浪费量程要么截断最大值 (42% 的 block 被饱和); 同为 block16 时误差 0.114 vs 0.095, 差距全部来自 scale 的精度。',
+      why: 'E2M1 的最大值是 6。scale 对不准 amax, 要么浪费量程要么截断最大值 (42% 的 block 被饱和); 同为 block16 时误差 0.114 vs 0.095, 差距全部来自 scale 的精度。MXFP4 自己的 block 32 配置是 0.113。',
     },
     {
       q: '"FP4 的对数网格一定比 INT4 的均匀网格好", 对吗?',

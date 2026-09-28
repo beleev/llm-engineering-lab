@@ -10,6 +10,11 @@ MM-DiT 让文本 token 与图像 patch token 拼成一个序列做 **联合注�
 
 全局条件 c = TimestepEmbedding(t) + Linear(text_pooled) 仍走 adaLN-Zero。
 t 的量纲是 [0, 1000) (Flow Matching 的 t∈[0,1] 由 scheduler ×1000, 见 training/diffusion.py)。
+本库的做法 (教学简化):
+    - 文本流另加一份可学习位置嵌入 text_pos。SD3 的文本 token 来自已带位置信息的文本 encoder, 不再另加。
+    - 图像流的位置也是可学习向量。
+    - 文本 encoder 不在本文件里: text_embeds / text_pooled 由调用方给。
+    - 与 DiT 一样不调用 init_weights (保住 adaLN 的零初始化)。
 读代码时盯住: MMDiTBlock.forward 里 torch.cat(dim=2) 与之后的切分。
 """
 
@@ -51,14 +56,16 @@ class MMDiTBlock(nn.Module):
         self.head_dim = d_model // n_heads
 
         # === image stream ===
+        # norm 不带可学习的 γ/β (elementwise_affine=False): 缩放和平移由 adaLN 按条件 c 给
         self.img_norm1 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
-        self.img_qkv = nn.Linear(d_model, 3 * d_model, bias=True)
+        self.img_qkv = nn.Linear(d_model, 3 * d_model, bias=True)      # Q/K/V 一次投出, 共 3D 维
         self.img_proj = nn.Linear(d_model, d_model, bias=True)
         self.img_norm2 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
         self.img_ffn = GeLUFeedForward(d_model, d_ff)
+        # 调制层输出 6 段: (shift, scale, gate) × (attn, ffn)
         self.img_mod = nn.Linear(c_dim, 6 * d_model, bias=True)
 
-        # === text stream ===
+        # === text stream === (结构与 image stream 相同, 参数各自独立)
         self.txt_norm1 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
         self.txt_qkv = nn.Linear(d_model, 3 * d_model, bias=True)
         self.txt_proj = nn.Linear(d_model, d_model, bias=True)
@@ -71,15 +78,15 @@ class MMDiTBlock(nn.Module):
             nn.init.zeros_(m.weight)
             nn.init.zeros_(m.bias)
 
-        self.attn = ScaledDotProductAttention()
+        self.attn = ScaledDotProductAttention()                        # 无参数, 两条流共用
 
     def _qkv_heads(self, qkv: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         [B, T, 3D] → 3 × [B, H, T, Dh]
         """
         B, T, _ = qkv.shape
-        qkv = qkv.view(B, T, 3, self.n_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, B, H, T, Dh]
+        qkv = qkv.view(B, T, 3, self.n_heads, self.head_dim)           # [B, T, 3D] → [B, T, 3, H, Dh]
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # [3, B, H, T, Dh]: 把 "Q/K/V" 那一维挪到最前, 方便按下标拆开
         return qkv[0], qkv[1], qkv[2]
 
     def forward(
@@ -95,8 +102,10 @@ class MMDiTBlock(nn.Module):
             c:   [B, c_dim]  条件
         Returns:
             (img_out, txt_out) 同形
+
+        返回 tuple。没有 mask 参数: 图像和文本 token 全部互相可见, 文本 padding 不屏蔽。
         """
-        # --- 解包 6 段调制 ---
+        # --- 解包 6 段调制: [B, c_dim] → [B, 6D] → 6 × [B, D] ---
         img_shift_a, img_scale_a, img_gate_a, img_shift_f, img_scale_f, img_gate_f = \
             self.img_mod(c).chunk(6, dim=-1)
         txt_shift_a, txt_scale_a, txt_gate_a, txt_shift_f, txt_scale_f, txt_gate_f = \
@@ -111,17 +120,19 @@ class MMDiTBlock(nn.Module):
 
         # --- 2) 两流在序列维度拼接, 做共享 attention ---
         Q = torch.cat([q_img, q_txt], dim=2)      # [B, H, N_img+N_txt, Dh]
-        K = torch.cat([k_img, k_txt], dim=2)
+        K = torch.cat([k_img, k_txt], dim=2)      # 同 Q。图像在前, 文本在后, 三者顺序一致
         V = torch.cat([v_img, v_txt], dim=2)
         attn_out, _ = self.attn(Q, K, V)          # [B, H, N, Dh]
 
         # 切回两流
         B, H, N, Dh = attn_out.shape
         N_img = img.size(1)
+        # 前 N_img 个是图像 (拼接时图像在前): [B, H, N_img, Dh] → [B, N_img, H, Dh] → [B, N_img, D]
         attn_img = attn_out[:, :, :N_img].transpose(1, 2).reshape(B, N_img, H * Dh)
+        # 剩下的是文本: [B, H, N_txt, Dh] → [B, N_txt, H, Dh] → [B, N_txt, D]
         attn_txt = attn_out[:, :, N_img:].transpose(1, 2).reshape(B, N - N_img, H * Dh)
 
-        # --- 3) 输出投影 + gate 残差 ---
+        # --- 3) 输出投影 + gate 残差。gate [B, D] → unsqueeze(1) → [B, 1, D], 广播到每个 token ---
         img = img + img_gate_a.unsqueeze(1) * self.img_proj(attn_img)
         txt = txt + txt_gate_a.unsqueeze(1) * self.txt_proj(attn_txt)
 
@@ -138,6 +149,11 @@ class MMDiT(nn.Module):
     """
     图像流: patchify + 可学习位置; 文本流: 外部 encoder 的 token 序列经 Linear 投到 d_model。
     只有图像流接 FinalLayer (只生成图像); 最后一层的文本流输出被丢弃。
+
+    forward(x, t, text_embeds, text_pooled) 返回 Tensor, 与 x 同形 [B, C, H, W]。
+    没有 attention_mask, 没有 KV cache。
+    采样器按 model(x, t, class_labels) 调用, 签名对不上: 要先包一层, 把文本条件闭包进去
+    (见 run_models/generative/mmdit/infer_mmdit.py)。
 
     Args:
         latent_channels, image_size, patch_size, d_model, n_heads, num_layers: 与 DiT 同
@@ -176,6 +192,7 @@ class MMDiT(nn.Module):
         nn.init.trunc_normal_(self.img_pos, std=0.02)
 
         # text stream: 先投影到 d_model, 加独立位置嵌入
+        # 简化: SD3 的文本流不另加位置嵌入 (文本 encoder 已带), 这里额外加了一份
         self.text_proj = nn.Linear(text_dim, d_model, bias=False)
         self.text_pos = nn.Parameter(torch.zeros(1, text_seq_len, d_model))
         nn.init.trunc_normal_(self.text_pos, std=0.02)
@@ -200,13 +217,14 @@ class MMDiT(nn.Module):
         )
 
     def unpatchify(self, x: torch.Tensor) -> torch.Tensor:
+        """[B, N, p²·C] → [B, C, H, W]。与 DiT.unpatchify 相同。"""
         B, N, _ = x.shape
         C = self.latent_channels
         p = self.patch_size
         H_grid = self.grid_size
-        x = x.view(B, H_grid, H_grid, p, p, C)
+        x = x.view(B, H_grid, H_grid, p, p, C)            # [B, N, p²·C] → [B, H/p, W/p, p, p, C]
         x = x.permute(0, 5, 1, 3, 2, 4).contiguous()      # [B, C, H/p, p, W/p, p]
-        return x.view(B, C, H_grid * p, H_grid * p)
+        return x.view(B, C, H_grid * p, H_grid * p)       # [B, C, H, W]
 
     def forward(
         self,
@@ -222,15 +240,15 @@ class MMDiT(nn.Module):
             text_embeds: [B, T_txt, text_dim] 文本 token 序列 (外部 encoder 产出)
             text_pooled: [B, text_dim] 句子级文本向量; 与 t 相加做全局调制
         Returns:
-            [B, C, H, W] 预测的噪声或 velocity
+            [B, C, H, W] 预测的噪声或 velocity, Tensor
         """
         B = x.size(0)
 
-        # image stream
+        # image stream: [B, C, H, W] → conv → [B, D, H/p, W/p] → 摊平 [B, D, N] → [B, N_img, D]
         img = self.patchify(x).flatten(2).transpose(1, 2)                # [B, N_img, D]
-        img = img + self.img_pos
+        img = img + self.img_pos                                         # + [1, N_img, D]
 
-        # text stream: 投影 + 截断/补齐到预设长度
+        # text stream: 超过 text_seq_len 的截断; 不足的不补齐, 位置嵌入按实际长度切片
         T_txt = text_embeds.size(1)
         if T_txt > self.text_seq_len:
             text_embeds = text_embeds[:, : self.text_seq_len]

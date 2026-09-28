@@ -69,9 +69,9 @@ export default {
     },
     {
       q: 'SwiGLU 有三个线性层, 为什么参数量仍与两层 GELU FFN 大致持平?',
-      options: ['其中一个线性层不含参数', '中间维度从 $4d$ 缩到约 $8d/3$', '三个线性层共享权重', '它去掉了 bias 所以持平'],
+      options: ['门控和内容两路共用一个权重矩阵', '中间维度从 $4d$ 缩到约 $8d/3$', '中间维仍是 $4d$, 输出投影改成低秩', '去掉 bias 省下的参数正好抵掉第三层'],
       answer: 1,
-      why: '$3 \\times d \\times (8d/3) = 8d^2 = 2 \\times d \\times 4d$。门控 (一路做开关、一路做内容) 在同等参数下效果更好。',
+      why: '$3 \\times d \\times (8d/3) = 8d^2 = 2 \\times d \\times 4d$。门控 (一路做开关、一路做内容) 在同等参数下效果更好。三个矩阵各自独立, 都不是低秩; bias 只有 $O(d)$ 个参数, 抵不掉一层 $O(d^2)$。',
     },
     {
       q: 'RMSNorm 相比 LayerNorm 去掉了什么?',
@@ -231,7 +231,7 @@ export default {
       q: 'DSA 省下的是什么?',
       options: ['KV cache: 只保留被 top-k 选中过的 K/V, 其余逐出', '主注意力计算 $O(T^2) \\to O(T \\cdot k)$; cache 反而多一份', '计算和 cache 都省: 没被选中的 K/V 可以直接丢掉', '参数量: indexer 取代了主注意力的 Q/K 投影'],
       answer: 1,
-      why: '每个历史 token 仍可能被未来某个 query 选中, 所以 K/V 都得留着; 省的是每个 query 只对 k 个位置做昂贵的 MLA。',
+      why: '每个历史 token 仍可能被未来某个 query 选中, 所以 K/V 都得留着; 省的是每个 query 只对 k 个位置做昂贵的 MLA。cache 多的那一份是 indexer 自己的 key: 解码时要用它给旧位置打分。',
     },
     {
       q: '为什么要先 dense warmup (主注意力看全部位置、只训 indexer), 再切换到稀疏?',
@@ -257,7 +257,7 @@ export default {
       q: 'GPT-OSS 的可学 sink logit 与 StreamingLLM “保留开头 4 个 token” 的区别是?',
       options: ['两者等价: sink logit 就是把开头 4 个 token 的 logit 学成常数', 'sink 是可学的虚拟 token, 有自己的 K/V, 要常驻 cache', 'sink 只在推理时加, 训练时不存在, 专为滑窗推理补救', '每 head 一个标量, 只进 softmax 分母, 无 value、不占 cache'],
       answer: 3,
-      why: '3 个分数为 0 的 key 加一个 $\\ln 3$ 的 sink: 真实 key 合计只分到 0.5, 其余一半被直接丢弃, 每行概率和 $< 1$。',
+      why: 'StreamingLLM 留的是真 token, 有 K/V、占 cache。sink logit 只是 softmax 分母里多出的一个标量。\n算例: 3 个分数为 0 的 key 加一个 $\\ln 3$ 的 sink: 真实 key 合计只分到 0.5, 其余一半被直接丢弃, 每行概率和 $< 1$。',
     },
   ],
   'models-llada': [

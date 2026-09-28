@@ -10,8 +10,9 @@
     sub="两行格子是同一个 prompt 的 chosen / rejected 回答, 点第 n 个格子把长度设为 n。
       下面四根条是四种写法里送进 $\log\sigma(\cdot)$ 的那个量 $z$, 越右 = 模型认为自己已经排对。把 rejected 点长, 看谁的 $z$ 白白变大。"
     module="llm_finetune/methods/simpo.py · orpo.py"
+    run="python -m llm_finetune.run_finetune.simpo_orpo.train_simpo_orpo"
     :challenge="{
-      ask: '保持两条回答每 token 的平均 log p 都是 −1.5 (模型对两者毫无偏好), 把 rejected 从 8 点到 24 token。「裸 sum 差」的 z 变成多少? 它的梯度权重还剩多少? DPO 和 SimPO 为什么不上当?',
+      ask: '保持两条回答每 token 的平均 log p 都是 −1.5 (模型对两者毫无偏好), chosen 留在 8 token, 把 rejected 从 12 点到 24 token。「裸 sum 差」的 z 变成多少? 它的梯度权重还剩多少? DPO 和 SimPO 为什么不上当?',
       answer: '裸 sum 差 $= (-1.5\\times 8) - (-1.5\\times 24) = +24$, $\\sigma(-24) \\approx 0$。模型什么偏好都没学, loss 却已经是 0, 只因为长序列的 log 概率之和天然更小。数据里 rejected 普遍更长时, 这个目标学到的只是「短的好」。\n- DPO: 不上当。ref 对同一条长回答也给出同样低的 sum log p, 相减后只剩 policy 相对 ref 的变化。\n- SimPO: 没有 ref, 改成按长度取平均 (每 token log p 之差), 长度直接约掉。代价是数值范围很小, $\\beta$ 要取 2 左右; 再减一个目标间隔 $\\gamma$, 逼模型把差距拉到 $\\gamma/\\beta$ 以上才停手。\n- ORPO: 同样用每 token 平均概率算 odds, 再靠 SFT 项 (chosen 的 NLL) 锚住模型。一个阶段、一个模型, 连单独的 SFT 都省了。',
     }"
   >
@@ -55,7 +56,7 @@
       <div class="kv"><span>裸 sum 差还剩的梯度权重</span><b :class="sigmoid(-rows[0].z) < 0.05 ? 'bad' : ''">{{ sigmoid(-rows[0].z).toFixed(3) }}</b></div>
       <div class="kv"><span><Tex text="ORPO 总 loss = NLL + $\lambda\cdot L_{\text{OR}}$" /></span><b>{{ orpoLoss.toFixed(3) }}</b></div>
       <p class="lab-note">
-        需要的前向: DPO = policy×2 + ref×2 (两个模型); SimPO / ORPO = policy×2 (一个模型)。
+        需要的前向: DPO 每步 2 次, policy、ref 各 1 次, 每次 2B 条序列 (两个模型); SimPO / ORPO 只有 policy 1 次 (一个模型)。
         DPO 这一行不为 0 只发生在 policy 已偏离 ref 时。那是学到的偏好, 不是长度红利。
       </p>
     </template>
@@ -70,7 +71,8 @@ import Tex from '@/components/Tex.vue'
 import { clamp, heat } from '@/utils/labmath.js'
 
 const LMAX = 24, REF = -1.5, B_DPO = 0.1, B_SIMPO = 2, LAMBDA = 0.1, ZMAX = 8
-const lc = ref(-1.5), lr = ref(-1.5), gamma = ref(0.5), Lc = ref(8), Lr = ref(8)
+// 默认 rejected 比 chosen 长 4 个 token: 一打开就看得到「裸 sum 差」被长度骗, 其余三行不动
+const lc = ref(-1.5), lr = ref(-1.5), gamma = ref(0.5), Lc = ref(8), Lr = ref(12)
 const hov = ref(-1)
 
 const seqs = computed(() => [

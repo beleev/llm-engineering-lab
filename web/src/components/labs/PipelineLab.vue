@@ -7,7 +7,8 @@
 <template>
   <LabFrame
     title="流水线调度 — GPipe vs 1F1B"
-    sub="每一行是一张卡 (stage), 每一格是一个时间槽。F = 前向, B = 反向, 空格 = 气泡 (这张卡在等)。拖滑杆改变卡数和 micro-batch 数, 按播放看时间表怎么被填满。"
+    sub="每一行是一张卡 (stage), 每一格是一个时间槽。F = 前向, B = 反向, 空格 = 气泡 (这张卡在等)。
+      拖滑杆改变卡数和 micro-batch 数, 按播放看时间表怎么被填满。图下面的一行字说明当前时间槽每张卡在做什么。"
     module="llm_train/m04"
     run="python -m llm_train.m04_pipeline_parallel.demo"
     :challenge="{
@@ -37,13 +38,14 @@
         >{{ c && c.head ? c.type + c.m : '' }}</span>
       </template>
     </div>
+    <p class="lab-note" style="margin-top: 10px;">{{ nowText }}</p>
 
     <template #stats>
       <div class="kv"><span>总时间槽</span><b>{{ sched.T }}</b></div>
       <div class="kv"><span>气泡比例</span><b>{{ (sched.bubble * 100).toFixed(1) }}%</b></div>
       <div class="kv">
         <span>各卡激活峰值</span>
-        <b :class="mode === '1f1b' ? 'good' : 'bad'">[{{ sched.peaks.join(', ') }}]</b>
+        <b :class="Math.max(...sched.peaks) > pp ? 'bad' : 'good'">[{{ sched.peaks.join(', ') }}]</b>
       </div>
       <div class="kv"><span>当前在途激活</span><b>[{{ liveNow.join(', ') }}]</b></div>
       <p class="lab-note">
@@ -110,6 +112,13 @@ const sched = computed(() => {
 
 const stepper = useStepper(() => sched.value.T, { interval: 350 })
 const liveNow = computed(() => sched.value.live.map((r) => r[stepper.step.value] ?? 0))
+// 当前时间槽每张卡在干什么: F3 = 第 3 个 micro-batch 的前向, 气泡 = 这张卡在等
+const nowText = computed(() => {
+  const t = stepper.step.value
+  const cards = sched.value.grid.map((row, s) => `卡 ${s} ${row[t] ? row[t].type + row[t].m : '气泡'}`)
+  const idle = sched.value.grid.filter((row) => !row[t]).length
+  return `t = ${t}: ${cards.join(', ')}。${idle ? `${idle} 张卡在等上游的前向或下游的反向。` : '所有卡都在干活。'}`
+})
 // 换参数后直接跳到末尾, 先看到完整时间表, 再按播放重看过程
 watch(sched, (s) => { stepper.pause(); stepper.step.value = s.T - 1 }, { immediate: true })
 </script>

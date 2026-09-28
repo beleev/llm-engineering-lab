@@ -1,5 +1,5 @@
 """
-多模态通用积木: "模态编码器 → (重采样) → 投影 → LLM" 三段式里的前三段
+多模态通用积木: "模态编码器 → (重采样) → 投影 → LLM" 里 LLM 之前的三段
 
 是什么: 把图像 / 声谱图 / 视频变成 LLM 能直接拼进上下文的 token 序列 [B, N, D_llm]。
 解决了什么: LLM 只吃 token 序列; 像素是稠密网格, 且 token 数随分辨率平方增长。
@@ -25,6 +25,7 @@ Size2D = Union[Tuple[int, int], int]
 
 
 def _as_pair(x: Size2D) -> Tuple[int, int]:
+    """单个整数当成正方形: 14 → (14, 14)。"""
     return (x, x) if isinstance(x, int) else x
 
 
@@ -70,8 +71,9 @@ class PatchEmbed2D(nn.Module):
             raise ValueError(
                 f"输入尺寸 {(h, w)} 与初始化 input_size {self.input_size} 不一致"
             )
-        x = self.proj(x)                     # [B, D, gH, gW]
-        return x.flatten(2).transpose(1, 2)  # [B, N, D] 按行优先展平; 2-D 结构靠位置编码补回
+        x = self.proj(x)                     # [B, C, H, W] → [B, D, gH, gW], gH = H/ph, gW = W/pw
+        # [B, D, gH, gW] → [B, D, N] → [B, N, D]。按行优先展平; 2-D 结构靠位置编码补回
+        return x.flatten(2).transpose(1, 2)
 
 
 class PatchEmbed3D(nn.Module):
@@ -123,8 +125,8 @@ class PatchEmbed3D(nn.Module):
             raise ValueError(
                 f"输入尺寸 {(t, h, w)} 与初始化 video_size {self.video_size} 不一致"
             )
-        x = self.proj(x)                     # [B, D, gT, gH, gW]
-        return x.flatten(2).transpose(1, 2)  # [B, N, D]
+        x = self.proj(x)                     # [B, C, T, H, W] → [B, D, gT, gH, gW]
+        return x.flatten(2).transpose(1, 2)  # [B, D, gT, gH, gW] → [B, D, N] → [B, N, D]
 
 
 class PatchTransformerEncoder(nn.Module):
@@ -147,6 +149,7 @@ class PatchTransformerEncoder(nn.Module):
         super().__init__()
 
         self.patch_embed = patch_embed
+        # 裸 Parameter: init_weights 不会碰它, 所以在这里自己初始化
         self.pos_embed = nn.Parameter(torch.zeros(1, patch_embed.num_patches, d_model))
         nn.init.trunc_normal_(self.pos_embed, std=0.02)                # [1, N, D]
 
@@ -169,10 +172,11 @@ class PatchTransformerEncoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: patch_embed 能吃的原始输入 ([B, C, H, W] 或 [B, C, T, H, W]) → [B, N, D]。"""
         x = self.patch_embed(x)                                        # [B, N, D]
-        x = self.dropout(x + self.pos_embed)
+        x = self.dropout(x + self.pos_embed)                           # [B, N, D] + [1, N, D]
         for block in self.layers:
-            x = block(x)
+            x = block(x)                                               # 不传 mask: 每个 patch 看全部 patch
         return self.norm(x)                                            # [B, N, D]
 
 
@@ -200,6 +204,7 @@ class PerceiverResampler(nn.Module):
     [B, N, D] → [B, num_latents, D]: 输出长度只由可学习 latent 的个数决定, 与输入 token 数 N 无关 (Flamingo)。
 
     代价: latent 不再对应具体的空间位置, 细粒度定位 / OCR 类任务会受损 —— 所以 Qwen2-VL 改用相邻 patch 合并。
+    简化: Flamingo 的 resampler 把 latents 也拼进 K/V; 这里 K/V 只有 source。
     """
 
     def __init__(
@@ -218,6 +223,8 @@ class PerceiverResampler(nn.Module):
         self.num_latents = num_latents
         self.d_model = d_model
 
+        # K 个可学习的 query, [K, D], N(0,1) 初始化。
+        # 它是裸 Parameter, init_weights 不会碰它 (Linear / Embedding 都是 std = 0.02)
         self.latents = nn.Parameter(torch.randn(num_latents, d_model))
 
         d_ff = 4 * d_model
@@ -229,9 +236,11 @@ class PerceiverResampler(nn.Module):
         )
 
     def forward(self, source: torch.Tensor) -> torch.Tensor:
-        latents = self.latents.unsqueeze(0).expand(source.size(0), -1, -1)   # [B, K, D] 同一组 latent 全 batch 共享
+        """source [B, N, D] → [B, K, D], K = num_latents。"""
+        # [K, D] → [1, K, D] → [B, K, D]。expand 不复制内存, 同一组 latent 全 batch 共享
+        latents = self.latents.unsqueeze(0).expand(source.size(0), -1, -1)
         for block in self.layers:
-            latents = block(latents, source)
+            latents = block(latents, source)                                 # [B, K, D]
         return latents
 
 
@@ -240,6 +249,8 @@ class ModalityProjector(nn.Module):
     [B, N, in_dim] → [B, N, out_dim]: 单层 Linear (LLaVA-1) 或 Linear-GELU-Linear (LLaVA-1.5), 末尾 LayerNorm。
 
     LLaVA 的关键发现: 冻结视觉编码器和 LLM, 只训这一个小投影层就能把两个空间对齐。
+    与 LLaVA 的差异: 末尾的 LayerNorm 是本库加的 (LLaVA 的 projector 没有),
+    让各模态送进 LLM 的 token 尺度一致。hidden_dim 为 None 时用单层 Linear。
     """
 
     def __init__(

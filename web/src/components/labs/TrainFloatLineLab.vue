@@ -5,11 +5,9 @@
 <template>
   <LabFrame
     title="浮点数轴 — 梯度落在哪个格式的范围里?"
-    sub="横轴是数值大小 (对数)。每条色带是一种格式能表示的范围:
-      - 实色 = normal, 浅色 = subnormal (精度递减)。
-      - 色带以左全部变 0, 以右溢出。
-      - FP32 / BF16 的色带两端远远伸出画面, 真实范围写在行首。
-      灰色直方图是一批典型梯度 $|g|$。拖动黄色竖线, 看某个数在选中格式里的左右邻居; 拖 loss scale, 把梯度平移进范围。"
+    sub="横轴是数值大小 (对数)。最上面的直方图是一批典型梯度 $|g|$, 下面每条色带是一种格式能表示的范围。
+      - 色带: 实色 = normal, 浅色 = subnormal (精度递减)。色带以左全部变 0, 以右溢出。FP32 / BF16 的色带两端伸出画面, 真实范围写在行首。
+      - 操作: 拖带圆点的竖线, 看某个数在选中格式里的左右邻居; 拖 loss scale, 把梯度平移进范围。"
     module="llm_train/m06"
     run="python -m llm_train.m06_mixed_precision.demo"
     :challenge="{
@@ -25,7 +23,7 @@
       <LabSlider v-model="gradMu" label="梯度典型量级" :min="-9" :max="-2" :step="0.5" :format="(v) => '1e' + v" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="各浮点格式的可表示范围与梯度直方图">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="各浮点格式的可表示范围与梯度直方图; 色带可选, 竖线可拖">
       <g v-for="t in ticks" :key="t">
         <line :x1="px(t)" :x2="px(t)" :y1="HIST_H" :y2="H - 18" class="grid" />
         <text :x="px(t)" :y="H - 5" class="tick" text-anchor="middle">1e{{ t }}</text>
@@ -53,10 +51,9 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>数值 x</span><b>{{ sci(value) }}</b></div>
-      <div class="kv"><span>{{ F.name }} 左 / 右邻居</span><b class="nb">{{ sci(nb.lo) }} / {{ sci(nb.hi) }}</b></div>
-      <div class="kv"><span>舍入后</span><b :class="nb.q === 0 || !isFinite(nb.q) ? 'bad' : 'good'">{{ nb.q === 0 ? '0 (下溢)' : isFinite(nb.q) ? sci(nb.q) : (F.saturate ? '饱和' : 'Inf (溢出)') }}</b></div>
-      <div class="kv"><span>相对误差</span><b :class="nb.err > 0.05 ? 'bad' : ''">{{ nb.err >= 1 ? '100' : (nb.err * 100).toPrecision(2) }}%</b></div>
+      <!-- 前两行读竖线上的那个数, 后两行读整批梯度 -->
+      <div class="kv"><span>竖线 x = {{ sci(value) }} 在 {{ F.name }} 里的左 / 右邻居</span><b class="nb">{{ sci(nb.lo) }} / {{ sci(nb.hi) }}</b></div>
+      <div class="kv"><span>x 舍入后 (相对误差 {{ nb.err >= 1 ? '100' : (nb.err * 100).toPrecision(2) }}%)</span><b class="nb" :class="nb.q === 0 || !isFinite(nb.q) || nb.err > 0.05 ? 'bad' : 'good'">{{ nb.q === 0 ? '0 (下溢)' : isFinite(nb.q) ? sci(nb.q) : (F.saturate ? '饱和' : 'Inf (溢出)') }}</b></div>
       <div class="kv"><span>梯度 × scale 后变 0</span><b :class="frac.under > 0.01 ? 'bad' : 'good'">{{ (frac.under * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>梯度 × scale 后溢出</span><b :class="frac.over > 0 ? 'bad' : 'good'">{{ (frac.over * 100).toFixed(1) }}%</b></div>
       <p class="lab-note">指数位决定色带多长 (范围), 尾数位决定邻居多密 (精度): {{ F.note }}</p>

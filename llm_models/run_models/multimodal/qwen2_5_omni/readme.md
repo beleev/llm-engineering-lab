@@ -27,10 +27,19 @@ python -m llm_models.run_models.multimodal.qwen2_5_omni.train_qwen2_5_omni
   若换成默认 N(0,1) 初始化 + 绑权重: text_loss 初值是 **124.15** (50 步后 total 仍有 104.7)。
 - 数据是固定随机 batch: 记忆, 不是真的会说话。
 
+## 与真实系统的差距
+- **没有 TMRoPE**: 原版把音视频按真实时间戳对齐位置编码。这里位置就是拼接后的下标 (`use_mrope=True` 会直接报错)。
+- **规模**: Tiny 配置总参数 504,352。Thinker 是 2 层、d_model=64; Talker 是 1 层、d_model=32。
+- **Talker 的接法**: 本库的 Talker 每层用 cross-attention 读 Thinker 的隐状态, 两条序列的长度互不影响。这是本库的写法。
+- **梯度没有隔开**: `thinker_hidden` 传给 Talker 前没有 `detach`, audio_loss 的梯度会流回 Thinker。
+- **只到 codec token 为止**: Talker 输出 codec token 的 logits。把 codec token 还原成波形的那一段不在库里。
+- **三个编码器是同一种 ViT**: 图像、视频、音频都用随机初始化的 `PatchTransformerEncoder`。音频是把 mel 声谱图当 1 通道图像切 patch。
+- **不能流式, 也不能生成**: 只有整段 teacher forcing 前向, 没有 `generate()` 和 KV cache。
+- **数据是合成的**: 2 条固定的随机样本训 250 步。Thinker 的 weight tying 和 embedding 乘 √D、固定 batch 都是本库约定。
+
 ## 常见误区
 - "Talker 读的是 Thinker 生成的文本" —— 读的是隐状态 `thinker_hidden`; 文本只是它的有损投影。
 - "语音 token 和文本 token 共用词表 / 共用 lm_head" —— 两套词表、两个 head; Talker 的 head 也不与自己的 embedding 共享。
-- "本实现包含 TMRoPE" —— 没有。原版把音视频按真实时间戳对齐位置编码, 这里位置就是拼接后的下标 (`use_mrope=True` 会直接报错)。
 
 ## 自测题
 1. 为什么不让 Thinker 直接多一个语音输出头? —— 语音 token 速率远高于文本 (每秒几十个), 且两种 loss 会互相干扰; 拆出小 Talker 既低延迟又不伤文本能力。

@@ -12,6 +12,7 @@ GPT-OSS (OpenAI, 2025) — Mixtral 骨架 + 交替 SWA/全注意力 + attention 
       逐项相等 (e^{l_i}/Σ_topk e^{l_j}, 全局分母约掉), 所以直接复用 MixtralMoE。
 读代码时盯住: forward 里的 `is_swa` —— 每层拿哪张 mask、cache 裁不裁, 全由它决定。
 教学省略: attention/专家的 bias, 带 clamp 的 SwiGLU, MXFP4 量化。
+本库约定 (不代表原模型): lm_head 与 embedding 共享权重, embedding 乘 √D, 见 models/__init__.py。
 """
 
 import math
@@ -20,7 +21,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from llm_models.layers.core.attention import GroupedQueryAttention
 from llm_models.layers.core.normalization import RMSNorm
 from llm_models.layers.core.position_encoding import RotaryPositionalEncoding
 from llm_models.models.moe.mixtral import MixtralBlock
@@ -34,13 +34,16 @@ from llm_models.utils.masks import (
 
 
 class GPTOSSBlock(MixtralBlock):
-    """与 MixtralBlock 唯一的差异: GQA 打开 use_sink (每 head 一个可学 logit)。"""
+    """
+    与 MixtralBlock 唯一的差异: GQA 打开 use_sink (每 head 一个可学 logit)。
+    forward 继承自 MixtralBlock: x [B, T, D] -> (x [B, T, D], routing_info)。
+    """
 
     def __init__(self, d_model: int, n_heads: int, num_kv_heads: Optional[int], **kwargs):
-        super().__init__(d_model=d_model, n_heads=n_heads, num_kv_heads=num_kv_heads, **kwargs)
-        self.attn = GroupedQueryAttention(
-            d_model=d_model, num_heads=n_heads, num_kv_heads=num_kv_heads, use_sink=True,
-        )
+        # 经父类的 use_sink 开关一次建好。先建普通 GQA 再整个替换也能跑,
+        # 但每层的注意力会白建一遍, 多消耗一轮随机数, 之后的初始化就全变了
+        super().__init__(d_model=d_model, n_heads=n_heads, num_kv_heads=num_kv_heads,
+                         use_sink=True, **kwargs)
 
 
 class GPTOSSMini(GenerationMixin, nn.Module):
@@ -52,6 +55,9 @@ class GPTOSSMini(GenerationMixin, nn.Module):
         rope_kwargs:  透传给 RotaryPositionalEncoding, 如
                       dict(base=150000.0, scaling="yarn", factor=32.0, original_max_len=4096)
         其余同 Mixtral。forward 返回 (logits, all_routing_info), 与 Mixtral / DeepSeekV3 同接口。
+
+    接受 attention_mask; 支持 KV cache (generate() 来自 GenerationMixin)。
+    SWA 层的 cache 最多留 W 个 K/V, full 层的随 T 增长。
     """
 
     def __init__(
@@ -79,7 +85,7 @@ class GPTOSSMini(GenerationMixin, nn.Module):
         self.rope = RotaryPositionalEncoding(d_model // n_heads, max_len, **(rope_kwargs or {}))
 
         if d_ff is None:
-            d_ff = ((int(8 / 3 * d_model) + 63) // 64) * 64
+            d_ff = ((int(8 / 3 * d_model) + 63) // 64) * 64   # 8/3·D 向上对齐到 64 的倍数, 同 LLaMA
 
         self.layers = nn.ModuleList(
             [
@@ -93,8 +99,9 @@ class GPTOSSMini(GenerationMixin, nn.Module):
 
         self.ln_f = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.token_embedding.weight
+        self.lm_head.weight = self.token_embedding.weight     # weight tying (本库约定)
 
+        # 两张 mask 各建一次, 都是 [1, max_len, max_len]: 全因果的给奇数层, 带状的给偶数层
         cpu = torch.device("cpu")
         self.register_buffer("causal_mask", build_causal_mask(max_len, cpu), persistent=False)
         self.register_buffer(
@@ -114,14 +121,20 @@ class GPTOSSMini(GenerationMixin, nn.Module):
         attention_mask: Optional[torch.Tensor] = None,  # [B, past+T], 1=有效 0=pad
         cache: Optional[KVCache] = None,
     ) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
+        """
+        idx [B, T] -> 返回 tuple (logits [B, T, V], all_routing_info)。
+        all_routing_info: list, 每层一个 dict (键见 MixtralBlock)。
+        attention_mask: [B, past+T], 覆盖 "已读过的 + 本次的" 全部 token。
+        cache: 给了就走 KV cache, idx 只含新 token。
+        """
         B, T = idx.shape
-        past = cache.pos if cache is not None else 0
+        past = cache.pos if cache is not None else 0                     # 已读过的 token 数
         total = past + T
         if total > self.max_len:
             raise ValueError(f"序列长度 {total} 超过 max_len={self.max_len}")
 
-        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]
-        position_ids = torch.arange(past, total, device=idx.device)
+        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]; ·√D 是本库约定
+        position_ids = torch.arange(past, total, device=idx.device)      # [T] 新 token 的绝对位置
 
         # 两张 mask, 都取行 past: (新 query) × 列 :total (全部历史), 再 ∩ padding
         full_mask = combine_causal_and_padding_mask(
@@ -143,9 +156,9 @@ class GPTOSSMini(GenerationMixin, nn.Module):
             if layer_cache is not None and self.is_swa(i):
                 # 窗口外的 K/V 再也不会被看到 → 丢掉 (K 已带 RoPE 绝对位置, 裁剪不会错位)。
                 # full 层不裁: 它们就是为 "直达任意远处" 而留的。
-                layer_cache["k"] = layer_cache["k"][:, :, -self.window_size:]
+                layer_cache["k"] = layer_cache["k"][:, :, -self.window_size:]   # [B, Hkv, ≤W, Dh]
                 layer_cache["v"] = layer_cache["v"][:, :, -self.window_size:]
         if cache is not None:
-            cache.pos += T
+            cache.pos += T                                               # 位置照常累加, 与裁剪无关
 
-        return self.lm_head(self.ln_f(x)), all_routing_info
+        return self.lm_head(self.ln_f(x)), all_routing_info              # logits [B, T, V]

@@ -1,9 +1,9 @@
 # M11 — FlashAttention: 分块 + online softmax, 永不落地 (T,T) 矩阵
 
 ## 直觉
-朴素 attention 要把 `S = QKᵀ` 和 `P = softmax(S)` 两张 (T,T) 矩阵写进 HBM 再读回来;
+朴素 attention 要把 `S = QKᵀ` 和 `P = softmax(S)` 两张 (T,T) 矩阵写进 HBM (GPU 显存, 大但读写慢) 再读回来;
 T=4096 就是 16M 元素/头, 慢的不是算, 是搬。FlashAttention 把 Q、K/V **都**切成小块,
-每次只在 SRAM 里算一块 (b_q, b_k), 用 logsumexp 把各块结果精确地"接"起来。
+每次只在 SRAM (GPU 片上缓存, 小但快) 里算一块 (b_q, b_k), 用 logsumexp 把各块结果精确地"接"起来。
 softmax 看似需要整行的全局分母, 但分母可以增量维护 —— 这就是全部技巧。
 
 ## 核心数据结构或公式
@@ -32,7 +32,7 @@ python -m llm_infer.m11_flash_attention.demo
       256      6        4        6    37.5%        4,096      65,536     16x
      1024    120       16      120    46.9%        4,096   1,048,576    256x
      4096   2016       64     2016    49.2%        4,096  16,777,216   4096x
-[4] merge(O1,lse1,O2,lse2) vs 全量: max|ΔO| = 1.16e-07, max|Δlse| = 5.12e-07
+[4] merge(O1,lse1,O2,lse2) vs 全量: max|ΔO| = 2.68e-07, max|Δlse| = 5.12e-07
     反例 (O1+O2)/2               : max|ΔO| = 2.12e-01
 ```
 基线是 `core.dense_attention`; 跳过块数 assert 为 n(n-1)/2 (n = T/64), 峰值 assert 恒为 64×64。

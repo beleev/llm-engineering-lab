@@ -1,1 +1,1 @@
-"""General LLM evaluation (perplexity, contamination, pass@k, judge position bias) demo."""
+"""通用 LLM 评测 (困惑度, 数据污染, pass@k, 裁判的位置偏差) 演示。"""

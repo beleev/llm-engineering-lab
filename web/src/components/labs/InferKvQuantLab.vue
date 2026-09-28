@@ -7,12 +7,12 @@
     title="KV 量化 — per-tensor / per-token / per-channel 谁背离群值的锅"
     sub="- 最左: 16 个 token × 12 个通道的 K 矩阵, 一行 = 一个 token。点某一列, 把它变成 / 取消「固定离群通道」(每个 token 在这一维都是大值)。
       - 右边三张: 三种分组下的量化误差 $|K - \hat{K}|$, 同一色标。
-      悬停任意格子, 看它的 scale。"
+      悬停或点任意格子, 看它的 scale。"
     module="llm_infer/m08"
     run="python -m llm_infer.m08_quantization.demo"
     :challenge="{
-      ask: 'K 型 + INT4: 三种分组谁误差最小? 先猜再看。然后切到 V 型 (没有固定离群通道, 但各 token 幅度差别大), 排名变了吗? 最后在 K 型下把比特数拖到 2。',
-      answer: 'K 型: per-channel 最好。离群通道在所有 token 上都大。\n- per-token 分组: 每一行都含这几个离群值, 每行的 scale 都被撑大, 其余通道只剩一两个格点。\n- per-channel 分组: 把离群值关在自己那一列, 别的列用各自的小 scale。\nV 型反过来: 没有固定离群列, 但 token 之间幅度差别大, 按行分组正好隔离大 token。新 token 写入时还能独立量化, 对流式追加友好。\n这就是 KIVI 的「K per-channel, V per-token」。\n比特越低差距越大: 真实 demo 里 INT4 的 K 误差 per-channel 0.026 vs per-token 0.18; 到 2 bit 时, 分错组基本不可用。',
+      ask: 'K 型 + INT4: 三种分组谁误差最小? 先猜再看。',
+      answer: 'K 型: per-channel 最好。离群通道在所有 token 上都大。\n- per-token 分组: 每一行都含这几个离群值, 每行的 scale 都被撑大, 其余通道只剩一两个格点。\n- per-channel 分组: 把离群值关在自己那一列, 别的列用各自的小 scale。\n切到 V 型, 排名反过来: 没有固定离群列, 但 token 之间幅度差别大, 按行分组正好隔离大 token。新 token 写入时还能独立量化, 对流式追加友好。\n这就是 KIVI 的「K per-channel, V per-token」。\n在 K 型下把比特数拖到 2, 差距更大。比特越低差距越大: 真实 demo 里 INT4 的 K 误差 per-channel 0.026 vs per-token 0.18; 到 2 bit 时, 分错组基本不可用。',
     }"
   >
     <template #controls>
@@ -37,7 +37,7 @@
           <rect v-for="c in D" :key="c" :x="(c - 1) * CS" :y="28 + (t - 1) * CS" :width="CS - 1" :height="CS - 1"
             :style="{ fill: k === 0 ? valColor(q.K[t - 1][c - 1]) : heat(Math.abs(q.K[t - 1][c - 1] - q.hats[k - 1][t - 1][c - 1]) / q.eMax, 'var(--danger)') }"
             :class="['c', { hov: hover && hover.t === t - 1 && hover.c === c - 1, clk: k === 0 }]"
-            @mouseenter="hover = { t: t - 1, c: c - 1 }" @click="k === 0 && toggle(c - 1)" />
+            @mouseenter="hover = { t: t - 1, c: c - 1 }" @click="tap(k, t - 1, c - 1)" />
         </g>
       </g>
     </svg>
@@ -47,10 +47,9 @@
       <div v-for="(n, i) in NAMES" :key="n" class="kv">
         <span>{{ n }} 相对误差</span><b :class="i === bestI ? 'good' : i === worstI ? 'bad' : ''">{{ q.errs[i].toFixed(4) }}</b>
       </div>
-      <div class="kv"><span>scale 组数 (tensor / token / channel)</span><b>1 / {{ T }} / {{ D }}</b></div>
       <div class="kv"><span>per-token ÷ per-channel 误差</span><b>{{ (q.errs[1] / q.errs[2]).toFixed(1) }}×</b></div>
       <div class="lab-note">
-        <p>★ 三种分组只差 "在哪个维度上统计 min/max": 全体 / 每行 / 每列。</p>
+        <p>★ 三种分组只差 "在哪个维度上统计 min/max": 全体 / 每行 / 每列。scale 组数分别是 1 / {{ T }} / {{ D }}。</p>
         <p><Tex text="量化器本身 (非对称 RTN: $q = \mathrm{round}((x - \text{lo})/\text{scale})$) 完全一样。相对误差 $= \|K - \hat{K}\|_F / \|K\|_F$。" /></p>
         <p>V 型是玩具假设: 无固定离群列, 各 token 幅度服从对数正态。</p>
       </div>
@@ -71,6 +70,7 @@ const PANELS = [{ id: 'k', label: 'K (点列 = 切换离群通道)' }, ...NAMES.
 const kind = ref('K'), bits = ref(4), mag = ref(8), seed = ref(1), hover = ref(null)
 const outs = ref(new Set([3, 9]))
 const toggle = (c) => { const s = new Set(outs.value); s.has(c) ? s.delete(c) : s.add(c); outs.value = s }
+const tap = (k, t, c) => { hover.value = { t, c }; if (k === 0) toggle(c) }   // 点一下也能看 scale, 触屏没有悬停
 const setKind = (k) => { kind.value = k; outs.value = new Set(k === 'K' ? [3, 9] : []) }
 
 // 同一个非对称 min/max 量化器, 输入是"共用一组 scale 的那些数"

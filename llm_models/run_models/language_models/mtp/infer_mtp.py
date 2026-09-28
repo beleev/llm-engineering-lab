@@ -25,25 +25,29 @@ def main():
 
     n_llama = sum(p.numel() for p in llama.parameters())
     n_mtp = sum(p.numel() for p in mtp.parameters())
-    n_block = sum(p.numel() for p in llama.layers[0].parameters())
-    assert n_mtp - n_llama == 2 * D * D + n_block + 3 * D
+    n_block = sum(p.numel() for p in llama.layers[0].parameters())   # 一个 Block 的参数量
+    assert n_mtp - n_llama == 2 * D * D + n_block + 3 * D, \
+        "每级 MTP 多出的参数应为: 拼接投影 2D·D + 1 个 Block + 3 个 RMSNorm (各 D)"
     print(f"[1] LLaMA {n_llama:,} → MTPLLaMA {n_mtp:,} (+{(n_mtp - n_llama) / n_llama:.1%}; "
-          f"玩具主干只有 2 层所以占比大, DeepSeek-V3 61 层上仅 ~2%)")
+          f"玩具主干只有 {common['num_layers']} 层所以占比大, DeepSeek-V3 61 层上仅 ~2%)")
 
     idx = torch.randint(1, vocab_size, (2, T))
     out = mtp(idx)
-    assert out["logits"].shape == (2, T, vocab_size)
-    assert [tuple(l.shape) for l in out["mtp_logits"]] == [(2, T, vocab_size)]
-    draft_1 = int(out["logits"][0, -1].argmax())
-    draft_2 = int(out["mtp_logits"][0][0, -1].argmax())
-    print(f"[2] 一次前向拿到 2 个草稿 token: t+1={draft_1}, t+2={draft_2} (投机解码的 draft 来源)")
+    assert out["logits"].shape == (2, T, vocab_size), "主 logits 形状应为 [B, T, V]"
+    assert [tuple(l.shape) for l in out["mtp_logits"]] == [(2, T, vocab_size)], \
+        "mtp_depth=1 时应只有 1 路 MTP logits, 形状 [B, T, V]"
+    draft_1 = int(out["logits"][0, -1].argmax())               # 第 0 条样本、最后一个位置: 预测 t+1
+    draft_2 = int(out["mtp_logits"][0][0, -1].argmax())        # 第 0 路 MTP 的同一位置: 预测 t+2
+    n_draft = 1 + len(out["mtp_logits"])                         # 主头 1 个 + 每路 MTP 各 1 个
+    print(f"[2] 一次前向拿到 {n_draft} 个草稿 token: t+1={draft_1}, t+2={draft_2} (投机解码的 draft 来源)")
 
     llama.load_state_dict(mtp.state_dict(), strict=False)      # 只拷主干 (多出来的 mtp_modules.* 被忽略)
-    assert torch.equal(llama(idx), out["logits"])
+    assert torch.equal(llama(idx), out["logits"]), "MTP 支路改变了主干: 主 logits 应与同权重的纯 LLaMA 完全相同"
     print("[3] 主 logits 与同权重 LLaMA 完全相同 → MTP 模块可零成本丢弃")
 
-    speedup = benchmark_kv_cache(mtp, idx[:, :8], max_new_tokens=200)
-    print(f"[4] 生成 200 token: 有/无 cache 输出一致, 加速 {speedup:.1f}x")
+    n_gen = 200
+    speedup = benchmark_kv_cache(mtp, idx[:, :8], max_new_tokens=n_gen)
+    print(f"[4] 生成 {n_gen} token: 有/无 cache 输出一致, 加速 {speedup:.1f}x")
 
 
 if __name__ == "__main__":

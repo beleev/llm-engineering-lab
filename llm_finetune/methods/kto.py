@@ -10,9 +10,10 @@ KTO — Kahneman-Tversky Optimization (Ethayarajh et al., 2024)
                     λ_U·σ(β(z0 − r))   若 y 是坏回复
            L = E[ λ_y − v(x,y) ]
            直觉: 前景理论的 "价值函数" —— 好回复的收益要高过参考点, 坏回复的损失要低于参考点; σ 让收益 / 损失都饱和。
-读代码时盯住: `z0` —— 它用 **错配的** (x_i, y_{i+1}) 估, 不是本条样本; 且 detach。
+读代码时盯住: `z0` —— 它用 **错配的** (x_i, y_{i−1}) 估, 不是本条样本; 且 detach。
               正是这个参考点让单条样本也有 "比什么好" 的基准, 代替了 DPO 里的 "对面那条"。
 类别不均: 论文建议 λ_D·n_D / (λ_U·n_U) ∈ [1, 4/3], 即少数类的权重按比例调高。
+本库的做法 (简化): 错配固定为 "同一个 batch 里回复整体往下挪一行" (`resp.roll(1, dims=0)`), 第 i 个 prompt 配到第 i−1 条回复。
 """
 
 from typing import Dict
@@ -29,20 +30,24 @@ class UnpairedDataGenerator(SyntheticDataGenerator):
     """
     把偏好对拆开: 每个 prompt 只给**一条**回复 —— 以 desirable_frac 的概率给正确回复 (好), 否则给损坏回复 (坏)。
     同一个 prompt 永远不会同时出现好和坏, 所以 DPO 在这份数据上一对也凑不出来。
-    另外附一份错配的 (x_i, y_{i+1}), 只用来估 z0。
+    另外附一份错配的 (x_i, y_{i−1}), 只用来估 z0。
+
+    每步产出: input_ids [B, P+R] 本条样本; kl_input_ids [B, P+R] 错配样本;
+              labels = {"sample": [B, P+R], "kl": [B, P+R], "desirable": bool [B] (True = 好回复)}。
     """
 
     def __init__(self, task: SeqTask, batch_size: int = 128, desirable_frac: float = 0.5, split: str = "train") -> None:
         self.task, self.batch_size, self.desirable_frac, self.split = task, batch_size, desirable_frac, split
-        self.fixed = False
+        self.fixed = False                 # 基类的缓存开关。False = 每步重新采样; True 会把第一个 batch 缓存下来反复用
 
     def _sample(self) -> Dict[str, torch.Tensor]:
         P = self.task.prompt_len
         prompts = self.task.sample_prompts(self.batch_size, self.split)                 # [B, P]
-        good = self.task.target(prompts)
+        good = self.task.target(prompts)                                                # [B, R]
         desirable = torch.rand(self.batch_size) < self.desirable_frac                   # [B]
         resp = torch.where(desirable.unsqueeze(1), good, self.task.corrupt(good))      # [B, R]
-        ids, labels = make_labels(torch.cat([prompts, resp], dim=1), P)
+        ids, labels = make_labels(torch.cat([prompts, resp], dim=1), P)                 # [B, P+R] ×2
+        # roll(1): 第 i 行拿到原来第 i−1 行的回复 (第 0 行拿到最后一行的)
         kl_ids, kl_labels = make_labels(torch.cat([prompts, resp.roll(1, dims=0)], dim=1), P)   # 回复错配到别的 prompt
         return {"input_ids": ids, "kl_input_ids": kl_ids,
                 "labels": {"sample": labels, "kl": kl_labels, "desirable": desirable}}
@@ -57,6 +62,15 @@ class KTOForward(PairwiseForward):
 
 
 class KTOLoss(LossComputer):
+    """
+    beta:     σ 里的缩放 β。越大 σ 越早饱和: 奖励离参考点 z0 稍远的样本就几乎没有梯度。
+    lambda_d: 好回复 (desirable) 的权重 λ_D。
+    lambda_u: 坏回复 (undesirable) 的权重 λ_U。好坏数量不均时调这两个, 见文件头 "类别不均"。
+
+    model_output = KTOForward 的输出 {"sample", "kl", "ref_sample", "ref_kl"}, 各是 logits [B, T, V]。
+    返回里的 "z0" 是 clamp 之后的参考点, "kl_estimate" 是 clamp 之前的原始均值 (可能为负)。
+    """
+
     def __init__(self, beta: float = 0.1, lambda_d: float = 1.0, lambda_u: float = 1.0) -> None:
         self.beta, self.lambda_d, self.lambda_u = beta, lambda_d, lambda_u
 
@@ -66,10 +80,11 @@ class KTOLoss(LossComputer):
         r = logp["sample"] - logp["ref_sample"]                                         # [B]
         kl_est = (logp["kl"] - logp["ref_kl"]).mean().detach()                          # 可能为负: y' 不是从 π_θ 采的
         z0 = kl_est.clamp(min=0)                                                        # 标量参考点
-        d = labels["desirable"]
+        d = labels["desirable"]                                                         # bool [B], True = 好回复
+        # 价值 v [B]: 好回复希望 r 高过 z0, 坏回复希望 r 低于 z0
         v = torch.where(d, self.lambda_d * torch.sigmoid(self.beta * (r - z0)),
                         self.lambda_u * torch.sigmoid(self.beta * (z0 - r)))
-        lam = torch.where(d, torch.tensor(self.lambda_d), torch.tensor(self.lambda_u))
+        lam = torch.where(d, torch.tensor(self.lambda_d), torch.tensor(self.lambda_u))  # [B] 每条样本自己的 λ_y
         return {
             "total_loss": (lam - v).mean(),
             "z0": z0,

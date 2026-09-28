@@ -14,7 +14,7 @@ ring all-reduce 每 rank 发送 `2(N-1)/N · |g|` 字节。
 local grad 彼此不同            = 1.818
 梯度大小                       = 56 B
 通信量                         = 84 B/rank  [all_reduce×2=84B]     ← 2·(3/4)·56
-max |single - ddp| after step = 3.73e-09
+更新一步后 max |single - ddp| = 3.73e-09
 ```
 断言还检查 4 个副本逐位相同。
 

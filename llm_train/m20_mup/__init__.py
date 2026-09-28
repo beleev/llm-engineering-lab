@@ -1,1 +1,1 @@
-"""muP (maximal update parametrization) learning-rate transfer demo."""
+"""μP (maximal update parametrization) 学习率迁移演示。"""

@@ -28,13 +28,16 @@ agent 的全部"状态"其实就是 messages 列表; 它只活在内存里, 进�
        hook 返回的文字若已在历史的 session_start 消息里 → 不再注入
 ```
 
-关键设计决策:
+关键设计:
 
 - **只追加、不改写**。写入逻辑只有 open("a") + 一行 JSON, 已写的行永不变化, 审计链天然完整; 代价是文件只增不减。
 - **先记录意图, 再执行**。assistant 的 `tool_use` 在工具运行之前就落盘, 即使工具执行中进程崩溃, 日志里也有"模型要求了这一步"。
 - **恢复上下文 ≠ 恢复授权**。`PermissionGate` 根本不在 JSONL 里; 新会话必须自己传一个新的门。demo 里会话 A 是 `auto`, 会话 B 退回 `default`, 写笔记要重新问"人"。上一次的"同意"是对当时情境的同意, 不是永久授权。
 - **tool_use id 跨会话续号**。toy LLM 不带 id, 由 agent 分配 `toolu_NNNN`; 从 `load_all()` (全量历史, 而非压缩后的视图) 计数, 保证压缩后也不会与旧 id 撞号。
-- **压缩不删历史**。`append_compact(summary, kept)` 追加一条 `compact_boundary` 记录; `load()` 遇到它就把视图换成"摘要 + 保留的尾部", `load_all()` 则跳过 boundary 返回全部原始消息。本模块的 demo 不触发压缩, 演示在 m14。
+- **压缩不删历史**。`append_compact(summary, kept)` 追加一条 `compact_boundary` 记录:
+  - `load()` 遇到它就把视图换成"摘要 + 保留的尾部"。
+  - `load_all()` 跳过 boundary, 返回全部原始消息。
+  - 本模块的 demo 不触发压缩, 演示在 m14。
 
 ## 运行后应该看到什么
 
@@ -43,7 +46,7 @@ cd <仓库根目录> && python3 -m llm_agent.m06_persistence_resume.demo
 ```
 
 ```
-[raw jsonl]
+[JSONL 原文]
   {"role": "system", "content": "Policy: answer in Chinese.", "name": "session_start"}
   {"role": "user", "content": "搜索 agent loop", "name": null}
   {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0001", "name": "search_docs", "input": {"query": "搜索 agent loop"}}], "name": null}
@@ -54,7 +57,10 @@ cd <仓库根目录> && python3 -m llm_agent.m06_persistence_resume.demo
   [session-B] turn 1: model -> tool_use toolu_0002 write_note {'text': 'agent_loop: Agent loop uses messages, tools, permissions and persistence.'}
   [session-B] permission write_note -> allow (human: default mode asks for unknown action; approved)
   [session-B] tool_result toolu_0002 -> note[1] saved
-  jsonl lines             : 9
+  JSONL 行数                : 9
+
+[3] 崩在 tool_use 之后: resume 补上占位结果并写回 JSONL, 连续 resume 两次
+  占位结果                    : interrupted: session ended before this tool returned
 ```
 
 断言验证的内容:
@@ -65,14 +71,21 @@ cd <仓库根目录> && python3 -m llm_agent.m06_persistence_resume.demo
 - `validate_transcript(agent_b.messages) == []`: 跨会话拼接后的 transcript 仍是合法的 tool_use / tool_result 配对序列。
 - `session_start` hook 收到的 source 依次是 `["startup", "resume"]`, 但 transcript 里的 `session_start` 消息只有 1 条。
 - tool_use id 为 `["toolu_0001", "toolu_0002"]`, 跨会话续号。
+- [3] 日志最后一行是悬空的 `tool_use` 时, 连续 resume 两次, 每次读回的 transcript 都通过 `validate_transcript`; JSONL 里正好多出 1 条 `is_error` 的占位结果, 全量记录的配对也合法。
 
 输出里 `permission write_note -> allow (human: ...)` 说明会话 B 的写操作是重新问出来的, 不是从 A 继承的。
 
 ## 与真实系统的差距
 
-- 没有 fsync、没有文件锁: 断电可能丢不止一行; 两个进程同时 resume 同一文件会交错写。容错只有两条: `load()` 跳过写了一半的坏行; resume 时若最后一条是没有结果的 `tool_use` (崩在调用与结果之间), `Agent` 会丢掉它。
-- 崩溃在 `tool_use` 落盘之后、`tool_result` 落盘之前, 会留下悬空的 `tool_use`; resume 时代码不会自动修复 (`validate_transcript` 只在 demo 里调用, `Agent` 加载时不检查), 这样的 transcript 直接发给真实 Messages API 会被拒绝。
-- "block 格式与 Messages API 一致"不等于"整个文件可原样发送": JSONL 里有 role 为 `system` 的 harness 注入消息和 `name` 字段, API 的 messages 数组不接受; 发送前要经 `core/claude_llm.py: to_api_messages` 转换 (开头的 system → 顶层 `system` 参数, 中途的 system → user 侧 `<system-reminder>` 文本, 相邻同角色合并)。
+- 没有 fsync、没有文件锁: 断电可能丢不止一行; 两个进程同时 resume 同一文件会交错写。
+- 容错只有两条:
+  - `load()` 跳过写了一半的坏行。
+  - 崩溃在 `tool_use` 落盘之后、`tool_result` 落盘之前, 会留下悬空的 `tool_use`。resume 时若它是最后一条, `Agent` 给每个悬空调用补一条 `is_error` 的占位 `tool_result`, 并写进 JSONL。
+- 占位结果写回盘上, 所以第二次 resume 读到的也是配好对的 transcript。JSONL 只追加, 删不掉那行 `tool_use`, 只能补结果。
+- `Agent` 只检查最后一条消息。文件中间的配对错误 (手工改坏的日志) 不修; `validate_transcript` 只在 demo 里调用。
+- "block 格式与 Messages API 一致"不等于"整个文件可原样发送":
+  - JSONL 里有 role 为 `system` 的 harness 注入消息和 `name` 字段, API 的 messages 数组不接受。
+  - 发送前要经 `core/claude_llm.py: to_api_messages` 转换: 开头的 system → 顶层 `system` 参数, 中途的 system → user 侧 `<system-reminder>` 文本, 相邻同角色合并。
 - 每行只有 role / content / name: 没有时间戳、session id、消息 uuid / parent 链、模型名、usage、cwd; Claude Code 的会话文件带这些元数据, 才能支持会话列表、分叉与回退。
 - 没有会话发现机制 (`claude --resume` 的选择列表、`--continue` 取最近一次); 这里要手动给路径。
 - 只持久化了对话。工具侧的外部状态 (demo 里的 `notes` 列表、真实系统里的文件改动) 不在 JSONL 里, resume 不会回滚或重放它们。
@@ -104,6 +117,6 @@ cd <仓库根目录> && python3 -m llm_agent.m06_persistence_resume.demo
 3. 为什么 assistant 的 `tool_use` 消息要在 `_run_tools` 之前就 `_append`, 而不是等结果出来再一起写?
 <details><summary>答案</summary>
 
-append-only 日志的价值在于崩溃时也完整。工具执行可能卡死、抛错或让进程退出; 先写意图, 日志里至少留下"模型要求了什么", 事后能定位到出事的那一步。代价是可能留下没有配对 `tool_result` 的悬空 `tool_use`, 真实系统要在 resume 时补一条错误结果或裁掉它。
+append-only 日志的价值在于崩溃时也完整。工具执行可能卡死、抛错或让进程退出; 先写意图, 日志里至少留下"模型要求了什么", 事后能定位到出事的那一步。代价是可能留下没有配对 `tool_result` 的悬空 `tool_use`。本库在 resume 时给它补一条错误结果并写回 JSONL (demo [3])。
 
 </details>

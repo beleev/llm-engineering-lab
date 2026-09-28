@@ -9,7 +9,8 @@
   <LabFrame
     title="GRPO → Dr.GRPO → DAPO: 每个 token 到底分到多少梯度"
     sub="同一个 prompt 采了 6 条回答。点左边的 ✓/✗ 改对错 (可验证奖励 0/1), 拖每条的右端改长度。
-      条越浓, 这条回答里每个 token 分到的梯度权重越大。绿 = 推高, 红 = 压低。"
+      条越浓, 这条回答里每个 token 分到的梯度权重越大。绿 = 推高, 红 = 压低。
+      这里看的是「优势怎么分给每个 token」。奖励怎么变成优势, 见「RM · GRPO · 蒸馏」一章的 GRPO 入门实验台。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{

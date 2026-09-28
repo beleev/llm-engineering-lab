@@ -1,13 +1,18 @@
 <template>
   <div class="app" :class="{ 'nav-open': navOpen }" :style="{ '--side-w': `${sideW}px` }">
+    <!-- 键盘用户的第一个 Tab 停在这里, 回车直接进正文, 不用先走完整个侧栏。
+         用按钮不用 <a href="#main">: 站点是 hash 路由, 地址栏变成 #main 会被当成换页 -->
+    <button type="button" class="skip-link" @click="skipToMain">跳到正文</button>
     <!-- 窄屏: 顶栏 + 抽屉式侧栏 -->
     <header class="topbar">
-      <button type="button" class="hamburger" :aria-expanded="navOpen" aria-controls="sidebar" aria-label="打开章节导航" @click="navOpen = !navOpen">☰</button>
+      <button ref="burger" type="button" class="hamburger" :aria-expanded="navOpen" aria-controls="sidebar"
+              :aria-label="navOpen ? '关闭章节导航' : '打开章节导航'" @click="navOpen = !navOpen">{{ navOpen ? '✕' : '☰' }}</button>
       <span class="topbar-title">{{ route.meta.title || 'LLM 全栈教程' }}</span>
     </header>
     <div class="backdrop" @click="navOpen = false" />
 
-    <aside id="sidebar" class="sidebar">
+    <!-- 窄屏抽屉关着时整个侧栏 inert: 看不见的 90 多个链接不进 Tab 顺序, 读屏也不读 -->
+    <aside id="sidebar" class="sidebar" :inert="(narrow && !navOpen) || null">
       <div class="brand">
         <div class="brand-row">
           <h1>LLM 全栈教程</h1>
@@ -23,9 +28,10 @@
           </button>
         </div>
         <p>原理、架构、训练、微调、推理、Agent 六段闭环</p>
-        <div class="progress" :title="`已读 ${readCount} / ${learningPath.length} 章`">
-          <div class="progress-bar"><span :style="{ width: `${(readCount / learningPath.length) * 100}%` }" /></div>
-          <span class="mono">{{ readCount }}/{{ learningPath.length }}</span>
+        <div class="progress" :title="`已读 ${readCount} / ${chapters.length} 章`">
+          <div class="progress-bar"><span :style="{ width: `${(readCount / chapters.length) * 100}%` }" /></div>
+          <span class="mono">已读 {{ readCount }}/{{ chapters.length }}</span>
+          <button type="button" class="reset-progress" aria-label="重置进度" title="清空已读记录和自测成绩" @click="resetProgress">重置</button>
         </div>
         <a class="repo-link" :href="repoUrl()" target="_blank" rel="noopener">
           <span class="gh-icon" aria-hidden="true">↗</span>
@@ -39,8 +45,15 @@
           <button
             v-for="l in LEVELS" :key="l.id" type="button"
             :class="['level-btn', 'lv', `lv-${l.id}`, { active: level === l.id }]"
+            :aria-pressed="level === l.id"
             :title="l.hint" @click="progress.setLevel(l.id)"
-          >{{ l.label }}</button>
+          >{{ l.label }} {{ levelCount(l.id) }}</button>
+        </div>
+        <!-- 图例常显: 触屏没有悬停, 只写在 title 里的说明永远看不到 -->
+        <div class="level-legend">
+          <p>{{ levelNow.label }}档: {{ levelNow.hint }}, 共 {{ levelCount(level) }} 章。侧栏和翻章都按这一档走。</p>
+          <p><span class="tier-dot core">★</span>冲刺 <span class="tier-dot core">●</span>主干 <span class="tier-dot ext">○</span>扩展</p>
+          <p><span class="mark done">✓</span> 自测全对 <span class="mark">已读</span> 打开过这一章</p>
         </div>
         <router-link :to="{ name: 'fast-track' }" class="nav-link fast">
           <span class="idx">→</span>
@@ -98,11 +111,11 @@
                   {{ c.label }}
                 </span>
                 <span v-if="progress.isMastered(c.route)" class="mark done" title="自测全对">✓</span>
-                <span v-else-if="progress.isVisited(c.route)" class="mark" title="已读">•</span>
+                <span v-else-if="progress.isVisited(c.route)" class="mark" title="打开过这一章">已读</span>
               </router-link>
 
               <p v-if="hiddenCount(s)" class="more-hint">
-                还有 {{ hiddenCount(s) }} 章扩展内容, 切到「全部」可见
+                本档位外还有 {{ hiddenCount(s) }} 章, 切到「全部」可见
               </p>
 
               <!-- planned: 灰显, 不可点击 -->
@@ -128,7 +141,8 @@
         <div class="section-label">关于</div>
         <div class="footer">
           <p>六个目录已接入 Web 教程, 每章都对照原始代码阅读。</p>
-          <p>键盘 ← / → 翻章。进度只存在本机浏览器。</p>
+          <p>键盘 ← / → 翻章, 按当前档位走。</p>
+          <p>进度只存在本机浏览器, 进度条旁的「重置」可以清空。</p>
         </div>
       </nav>
     </aside>
@@ -138,7 +152,7 @@
          @pointerdown.prevent="startResize" @dblclick="sideW = SIDE_DEFAULT"
          @keydown.left.prevent="sideW -= 16" @keydown.right.prevent="sideW += 16" />
 
-    <main class="main">
+    <main id="main" ref="mainEl" class="main" tabindex="-1">
       <router-view v-slot="{ Component, route }">
         <div v-if="route.meta.chapter" class="breadcrumb">
           {{ route.meta.chapter }} · {{ route.meta.title }}
@@ -162,6 +176,7 @@ import { learningPath, stages } from '@/data/models.js'
 import { LEVELS, TIER_META, inLevel, isSprint, tierOf } from '@/data/tiers.js'
 import { repoUrl } from '@/utils/repo.js'
 import { useProgress } from '@/composables/useProgress.js'
+import { useChapterNav } from '@/composables/useChapterNav.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -169,7 +184,18 @@ const route = useRoute()
 // ── 学习进度 + 窄屏抽屉 ─────────────────────────────────────────────
 const progress = useProgress()
 const navOpen = ref(false)
+const burger = ref(null)
+const mainEl = ref(null)
+const skipToMain = () => mainEl.value?.focus()
+// 侧栏是不是抽屉形态, 和 main.css 里的 900px 断点保持一致
+const narrowQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 900px)') : null
+const narrow = ref(!!narrowQuery?.matches)
+const onNarrow = (e) => { narrow.value = e.matches }
 const level = computed(() => progress.state.level)
+const levelNow = computed(() => LEVELS.find((l) => l.id === level.value) || LEVELS[LEVELS.length - 1])
+// 章节数的口径: learningPath 去掉序章 (home), 共 86 章
+const chapters = learningPath.filter((p) => p.route !== 'home')
+const levelCount = (id) => chapters.filter((c) => inLevel(c.route, id)).length
 // 当前所在章即使不在档位里也要显示, 否则筛选会让人丢失位置
 const shown = (s) => (s.chapters || []).filter((c) => inLevel(c.route, level.value) || c.route === route.name)
 const hiddenCount = (s) => (s.chapters || []).length - shown(s).length
@@ -192,21 +218,41 @@ const startResize = () => {
   document.body.classList.add('side-resizing')
 }
 
-const readCount = computed(() => learningPath.filter((p) => progress.isVisited(p.route)).length)
+const readCount = computed(() => chapters.filter((p) => progress.isVisited(p.route)).length)
 watch(() => route.name, (name) => { progress.visit(name); navOpen.value = false }, { immediate: true })
-
-// ── 键盘 ← / → 翻章 (焦点在输入控件里时不抢键, 否则滑杆没法用方向键) ────
-const onKey = (e) => {
-  if (e.altKey || e.ctrlKey || e.metaKey) return
-  // 实验台里的拖拽手柄、目录拖宽把手自己处理方向键 (.prevent), 这里不再翻章
-  if (e.defaultPrevented || e.target.closest?.('[role="slider"], [role="separator"]')) return
-  if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return
-  const i = learningPath.findIndex((p) => p.route === route.name)
-  const to = e.key === 'ArrowRight' ? learningPath[i + 1] : e.key === 'ArrowLeft' ? learningPath[i - 1] : null
-  if (i >= 0 && to) router.push({ name: to.route })
+const resetProgress = () => {
+  if (!window.confirm('清空已读记录和自测成绩? 阅读档位和主题不受影响。清空后找不回来。')) return
+  progress.reset()
+  progress.visit(route.name)      // 眼前这一章正开着, 仍算打开过
 }
-onMounted(() => window.addEventListener('keydown', onKey))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+// ── 键盘: Esc 关抽屉, ← / → 翻章 ─────────────────────────────────────
+const { prev, next } = useChapterNav()
+const onKey = (e) => {
+  if (e.key === 'Escape' && navOpen.value) {
+    navOpen.value = false
+    burger.value?.focus()         // 侧栏随即变 inert, 焦点要先挪出来
+    return
+  }
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+  // Shift+→ 是扩选文字; 按住不放会一口气翻过一串章并全记成已读
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat || e.defaultPrevented) return
+  // 只在焦点没落在任何控件上时翻章 (页面本身、正文容器、普通链接)。
+  // 滑杆、按钮、<summary>、SVG 里带 tabindex 的节点都有自己的方向键用法, 不抢。
+  const t = e.target
+  const free = t === document.body || t === document.documentElement || t === mainEl.value || t.tagName === 'A'
+  if (!free) return
+  const to = e.key === 'ArrowRight' ? next.value : prev.value
+  if (to) router.push({ name: to.name })
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  narrowQuery?.addEventListener?.('change', onNarrow)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  narrowQuery?.removeEventListener?.('change', onNarrow)
+})
 
 const subIdx = (stage, route) =>
   (stage.chapters || []).findIndex(c => c.route === route) + 1
@@ -272,8 +318,21 @@ const toggleTheme = () => { theme.value = theme.value === 'dark' ? 'light' : 'da
   color: var(--accent);
   border-color: var(--accent);
 }
-.level-bar { display: flex; gap: 4px; padding: 0 24px 10px; }
+.skip-link {
+  position: fixed; z-index: 100; left: 8px; top: 8px; padding: 8px 14px;
+  background: var(--accent); border-color: var(--accent); color: #fff; font-size: 13px;
+  transform: translateY(-200%);
+}
+.skip-link:focus, .skip-link:active { transform: none; }
+.main:focus { outline: none; }
+.level-bar { display: flex; gap: 4px; padding: 0 24px 6px; }
 .level-btn { flex: 1; min-height: 28px; padding: 3px 0; font-size: 11px; border-radius: var(--radius-sm); }
+.level-legend { padding: 0 24px 10px; font-size: 10.5px; line-height: 1.7; color: var(--text-muted); }
+.level-legend .tier-dot { margin: 0 3px 0 6px; }
+.level-legend .tier-dot:first-child { margin-left: 0; }
+.level-legend .mark { margin: 0 2px 0 8px; }
+.level-legend .mark:first-child { margin-left: 0; }
+.reset-progress { min-height: 0; padding: 1px 6px; font-size: 10px; color: var(--text-muted); background: transparent; }
 .nav-link.fast { color: var(--accent); font-size: 12.5px; }
 .chapter-label { min-width: 0; }
 .tier-dot { font-size: 9px; margin-right: 5px; vertical-align: 1px; }
@@ -287,8 +346,8 @@ const toggleTheme = () => { theme.value = theme.value === 'dark' ? 'light' : 'da
 .progress { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 10px; color: var(--text-dim); }
 .progress-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
 .progress-bar span { display: block; height: 100%; background: var(--left); transition: width 0.3s; }
-.mark { margin-left: auto; font-size: 11px; color: var(--text-dim); }
-.mark.done { color: var(--left); }
+.mark { margin-left: auto; flex: 0 0 auto; font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+.mark.done { font-size: 11px; color: var(--left); }
 .repo-link {
   display: inline-flex;
   align-items: center;

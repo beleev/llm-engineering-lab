@@ -17,22 +17,25 @@ import numpy as np
 from llm_infer.core import dense_attention, rms_norm
 from llm_infer.core.tiny_model import apply_rope, precompute_rope
 
-MAX_T = 256
+MAX_T = 256               # RoPE 表预计算的长度, demo 里的序列都比它短
 
 
 # ---- (a) 显存公式 ----------------------------------------------------- #
 
 def kv_bytes_per_token(n_kv: int, d_head: int, n_layer: int, nbytes: int = 2) -> int:
+    """MHA / GQA / MQA 每个 token 的 KV 字节数。nbytes: 每个元素几个字节, 默认 2 = fp16。"""
     return 2 * n_kv * d_head * n_layer * nbytes          # 2 = K 和 V
 
 
 def mla_bytes_per_token(d_c: int, d_rope: int, n_layer: int, nbytes: int = 2) -> int:
+    """MLA 每个 token 的 cache 字节数: 一个 latent (d_c) + 一个共享 RoPE key (d_rope)。"""
     return (d_c + d_rope) * n_layer * nbytes             # 没有 "2·": K/V 共用同一个 latent
 
 
 # ---- (b) MHA / GQA / MQA: 一条代码路径 ---------------------------------- #
 
 def _rand(rs, *shape):
+    """随机权重, std = 1/√fan_in。最后 astype 回 fp32 (除以 np.sqrt 的结果是 fp64)。"""
     return (rs.randn(*shape) / np.sqrt(shape[0])).astype(np.float32)
 
 
@@ -40,7 +43,7 @@ class GQALayer:
     """n_kv == n_head → MHA; 1 < n_kv < n_head → GQA; n_kv == 1 → MQA。"""
 
     def __init__(self, rs, D: int, n_head: int, n_kv: int, d_head: int):
-        assert n_head % n_kv == 0
+        assert n_head % n_kv == 0, f"query 头要平均分给 KV 头: n_head={n_head} 必须能被 n_kv={n_kv} 整除"
         self.n_head, self.n_kv, self.d_head = n_head, n_kv, d_head
         self.wq = _rand(rs, D, n_head * d_head)
         self.wk = _rand(rs, D, n_kv * d_head)            # KV 投影只有 n_kv 个头 → cache 小 n_head/n_kv 倍
@@ -49,6 +52,7 @@ class GQALayer:
         self.cos, self.sin = precompute_rope(d_head, MAX_T)
 
     def new_cache(self):
+        """空 cache: (K, V) 各 (0, n_kv, d_head)。"""
         z = np.zeros((0, self.n_kv, self.d_head), np.float32)
         return (z, z)
 
@@ -58,16 +62,17 @@ class GQALayer:
         H, G, dh = self.n_head, self.n_kv, self.d_head
         q = apply_rope((x @ self.wq).reshape(T, H, dh), self.cos, self.sin, ctx)   # (T, H, dh)
         k = apply_rope((x @ self.wk).reshape(T, G, dh), self.cos, self.sin, ctx)   # (T, G, dh)
-        v = (x @ self.wv).reshape(T, G, dh)
+        v = (x @ self.wv).reshape(T, G, dh)                                        # (T, G, dh); V 不加 RoPE
         K = np.concatenate([cache[0], k])                                          # (Tk, G, dh)
-        V = np.concatenate([cache[1], v])
+        V = np.concatenate([cache[1], v])                                          # (Tk, G, dh)
         # 每组 H/G 个 query 头共享 1 个 KV 头: 靠广播, 不 repeat KV (真实 kernel 也不复制)
         qg = q.transpose(1, 0, 2).reshape(G, H // G, T, dh)                        # (G, H/G, T, dh)
         Kg = K.transpose(1, 0, 2)[:, None]                                         # (G, 1, Tk, dh)
-        Vg = V.transpose(1, 0, 2)[:, None]
+        Vg = V.transpose(1, 0, 2)[:, None]                                         # (G, 1, Tk, dh)
         o = dense_attention(qg, Kg, Vg)                                            # (G, H/G, T, dh)
         o = o.reshape(H, T, dh).transpose(1, 0, 2).reshape(T, H * dh)              # (T, H·dh)
-        # astype 是保险: 任何一处混入 fp64 标量 (NumPy2 会升精度) 都会让下一层 cache 变 8 字节, nbytes 断言对不上
+        # astype 是保险: 这条路径全程 fp32, 本来就不会升精度。
+        # 一旦混入 np.float64 标量 (NumPy 2 会把结果升成 fp64), 下一层的 cache 每元素变 8 字节, nbytes 断言对不上。
         return (o @ self.wo).astype(np.float32), (K, V)
 
 
@@ -79,7 +84,7 @@ def mha_reference(x, layer: GQALayer):
     heads = []
     for h in range(H):
         q = apply_rope(x @ wq[:, h], layer.cos, layer.sin)                         # (T, dh)
-        k = apply_rope(x @ wk[:, h], layer.cos, layer.sin)
+        k = apply_rope(x @ wk[:, h], layer.cos, layer.sin)                         # (T, dh)
         heads.append(dense_attention(q, k, x @ wv[:, h]))                          # (T, dh)
     return np.concatenate(heads, axis=-1) @ layer.wo                               # (T, D)
 
@@ -100,6 +105,7 @@ class MLALayer:
         self.cos, self.sin = precompute_rope(d_rope, MAX_T)
 
     def new_cache(self):
+        """空 cache: (C (0, d_c), k_rope (0, d_rope))。"""
         return (np.zeros((0, self.d_c), np.float32), np.zeros((0, self.d_rope), np.float32))
 
     def forward(self, x, cache, absorb: bool = False):
@@ -109,7 +115,7 @@ class MLALayer:
         # latent 不加 RoPE: 若加了, 位置相关的旋转夹在 W_UK 前面, W_UK 就无法被吸收进 W_Q
         C = np.concatenate([cache[0], x @ self.w_dkv])                               # (Tk, dc)
         KR = np.concatenate([cache[1], apply_rope(x @ self.w_kr, self.cos, self.sin, ctx)])  # (Tk, dr)
-        q = (x @ self.wq).reshape(T, H, dn + dr)
+        q = (x @ self.wq).reshape(T, H, dn + dr)                                     # (T, H, dn+dr)
         q_nope = q[..., :dn].transpose(1, 0, 2)                                      # (H, T, dn)
         q_rope = apply_rope(q[..., dn:], self.cos, self.sin, ctx).transpose(1, 0, 2)  # (H, T, dr)
         Tk = C.shape[0]
@@ -124,7 +130,9 @@ class MLALayer:
             # 于是 MLA decode ≡ 一个 head_dim = dc+dr 的 MQA, 全程不物化 per-head K/V。
             w_uk = self.w_uk.reshape(dc, H, dn).transpose(1, 2, 0)                   # (H, dn, dc)
             q_abs = np.concatenate([q_nope @ w_uk, q_rope], -1)                      # (H, T, dc+dr)
-            q_abs = q_abs * np.sqrt((dc + dr) / (dn + dr))   # dense_attention 会除 √(dc+dr), 补回 MLA 的 √(dn+dr)
+            # dense_attention 会除 √(dc+dr), 补回 MLA 的 √(dn+dr)。
+            # np.sqrt 返回 np.float64 标量, NumPy 2 下 q_abs 从这里起是 fp64, 末尾的 astype 把输出转回 fp32。
+            q_abs = q_abs * np.sqrt((dc + dr) / (dn + dr))
             K_shared = np.concatenate([C, KR], -1)[None]                             # (1, Tk, dc+dr)
             o_lat = dense_attention(q_abs, K_shared, C[None])                        # (H, T, dc)
             o = o_lat @ self.w_uv.reshape(dc, H, dv).transpose(1, 0, 2)              # (H, T, dv): W_UV 同理后乘
@@ -138,11 +146,12 @@ def run_stack(layers, x, caches=None, **kw):
     caches = caches or [l.new_cache() for l in layers]
     new = []
     for layer, cache in zip(layers, caches):
-        h, cache = layer.forward(rms_norm(x, 1.0), cache, **kw)
+        h, cache = layer.forward(rms_norm(x, 1.0), cache, **kw)   # gamma=1: 这里的层没有可学习的 norm 参数
         x = x + h
         new.append(cache)
     return x, new
 
 
 def cache_nbytes(caches) -> int:
+    """各层 cache 里所有数组的字节数之和。"""
     return sum(a.nbytes for c in caches for a in c)

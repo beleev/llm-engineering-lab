@@ -1,11 +1,15 @@
 """
-工具函数模块
+utils — 掩码、初始化、生成三组通用工具
 
-汇总并对外暴露通用工具，目前主要是注意力机制需要的各类掩码（mask）：
-- get_pad_mask: padding 掩码，屏蔽 pad token
-- get_subsequent_mask / build_causal_mask: 因果掩码，自回归模型防偷看未来
-- build_sliding_window_mask: 带状因果掩码（SWA，Mistral / Gemma / GPT-OSS）
+本包直接导出的只有掩码 (masks.py):
+- get_pad_mask: padding 掩码, 屏蔽 pad token
+- get_subsequent_mask / build_causal_mask: 因果掩码, 自回归模型不看未来
+- build_sliding_window_mask: 带状因果掩码 (SWA, Mistral / Gemma / GPT-OSS)
 - combine_causal_and_padding_mask / combine_masks: 多种掩码的组合
+
+另外两个文件按完整路径 import (顶层 llm_models 也导出了这些名字):
+- init.py:       init_weights, 把 Linear / Embedding 初始化成 N(0, 0.02²)
+- generation.py: KVCache / GenerationMixin / benchmark_kv_cache, 自回归生成 + KV cache
 """
 
 from llm_models.utils.masks import (

@@ -21,11 +21,20 @@ python -m llm_models.run_models.language_models.gpt3.infer_gpt3
 - infer: Sin-PE 与 RoPE 各跑一遍: 改动后半段 token, 前半段 logits 逐位不变 (因果性);
   生成 200 token 有/无 cache 输出完全一致, 加速约 3.4x / 3.9x (数值随机器波动)。
 
+## 与真实系统的差距
+- **规模**: train 是 2 层、d_model=256、4 头, 共 1,836,032 个参数。GPT-3 是 175B。
+- **位置编码**: 本库用 Sinusoidal (零参数, 可切到 RoPE 做对照)。GPT-2/3 原版是可学习的绝对位置 embedding。
+- **embedding 乘 √D 是本库约定**: GPT-2/3 不乘。本库的 LM 统一这样写, 配合 N(0, 0.02²) 初始化。
+- **数据是合成的**: 固定一个随机 batch (2 条 × 32 token) 反复训 60 步, 没有 tokenizer 和语料。固定 batch 是本库约定。
+- **Sin-PE 下 `attention_mask` 只收全 1**: Sin-PE 是绝对位置, 左 padding 会把真实 token 的位置整体推后, 输出就变了。所以 mask 里有 0 就抛 `NotImplementedError`, 批量生成要用等长 prompt。`use_rope=True` 时照常屏蔽 pad, 左 pad 不改真实位置的输出。
+- **上下文写满之后**: 序列到 `max_len` 后窗口每步左移, cache 每步作废, `generate()` 退回每步整段重算。
+- **采样**: 只有 temperature 和 top-k, 没有 top-p 和重复惩罚。
+
 ## 常见误区
 - "loss 从 6.9 降到 0.07 = 学会了语言": 不是。数据是**固定的一个随机 batch**, 下降只说明模型背下了它,
   验证的是 forward/backward/优化器通路。每步换新随机 batch 时 loss 会停在 ln V。
 - "初始 loss 多大无所谓": N(0,1) embedding + weight tying 会让初始 logits 标准差 ≈ sqrt(D), 首步 loss 冲到 ~255。
-  现在统一 `init_weights` N(0, 0.02²)。
+  本库的模型统一调 `init_weights`, 用 N(0, 0.02²)。
 - "KV cache 是近似": 不是, 是精确等价; 本脚本用 `torch.equal` 断言。Sin-PE 下要记得给位置编码加 offset。
 
 ## 自测题

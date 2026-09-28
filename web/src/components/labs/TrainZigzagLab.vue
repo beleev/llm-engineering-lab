@@ -6,7 +6,7 @@
   <LabFrame
     title="Zigzag — 因果注意力下谁在等谁?"
     sub="- 左: 32 个 token 的因果 mask (行 = query, 列 = key)。颜色 = 这个 $q \cdot k$ 由哪张卡算; 亮的格子 = 环上当前这一轮在算的。
-      - 右: 每轮每卡的工作量 ($q \cdot k$ 对数)。每轮耗时由最忙的那张卡决定 (橙框)。
+      - 右: 每轮每卡的工作量 ($q \cdot k$ 对数)。每轮耗时由最忙的那张卡决定, 它的格子带描边和 ▲。
       切换切法, 单步播放, 点卡号只看一张卡。"
     module="llm_train/m12"
     run="python -m llm_train.m12_sequence_parallel.demo"
@@ -47,22 +47,25 @@
               :class="{ slow: w === sim.rowMax[s] && w > 0, dim: s > round, now: s === round }"
               :style="{ background: heat(w / sim.block * 0.7, COLORS[r]) }"
               :title="`第 ${s} 轮, 卡 ${r}: 处理来自卡 ${(r - s + D) % D} 的 KV 块, ${w} 对 q·k`"
-            >{{ w }}</span>
+            >{{ w }}{{ w === sim.rowMax[s] && w > 0 ? '▲' : '' }}</span>
           </template>
           <span class="rl mono">合计</span>
           <span v-for="(w, r) in sim.perRank" :key="'t' + r" class="cell tot">{{ w }}</span>
         </div>
+        <p class="lab-note">颜色 = 卡号, 对照表头的色块。▲ = 这一轮最忙的卡。</p>
         <p class="lab-note">卡 r 持有的 token: <span class="mono">{{ focus >= 0 ? posText(focus) : '点上面的卡号查看' }}</span></p>
       </div>
     </div>
 
     <template #stats>
       <div class="kv"><span>每卡总工作量 max / min</span><b :class="sim.imb < 1.01 ? 'good' : 'bad'">{{ Math.max(...sim.perRank) }} / {{ Math.min(...sim.perRank) }}</b></div>
-      <div class="kv"><span><Tex text="墙钟 $\sum$(每轮最忙的卡)" /></span><b :class="zigzag ? 'good' : 'bad'">{{ sim.wall }}</b></div>
+      <div class="kv"><span><Tex text="墙钟 $\sum$(每轮最忙的卡)" /></span><b :class="sim.wall <= Math.min(walls.cont, walls.zz) ? 'good' : 'bad'">{{ sim.wall }}</b></div>
       <div class="kv"><span>不利用因果性的墙钟</span><b>{{ D * sim.block }}</b></div>
-      <div class="kv"><span>总计算量 (两种切法相同)</span><b>{{ sim.total }} 对</b></div>
-      <div class="kv"><span>zigzag 相对连续切分</span><b class="good">快 {{ speedup.toFixed(2) }}×</b></div>
-      <p class="lab-note">★ 同步的环上, 每一轮所有卡要等最慢的那张。省下的计算只有摊平到每张卡上, 才会变成省下的时间。</p>
+      <div class="kv"><span>zigzag 相对连续切分</span><b :class="{ good: speedup > 1 }">快 {{ speedup.toFixed(2) }}×</b></div>
+      <div class="lab-note">
+        <p>★ 同步的环上, 每一轮所有卡要等最慢的那张。省下的计算只有摊平到每张卡上, 才会变成省下的时间。</p>
+        <p>两种切法的总计算量相同, 都是 {{ sim.total }} 对。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -97,7 +100,9 @@ const simulate = (world, zz) => {
   return { pos, work, rowMax, perRank, wall: sum(rowMax), total: sum(perRank), block: (T / world) ** 2, imb: Math.max(...perRank) / Math.min(...perRank) }
 }
 const sim = computed(() => simulate(D.value, zigzag.value))
-const speedup = computed(() => simulate(D.value, false).wall / simulate(D.value, true).wall)
+// 两种切法的墙钟都算出来: 读数的颜色看数值谁小, 不看当前按的是哪个按钮
+const walls = computed(() => ({ cont: simulate(D.value, false).wall, zz: simulate(D.value, true).wall }))
+const speedup = computed(() => walls.value.cont / walls.value.zz)
 
 const ownerOf = computed(() => { const o = []; sim.value.pos.forEach((ps, r) => ps.forEach((p) => (o[p] = r))); return o })
 const cellsList = computed(() => {

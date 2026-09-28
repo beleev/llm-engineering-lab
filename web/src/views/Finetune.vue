@@ -39,6 +39,13 @@
           ChatGPT (2022) 之后, 把通用 LM 变成能用的助手, 标准流程是
           <strong>SFT → Reward Model → PPO</strong>。三步各要一次训练, PPO 那步还要同时养 4 个模型。
         </p>
+        <ul class="pts">
+          <li><b>4 个怎么数:</b> 这是含奖励模型的经典 RLHF 口径: policy、冻结的 ref、critic、奖励模型 (RM)。</li>
+          <li>
+            <b>「PPO」一章写的是常驻 ×3:</b>
+            <router-link :to="{ name: 'finetune-ppo' }">那一章</router-link>的奖励由 verifier 程序判分, 不养 RM, 常驻的只剩 policy + ref + critic。
+          </li>
+        </ul>
         <p>DPO (2023) 把后两步合成一个 "对偏好对的分类 loss", RM 和 RL 都不用了。</p>
       </div>
 
@@ -173,7 +180,7 @@
           <div class="point">
             <strong>落盘只有适配器</strong>
             <span class="muted"><code class="inline">get_lora_state_dict</code> 只抽出 A、B 两个矩阵:
-            本仓库 76 KB, 整模型 389 KB。基座共享, 适配器单独分发。</span>
+            本仓库 76 KiB, 整模型 389 KiB。基座共享, 适配器单独分发。</span>
           </div>
         </div>
         <p class="hint">
@@ -189,7 +196,7 @@
           </thead>
           <tbody>
             <tr><td>最小化</td><td class="mono">w_q, w_v</td><td class="muted">论文起点, 性能/参数比最优</td></tr>
-            <tr class="hl"><td>推荐 (本仓库默认)</td><td class="mono">w_q, w_k, w_v, w_o</td><td class="muted">attention 全投影; 实战甜点</td></tr>
+            <tr class="hl"><td>推荐 (本仓库默认)</td><td class="mono">w_q, w_k, w_v, w_o</td><td class="muted">attention 全投影; 性价比最高</td></tr>
             <tr><td>全注入</td><td class="mono">attn 全部 + ffn 全部</td><td class="muted">QLoRA 论文的做法, 效果最好但 adapter 参数翻倍</td></tr>
           </tbody>
         </table>
@@ -203,7 +210,7 @@
           <li>
             <router-link :to="{ name: 'finetune-qlora' }">QLoRA</router-link>:
             把冻结的基座再压到 4 bit (NF4 分位数码本 + 每 block 一个 absmax scale, 约 4.5 bit/参数)。
-            本仓库整模型 389 KB → 59 KB, 对应
+            本仓库整模型 389 KiB → 59 KiB, 对应
             <RepoLink path="llm_finetune/methods/qlora.py" label="llm_finetune/methods/qlora.py" tiny />。
           </li>
           <li>
@@ -249,7 +256,7 @@
           <pre class="code">{{ dpoStep }}</pre>
           <p class="hint">
             chosen 和 rejected 拼成一个 2B 条的 batch, policy 前向一次、ref 前向一次: 每步 2 次 LM 前向,
-            常驻权重两份 (本仓库 778 KB)。
+            常驻权重两份 (本仓库 778 KiB)。
           </p>
           <p class="hint">ref 前向不带梯度、不存激活, 所以实测每步只慢约 35%, 不是 100%。</p>
           <ul class="hint pts">
@@ -454,8 +461,8 @@ const pillars = [
   { dim: '需要 ref?',    sft: '否',                       lora: '否',                       dpo: '是 (deepcopy + freeze + eval)' },
   { dim: '需要 RM?',     sft: '否',                       lora: '否',                       dpo: '否 (DPO 的核心收益)' },
   { dim: '每步 LM 前向', sft: '1',                        lora: '1',                        dpo: '2 (chosen+rejected 拼 2B 条, policy 1 次 + ref 1 次)' },
-  { dim: '常驻权重',     sft: '1 份 (389 KB)',            lora: '1 份冻结 + 适配器',         dpo: '2 份 (778 KB)' },
-  { dim: '落盘',         sft: '一份完整权重',             lora: '适配器 (本仓库 76 KB) + 共享基座', dpo: '一份完整权重' },
+  { dim: '常驻权重',     sft: '1 份 (389 KiB)',            lora: '1 份冻结 + 适配器',         dpo: '2 份 (778 KiB)' },
+  { dim: '落盘',         sft: '一份完整权重',             lora: '适配器 (本仓库 76 KiB) + 共享基座', dpo: '一份完整权重' },
 ]
 
 const decisions = [

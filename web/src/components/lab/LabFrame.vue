@@ -2,6 +2,7 @@
   实验台外框 —— 所有 lab 统一用它, 保证标题 / 控件 / 图 / 读数 / 挑战题的版式一致。
   插槽: controls(滑杆按钮) · default(可视化主体) · stats(右侧读数) · footer
   challenge: 先让读者预测再动手, 比直接看答案记得牢。
+  challenge.ask 和 answer 都走 Prose: 问题里有几问就用 \n 分段或写成 "- " 要点, 折叠着也是分行显示的。
 -->
 <template>
   <section class="lab card">
@@ -18,8 +19,12 @@
     </div>
 
     <details v-if="challenge" class="lab-challenge">
-      <summary>🎯 试一试: <Tex :text="challenge.ask" /></summary>
-      <Prose :text="challenge.answer" />
+      <summary>
+        <span class="ask-k">🎯 试一试</span>
+        <span class="ask-hint">点这里看答案</span>
+        <Prose class="ask" :text="challenge.ask" />
+      </summary>
+      <Prose class="answer" :text="challenge.answer" />
     </details>
     <p v-if="run" class="lab-run">对应可运行代码: <code class="inline">{{ run }}</code></p>
     <slot name="footer" />
@@ -27,7 +32,6 @@
 </template>
 
 <script setup>
-import Tex from '@/components/Tex.vue'
 import Prose from '@/components/Prose.vue'
 
 defineProps({

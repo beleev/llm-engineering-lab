@@ -27,8 +27,8 @@
         { path: 'llm_basic/sample.py' },
         { path: 'llm_basic/gradcheck.py' },
       ]"
-      :prereq="{ name: 'home', label: '主线总览' }"
-      :next-step="{ name: 'basic-data', label: '阶段 1.1 — 数据与 tokenizer' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <!-- ── 1. 整体闭环 ─────────────────────────────────────────── -->
@@ -83,7 +83,7 @@
 
     <!-- ── 2. 模型结构 + 数据流 ───────────────────────────────────── -->
     <section class="section">
-      <h2>2. 模型结构 · 默认 1 层 1 头, 但麻雀俱全</h2>
+      <h2>2. 模型结构 · 默认 1 层 1 头, 零件一个不少</h2>
       <p class="lead">
         故意做到最小: 默认单层 (<code class="inline">--n-layer</code> 可加层, 加层只是一个 for 循环) + 单头 + ReLU MLP + 学得式位置编码。
         骨架和现代 LLaMA 一模一样, <strong>差的只是零件</strong>, 不是结构。
@@ -98,7 +98,7 @@
         <p class="hint">
           形状记号: <code class="inline">B=batch, T=seq_len, D=dim, H=MLP 中间维, V=vocab</code>。
           完整代码见 <RepoLink path="llm_basic/model.py:transformer_forward" label="llm_basic/model.py:transformer_forward" tiny />;
-          想逐步看形状和 cache, 去 <router-link :to="{ name: 'basic-forward' }" class="dt-link">阶段 1.2 的形状流水线实验台</router-link>。
+          想逐步看形状和 cache, 去 <router-link :to="{ name: 'basic-forward' }" class="dt-link">{{ chapterNo('basic-forward') }} 的形状流水线实验台</router-link>。
         </p>
       </div>
     </section>
@@ -138,7 +138,7 @@
             <li><b>没有 <code class="inline">zero_grad()</code>:</b> 每步返回的是新 dict, 旧梯度自然不会残留。</li>
             <li><b>没有 <code class="inline">requires_grad</code>:</b> 反向是手写的, 不需要谁去标记。</li>
           </ul>
-          <p class="hint">PyTorch 做的就是这 4 件事的工程化版本。</p>
+          <p class="hint">PyTorch 做的就是这 5 行的工程化版本。</p>
         </div>
 
         <div class="card">
@@ -183,7 +183,7 @@
         <p class="hint">所以用 <code class="inline">atol + rtol · max(|g_a|, |g_n|)</code>。</p>
         <p class="hint">
           eps 取 1e-5, 是 float64 下 U 形误差曲线的谷底: 更小, 舍入误差吃掉信号; 更大, 又跑出截断误差。
-          阶段 1.3 的实验台可以亲手拖这条曲线。
+          <router-link :to="{ name: 'basic-backward' }" class="dt-link">{{ chapterNo('basic-backward') }} 的实验台</router-link>可以亲手拖这条曲线。
         </p>
         <p class="hint">
           gradcheck.py 分两级: 先逐算子全元素检查 (7 个算子相对误差 1e-11 ~ 2e-10), 再对 n_layer = 1 和 2 做端到端抽样检查。
@@ -215,7 +215,7 @@
               <td class="mono small">{{ d.modern }}</td>
               <td>
                 <router-link v-if="d.route" :to="{ name: d.route }" class="dt-link">
-                  {{ d.routeLabel }} →
+                  {{ chapterNo(d.route) }} →
                 </router-link>
                 <RepoLink v-else-if="d.file" :path="d.file" :label="d.routeLabel" tiny />
                 <span v-else class="muted small">{{ d.routeLabel }}</span>
@@ -234,8 +234,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'home', label: '主线总览', hint: '回到六阶段地图' }"
-      :next="{ name: 'basic-data', label: '阶段 1.1 · 数据与 tokenizer', hint: '先把 input.txt 变成可复现的训练张量' }"
+      :prev="{ ...prevChapter, hint: '回到六阶段地图' }"
+      :next="{ ...nextChapter, hint: '先把 input.txt 变成可复现的训练张量' }"
     />
   </div>
 </template>
@@ -249,6 +249,22 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
+import { learningPath, stages } from '@/data/models.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'basic')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 章节编号从 stages 里数, 不手写: 别的阶段加章后写死的 "阶段 2.2" 会过期
+const chapterNo = (route) => {
+  for (const s of stages) {
+    if (s.route === route) return `阶段 ${s.idx}`
+    const i = s.chapters.findIndex((c) => c.route === route)
+    if (i >= 0) return `阶段 ${s.idx}.${i + 1}`
+  }
+  return ''
+}
 
 const pairs = [
   { name: 'embedding',   role: 'token / pos 查表',             key: '重复 id 要 np.add.at 累加' },
@@ -354,15 +370,15 @@ const gotchas = [
 ]
 
 const diffs = [
-  { topic: '位置编码',  basic: '学得式 pos_emb, 卡死在 T_max=64', modern: 'RoPE (旋转, 乘在 Q/K 上)',        route: 'position', routeLabel: '阶段 2.2' },
-  { topic: '注意力',    basic: '单头, head_dim = D',        modern: 'MHA / GQA / MLA / DSA',               route: 'attention', routeLabel: '阶段 2.1' },
-  { topic: 'FFN 激活',  basic: 'ReLU + 普通两层',           modern: 'GELU → SwiGLU (门控 + 三个 linear)',  route: 'blocks', routeLabel: '阶段 2.3' },
-  { topic: '层数',      basic: '默认 1 层 (--n-layer 可调)',   modern: '几十层 + 各种 Block 变体',            route: 'blocks', routeLabel: '阶段 2.3' },
-  { topic: '分词',      basic: '字符级 vocab=65 (bpe.py 另演示)', modern: 'BPE / SentencePiece, 词表几万',    route: 'basic-data', routeLabel: '阶段 1.1' },
-  { topic: 'FFN 形态',  basic: '稠密 MLP',                  modern: 'MoE: 一组小 FFN + router top-k',       route: 'moe', routeLabel: '阶段 2.4' },
-  { topic: '推理',      basic: '每步重算整段 forward',      modern: 'KV cache: 只算新 token 的 Q, 复用 K/V',  route: 'infer-kv-memory', routeLabel: '阶段 5.1' },
+  { topic: '位置编码',  basic: '学得式 pos_emb, 卡死在 T_max=64', modern: 'RoPE (旋转, 乘在 Q/K 上)',        route: 'position' },
+  { topic: '注意力',    basic: '单头, head_dim = D',        modern: 'MHA / GQA / MLA / DSA',               route: 'attention' },
+  { topic: 'FFN 激活',  basic: 'ReLU + 普通两层',           modern: 'GELU → SwiGLU (门控 + 三个 linear)',  route: 'blocks' },
+  { topic: '层数',      basic: '默认 1 层 (--n-layer 可调)',   modern: '几十层 + 各种 Block 变体',            route: 'blocks' },
+  { topic: '分词',      basic: '字符级 vocab=65 (bpe.py 另演示)', modern: 'BPE / SentencePiece, 词表几万',    route: 'basic-data' },
+  { topic: 'FFN 形态',  basic: '稠密 MLP',                  modern: 'MoE: 一组小 FFN + router top-k',       route: 'moe' },
+  { topic: '推理',      basic: '每步重算整段 forward',      modern: 'KV cache: 只算新 token 的 Q, 复用 K/V',  route: 'infer-kv-memory' },
   { topic: '优化器',    basic: '裸 Adam (三个开关默认全关)', modern: 'AdamW + warmup + cosine + grad clip',  routeLabel: '参考 trainer.py', file: 'llm_models/training/trainer.py' },
-  { topic: '精度',      basic: '全 float64 (gradcheck 需要)', modern: 'bf16 / fp16 混合精度 + loss scaling',  route: 'train', routeLabel: '阶段 3' },
+  { topic: '精度',      basic: '全 float64 (gradcheck 需要)', modern: 'bf16 / fp16 混合精度 + loss scaling',  route: 'train' },
 ]
 </script>
 

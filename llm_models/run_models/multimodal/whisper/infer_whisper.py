@@ -10,20 +10,21 @@ from llm_models.models.multimodal.whisper import Whisper
 
 def main():
     torch.manual_seed(42)
-    V, B, T_mel, T = 1000, 2, 100, 8
+    V, B, T_mel, T = 1000, 2, 100, 8                                   # T_mel: mel 帧数, T: 文本长度
     model = Whisper(
         vocab_size=V, n_mels=80, d_model=128, n_heads=4,
         encoder_layers=2, decoder_layers=2, max_source_len=200, max_target_len=64,
     ).eval()
     print(f"Whisper Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
-    mel = torch.randn(B, 80, T_mel)
+    mel = torch.randn(B, 80, T_mel)                                    # [B, n_mels, T_mel]
     ids = torch.randint(1, V, (B, T))
     with torch.inference_mode():
         enc = model.encoder(mel)
-        assert enc.shape == (B, T_mel // 2, 128)                       # stride=2: 100 帧 → 50 帧
+        # stride=2: 100 帧 → 50 帧
+        assert enc.shape == (B, T_mel // 2, 128), "Conv stem 应把时间维 2× 下采样: 输出 [B, T_mel/2, d_model]"
         logits = model(mel, ids)
-        assert logits.shape == (B, T, V)
+        assert logits.shape == (B, T, V), "logits 形状应为 [B, T, V]"
 
         # 1) 换一段音频, 同样的文本前缀 → logits 必须变 (音频只能经 cross-attn 进入 decoder)
         d_audio = (model(torch.randn(B, 80, T_mel), ids) - logits).abs().max().item()
@@ -31,14 +32,16 @@ def main():
         ids2 = ids.clone(); ids2[:, -1] = ids2[:, -1] % (V - 1) + 1
         d_causal = (model(mel, ids2)[:, :-1] - logits[:, :-1]).abs().max().item()
         print(f"mel {tuple(mel.shape)} -> encoder {tuple(enc.shape)} | 换音频 logits 变化 {d_audio:.4f} | 改未来 token 过去变化 {d_causal:.1e}")
-        assert d_audio > 1e-3 and d_causal < 1e-5
+        assert d_audio > 1e-3, "cross-attn 没读到音频: 换了音频 logits 却没变"
+        assert d_causal < 1e-5, "decoder 因果 mask 失效: 改未来 token 影响了过去"
 
         # 3) 贪心解码: encoder 只跑一次
         ys = ids[:, :2]                                                # 假装是 <|startoftranscript|><|zh|> 之类的 task prompt
         for _ in range(6):
-            nxt = model.decoder(ys, encoder_hidden=enc)[:, -1].argmax(-1, keepdim=True)
+            # 复用上面算好的 enc; decoder 每步整段重跑, 只取最后一个位置
+            nxt = model.decoder(ys, encoder_hidden=enc)[:, -1].argmax(-1, keepdim=True)   # [B, 1]
             ys = torch.cat([ys, nxt], dim=1)
-        assert ys.shape == (B, 8)
+        assert ys.shape == (B, 8), "2 个 prompt token 加 6 步贪心解码, 输出长度应为 8"
     print(f"贪心解码 (未训练, 无意义): {ys[0].tolist()}")
 
 

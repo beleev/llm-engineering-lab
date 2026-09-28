@@ -1,1 +1,1 @@
-"""Pretraining data pipeline (MinHash-LSH dedup, quality filter, mixture sampling) demo."""
+"""预训练数据流水线 (MinHash-LSH 去重, 质量过滤, 配比采样) 演示。"""

@@ -6,7 +6,7 @@
   <LabFrame
     title="Ulysses — all-to-all 把「切序列」换成「切头」"
     sub="格子 = 激活张量的一块 (行 = 第几段序列, 列 = 第几个注意力头), 颜色 = 此刻在哪张卡上。
-      单步播放, 看两次 all-to-all 怎么换切法。悬停一个格子看它走哪条链路, 点右侧图例只看某一张卡。"
+      单步播放, 看两次 all-to-all 怎么换切法。悬停或点击一个格子看它走哪条链路, 点下方图例只看某一张卡。"
     module="llm_train/m16"
     run="python -m llm_train.m16_ulysses_sequence_parallel.demo"
     :challenge="{
@@ -21,7 +21,10 @@
     </template>
 
     <p class="phase" :class="{ bad: !valid }">{{ valid ? phases[phase].text : `✗ ${Hn} 个头没法平均分给 ${P} 张卡: Ulysses 要求 H 能被 P 整除 (Ring Attention 没有这个限制)。` }}</p>
-    <div class="cells grid" :style="{ gridTemplateColumns: `58px repeat(${Hn}, minmax(20px, 1fr))` }">
+    <!-- 整张表只占一个 Tab 停靠点: 悬停临时看, 点击固定, 方向键移动固定的格子 -->
+    <div class="cells grid" :style="{ gridTemplateColumns: `58px repeat(${Hn}, minmax(20px, 1fr))` }"
+         tabindex="0" role="group" aria-label="序列段 × 注意力头的归属表, 方向键移动选中的格子"
+         @keydown.left.prevent="move(0, -1)" @keydown.right.prevent="move(0, 1)" @keydown.up.prevent="move(-1, 0)" @keydown.down.prevent="move(1, 0)">
       <span />
       <span v-for="h in Hn" :key="'h' + h" class="head mono">h{{ h - 1 }}</span>
       <template v-for="s in P" :key="s">
@@ -31,7 +34,7 @@
           :class="{ dim: focus >= 0 && owner(s - 1, h - 1) !== focus, moved: valid && moving && s - 1 !== headRank(h - 1), link: sameLink(s - 1, h - 1) }"
           :style="{ background: valid || !headPhase ? heat(0.55, COLORS[owner(s - 1, h - 1)]) : 'transparent' }"
           :title="`序列段 ${s - 1} · 头 ${h - 1}: 此刻在卡 ${owner(s - 1, h - 1)}`"
-          @mouseenter="hover = { s: s - 1, h: h - 1 }" @mouseleave="hover = null"
+          @mouseenter="hover = { s: s - 1, h: h - 1 }" @mouseleave="hover = null" @click="pin = { s: s - 1, h: h - 1 }"
         >{{ valid || !headPhase ? owner(s - 1, h - 1) : '?' }}</span>
       </template>
     </div>
@@ -39,7 +42,7 @@
       <button v-for="r in P" :key="r" type="button" :class="{ active: focus === r - 1 }" @click="focus = focus === r - 1 ? -1 : r - 1">
         <i :style="{ background: COLORS[r - 1] }" />卡 {{ r - 1 }}
       </button>
-      <span v-if="hover && valid" class="hint mono">段{{ hover.s }}·头{{ hover.h }}: 卡{{ hover.s }} ⇄ 卡{{ headRank(hover.h) }}{{ hover.s === headRank(hover.h) ? ' (不用动)' : '' }}</span>
+      <span v-if="cur && valid" class="hint mono" aria-live="polite">段{{ cur.s }}·头{{ cur.h }}: 卡{{ cur.s }} ⇄ 卡{{ headRank(cur.h) }}{{ cur.s === headRank(cur.h) ? ' (不用动)' : '' }}</span>
     </div>
 
     <svg :viewBox="`0 0 ${W} ${CH}`" role="img" aria-label="每卡通信量随并行度的变化" class="chart">
@@ -52,13 +55,13 @@
       <polyline :points="range(8).map((i) => `${cx(i + 1)},${cy(ulyVol(i + 1))}`).join(' ')" class="uly" />
       <circle v-for="p in 8" :key="'u' + p" :cx="cx(p)" :cy="cy(ulyVol(p))" r="4" :class="['uly-dot', { no: Hn % p !== 0 }]" />
       <circle :cx="cx(P)" :cy="cy(ringVol(P))" r="5" class="ring-dot" />
-      <text :x="X0 + 150" :y="12" class="lab ring-t">Ring 2(P−1)/P</text>
-      <text :x="X0 + 150" :y="25" class="lab uly-t">Ulysses 4(P−1)/P² (空心 = H 除不尽, 不可用)</text>
+      <text :x="X0 + 150" :y="12" class="lab ring-t">Ring 2(P−1)/P (虚线)</text>
+      <text :x="X0 + 150" :y="25" class="lab uly-t">Ulysses 4(P−1)/P² (实线; 空心 = H 除不尽, 不可用)</text>
     </svg>
 
     <template #stats>
       <div class="kv"><span>每卡负责的头</span><b :class="valid ? '' : 'bad'">{{ valid ? Hn / P : '除不尽' }}</b></div>
-      <div class="kv"><span>Ulysses 每卡发送</span><b :class="valid ? 'good' : 'bad'">{{ valid ? ulyVol(P).toFixed(2) + '×' : '不可用' }}</b></div>
+      <div class="kv"><span>Ulysses 每卡发送</span><b :class="!valid ? 'bad' : ulyVol(P) < ringVol(P) ? 'good' : ''">{{ valid ? ulyVol(P).toFixed(2) + '×' : '不可用' }}</b></div>
       <div class="kv"><span>Ring 每卡发送</span><b>{{ ringVol(P).toFixed(2) }}×</b></div>
       <div class="kv"><span>Ring / Ulysses</span><b>{{ valid && P > 1 ? (ringVol(P) / ulyVol(P)).toFixed(1) + ' 倍' : '—' }}</b></div>
       <div class="lab-note">
@@ -82,9 +85,16 @@ import { useStepper } from '@/composables/useStepper.js'
 import { heat, range } from '@/utils/labmath.js'
 
 const COLORS = ['var(--accent)', 'var(--left)', 'var(--eye)', 'var(--right)', 'var(--warn)', 'var(--danger)', 'var(--code-fn)', 'var(--text-dim)']
-const P = ref(4), Hn = ref(8), focus = ref(-1), hover = ref(null)
+const P = ref(4), Hn = ref(8), focus = ref(-1)
+const hover = ref(null), pin = ref(null)                 // 悬停的格子 / 点击固定的格子 { s, h }
+const cur = computed(() => hover.value || pin.value)
+const move = (ds, dh) => {
+  const c = cur.value || { s: 0, h: 0 }
+  pin.value = { s: Math.min(P.value - 1, Math.max(0, c.s + ds)), h: Math.min(Hn.value - 1, Math.max(0, c.h + dh)) }
+  hover.value = null
+}
 const valid = computed(() => Hn.value % P.value === 0)
-watch([P, Hn], () => { hover.value = null; focus.value = -1 }) // 网格形状变了, 旧的悬停/聚焦下标作废
+watch([P, Hn], () => { hover.value = null; pin.value = null; focus.value = -1 }) // 网格形状变了, 旧的悬停/固定/聚焦下标作废
 
 const phases = [
   { short: '① 按序列切', text: '① 注意力之外: 卡 r 持有第 r 段序列的全部头 [T/P, H, d]。LayerNorm / MLP 都逐 token 算, 不需要通信。' },
@@ -100,7 +110,7 @@ const moving = computed(() => phase.value === 1 || phase.value === 3)
 // ★ seq_to_head: 头 h 属于第 ⌊h / (H/P)⌋ 组, all-to-all 之后这一列整个搬到那张卡
 const headRank = (h) => Math.floor(h / (Hn.value / P.value))
 const owner = (s, h) => (headPhase.value && valid.value ? headRank(h) : s)
-const sameLink = (s, h) => valid.value && hover.value && hover.value.s === s && headRank(hover.value.h) === headRank(h)
+const sameLink = (s, h) => valid.value && cur.value && cur.value.s === s && headRank(cur.value.h) === headRank(h)
 
 // 每卡发送量, 单位 = 一份完整 [T,H,d]; 与 Python 里 assert 过的公式相同
 const ulyVol = (p) => (4 * (p - 1)) / (p * p)
@@ -115,7 +125,7 @@ const cy = (v) => 14 + (1 - v / 2.2) * (CH - 34)
 .phase { font-size: 12px; color: var(--text-muted); line-height: 1.6; min-height: 3.2em; margin-bottom: 8px; }
 .phase.bad { color: var(--danger); }
 .head { font-size: 10px; color: var(--text-dim); align-self: center; text-align: center; }
-.grid .cell { min-width: 20px; height: 26px; color: var(--text); }
+.grid .cell { min-width: 20px; height: 26px; color: var(--text); cursor: pointer; }
 .cell.moved { outline: 2px solid var(--warn); outline-offset: -2px; }
 .cell.link { outline: 2px solid var(--text); outline-offset: -2px; }
 .legend { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -127,7 +137,7 @@ const cy = (v) => 14 + (1 - v / 2.2) * (CH - 34)
 .gridl { stroke: var(--border); stroke-dasharray: 2 4; }
 .tick { font-size: 9px; fill: var(--text-dim); font-family: "SF Mono", Menlo, monospace; }
 .tick.cur { fill: var(--accent); font-weight: 700; }
-.ring { fill: none; stroke: var(--eye); stroke-width: 2; }
+.ring { fill: none; stroke: var(--eye); stroke-width: 2; stroke-dasharray: 6 4; }
 .uly { fill: none; stroke: var(--left); stroke-width: 2; }
 .uly-dot { fill: var(--left); }
 .uly-dot.no { fill: var(--bg-card); stroke: var(--left); stroke-width: 1.5; }

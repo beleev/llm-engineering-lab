@@ -22,19 +22,21 @@ def main():
     torch.manual_seed(cfg.seed)
 
     num_classes = 4
+    (T, H, W), pt, phw = (4, 8, 8), 2, 2               # latent 视频尺寸, tubelet 在时间 / 空间上的边长
     model = VideoDiT(
-        latent_channels=4, video_latent_size=(4, 8, 8),
-        patch_size_t=2, patch_size_hw=2,
+        latent_channels=4, video_latent_size=(T, H, W),
+        patch_size_t=pt, patch_size_hw=phw,
         d_model=96, n_heads=4, num_layers=2, num_classes=num_classes,
     )
     print(f"VideoDiT Mini | 参数量: {sum(p.numel() for p in model.parameters()):,} "
-          f"| token 数 = (4/2)·(8/2)·(8/2) = {model.num_patches}")
+          f"| token 数 = ({T}/{pt})·({H}/{phw})·({W}/{phw}) = {model.num_patches}")
 
     data_gen = VideoDiffusionDataGenerator(
         scheduler=DDPMScheduler(num_train_timesteps=1000), batch_size=cfg.batch_size,
         latent_channels=4, latent_size=(4, 8, 8), num_classes=num_classes,
     )
 
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, DiffusionLoss()).train()
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss: {first:.4f} (理论 E[ε²]=1) | 终态: {last:.4f}")

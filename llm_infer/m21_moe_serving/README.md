@@ -34,9 +34,9 @@ python -m llm_infer.m21_moe_serving.demo     # < 1 s
 [1] EP dispatch/combine vs 朴素逐 token 循环   max|Δ| = 0.00e+00
 [2] 每专家 token 数 = [1451, 854, 435, 276, 363, 187, 167, 134, 34, 35, 22, 34, 27, 22, 38, 17]
     每 rank token 数 = [3016, 851, 125, 104]   max/mean = 2.95x  (平均 rank 利用率只有 34%)
-[3] greedy 放置, 无副本   rank load=[1517, 948, 770, 861]    max/mean=1.48x
-    EPLB +4 副本         rank load=[1025, 1033, 992, 1046]  max/mean=1.02x   副本: 专家0 ×4, 专家1 ×2
-    模拟 step 时间 (∝ max rank load) 缩短 65%
+[3] greedy 放置, 无副本   rank 负载=[1517, 948, 770, 861]    max/mean=1.48x
+    EPLB +4 副本         rank 负载=[1025, 1033, 992, 1046]  max/mean=1.02x   副本: 专家0 ×4, 专家1 ×2
+    模拟 step 时间 (∝ 最满 rank 的负载) 缩短 65%
     最热专家 / 平均 rank 负载 = 1.42  (>1 ⇒ 不复制就不可能均衡)
 ```
 断言: EP 输出 == 基线 (<1e-5, 三种放置都成立 → 复制不改变模型输出); Σ rank_load == T·k;

@@ -7,12 +7,12 @@
     title="结构化输出 — 把 FSM 预编译成 token mask 表"
     sub='迷你 JSON 语法: {"key":value, …}, value = 字符串 | 数字 | true | false | null。
       灰掉的 token 在当前状态下非法, logit 会被置 −inf。
-      点一个合法 token 前进。悬停一个多字符 token, 看它在状态图上一口气走过哪几个状态。'
+      点一个合法 token 前进。悬停一个多字符 token, 看它在状态图上一口气走过哪几个状态。状态图里虚线是回边 (逗号之后回去等下一个 key)。'
     module="llm_infer/m14"
     run="python -m llm_infer.m14_structured_output.demo"
     :challenge="{
-      ask: '重置后, 用最少的 token 拼出 {&quot;id&quot;:42}。需要几个? 再勾上「只用单字符词表」拼同一个串。为什么 true 这个 token 在「等 value」状态合法, 而 tru 也合法、}} 却永远非法?',
-      answer: '- 多字符词表: 5 个 token, {&quot; → id → &quot;: → 42 → }, 再加 EOS。其中 &quot;: 一口气跨了 2 个状态。\n- 单字符词表: 要 9 个。\n合法性的定义是「整段字符都能沿 DFA 走通」:\n- true: 从 value? 走 4 步, 落到「, 或 }」。\n- tru: 走 3 步停在字面量中间, 之后只能接 e。\n- }}: 第二个 } 在结束态无路可走, 对所有状态都是 −1。\n这张 S×V 表离线算一次, 在线每步只查一行。否则每步要对全词表逐字符试走, 纯 CPU 开销卡在 GPU 前向和采样之间。',
+      ask: '重置后, 用最少的 token 拼出 {&quot;id&quot;:42}。需要几个?',
+      answer: '- 多字符词表: 5 个 token, {&quot; → id → &quot;: → 42 → }, 再加 EOS。其中 &quot;: 一口气跨了 2 个状态。\n- 勾上「只用单字符词表」拼同一个串: 要 9 个。\n一个 token 合不合法, 看的是「整段字符都能沿 DFA 走通」:\n- true: 从 value? 走 4 步, 落到「, 或 }」。\n- tru: 走 3 步停在字面量中间, 之后只能接 e。\n- }}: 第二个 } 在结束态无路可走, 对所有状态都是 −1。\n这张 S×V 表离线算一次, 在线每步只查一行。否则每步要对全词表逐字符试走, 纯 CPU 开销卡在 GPU 前向和采样之间。',
     }"
   >
     <template #controls>
@@ -26,7 +26,12 @@
     </template>
 
     <svg viewBox="0 0 560 165" role="img" :aria-label="`语法状态图, 当前状态 ${GROUPS[curGroup].label}`">
-      <line v-for="(e, k) in EDGES" :key="k" :x1="GROUPS[e[0]].x" :y1="GROUPS[e[0]].y" :x2="GROUPS[e[1]].x" :y2="GROUPS[e[1]].y" class="edge" />
+      <defs>
+        <marker id="gram-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" class="head" />
+        </marker>
+      </defs>
+      <line v-for="(e, k) in ARROWS" :key="k" :x1="e.x1" :y1="e.y1" :x2="e.x2" :y2="e.y2" class="edge" :class="{ back: e.back }" marker-end="url(#gram-arrow)" />
       <g v-for="(g, k) in GROUPS" :key="k" :class="['st', { cur: k === curGroup, via: hoverPath.includes(k) }]">
         <rect :x="g.x - 30" :y="g.y - 13" width="60" height="26" rx="6" />
         <text :x="g.x" :y="g.y + 4">{{ g.label }}</text>
@@ -99,6 +104,12 @@ const GROUPS = [
   { id: 'num', label: '数字中', x: 515, y: 85 }, { id: 'lit', label: '字面量中', x: 515, y: 140 }, { id: 'after', label: ', 或 }', x: 310, y: 140 }, { id: 'done', label: '结束', x: 130, y: 140 },
 ]
 const EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [4, 6], [4, 7], [5, 8], [7, 8], [6, 8], [8, 1], [8, 9], [6, 9]]
+// 箭头停在目标框的边上 (框半宽 30, 半高 13); 回边 = 指向更早状态的边, 画虚线
+const ARROWS = EDGES.map(([a, b]) => {
+  const p = GROUPS[a], q = GROUPS[b], dx = q.x - p.x, dy = q.y - p.y
+  const t = 1 - Math.min(dx ? 32 / Math.abs(dx) : 1, dy ? 15 / Math.abs(dy) : 1)
+  return { x1: p.x, y1: p.y, x2: p.x + dx * t, y2: p.y + dy * t, back: b < a }
+})
 const groupOf = (s) => GROUPS.findIndex((g) => g.id === STATES[s].split(':')[0])
 const dedupe = (xs) => xs.filter((x, i) => x !== xs[i - 1])
 
@@ -134,7 +145,9 @@ svg { min-width: 500px; touch-action: pan-x pan-y; }
 .out { font-size: 13px; color: var(--text-muted); word-break: break-all; }
 .out b { color: var(--text); font-weight: 500; }
 .okmsg { color: var(--left); }
-.edge { stroke: var(--border-strong); stroke-width: 1; }
+.edge { stroke: var(--text-dim); stroke-width: 1; }
+.edge.back { stroke-dasharray: 5 3; }
+.head { fill: var(--text-dim); }
 .st rect { fill: var(--bg-elev); stroke: var(--border-strong); }
 .st text { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
 .st.via rect { stroke: var(--warn); stroke-width: 2; fill: color-mix(in srgb, var(--warn) 18%, var(--bg-elev)); }

@@ -33,7 +33,7 @@ def collect_pairs(lm: TinyLM, n_seq: int, seq_len: int, seed: int, p_greedy: flo
     V = lm.cfg.vocab_size
     H_prev, E_next, H_next = [], [], []
     for _ in range(n_seq):
-        ids = [int(rs.randint(V))]
+        ids = [int(rs.randint(V))]                        # 每条轨迹从一个随机 token 起步
         logits, cache, hid = lm.forward(ids, return_hidden=True)
         hs = [hid[-1]]
         for _ in range(seq_len):
@@ -42,15 +42,15 @@ def collect_pairs(lm: TinyLM, n_seq: int, seq_len: int, seed: int, p_greedy: flo
             logits, cache, hid = lm.forward([tok], cache, return_hidden=True)
             hs.append(hid[-1])
         hs = np.stack(hs)                                 # (seq_len+1, D)
-        H_prev.append(hs[:-1])
+        H_prev.append(hs[:-1])                            # (seq_len, D) 错开一位: h_t 配 h_{t+1}
         E_next.append(lm.w.tok_emb[ids[1:]])              # (seq_len, D)
-        H_next.append(hs[1:])
+        H_next.append(hs[1:])                             # (seq_len, D)
     return np.concatenate(H_prev), np.concatenate(E_next), np.concatenate(H_next)
 
 
 def fit_draft(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     """一步最小二乘 = 本 demo 的"训练"。X (N, d_in), Y (N, D) → A (d_in+1, D), 末行是 bias。"""
-    Xb = np.concatenate([X, np.ones((len(X), 1))], axis=1)
+    Xb = np.concatenate([X, np.ones((len(X), 1))], axis=1)   # (N, d_in+1) 末尾补一列 1, 对应 bias
     A, *_ = np.linalg.lstsq(Xb, Y, rcond=None)
     return A
 
@@ -66,6 +66,7 @@ class EagleDrafter:
         self.lm, self.A, self.use_feature = lm, A, use_feature
 
     def propose(self, out: List[int], K: int, temperature: float, rng, hidden: np.ndarray):
+        """接在 out 后面连猜 K 个 token → (tokens 长度 K, probs (K, V))。greedy 时 probs 为 None。"""
         h, tok = hidden, out[-1]              # h: 产生 out[-1] 的位置的 target 真特征 (D,)
         tokens, probs = [], []
         for _ in range(K):

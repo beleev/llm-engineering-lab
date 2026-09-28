@@ -1,2 +1,2 @@
-"""Data parallel / DDP demo."""
+"""数据并行 (DDP) 演示。"""
 

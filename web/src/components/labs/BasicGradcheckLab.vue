@@ -28,7 +28,7 @@
       <LabSlider v-model="k" label="步长 ε = 10^k" :min="-12" :max="-1" :step="0.25" :format="(t) => '1e' + t.toFixed(2)" />
     </template>
 
-    <svg ref="svg" viewBox="0 0 560 300" role="img" aria-label="相对误差随 ε 变化的曲线">
+    <svg ref="svg" viewBox="0 0 560 300" role="group" aria-label="相对误差随 ε 变化的曲线, 竖线可拖动选 ε">
       <g class="grid">
         <template v-for="e in [-16, -12, -8, -4, 0]" :key="'y' + e">
           <line :x1="X0" :x2="X1" :y1="py(e)" :y2="py(e)" /><text :x="X0 - 6" :y="py(e) + 4" class="yl">1e{{ e }}</text>
@@ -43,7 +43,7 @@
       <text :x="px(-11.6)" :y="Y0 + 12" class="ann">← 舍入误差 ∝ δ/ε</text>
       <text :x="px(-1.2)" :y="Y0 + 12" class="ann end">截断误差 ∝ ε{{ central ? '²' : '' }} →</text>
       <line :x1="px(-5)" :x2="px(-5)" :y1="Y1 - 6" :y2="Y1" class="tick" /><text :x="px(-5)" :y="Y1 + 28" class="xl tickl">gradcheck.py 默认 1e-5</text>
-      <g class="draggable" tabindex="0" role="slider" aria-label="拖动选择 ε" :aria-valuenow="k"
+      <g class="draggable" tabindex="0" role="slider" aria-label="拖动选择 ε" :aria-valuenow="k" aria-valuemin="-12" aria-valuemax="-1" :aria-valuetext="`ε = 1e${k.toFixed(2)}`"
         @pointerdown="start($event, { svg, onMove })" @keydown.left="k = clamp(k - 0.25, -12, -1)" @keydown.right="k = clamp(k + 0.25, -12, -1)">
         <line :x1="px(k)" :x2="px(k)" :y1="Y0" :y2="Y1" class="marker" />
         <rect :x="px(k) - 12" :y="Y0" width="24" :height="Y1 - Y0" fill="transparent" />
@@ -93,7 +93,8 @@ const measure = (kk) => {
   const r = f32.value ? Math.fround : (t) => t
   const e = r(10 ** kk), w = r(Wm[0][0])
   const num = central.value ? (loss(r(w + e), r) - loss(r(w - e), r)) / (2 * e) : (loss(r(w + e), r) - loss(w, r)) / e
-  const err = Math.abs(num - ana.value) / Math.max(1e-300, Math.abs(num) + Math.abs(ana.value))
+  // ★ 分母与 gradcheck.py:check_op 相同: max(|g_a|, |g_n|, 1e-12)
+  const err = Math.abs(num - ana.value) / Math.max(Math.abs(num), Math.abs(ana.value), 1e-12)
   return { num, err: Math.max(err, 1e-16) }   // 恰好为 0 时压到图的地板上
 }
 const ks = range(45).map((i) => -12 + i * 0.25)

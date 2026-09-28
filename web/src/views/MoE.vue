@@ -4,7 +4,7 @@
     <div class="page-subtitle lead-group">
       <p>想让模型更懂, 最直接的办法是把 FFN 做大。但 FFN 一大, 每个 token 的算力就跟着涨。</p>
       <p>
-        MoE 把一个巨大 FFN 切成 E 个小 FFN, 每个 token 只激活其中 top-k 个: 参数量涨 E/k 倍, 算力只涨 k 倍。
+        MoE 放 E 个小 FFN, 每个 token 只过其中 top-k 个: 参数是单个小 FFN 的 E 倍, 每 token 算力只有 k 倍。
         容量和算力就此解耦。
       </p>
       <p>
@@ -25,53 +25,56 @@
         { path: 'llm_models/layers/sparse/moe.py', label: 'moe.py · MixtralMoE' },
         { path: 'llm_models/models/moe/deepseekV3.py', label: 'deepseekV3.py · DeepSeekMoE' },
       ]"
-      :prereq="{ name: 'blocks', label: 'Block 组装器 — 看清 ffn 槽位' }"
-      :next-step="{ name: 'diffusion', label: '扩散生成 — 走另一条主线' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <!-- 控制条 -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="controls">
         <div class="form-row">
-          <label>变体</label>
-          <div class="btn-group" style="grid-column: span 2;">
-            <button :class="{ active: variant === 'mixtral' }" @click="variant = 'mixtral'">Mixtral (softmax)</button>
-            <button :class="{ active: variant === 'deepseek' }" @click="variant = 'deepseek'">DeepSeek (sigmoid)</button>
+          <span id="moe-variant-label" class="row-label">变体</span>
+          <div class="btn-group" style="grid-column: span 2;" role="group" aria-labelledby="moe-variant-label">
+            <button type="button" :class="{ active: variant === 'mixtral' }" :aria-pressed="variant === 'mixtral'" @click="variant = 'mixtral'">Mixtral (softmax)</button>
+            <button type="button" :class="{ active: variant === 'deepseek' }" :aria-pressed="variant === 'deepseek'" @click="variant = 'deepseek'">DeepSeek (sigmoid)</button>
           </div>
         </div>
         <div class="form-row">
-          <label>专家总数 E</label>
-          <input type="range" min="4" max="32" step="2" v-model.number="numExperts" />
+          <label for="moe-num-experts">专家总数 E</label>
+          <input id="moe-num-experts" type="range" min="4" :max="MAX_EXPERTS" step="2" v-model.number="numExperts" />
           <span class="val">{{ numExperts }}</span>
         </div>
         <div class="form-row">
-          <label>top-k</label>
-          <input type="range" :min="1" :max="Math.max(2, numExperts / 2)" step="1" v-model.number="topK" />
+          <label for="moe-top-k">top-k</label>
+          <input id="moe-top-k" type="range" :min="1" :max="topKMax" step="1" v-model.number="topK" />
           <span class="val">{{ topK }}</span>
         </div>
         <div v-if="variant === 'deepseek'" class="form-row">
-          <label>共享专家</label>
-          <input type="range" min="0" max="4" step="1" v-model.number="numShared" />
+          <label for="moe-num-shared">共享专家</label>
+          <input id="moe-num-shared" type="range" min="0" max="4" step="1" v-model.number="numShared" />
           <span class="val">{{ numShared }}</span>
         </div>
         <div class="form-row">
-          <label>Token 数</label>
-          <input type="range" min="8" max="32" step="2" v-model.number="numTokens" />
+          <label for="moe-num-tokens">Token 数</label>
+          <input id="moe-num-tokens" type="range" min="8" :max="MAX_TOKENS" step="2" v-model.number="numTokens" />
           <span class="val">{{ numTokens }}</span>
         </div>
         <div class="form-row">
-          <label>路由坍塌倾向</label>
-          <input type="range" min="0" max="100" step="1" v-model.number="collapseBias" />
+          <label for="moe-collapse-bias">路由坍缩倾向</label>
+          <input id="moe-collapse-bias" type="range" min="0" max="100" step="1" v-model.number="collapseBias" />
           <span class="val">{{ collapseBias }}%</span>
         </div>
       </div>
 
       <div style="display: flex; gap: 8px; margin-top: 12px;">
-        <button @click="regenerate">🎲 重新采样 tokens</button>
-        <button @click="animateFlow" :disabled="animating">▷ 播放路由动画</button>
+        <button type="button" @click="seed++">重新采样 tokens</button>
+        <button type="button" @click="animateFlow" :disabled="animating">▷ 播放路由动画</button>
       </div>
       <p class="desc" style="margin-top: 10px;">
-        把「路由坍塌倾向」拉到 100%, 大部分 token 都往前两个专家挤。负载标准差变红, 其余专家白占着显存。
+        拖滑杆时 token 的底分不变, 只有「重新采样」会换一批。
+      </p>
+      <p class="desc" style="margin-top: 6px;">
+        把「路由坍缩倾向」拉到 100%, 大部分 token 都往前两个专家挤。负载标准差变红, 其余专家白占着显存。
       </p>
       <p class="desc" style="margin-top: 6px;">
         真实训练里这是个正反馈: 被选中得多的专家学得更好, 于是更容易被选中。所以 MoE 必须配一套均衡机制。
@@ -80,13 +83,8 @@
 
     <!-- 主可视化: 左 tokens → 中 router → 右 experts -->
     <div class="card">
-      <svg :viewBox="`0 0 ${W} ${H}`" width="100%" :height="H">
-        <defs>
-          <linearGradient id="token-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stop-color="#7c6bf1" stop-opacity="0.8" />
-            <stop offset="1" stop-color="#ec4899" stop-opacity="0.8" />
-          </linearGradient>
-        </defs>
+      <svg :viewBox="`0 0 ${W} ${H}`" width="100%" :height="H" role="img"
+           :aria-label="`${numTokens} 个 token 经 router 分给 ${numExperts} 个专家, 每个 token 选 top-${topK}。负载标准差 ${loadStd.toFixed(2)}, 最热门的是 E${hottestExpert.idx}`">
 
         <!-- Tokens -->
         <g>
@@ -109,7 +107,7 @@
           <text :x="routerX + 50" y="30" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="600">Router</text>
           <text :x="routerX + 50" :y="H - 10" text-anchor="middle"
                 fill="var(--text-dim)" font-size="10" font-family="SF Mono">
-            {{ variant === 'mixtral' ? 'softmax' : 'sigmoid + bias' }}
+            {{ variant === 'mixtral' ? 'softmax' : 'sigmoid' }}
           </text>
         </g>
 
@@ -130,7 +128,7 @@
             <rect :x="expertX" :y="40 + i * expertGap"
                   :width="140" :height="expertGap - 8"
                   rx="4"
-                  :fill="e.shared ? 'rgba(245, 166, 35, 0.08)' : 'var(--bg-elev)'"
+                  :style="{ fill: e.shared ? 'color-mix(in srgb, var(--eye) 8%, transparent)' : 'var(--bg-elev)' }"
                   :stroke="e.shared ? 'var(--eye)' : (e.load > 0 ? 'var(--accent)' : 'var(--border)')"
                   :stroke-opacity="e.shared ? 0.8 : (0.4 + Math.min(1, e.load / maxLoad) * 0.6)" />
             <text :x="expertX + 10" :y="55 + i * expertGap"
@@ -153,12 +151,23 @@
         </g>
       </svg>
 
+      <!-- 这张图没模拟的东西要写明, 否则读者会以为 DeepSeek 的均衡没用 -->
+      <div class="sim-note">
+        <p>
+          切换 Mixtral / DeepSeek, 这张图只换了打分函数 (softmax 换成 sigmoid), 再加上共享专家。
+          两个函数都单调递增, top-k 选出的专家相同, 所以路由专家的负载不变。
+        </p>
+        <p>
+          本图不模拟均衡, 效果见<router-link :to="{ name: 'models-moe-balance' }">「Aux-loss-free 均衡」一章</router-link>。
+        </p>
+      </div>
+
       <!-- 负载分析 -->
-      <div class="load-analysis">
+      <div class="load-analysis" aria-live="polite">
         <div class="stat">
           <div class="k">负载标准差</div>
           <div class="v" :style="{ color: loadStdColor }">{{ loadStd.toFixed(2) }}</div>
-          <div class="hint">越小越均衡; 拖「路由坍塌倾向」看它变红</div>
+          <div class="hint">越小越均衡; 拖「路由坍缩倾向」看它变红</div>
         </div>
         <div class="stat">
           <div class="k">最热门的专家</div>
@@ -233,8 +242,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'blocks', label: 'Block 组装器', hint: 'MoE 只是 ffn 槽位的一种填法' }"
-      :next="{ name: 'diffusion', label: '扩散生成', hint: '换一条主线: 用 attention 学「去噪」而不是「下一个 token」' }"
+      :prev="{ ...prevChapter, hint: 'MoE 只是 ffn 槽位的一种填法' }"
+      :next="nextChapter"
     />
   </div>
 </template>
@@ -242,17 +251,32 @@
 <script setup>
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { learningPath } from '@/data/models.js'
+import { mulberry32 } from '@/utils/labmath.js'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import RepoLink from '@/components/RepoLink.vue'
 
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'moe')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 两根滑杆的上限, 底分表按这个尺寸一次生成
+const MAX_EXPERTS = 32
+const MAX_TOKENS = 32
+
 const variant = ref('deepseek')
 const numExperts = ref(8)
 const topK = ref(2)
+// top-k 滑杆的上限跟着专家数走。专家数调小时把 topK 钳回上限以内, 否则读数会停在滑杆够不到的值上
+const topKMax = computed(() => Math.max(2, numExperts.value / 2))
+watch(topKMax, (m) => { if (topK.value > m) topK.value = m })
 const numShared = ref(2)
 const numTokens = ref(16)
-const collapseBias = ref(30)  // 0–100: 越大越倾向路由坍塌
+const collapseBias = ref(30)  // 0–100: 越大越倾向路由坍缩
+const seed = ref(1)           // 只有「重新采样」会改它
 
 const animating = ref(false)
 
@@ -267,30 +291,21 @@ const expertX = 520
 const H = computed(() => Math.max(numTokens.value, numExperts.value + numShared.value) * Math.max(tokenGap, expertGap) + 80)
 
 // --- Tokens 与路由计算 ---
-const tokens = ref([])
+// ★ 每个 (token, 专家) 的底分只由 seed 决定, 按滑杆上限一次生成。
+//   拖滑杆只是从这张表里取一块, 所以图不会乱跳, 看得出是哪个量在起作用。
+const baseScores = computed(() => {
+  const rand = mulberry32(seed.value)
+  return Array.from({ length: MAX_TOKENS }, () =>
+    Array.from({ length: MAX_EXPERTS }, () => rand() + (rand() - 0.5) * 0.3))
+})
 
-function makeToken() {
-  // 每个 token 一组对各专家的 "真实偏好"
-  // collapseBias 越大, 让多数 token 都偏好前几个专家
-  const E = numExperts.value
-  const scores = []
-  const collapse = collapseBias.value / 100
-  for (let e = 0; e < E; e++) {
-    // 基础随机 + 向前 2 个专家倾斜
-    const base = Math.random()
-    const bias = e < 2 ? collapse * 1.8 : 0
-    scores.push(base + bias + (Math.random() - 0.5) * 0.3)
-  }
-  return { scores }
-}
-
-function regenerate() {
-  tokens.value = Array.from({ length: numTokens.value }, makeToken)
-}
-
-// 监听 token 数量和参数变化重新生成
-watch([numTokens, numExperts, collapseBias], regenerate, { immediate: true })
-onMounted(regenerate)
+// 坍缩倾向越大, 前 2 个专家的分数被抬得越高, 多数 token 都往它们身上挤
+const tokens = computed(() => {
+  const bias = (collapseBias.value / 100) * 1.8
+  return baseScores.value.slice(0, numTokens.value).map((row) => ({
+    scores: row.slice(0, numExperts.value).map((base, e) => base + (e < 2 ? bias : 0)),
+  }))
+})
 
 // --- 路由决策 ---
 const routingDecisions = computed(() => {
@@ -408,6 +423,17 @@ async function animateFlow() {
 </script>
 
 <style scoped>
+.row-label { font-size: 13px; color: var(--text-muted); }
+.sim-note {
+  margin-top: 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.sim-note p + p { margin-top: 6px; }
+
 .controls {
   display: grid;
   grid-template-columns: 1fr 1fr;

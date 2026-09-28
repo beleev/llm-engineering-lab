@@ -20,7 +20,8 @@ import numpy as np
 
 from llm_infer.m05_radix_cache.radix_tree import RadixCache
 
-# 代价模型参数 (估算用, 不是实测): 取得偏慢, 让 8 个副本在这条请求流下有 30~40% 的利用率, 排队效应才看得见
+# 代价模型参数 (估算用, 不是实测): 取得偏慢, 排队效应才看得见。
+# chat_stream 默认参数 + 8 个副本时, 利用率在 30~40%。
 PREFILL_TOK_S = 1000.0        # 每个副本 prefill 速度 (tokens/s)
 DECODE_TOK_S = 100.0          # 每个副本 decode 吞吐 (tokens/s)
 CACHE_TOKENS = 24_000         # 每个副本前缀缓存容量 (tokens)
@@ -28,9 +29,10 @@ CACHE_TOKENS = 24_000         # 每个副本前缀缓存容量 (tokens)
 
 @dataclass
 class Replica:
+    """一个引擎副本: 自己的前缀缓存 + 一条工作队列的积压。"""
     cache: RadixCache = field(default_factory=RadixCache)
     backlog_s: float = 0.0    # 还没做完的活 (秒); 路由器眼里的"负载"
-    last_t: float = 0.0
+    last_t: float = 0.0       # 上次更新积压的时刻 (秒)
     work_s: float = 0.0       # 累计分到的活, 用来算负载均衡度
 
 
@@ -41,18 +43,22 @@ def prefix_len(cache: RadixCache, tokens: List[int]) -> int:
         child = node.children.get(tokens[i])
         if child is None:
             return i
-        n = 0
+        n = 0                                                            # 这条边上匹配了几个 token
         for a, b in zip(child.edge_tokens, tokens[i:]):
             if a != b:
                 return i + n
             n += 1
-        if n < len(child.edge_tokens):
+        if n < len(child.edge_tokens):                                   # tokens 在边中间用完了
             return i + n
         node, i = child, i + n
     return i
 
 
 def route(policy: str, replicas: List[Replica], tokens: List[int], rr: int, threshold_s: float = float("inf")) -> int:
+    """→ 这个请求该去的副本下标。rr: 请求序号, 轮询和平手时的轮转都靠它。
+
+    threshold_s 只对 "prefix" 起作用; 默认 inf = 永不放弃缓存 (纯前缀感知)。
+    """
     loads = [r.backlog_s for r in replicas]
     if policy == "round_robin":
         return rr % len(replicas)
@@ -60,7 +66,7 @@ def route(policy: str, replicas: List[Replica], tokens: List[int], rr: int, thre
     least = min(range(len(replicas)), key=lambda i: (loads[i], turn[i]))
     if policy == "least_load":
         return least
-    assert policy == "prefix"
+    assert policy == "prefix", f"未知路由策略 {policy!r}, 可选 round_robin / least_load / prefix"
     # 命中最长者优先, 平手 (比如都只命中 system prompt) 选负载低的
     best = max(range(len(replicas)), key=lambda i: (prefix_len(replicas[i].cache, tokens), -loads[i], -turn[i]))
     return least if loads[best] - loads[least] > threshold_s else best
@@ -80,7 +86,7 @@ def simulate(reqs, policy: str, n_replicas: int = 8, threshold_s: float = float(
             r.backlog_s, r.last_t = max(0.0, r.backlog_s - (t - r.last_t)), t
         rep = reps[route(policy, reps, prompt, k, threshold_s)]
         _, slots = rep.cache.match(prompt)                               # 真正使用: 刷新 LRU
-        h = min(len(slots), len(prompt) - 1)                             # 至少算最后 1 个 token 才有 logits
+        h = min(len(slots), len(prompt) - 1)                             # 命中数; 至少算最后 1 个 token 才有 logits
         prefill_s = (len(prompt) - h) / PREFILL_TOK_S
         ttft.append(rep.backlog_s + prefill_s)
         work = prefill_s + len(reply) / DECODE_TOK_S
@@ -92,24 +98,25 @@ def simulate(reqs, policy: str, n_replicas: int = 8, threshold_s: float = float(
         if over > 0:
             rep.cache.evict(over)                                        # LRU 驱逐叶子
         hit, total = hit + h, total + len(prompt)
-    work = np.array([r.work_s for r in reps])
-    ttft = np.array(ttft)
+    work = np.array([r.work_s for r in reps])                            # (n_replicas,)
+    ttft = np.array(ttft)                                                # (请求数,)
+    # balance = 最忙副本 / 平均; util = 总工作量 / (副本数 × 请求流的时间跨度)
     return dict(hit=hit / total, balance=float(work.max() / work.mean()), share=work / work.sum(),
                 ttft_mean=float(ttft.mean()), ttft_p90=float(np.percentile(ttft, 90)),
                 util=float(work.sum() / (n_replicas * reqs[-1][0])))
 
 
-def chat_stream(n_conv=200, n_sys=4, sys_len=512, span_s=400.0, seed=0):
+def chat_stream(n_conv=200, n_sys=4, sys_len=512, span_s=400.0, seed=0, turns=(3, 8)):
     """多轮对话 + 共享 system prompt: n_sys 个 system prompt, 流行度 ∝ 1/rank (头部是热点);
-    每段对话 3~8 轮, 每轮 prompt = system + 全部历史 + 新消息, 轮间思考时间 ~ Exp(15 s)。"""
+    每段对话 turns[0]~turns[1] 轮 (含两端), 每轮 prompt = system + 全部历史 + 新消息, 轮间思考时间 ~ Exp(15 s)。"""
     rs = np.random.RandomState(seed)
-    systems = [list(rs.randint(0, 1 << 30, sys_len)) for _ in range(n_sys)]
-    pop = 1.0 / np.arange(1, n_sys + 1)
+    systems = [list(rs.randint(0, 1 << 30, sys_len)) for _ in range(n_sys)]   # 1<<30: token 取值范围够大, 不会偶然撞前缀
+    pop = 1.0 / np.arange(1, n_sys + 1)                                   # (n_sys,) 没归一化的流行度
     reqs = []
     for _ in range(n_conv):
         hist = list(systems[rs.choice(n_sys, p=pop / pop.sum())])
-        t = rs.uniform(0, span_s)
-        for _ in range(rs.randint(3, 9)):
+        t = rs.uniform(0, span_s)                                         # 这段对话第一轮的到达时刻
+        for _ in range(rs.randint(turns[0], turns[1] + 1)):              # randint 不含上界, 所以 +1
             hist += list(rs.randint(0, 1 << 30, rs.randint(30, 80)))      # 用户消息
             reply = list(rs.randint(0, 1 << 30, rs.randint(80, 200)))
             reqs.append((t, list(hist), reply))

@@ -7,7 +7,8 @@
 //                              snippetTitle, snippet, source, run, widgets } },
 //   }
 // 路由 (/阶段/章节名)、侧栏、learningPath 全部由这里自动生成, 新增一章不需要再改 router 和 models.js。
-// pages 里也可以写已有章节的 route 名 —— 会按字段覆盖 models.js 里的同名页 (用来补 source / 修正文字)。
+// 章节正文只住在 pages 里: models.js 的 topicPages 就是把各阶段的 pages 合并起来, 它自己不存正文。
+// 同一个 route 名在两个文件里都写了 page 时, 后加载的整页覆盖先加载的, 所以一个 route 只写一处。
 const files = import.meta.glob('./*.js', { eager: true, import: 'default' })
 const mods = Object.entries(files).filter(([f]) => !f.endsWith('/index.js')).map(([, m]) => m).filter(Boolean)
 

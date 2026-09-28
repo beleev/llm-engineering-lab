@@ -1,2 +1,2 @@
-"""Checkpoint and resume demo."""
+"""checkpoint 保存与续训演示。"""
 

@@ -37,7 +37,9 @@ class AddNoiseResult:
         noise:  ε
         target: loss 的回归目标 (DDPM: ε; Flow Matching: velocity = ε - x_0)
         t_norm: **喂给 model.forward 的时间**, 统一为 [0, T) 量纲
-                (DDPM: 原始整数步; Flow Matching: t·T)。名字是历史遗留, 不是 [0,1]。
+                (DDPM: 原始整数步; Flow Matching: t·T)。
+                名字带 norm, 但取值范围不是 [0,1]。
+    形状: noisy / noise / target 与 x_0 相同, t_norm 是 [B]。
     """
     noisy: torch.Tensor
     noise: torch.Tensor
@@ -47,7 +49,8 @@ class AddNoiseResult:
 
 class NoiseScheduler(ABC):
     """
-    抽象调度器: 定义 forward (加噪) + 训练 target + 推理 step 的语义。
+    抽象调度器: 规定怎么采训练用的 t、怎么加噪、loss 的回归目标是什么。
+    反向去噪的每一步不在这里, 在 Sampler 里。
     """
 
     prediction_type: str  # "epsilon" | "velocity"
@@ -70,6 +73,9 @@ class DDPMScheduler(NoiseScheduler):
 
     为什么用 cosine 调度 (Nichol & Dhariwal, 2021)?
         linear β 在 T 较大时端点噪声过大, cosine 调度让 ᾱ_t 更平滑, 生成质量更好。
+
+    符号: β_t = 第 t 步加的噪声方差, α_t = 1 - β_t, ᾱ_t = α_1·…·α_t (x_0 还剩多少信号)。
+    s = 0.008 是 cosine 调度论文的取值: 一个小偏移, 让 t=0 附近的 β 不至于太小。
     """
 
     prediction_type = "epsilon"
@@ -78,15 +84,17 @@ class DDPMScheduler(NoiseScheduler):
         self.num_train_timesteps = num_train_timesteps
 
         # cosine ᾱ_t = f(t)^2 / f(0)^2, f(t) = cos((t/T + s)/(1+s) · π/2)
-        t = torch.arange(num_train_timesteps + 1, dtype=torch.float) / num_train_timesteps
+        t = torch.arange(num_train_timesteps + 1, dtype=torch.float) / num_train_timesteps  # [T+1], 0..1
         alpha_bar = torch.cos((t + s) / (1 + s) * math.pi / 2) ** 2
-        alpha_bar = alpha_bar / alpha_bar[0]
+        alpha_bar = alpha_bar / alpha_bar[0]             # 除以 f(0)², 让 ᾱ_0 = 1
 
+        # ᾱ_t = ᾱ_{t-1}·(1 - β_t) ⇒ β_t = 1 - ᾱ_t / ᾱ_{t-1}; 相邻两项相除, [T+1] → [T]
         betas = 1 - (alpha_bar[1:] / alpha_bar[:-1])
+        # 截到 0.999: t → T 时 ᾱ → 0, 比值会让 β 贴近 1, 最后几步出现奇点
         betas = betas.clamp(max=0.999)
 
         alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod = torch.cumprod(alphas, dim=0)    # [T] 用截断后的 β 重新累乘出 ᾱ_t
 
         self.betas = betas
         self.alphas = alphas
@@ -103,7 +111,7 @@ class DDPMScheduler(NoiseScheduler):
         return self
 
     def sample_timesteps(self, batch_size: int, device: torch.device) -> torch.Tensor:
-        # DDPM 训练时均匀采 t ∈ [0, T-1]
+        # DDPM 训练时均匀采 t ∈ [0, T-1], 整数, [B]
         return torch.randint(0, self.num_train_timesteps, (batch_size,), device=device)
 
     def _broadcast(self, x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
@@ -113,9 +121,11 @@ class DDPMScheduler(NoiseScheduler):
         return x
 
     def add_noise(self, x0: torch.Tensor, t: torch.Tensor) -> AddNoiseResult:
+        """x0 [B, ...], t [B] 整数步 → AddNoiseResult。一步到位算出 x_t, 不用逐步加噪。"""
         noise = torch.randn_like(x0)
-        sqrt_ab = self._broadcast(self.sqrt_alphas_cumprod[t], x0)
-        sqrt_1mab = self._broadcast(self.sqrt_one_minus_alphas_cumprod[t], x0)
+        # 按每个样本的 t 查表, 再补维度好和 x0 相乘: [B] → [B, 1, 1, ...]
+        sqrt_ab = self._broadcast(self.sqrt_alphas_cumprod[t], x0)                 # sqrt(ᾱ_t)
+        sqrt_1mab = self._broadcast(self.sqrt_one_minus_alphas_cumprod[t], x0)     # sqrt(1 - ᾱ_t)
         noisy = sqrt_ab * x0 + sqrt_1mab * noise
         # DDPM 的 t 本来就是 [0, T) 的整数步, 不需要再缩放
         return AddNoiseResult(noisy=noisy, noise=noise, target=noise, t_norm=t.float())
@@ -145,16 +155,18 @@ class FlowMatchingScheduler(NoiseScheduler):
         return self
 
     def sample_timesteps(self, batch_size: int, device: torch.device) -> torch.Tensor:
-        # 直接采 [0, 1] 的连续值, 比 DDPM 的离散 t 更自然
+        # 直接采 [0, 1) 的连续值, [B]; 线性路径对任意实数 t 都有定义, 不需要离散成整数步
         return torch.rand(batch_size, device=device)
 
     @staticmethod
     def _broadcast(x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+        """[B] → [B, 1, 1, ...], 补到和 ref 一样多的维度。"""
         while x.dim() < ref.dim():
             x = x.unsqueeze(-1)
         return x
 
     def add_noise(self, x0: torch.Tensor, t: torch.Tensor) -> AddNoiseResult:
+        """x0 [B, ...], t [B] ∈ [0, 1] → AddNoiseResult。"""
         noise = torch.randn_like(x0)
         t_b = self._broadcast(t, x0)                # [B] → [B, 1, 1, ...]
         noisy = (1 - t_b) * x0 + t_b * noise        # 插值系数用 t ∈ [0, 1]
@@ -191,7 +203,8 @@ class DiffusionLoss(LossComputer):
         if loss_mask is None:
             loss = F.mse_loss(model_output, labels)
         else:
-            m = loss_mask.expand_as(labels).to(labels.dtype)
+            m = loss_mask.expand_as(labels).to(labels.dtype)   # 0/1 掩码, 扩到和 labels 同形
+            # 只对 m=1 的元素求平均。clamp(min=1): mask 全 0 时分母是 0, 垫到 1 防除零
             loss = ((model_output - labels) ** 2 * m).sum() / m.sum().clamp(min=1)
         return {"total_loss": loss, "diffusion_loss": loss}
 
@@ -234,31 +247,41 @@ class DDIMSampler:
         guidance_scale: float = 1.0,
         null_class_id: Optional[int] = None,
     ) -> torch.Tensor:
-        self.scheduler.to(device)
-        x = torch.randn(shape, device=device)
+        """从纯噪声采样, 返回 x_0 的估计, 形状 = shape。
 
-        # 均匀取子步, 覆盖 [0, T-1]
+        model: 可调用对象, 签名 (x, t, class_labels) → 与 x 同形的 ε 预测。
+               DiT / VideoDiT 可直接传; MMDiT 要包一层, 把文本条件闭包进去。
+        shape: 输出形状, 第 0 维是 batch。
+        喂给模型的 t 是 [B], [0, T) 量纲。
+        class_labels [B] 和 guidance_scale ≠ 1 同时给出时才做 CFG, 此时必须给 null_class_id。
+        """
+        self.scheduler.to(device)
+        x = torch.randn(shape, device=device)            # x_T: 纯噪声
+
+        # 从 T-1 到 0 等间隔取 num_inference_steps 个整数步 (降序)
         step_ids = torch.linspace(
             self.scheduler.num_train_timesteps - 1, 0,
             self.num_inference_steps, device=device,
-        ).long()
+        ).long()                                         # [num_inference_steps]
 
         for i in range(self.num_inference_steps):
             t = step_ids[i]
-            t_batch = t.expand(shape[0])
+            t_batch = t.expand(shape[0])                 # 标量 → [B], 整个 batch 用同一个 t
 
             pred = _apply_cfg(model, x, t_batch, class_labels, guidance_scale, null_class_id)
 
-            # DDIM 更新公式
+            # ab_t = ᾱ_t (当前步), ab_prev = ᾱ 在下一个要去的步上的值
             ab_t = self.scheduler.alphas_cumprod[t]
             if i < self.num_inference_steps - 1:
                 ab_prev = self.scheduler.alphas_cumprod[step_ids[i + 1]]
             else:
-                ab_prev = torch.tensor(1.0, device=device)
+                ab_prev = torch.tensor(1.0, device=device)   # 最后一步: ᾱ = 1 即没有噪声, x 直接等于 x0_pred
 
+            # 把加噪公式 x_t = sqrt(ᾱ_t)·x_0 + sqrt(1-ᾱ_t)·ε 反过来解出 x_0
             x0_pred = (x - (1 - ab_t).sqrt() * pred) / ab_t.sqrt()
             if self.clip_x0 is not None:
                 x0_pred = x0_pred.clamp(-self.clip_x0, self.clip_x0)
+            # 用同一个 ε 预测, 按下一步的 ᾱ 重新加噪 (η=0: 不加新的随机噪声)
             x = ab_prev.sqrt() * x0_pred + (1 - ab_prev).sqrt() * pred
 
         return x
@@ -293,16 +316,24 @@ class EulerFlowSampler:
         guidance_scale: float = 1.0,
         null_class_id: Optional[int] = None,
     ) -> torch.Tensor:
-        x = torch.randn(shape, device=device)
-        # t 从 1 线性递减到 0
+        """从纯噪声采样, 返回 x_0 的估计, 形状 = shape。
+
+        model: 可调用对象, 签名 (x, t, class_labels) → 与 x 同形的 velocity 预测。
+               DiT / VideoDiT 可直接传; MMDiT 要包一层, 把文本条件闭包进去
+               (写法见 run_models/generative/mmdit/infer_mmdit.py 的 denoiser)。
+        喂给模型的 t 是 [B], 值为 t·time_scale: 第一步 time_scale, 最后一步 time_scale / N。
+        其余参数同 DDIMSampler.sample。
+        """
+        x = torch.randn(shape, device=device)            # x_1 = ε: 纯噪声
+        # N 步需要 N+1 个时间点: t 从 1 线性递减到 0
         ts = torch.linspace(1.0, 0.0, self.num_inference_steps + 1, device=device)
         for i in range(self.num_inference_steps):
             t = ts[i]
-            dt = ts[i] - ts[i + 1]
+            dt = ts[i] - ts[i + 1]                       # 步长 Δt = 1/N > 0
             t_batch = (t * self.time_scale).expand(shape[0])   # [B], 模型量纲
 
             v = _apply_cfg(model, x, t_batch, class_labels, guidance_scale, null_class_id)
-            x = x - dt * v
+            x = x - dt * v                               # v = dx/dt 指向噪声; 往 t 变小的方向走, 所以是减
         return x
 
 
@@ -338,6 +369,7 @@ def _apply_cfg(
     sampler 内部用的 CFG 封装:
         - class_labels 为 None 或 guidance_scale == 1 时直接单次前向
         - 否则额外跑一次 null class, 线性外插
+    model 按位置参数调用: model(x, t, class_labels) → 与 x 同形。x [B, ...], t [B], class_labels [B] 或 None。
     """
     if class_labels is None or guidance_scale == 1.0:
         return model(x, t, class_labels)
@@ -345,7 +377,7 @@ def _apply_cfg(
     if null_class_id is None:
         raise ValueError("CFG 需要 null_class_id (训练时用 class_dropout 制造的 null)")
 
-    uncond_labels = torch.full_like(class_labels, null_class_id)
-    cond_pred = model(x, t, class_labels)
-    uncond_pred = model(x, t, uncond_labels)
+    uncond_labels = torch.full_like(class_labels, null_class_id)   # [B] 全填 "空类别"
+    cond_pred = model(x, t, class_labels)       # 有条件的预测
+    uncond_pred = model(x, t, uncond_labels)    # 无条件的预测 (每步要跑两次前向)
     return classifier_free_guidance(cond_pred, uncond_pred, guidance_scale)

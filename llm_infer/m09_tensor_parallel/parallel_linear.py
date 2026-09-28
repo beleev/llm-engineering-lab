@@ -18,19 +18,19 @@ import numpy as np
 from llm_infer.core import dense_attention, rms_norm
 from llm_infer.core.utils import silu
 
-Weights = Dict[str, np.ndarray]
-COL, ROW = ("q", "k", "v", "gate", "up"), ("o", "down")
+Weights = Dict[str, np.ndarray]                           # 一个 block 的权重: 名字 → 矩阵
+COL, ROW = ("q", "k", "v", "gate", "up"), ("o", "down")   # 按列切的矩阵 / 按行切的矩阵
 
 
 def split_column(W: np.ndarray, tp: int) -> List[np.ndarray]:
     """(D_in, D_out) → tp 份 (D_in, D_out/tp)。X@W = concat_r(X@W_r), 无需通信。"""
-    assert W.shape[1] % tp == 0
+    assert W.shape[1] % tp == 0, f"输出维 {W.shape[1]} 必须能被 tp={tp} 整除"
     return np.split(W, tp, axis=1)
 
 
 def split_row(W: np.ndarray, tp: int) -> List[np.ndarray]:
     """(D_in, D_out) → tp 份 (D_in/tp, D_out)。X@W = Σ_r X_r@W_r, 求和就是 all-reduce。"""
-    assert W.shape[0] % tp == 0
+    assert W.shape[0] % tp == 0, f"输入维 {W.shape[0]} 必须能被 tp={tp} 整除"
     return np.split(W, tp, axis=0)
 
 
@@ -42,6 +42,7 @@ class Comm:
         self.payload_bytes = 0
 
     def all_reduce(self, per_rank: List[np.ndarray]) -> np.ndarray:
+        """per_rank: 每个 rank 一份同形状的部分和 → 逐元素求和。载荷按一份的字节数记。"""
         if len(per_rank) > 1:                             # tp=1 无需通信
             self.n_allreduce += 1
             self.payload_bytes += per_rank[0].nbytes
@@ -55,7 +56,9 @@ def mha(x, Wq, Wk, Wv, Wo, n_head: int) -> np.ndarray:
     T = x.shape[0]
     heads = lambda W: (x @ W).reshape(T, n_head, -1).transpose(1, 0, 2)   # (T,n_head·dh) → (n_head,T,dh)
     h = dense_attention(heads(Wq), heads(Wk), heads(Wv))                  # (n_head,T,dh), 每头独立 softmax
-    h = h.astype(x.dtype)                                                 # core 基线内部会升到 fp64; 通信字节按激活 dtype 算
+    # astype 是保险: 输入 fp32 且用默认 mask 时 dense_attention 输出就是 fp32。
+    # 通信字节按激活的 dtype 算, 这里固定成和 x 一致, 混入 fp64 也不会让载荷翻倍。
+    h = h.astype(x.dtype)
     return h.transpose(1, 0, 2).reshape(T, -1) @ Wo                       # (T,n_head·dh) @ (n_head·dh,D) → (T,D)
 
 
@@ -81,10 +84,10 @@ def shard_weights(W: Weights, tp: int) -> List[Weights]:
 def tp_block(x, ranks: List[Weights], n_head: int, comm: Comm) -> np.ndarray:
     """x (T,D) 在每个 rank 上都有完整副本 (激活不切, 只切权重)。"""
     tp = len(ranks)
-    assert n_head % tp == 0, "head 是 attention 的最小切分单位"
+    assert n_head % tp == 0, f"head 是 attention 的最小切分单位: n_head={n_head} 必须能被 tp={tp} 整除"
     xn = rms_norm(x, ranks[0]["ln1"])                     # 各 rank 算出的结果相同, 模拟里只算一次
     partial = [mha(xn, R["q"], R["k"], R["v"], R["o"], n_head // tp) for R in ranks]   # 每项 (T,D): 本卡那几个头的贡献
     h = x + comm.all_reduce(partial)                      # all-reduce #1
-    hn = rms_norm(h, ranks[0]["ln2"])
+    hn = rms_norm(h, ranks[0]["ln2"])                     # (T,D)
     partial = [swiglu(hn, R["gate"], R["up"], R["down"]) for R in ranks]              # 每项 (T,D)
     return h + comm.all_reduce(partial)                   # all-reduce #2

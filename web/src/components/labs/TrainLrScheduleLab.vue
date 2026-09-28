@@ -7,7 +7,7 @@
     title="Cosine vs WSD — 训到一半想加训怎么办?"
     sub="- 实线: 按原计划 $T_0$ 步走的学习率。
       - 虚线: 假如一开始就知道要训 $T_1$ 步, 应该走的学习率。
-      - 红色阴影: 已经训过的步里, 实际 LR 与「本该用的」不一致的部分。
+      - 阴影: 已经训过的步里, 实际 LR 与「本该用的」不一致的部分。
       拖动横轴上的三个手柄: warmup 结束点、原计划 $T_0$、新计划 $T_1$。"
     module="llm_train/m10"
     run="python -m llm_train.m10_training_stability.demo"
@@ -21,11 +21,11 @@
         <button type="button" :class="{ active: mode === 'cosine' }" @click="mode = 'cosine'">Warmup + Cosine</button>
         <button type="button" :class="{ active: mode === 'wsd' }" @click="mode = 'wsd'">WSD (Warmup-Stable-Decay)</button>
       </div>
-      <LabSlider v-model="decayFrac" label="WSD 退火占比" :min="0.05" :max="0.4" :step="0.05" :format="(v) => Math.round(v * 100) + '%'" />
+      <LabSlider v-if="mode === 'wsd'" v-model="decayFrac" label="WSD 退火占比" :min="0.05" :max="0.4" :step="0.05" :format="(v) => Math.round(v * 100) + '%'" />
       <LabSlider v-model="minRatio" label="最终 LR / 峰值 LR" :min="0" :max="0.3" :step="0.05" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="学习率随训练步数的变化">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="学习率随训练步数的变化, 三个手柄可拖动">
       <line :x1="X0" :x2="W - 10" :y1="py(0)" :y2="py(0)" class="axis" />
       <g v-for="t in [0, 500, 1000, 1500, 2000]" :key="t">
         <line :x1="px(t)" :x2="px(t)" :y1="py(0)" :y2="py(0) + 4" class="axis" />
@@ -49,11 +49,11 @@
       <div class="kv"><span>已训 {{ t0 }} 步里仍「算数」的</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ keep }} 步</b></div>
       <div class="kv"><span>加训到 {{ t1 }} 需要回退重训</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ t0 - keep }} 步</b></div>
       <div class="kv"><span>第 {{ t0 }} 步: 实际 LR vs 本该用的</span><b>{{ lr(t0 - 1, t0).toFixed(2) }} vs {{ lr(t0 - 1, t1).toFixed(2) }}</b></div>
-      <div class="kv"><span>LR 是否依赖总步数</span><b :class="mode === 'wsd' ? 'good' : 'bad'">{{ mode === 'wsd' ? '仅退火段' : '几乎每一步' }}</b></div>
-      <p class="lab-note">
-        ★ WSD 的稳定段 <code class="inline">return base_lr</code> 里没有 total_steps。
-        warmup 的意义两者相同: Adam 的二阶矩估计在最初几百步很不准, 先用小 LR 走。
-      </p>
+      <div class="lab-note">
+        <p>cosine 在 warmup 之后每一步都把 total_steps 放在分母里, 总步数一改整条曲线都变。</p>
+        <p>★ WSD 的稳定段 <code class="inline">return base_lr</code> 里没有 total_steps, 只有退火段依赖它。</p>
+        <p>warmup 的意义两者相同: Adam 的二阶矩估计在最初几百步很不准, 先用小 LR 走。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -65,7 +65,8 @@ import LabSlider from '@/components/lab/LabSlider.vue'
 import { useDrag } from '@/composables/useDrag.js'
 import { clamp, range } from '@/utils/labmath.js'
 
-const mode = ref('wsd'), warm = ref(100), t0 = ref(1000), t1 = ref(1600), decayFrac = ref(0.1), minRatio = ref(0.1), svg = ref(null)
+// 默认 cosine: 先看到「加训要回退 900 步」, 再切 WSD 看它怎么治
+const mode = ref('cosine'), warm = ref(100), t0 = ref(1000), t1 = ref(1600), decayFrac = ref(0.1), minRatio = ref(0.1), svg = ref(null)
 const { start } = useDrag()
 const XMAX = 2000
 

@@ -6,7 +6,7 @@
 <template>
   <LabFrame
     title="VAR — 下一个尺度, 而不是下一个像素"
-    sub="目标是一张 8×8 灰度图。按播放, 或点下面的尺度缩略图。
+    sub="目标是一张 8×8 灰度图。按播放, 或用时间轴一步步走。
       - 左边 VAR: 每一步一次前向, 就并行吐出整张 $s \times s$ 的 token map, 叠加到累计重建上。
       - 右边: 光栅顺序自回归用同样次数的前向能画出多少。
       拖码本大小, 看量化粗细的影响。"
@@ -19,11 +19,8 @@
   >
     <template #controls>
       <LabSlider v-model="K" label="码本大小 K (量化级数)" :min="2" :max="16" />
-      <div class="row">
-        <button v-for="(s, i) in SCALES" :key="s" type="button" :class="{ active: step === i }" @click="stepper.step.value = i">{{ s }}×{{ s }}</button>
-        <button type="button" @click="seed++">换一张图</button>
-      </div>
-      <StepPlayer :stepper="stepper" :label="`第 ${step + 1} 次前向`" />
+      <div class="row"><button type="button" @click="seed++">换一张图</button></div>
+      <StepPlayer :stepper="stepper" :label="`第 ${step + 1} 次前向 · ${SCALES[step]}×${SCALES[step]}`" />
     </template>
 
     <div class="panels">
@@ -36,9 +33,12 @@
     <template #stats>
       <div class="kv"><span>VAR 重建 MSE</span><b :class="now.mse < 0.01 ? 'good' : ''">{{ now.mse.toFixed(4) }}</b></div>
       <div class="kv"><span>本步并行生成 token 数</span><b>{{ SCALES[step] ** 2 }}</b></div>
-      <div class="kv"><span>生成整张图的前向次数 (VAR / 光栅)</span><b class="good">4 / 64</b></div>
-      <div class="kv"><span>token 总数 (VAR / 光栅)</span><b>85 / 64</b></div>
-      <p class="lab-note"><Tex text="每一级的输入不是原图, 而是 “目标 − 已有重建” 的残差: 下采样到 $s \times s$ → 查最近的码字 → 上采样回 8×8 加到重建上。" /></p>
+      <div class="kv"><span>{{ step + 1 }} 次前向后累计 token (VAR / 光栅)</span><b>{{ cumTokens }} / {{ step + 1 }}</b></div>
+      <div class="kv"><span>光栅画完 64 个像素还差</span><b :class="{ bad: 64 - (step + 1) > 0 }">{{ 64 - (step + 1) }} 次前向</b></div>
+      <div class="lab-note">
+        <p><Tex text="每一级的输入不是原图, 而是「目标 − 已有重建」的残差: 下采样到 $s \times s$ → 查最近的码字 → 上采样回 8×8 加到重建上。" /></p>
+        <p>走完全程: VAR 4 次前向、85 个 token; 光栅 64 次前向、64 个 token。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -81,6 +81,7 @@ const sim = computed(() => {
 const stepper = useStepper(() => SCALES.length, { interval: 1100 })
 const step = computed(() => stepper.step.value)
 const now = computed(() => sim.value.stages[step.value])
+const cumTokens = computed(() => SCALES.slice(0, step.value + 1).reduce((a, s) => a + s * s, 0))   // 1 + 4 + 16 + 64 = 85
 const shade = (v) => heat((v + 1) / 2, 'var(--text)')
 const gridOf = (n) => ({ gridTemplateColumns: `repeat(${n}, 1fr)` })
 </script>
@@ -90,6 +91,6 @@ const gridOf = (n) => ({ gridTemplateColumns: `repeat(${n}, 1fr)` })
 figure { margin: 0; display: grid; gap: 6px; justify-items: center; }
 figcaption { font-size: 11px; color: var(--text-dim); text-align: center; line-height: 1.4; }
 .img { display: grid; width: 128px; height: 128px; gap: 1px; border: 1px solid var(--border-strong); background: var(--bg); }
-.img i { display: grid; place-items: center; font-style: normal; font-size: 10px; color: var(--accent); }
+.img i { display: grid; place-items: center; font-style: normal; font-size: 10px; color: var(--accent); min-width: 0; }
 .img i.todo { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--border) 3px 4px); }
 </style>

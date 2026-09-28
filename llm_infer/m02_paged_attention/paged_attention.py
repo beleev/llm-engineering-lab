@@ -23,7 +23,7 @@ def write_kv(k_pool: np.ndarray, v_pool: np.ndarray,      # (num_blocks, bs, D)
     bs = k_pool.shape[1]
     pos = np.atleast_1d(pos)
     blk = np.asarray(block_table)[pos // bs]               # (n,) 逻辑页号 → 物理 block
-    k_pool[blk, pos % bs] = k_new
+    k_pool[blk, pos % bs] = k_new                          # pos % bs = block 内的槽位
     v_pool[blk, pos % bs] = v_new
 
 
@@ -31,7 +31,7 @@ def gather_kv(k_pool: np.ndarray, v_pool: np.ndarray,
               block_table: Sequence[int], ctx_len: int) -> Tuple[np.ndarray, np.ndarray]:
     """按页表把前 ctx_len 个 token 的 K, V 拼回连续数组 (ctx_len, D)。"""
     bs, D = k_pool.shape[1], k_pool.shape[2]
-    blks = list(block_table[:-(-ctx_len // bs)])           # 只取用得到的页
+    blks = list(block_table[:-(-ctx_len // bs)])           # 只取用得到的页: 前 ceil(ctx_len / bs) 个
     K = k_pool[blks].reshape(-1, D)[:ctx_len]              # (n_blk, bs, D) → (n_blk·bs, D) → 截掉末页空槽
     V = v_pool[blks].reshape(-1, D)[:ctx_len]
     return K, V

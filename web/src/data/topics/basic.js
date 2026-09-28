@@ -1,4 +1,4 @@
-// 阶段 1 · llm_basic: 四个章节的完整页面定义 (不新增章节, 覆盖 models.js 里的同名页)。
+// 阶段 1 · llm_basic: 四个章节的完整页面定义。章节目录登记在 data/models.js 的 basicChapters, 所以这里 chapters 为空。
 export default {
   stage: 'basic',
   chapters: [],
@@ -7,7 +7,7 @@ export default {
       widgets: ['BpeLab'],
       title: '数据与 tokenizer · 把文本变成可训练张量',
       subtitle: '读完你能说清: 1,115,394 个字符怎么变成 train.bin 里的 1,003,854 个 token, 以及每个 batch 是从哪儿切出来的。',
-      tldr: 'prepare.py 跑一次, 把 input.txt 固化成 train.bin / val.bin / meta.npz; 之后训练只 memmap 读二进制, 词表再也不会变。',
+      tldr: 'prepare.py 跑一次, 把 input.txt 固化成 train.bin / val.bin / meta.npz。\n之后训练只 memmap 读二进制, 词表再也不会变。',
       question: '既然 BPE 更省 token, 为什么这里训练用的是最笨的字符级 tokenizer?',
       code: 'llm_basic/{prepare.py,tokenizer.py,bpe.py,input.txt,train.bin,val.bin,meta.npz}',
       points: [
@@ -18,11 +18,11 @@ export default {
         {
           key: true,
           title: '训练走字符级, BPE 是旁边的独立演示',
-          body: '- 训练、采样、自带的 ckpt.npz: 全部基于 tokenizer.py 的 65 个字符。\n- bpe.py: 只读 input.txt, 不接训练流水线。\n这么定是为了让注意力和梯度当主角, 不是因为 BPE 不重要。\n跑 python bpe.py 看差距: 300 次合并后, 同一句话字符级要 60 个 token, BPE 只要 24 个, 压缩率 2.50 字符/token。上面的实验台把合并过程一步步摊开了。',
+          body: '- 训练、采样、自带的 ckpt.npz: 全部基于 tokenizer.py 的 65 个字符。\n- bpe.py: 只读 input.txt, 不接训练流水线。\n这么定是为了让注意力和梯度当主角。BPE 本身照样重要, 所以单独留了一个演示。\n跑 python bpe.py 看差距, 300 次合并后的同一句话:\n- 字符级: 60 个 token。\n- BPE: 24 个 token, 压缩率 2.50 字符/token。\n上面的实验台把合并过程一步步摊开了。',
         },
         {
           title: 'y 就是 x 右移一位',
-          body: 'get_batch 随机挑 32 个起点, 各切 64 个 token 当 x, 整体往后挪一格当 y。于是一条长度 64 的序列一次就提供 64 道 next-token 题, 前提是因果 mask 挡住了答案。',
+          body: 'get_batch 随机挑 32 个起点, 各切 64 个 token 当 x, 整体往后挪一格当 y。\n于是一条长度 64 的序列一次就提供 64 道 next-token 题。\n前提是因果 mask 挡住了答案。',
         },
       ],
       links: [
@@ -45,7 +45,7 @@ ids:   [h, e, l, l, o]
 x:     [h, e, l, l]
 y:     [e, l, l, o]
 
-# 位置 i 看到 x[:i+1], 要猜出 y[i] —— 这就是 next-token prediction`,
+# 位置 i 看到 x[:i+1], 要猜出 y[i]。这就是 next-token prediction`,
       source: ['llm_basic/bpe.py:train_bpe'],
       run: 'cd llm_basic && python prepare.py',
     },
@@ -53,7 +53,7 @@ y:     [e, l, l, o]
     'basic-forward': {
       title: 'forward 与形状流 · 从 ids 到 logits',
       subtitle: '读完你能报出每一步的形状, 并说出每个 forward 往 cache 里塞了什么、为什么非塞不可。',
-      tldr: 'ids [B,T] 一路走成 logits [B,T,V]: embedding → n_layer 个 Pre-LN block → final norm → lm_head, 每一步顺手把反向要用的中间量装进 cache 带回来。',
+      tldr: 'ids [B,T] 一路走成 logits [B,T,V]。\n路径: embedding → n_layer 个 Pre-LN block → final norm → lm_head。\n每一步顺手把反向要用的中间量装进 cache 带回来。',
       question: '为什么 forward 不能只返回 logits, 还要拖着一长串 cache?',
       code: 'llm_basic/model.py:{embedding_forward,rmsnorm_forward,attention_forward,block_forward,transformer_forward}',
       points: [
@@ -68,11 +68,11 @@ y:     [e, l, l, o]
         },
         {
           title: '加层只是一个 for 循环',
-          body: '每个 block 进去 [B,T,D], 出来还是 [B,T,D]。所以堆层不需要新推导: transformer_forward 里就是 for i in range(num_layers(W))。\n层数甚至不是配置项, 而是从参数名 block_{i}_norm1_g 数出来的。所以没有 n_layer 字段的旧 ckpt.npz 照样加载。',
+          body: '每个 block 进去 [B,T,D], 出来还是 [B,T,D]。所以堆层不需要新推导: transformer_forward 里就是 for i in range(num_layers(W))。\n层数没有写成配置项: 它是从参数名 block_{i}_norm1_g 数出来的。所以不带 n_layer 字段的 ckpt.npz 也能加载。',
         },
       ],
       links: [
-        { from: 'learned pos_emb', to: 'RoPE', body: '这里位置是一张 [T_max, D] 的表直接加上去, T 被 T_max=64 卡死; 阶段 2 改成旋转 Q/K, 不占参数也不卡长度。' },
+        { from: 'learned pos_emb', to: 'RoPE', body: '这里位置是一张 [T_max, D] 的表直接加上去, T 被 T_max=64 卡死。阶段 2 改成旋转 Q/K: 不占参数, 长度也没有硬上限 (超出训练长度仍会退化, 见 YaRN 一章)。' },
         { from: '单头 attention', to: 'MHA / GQA / MLA', body: '这里 head_dim 就等于 D。分头只是把 D 切成几段各算各的, 形状账一模一样。' },
         { from: 'cache 全存', to: 'activation checkpoint', body: 'cache 就是显存大头。大模型显存不够时会丢掉一部分 cache, 反向时重算, 拿时间换空间。' },
       ],
@@ -102,14 +102,14 @@ y:     [e, l, l, o]
     'basic-backward': {
       title: '手写 backward · cache、链式法则与 gradcheck',
       subtitle: '读完你能指着任意一个 *_backward, 说出它从 cache 里取了什么、为什么必须取。写错了怎么被抓出来, 你也能说清。',
-      tldr: '反向就是把 forward 倒着走一遍: 从 dlogits = (p − onehot)/N 出发, 每个 backward 从 cache 取中间量、算出 dx 往前递。写错不会报错, 所以 gradcheck 必须跑。',
+      tldr: '反向就是把 forward 倒着走一遍。\n从 dlogits = (p − onehot)/N 出发, 每个 backward 从 cache 取中间量, 算出 dx 往前递。\n写错不会报错, 所以 gradcheck 必须跑。',
       question: '把 np.add.at 写成 +=, loss 照样往下掉, 那我怎么知道反向写错了?',
       code: 'llm_basic/model.py:*_backward · llm_basic/gradcheck.py',
       points: [
         {
           key: true,
           title: '手写反向的 bug 不会报错, 只会让模型悄悄变笨',
-          body: '转置写反、sum 错维度、softmax 漏一项: 程序都不会崩, loss 照样下降, 只是降得慢一点。\n所以要一个 “不可能写错” 的参照: 中心差分 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$。\n故意删掉 rmsnorm_backward 的耦合项, 逐算子检查立刻报 dx 相对误差 3.11e-01。这就是 gradcheck.py 存在的全部理由。',
+          body: '转置写反、sum 错维度、softmax 漏一项: 程序都不会崩, loss 照样下降, 只是降得慢一点。\n所以要一个 “不可能写错” 的参照: 中心差分 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$。\n故意删掉 rmsnorm_backward 的耦合项, 逐算子检查立刻报 dx 相对误差 3.11e-01。',
         },
         {
           title: '一个张量被用了几次, 梯度就是几路之和',
@@ -123,10 +123,10 @@ y:     [e, l, l, o]
       links: [
         { from: 'softmax backward', to: '所有注意力变体', body: '$ds = a \\odot (da - \\sum a\\cdot da)$ 这一行, 从 MHA 到 FlashAttention 每换一次实现都要重新写对一次。' },
         { from: 'gradcheck', to: 'llm_train 的等价性断言', body: '先算一个 dense baseline, 再断言并行版本与它一致, 和这里拿数值梯度当参照是同一个套路。' },
-        { from: 'RMSNorm backward', to: '深层训练稳定性', body: '归一化让一行里的元素梯度互相牵连。这个耦合项正是它能压住深层 Transformer 数值尺度的原因。' },
+        { from: 'RMSNorm backward', to: '深层训练稳定性', body: '前向把每行的 RMS 拉回固定值, 深层的数值才不会越叠越大。\n反向的耦合项是同一件事的另一面: 把 x 整体放大不改变输出, 所以沿 x 方向的梯度被减掉。' },
       ],
       sourceRows: [
-        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p − onehot)/N; 每行加起来恰好为 0, gradcheck.py 里有这条断言。' },
+        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p − onehot)/N; 每行加起来恰好为 0。gradcheck.py 断言的是所有行的总和为 0。' },
         { concept: 'embedding backward', code: 'np.add.at(dW, ids, dout)', takeaway: '花式索引的 += 遇到重复 id 只加一次, 必须用 add.at。' },
         { concept: 'softmax backward', code: 'model.py:attention_backward', takeaway: '$ds = a \\odot (da - \\sum a\\cdot da)$; 被 mask 的位置 $a = 0$, 带一个因子 a 就自动归零, 不用再 mask 一次。' },
         { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$; 第二项来自 rms 依赖整行 x。' },
@@ -152,14 +152,14 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
     'basic-optim-sample': {
       title: 'Adam 与采样 · 训练后如何生成文本',
       subtitle: '读完你能说清 Adam 每步到底走多远, 以及生成为什么只能一个 token 一个 token 往外挤。',
-      tldr: 'Adam 用一阶矩定方向、二阶矩按坐标归一化步长, 每步位移大约就是 lr。采样时不再算 loss, 只取最后一个位置的 logits, 抽一个 token 接上去再来一遍。',
+      tldr: '- Adam: 一阶矩定方向, 二阶矩按坐标归一化步长。每步位移大约就是 lr。\n- 采样: 不再算 loss, 只取最后一个位置的 logits, 抽一个 token 接上去再来一遍。',
       question: '训练时 64 个位置一次算完, 生成时为什么只能一个一个来?',
       code: 'llm_basic/{optim.py,sample.py,train.py}',
       points: [
         {
           key: true,
           title: '除以 √v̂ = 每个参数有自己的学习率',
-          body: 'Transformer 各层的梯度尺度差几个数量级。\n- SGD: 单一 lr 被最陡的方向卡死 (超过 $2/\\kappa$ 就发散), 平缓方向几乎不动。\n- Adam: 更新量归一成 $\\hat m/\\sqrt{\\hat v}$, 每步位移约等于 lr, 跟这个方向的坡度基本无关。\n偏置修正: m、v 从 0 起步, 前几步被低估, 所以除以 $1 - \\beta^t$。第 1 步正好得到 $\\mathrm{sign}(g)$, 每个元素恰好移动 lr。',
+          body: 'Transformer 各层的梯度尺度差几个数量级。\n- SGD: 单一 lr 被最陡的方向卡死。lr 超过 $2/\\lambda_{\\max}$ ($\\lambda_{\\max}$ 是最陡方向的曲率) 就发散, 平缓方向几乎不动。\n- Adam: 更新量归一成 $\\hat m/\\sqrt{\\hat v}$, 每步位移约等于 lr, 跟这个方向的坡度基本无关。\n偏置修正: m、v 从 0 起步, 前几步被低估, 所以除以 $1 - \\beta^t$。第 1 步正好得到 $\\mathrm{sign}(g)$, 每个元素恰好移动 lr。',
         },
         {
           title: '训练并行, 生成串行, 这条依赖链省不掉',
@@ -167,7 +167,7 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         },
         {
           title: '三个开关默认全关, 开了也不一定更好',
-          body: 'optim.py 里的 AdamW 解耦衰减、全局范数裁剪、warmup+cosine 默认都不启用。跑的就是原始 Adam + 恒定 lr。\nREADME 的实测:\n- 2 层 + AdamW(0.1) + clip(1.0) + cosine, 78,656 参数跑 2000 步: val_loss 2.045\n- 默认 1 层: val_loss 1.981\n开了反而更差: 步数这么少, cosine 过早把 lr 压到 3e-5, 多出来那层还没学起来。\n这里要学的是这些开关怎么实现, 不是开了就赢。',
+          body: 'optim.py 里的 AdamW 解耦衰减、全局范数裁剪、warmup+cosine 默认都不启用。跑的就是原始 Adam + 恒定 lr。\nREADME 的实测:\n- 2 层 + AdamW(0.1) + clip(1.0) + cosine, 78,656 参数跑 2000 步: val_loss 2.042\n- 默认 1 层: val_loss 1.986\n开了反而更差: 步数这么少, cosine 过早把 lr 压到 3e-5, 多出来那层还没学起来。\n这一节要学的是这些开关怎么实现。',
         },
       ],
       links: [

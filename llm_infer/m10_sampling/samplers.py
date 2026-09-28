@@ -18,6 +18,7 @@ from llm_infer.core.utils import softmax
 
 
 def greedy(logits: np.ndarray) -> int:
+    """取 logit 最大的 token。"""
     return int(np.argmax(logits))
 
 
@@ -26,7 +27,7 @@ def temperature_sample(logits: np.ndarray, temperature: float,
     """softmax(logits/T) 后 multinomial。T<1 更尖, T>1 更平, T→0 退化为 greedy。"""
     if temperature <= 0:
         return greedy(logits)
-    rng = rng or np.random
+    rng = rng or np.random                               # 没传 rng 就用 numpy 的全局随机状态
     probs = softmax(logits / temperature)                # (V,)
     return int(rng.choice(len(probs), p=probs))
 
@@ -56,7 +57,7 @@ def top_p_filter(logits: np.ndarray, p: float) -> np.ndarray:
 
 def min_p_filter(logits: np.ndarray, min_p: float) -> np.ndarray:
     """砍掉 p_i < min_p · p_max 的 token。阈值随分布的尖锐程度自动伸缩: 模型很确定时砍得狠, 犹豫时留得多。"""
-    probs = softmax(logits)
+    probs = softmax(logits)                              # (V,)
     return np.where(probs >= min_p * probs.max(), logits, -np.inf)
 
 
@@ -66,7 +67,7 @@ def repetition_penalty(logits: np.ndarray, history: Sequence[int], penalty: floa
     分正负是因为目标是"让 logit 变小": 负数除以 >1 的数反而变大 (更可能被选)。与出现次数无关, 只看是否出现过。
     """
     out = logits.copy()
-    ids = [t for t in set(history) if 0 <= t < len(out)]
+    ids = [t for t in set(history) if 0 <= t < len(out)]  # set: 出现多次也只罚一次; 越界的 id 忽略
     out[ids] = np.where(out[ids] > 0, out[ids] / penalty, out[ids] * penalty)
     return out
 
@@ -79,12 +80,13 @@ def gumbel_max(probs: np.ndarray, rng: Optional[np.random.RandomState] = None) -
     """
     rng = rng or np.random
     g = rng.gumbel(0, 1, size=probs.shape)               # (V,)
-    with np.errstate(divide="ignore"):
+    with np.errstate(divide="ignore"):                   # log 0 会报除零警告, 这里是有意为之
         return int(np.argmax(np.log(probs) + g))         # 被砍 token: log 0 = -inf, 永远不会被选中
 
 
 @dataclass(frozen=True)
 class SamplingParams:
+    """采样参数。每一项取默认值时对应的步骤不生效。"""
     temperature: float = 1.0        # 0 = greedy
     top_k: int = 0                  # 0 = 不开
     top_p: float = 1.0              # 1 = 不开

@@ -6,7 +6,7 @@
   <LabFrame
     title="ZeRO 显存账 — 2 + 2 + 12 字节, 先切哪一块?"
     sub="四根柱子是同一个模型在 DDP / ZeRO-1 / ZeRO-2 / ZeRO-3 下每张卡的常驻显存。
-      上下拖动红色虚线设定单卡显存上限, 看哪一级开始放得下。点柱子选中一级, 悬停色块看它是什么。"
+      上下拖动横着的虚线设定单卡显存上限, 看哪一级开始放得下。点柱子选中一级, 点图例或悬停色块看它是什么。纵轴跟着最高的柱子伸缩。"
     module="llm_train/m05"
     run="python -m llm_train.m05_zero_fsdp.demo"
     :challenge="{
@@ -22,8 +22,8 @@
       </div>
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="各 ZeRO 级别的单卡显存堆叠柱状图">
-      <g v-for="t in [0, 50, 100, 150, 200]" :key="t">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="各 ZeRO 级别的单卡显存堆叠柱状图, 柱子可选, 上限线可拖">
+      <g v-for="t in ticks" :key="t">
         <line :x1="X0" :x2="W - 8" :y1="y(t)" :y2="y(t)" class="grid" />
         <text :x="X0 - 6" :y="y(t) + 4" class="tick" text-anchor="end">{{ t }}</text>
       </g>
@@ -38,10 +38,10 @@
           v-for="seg in b.segs" :key="seg.key"
           :x="bx(i)" :y="y(seg.top)" :width="BW" :height="Math.max(0, y(seg.bot) - y(seg.top))"
           :fill="seg.color" :class="{ transient: seg.key === 'gather' }"
-          @mouseenter="hover = { ...seg, stage: stages[i].name }" @mouseleave="hover = null"
+          @mouseenter="hover = { s: i, key: seg.key }" @mouseleave="hover = null" @click="pin = { s: i, key: seg.key }"
         />
-        <text :x="bx(i) + BW / 2" :y="Math.max(20, y(Math.min(b.total, YMAX)) - 6)" class="val" text-anchor="middle" :class="b.total <= limit ? 'fit' : 'oom'">
-          {{ b.total > YMAX ? '↑ ' : '' }}{{ gb(b.total) }}
+        <text :x="bx(i) + BW / 2" :y="Math.max(20, y(b.total) - 6)" class="val" text-anchor="middle" :class="b.total <= limit ? 'fit' : 'oom'">
+          {{ gb(b.total) }}
         </text>
         <text :x="bx(i) + BW / 2" :y="H - 8" class="lbl" text-anchor="middle">{{ stages[i].name }}</text>
       </g>
@@ -54,21 +54,22 @@
         <text :x="W - 10" :y="y(limit) - 5" class="limit-t" text-anchor="end">⇅ 单卡上限 {{ limit }} GB</text>
       </g>
     </svg>
-    <p class="lab-note">
-      <template v-if="hover">{{ hover.stage }} · {{ hover.label }}: {{ gb(hover.bot === undefined ? 0 : hover.top - hover.bot) }}。{{ hover.desc }}</template>
-      <template v-else>
-        <i class="sw" style="background: var(--accent)" /><Tex text="fp16 参数 $2\Psi$" />
-        <i class="sw" style="background: var(--eye)" /><Tex text="fp16 梯度 $2\Psi$" />
-        <i class="sw" style="background: var(--right)" /><Tex text="fp32 master + Adam m + v = $12\Psi$" />
-        <i class="sw tr" />ZeRO-3 瞬时 all-gather 的一层 (按 {{ LAYERS }} 层估)
-      </template>
+    <!-- 图例就是按钮: 触屏和键盘靠它固定选中一块, 鼠标悬停色块是同一个说明 -->
+    <div class="row legend">
+      <button v-for="l in legend" :key="l.key" type="button" :class="{ active: shown && shown.key === l.key }" @click="pin = { s: l.key === 'gather' ? 3 : stage, key: l.key }">
+        <i class="sw" :class="{ tr: l.key === 'gather' }" :style="{ background: l.color }" /><Tex :text="l.text" />
+      </button>
+    </div>
+    <p class="lab-note" aria-live="polite">
+      <template v-if="shown">{{ shown.stage }} · {{ shown.label }}: {{ gb(shown.top - shown.bot) }}。{{ shown.desc }}</template>
+      <template v-else>点一个图例, 看这一块在选中的级别下占多少。</template>
     </p>
 
     <template #stats>
       <div class="kv"><span>{{ stages[stage].name }} 单卡常驻</span><b :class="cur.total <= limit ? 'good' : 'bad'">{{ gb(cur.total) }}</b></div>
       <div class="kv"><span>公式</span><b class="formula"><Tex :text="stages[stage].formula" /></b></div>
       <div class="kv"><span>放得进 {{ limit }} GB 的最低级别</span><b :class="firstFit < 0 ? 'bad' : 'good'">{{ firstFit < 0 ? '都放不下' : stages[firstFit].name }}</b></div>
-      <div class="kv"><span>每步通信量 (相对 DDP)</span><b :class="stage === 3 ? 'bad' : ''">{{ stages[stage].comm }}</b></div>
+      <div class="kv"><span>每步通信量 (相对 DDP)</span><b :class="stages[stage].commX > 1 ? 'bad' : ''">{{ stages[stage].comm }}</b></div>
       <div class="lab-note">
         <p>这里只算模型状态, 激活另算 (见下面的重算实验台)。</p>
         <ul class="pts">
@@ -91,17 +92,26 @@ import { clamp } from '@/utils/labmath.js'
 const sizes = [1, 3, 7, 13, 34, 70, 175, 405]
 const LAYERS = 32
 const stages = [
-  { name: 'DDP', formula: '$16\\Psi$', comm: '1×' },
-  { name: 'ZeRO-1', formula: '$4\\Psi + 12\\Psi/N$', comm: '1×' },
-  { name: 'ZeRO-2', formula: '$2\\Psi + 14\\Psi/N$', comm: '1×' },
-  { name: 'ZeRO-3', formula: '$16\\Psi/N$', comm: '≈1.5×' },
+  { name: 'DDP', formula: '$16\\Psi$', comm: '1×', commX: 1 },
+  { name: 'ZeRO-1', formula: '$4\\Psi + 12\\Psi/N$', comm: '1×', commX: 1 },
+  { name: 'ZeRO-2', formula: '$2\\Psi + 14\\Psi/N$', comm: '1×', commX: 1 },
+  { name: 'ZeRO-3', formula: '$16\\Psi/N$', comm: '≈1.5×', commX: 1.5 },
 ]
-const sizeIdx = ref(2), logN = ref(3), stage = ref(1), limit = ref(80), hover = ref(null), svg = ref(null)
+const sizeIdx = ref(2), logN = ref(3), stage = ref(1), limit = ref(80), svg = ref(null)
+const hover = ref(null), pin = ref(null)                 // { s: 第几级, key: 哪一块 }; 悬停优先于点击固定的
 const { start } = useDrag()
 
-const W = 460, H = 300, X0 = 44, BW = 62, YMAX = 200
-const y = (g) => 20 + (1 - Math.min(g, YMAX) / YMAX) * (H - 50)
-const yInv = (py) => (1 - (py - 20) / (H - 50)) * YMAX
+const W = 460, H = 300, X0 = 44, BW = 62
+// ★ 纵轴上限跟着最高的柱子走 (最低 200 GB), 取一个整的数。写死的话大模型的柱子全顶到头, 比不出高低
+const NICE = [1, 1.5, 2, 3, 4, 6, 8, 10]
+const yMax = computed(() => {
+  const top = Math.max(200, 1.02 * Math.max(...bars.value.map((b) => b.segs[b.segs.length - 1].top)))
+  const unit = 10 ** Math.floor(Math.log10(top))
+  return unit * NICE.find((n) => n * unit >= top)
+})
+const ticks = computed(() => [0, 1, 2, 3, 4].map((i) => (yMax.value * i) / 4))
+const y = (g) => 20 + (1 - Math.min(g, yMax.value) / yMax.value) * (H - 50)
+const yInv = (py) => (1 - (py - 20) / (H - 50)) * yMax.value
 const bx = (i) => X0 + 22 + i * (BW + 38)
 const gb = (g) => (g >= 100 ? g.toFixed(0) : g.toFixed(1)) + ' GB'
 
@@ -130,6 +140,15 @@ const bars = computed(() => {
   })
 })
 const cur = computed(() => bars.value[stage.value])
+const legend = [
+  ...parts.map((p) => ({ key: p.key, color: p.color, text: `${p.label} $${p.bytes}\\Psi$` })),
+  { key: 'gather', color: 'var(--accent)', text: `ZeRO-3 瞬时 all-gather 的一层 (按 ${LAYERS} 层估)` },
+]
+const shown = computed(() => {
+  const h = hover.value || pin.value
+  const seg = h && bars.value[h.s].segs.find((x) => x.key === h.key)
+  return seg ? { ...seg, stage: stages[h.s].name } : null
+})
 const firstFit = computed(() => bars.value.findIndex((b) => b.total <= limit.value))
 </script>
 
@@ -148,7 +167,8 @@ const firstFit = computed(() => bars.value.findIndex((b) => b.total <= limit.val
 .limit { stroke: var(--danger); stroke-width: 2; stroke-dasharray: 6 4; }
 .limit-t { font-size: 11px; fill: var(--danger); }
 .formula { font-size: 13px !important; }
-.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
-.sw:first-child { margin-left: 0; }
-.sw.tr { background: var(--accent); opacity: 0.35; outline: 1px dashed var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.legend button { font-size: 11px; min-height: 28px; padding: 2px 8px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.sw.tr { opacity: 0.35; outline: 1px dashed var(--accent); }
 </style>

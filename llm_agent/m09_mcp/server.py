@@ -33,6 +33,7 @@ TOOLS = [
 
 
 def call_tool(name, args):
+    """执行一个工具, 返回文本。缺参数 (KeyError) 和未知工具都靠抛异常报告, 由 handle 转成 isError。"""
     if name == "get_weather":
         return f"{args['city']}: sunny, 24C, light wind"
     if name == "add":
@@ -41,6 +42,7 @@ def call_tool(name, args):
 
 
 def handle(req):
+    """处理一个请求, 返回 JSON-RPC 的 result。不认识的方法抛 LookupError, 由 main 转成 -32601。"""
     method, params = req.get("method"), req.get("params") or {}
     if method == "initialize":
         return {
@@ -60,6 +62,7 @@ def handle(req):
 
 
 def main():
+    """主循环: 读一行请求, 写一行响应。stdin 读到 EOF (客户端关闭管道) 时循环结束, 进程退出。"""
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -68,7 +71,7 @@ def main():
             continue
         try:
             resp = {"jsonrpc": "2.0", "id": req["id"], "result": handle(req)}
-        except LookupError:
+        except LookupError:  # -32601 是 JSON-RPC 2.0 规定的 "Method not found" 错误码
             resp = {"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32601, "message": "Method not found"}}
         sys.stdout.write(json.dumps(resp) + "\n")
         sys.stdout.flush()  # 不 flush, 客户端会永远等下去

@@ -1,6 +1,7 @@
 <!--
   速成路线: 86 章太多了, 这一页回答"我到底该读哪些、按什么顺序、要多久"。
   三个档位 (冲刺 / 主干 / 全部) 共用同一条 learningPath 顺序, 只是筛掉的多少不同。
+  档位读写的是全局的 progress.state.level, 和侧栏的档位条是同一个值: 在这里选了, 侧栏和翻章跟着变。
 -->
 <template>
   <div>
@@ -12,20 +13,25 @@
       </p>
     </div>
 
-    <div class="btn-group levels">
+    <div class="btn-group levels" role="group" aria-label="阅读档位">
       <button
-        v-for="l in LEVELS" :key="l.id" type="button"
-        :class="['lv', `lv-${l.id}`, { active: level === l.id }]" @click="level = l.id"
+        v-for="l in LEVELS" :key="l.id" type="button" :aria-pressed="level === l.id"
+        :class="['lv', `lv-${l.id}`, { active: level === l.id }]" @click="progress.setLevel(l.id)"
       >{{ l.label }} · {{ countOf(l.id) }} 章, {{ l.hint }}</button>
     </div>
+    <p class="assume legend">
+      档位和侧栏同步, 「下一章」和键盘 ← / → 也按它走。
+      每章前的标记: <span class="tier core">★</span> 冲刺 <span class="tier core">●</span> 主干 <span class="tier ext">○</span> 扩展;
+      行尾 <span class="state">✓</span> 自测全对, <span class="state">已读</span> 打开过这一章。
+    </p>
 
     <div class="card summary">
       <div class="sum-item"><span class="v mono">{{ list.length }}</span><span class="k">章</span></div>
       <div class="sum-item"><span class="v mono">{{ totalTime(list.map((c) => c.route)) }}</span><span class="k">粗估用时 (含动手)</span></div>
       <div class="sum-item"><span class="v mono">{{ labCount }}</span><span class="k">个实验台</span></div>
       <div class="sum-item"><span class="v mono" :class="{ good: readCount === list.length }">{{ readCount }}</span><span class="k">已读</span></div>
-      <router-link v-if="nextUp" :to="{ name: nextUp.route }">
-        <button type="button" class="active">{{ readCount ? '接着读' : '从第一章开始' }}: {{ nextUp.label }} →</button>
+      <router-link v-if="nextUp" :to="{ name: nextUp.route }" class="btn active">
+        {{ readCount ? '接着读' : '从第一章开始' }}: {{ nextUp.label }} →
       </router-link>
     </div>
     <p class="assume">用时按每分钟 300 字粗估, 每个实验台另算 4 分钟。只用来排计划, 不必当真。</p>
@@ -44,7 +50,7 @@
               <span v-if="labsOf(c.route)" class="lab-n" :title="`${labsOf(c.route)} 个实验台`">⚙{{ labsOf(c.route) }}</span>
               {{ minutesOf(c.route) }}′
             </span>
-            <span class="state">{{ progress.isMastered(c.route) ? '✓' : progress.isVisited(c.route) ? '·' : '' }}</span>
+            <span class="state">{{ progress.isMastered(c.route) ? '✓' : progress.isVisited(c.route) ? '已读' : '' }}</span>
           </router-link>
         </li>
       </ol>
@@ -67,7 +73,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { learningPath, stages } from '@/data/models.js'
 import { LEVELS, TIER_META, inLevel, isSprint, tierOf } from '@/data/tiers.js'
 import { labsOf, minutesOf, totalTime } from '@/utils/readtime.js'
@@ -80,7 +86,7 @@ const WHY = {
 }
 
 const progress = useProgress()
-const level = ref('core')
+const level = computed(() => progress.state.level)
 
 const all = computed(() => learningPath.filter((p) => p.route !== 'home'))
 const list = computed(() => all.value.filter((c) => inLevel(c.route, level.value)))
@@ -117,7 +123,7 @@ const groups = computed(() =>
 .path { list-style: none; counter-reset: step; }
 .path .row {
   display: grid;
-  grid-template-columns: 18px minmax(120px, 1.1fr) 2fr 62px 14px;
+  grid-template-columns: 18px minmax(120px, 1.1fr) 2fr 62px 28px;
   gap: 10px;
   align-items: baseline;
   padding: 7px 10px;
@@ -133,7 +139,8 @@ const groups = computed(() =>
 .hint { font-size: 12px; color: var(--text-dim); }
 .meta { font-size: 11px; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
 .lab-n { color: var(--accent); margin-right: 4px; }
-.state { font-size: 11px; color: var(--left); }
+.state { font-size: 11px; color: var(--left); white-space: nowrap; }
+.legend .tier, .legend .state { display: inline; margin: 0 2px 0 4px; }  /* 窄屏隐藏的是行尾那一列, 图例里的照常显示 */
 
 @media (max-width: 900px) {
   .path .row { grid-template-columns: 18px 1fr 52px; }

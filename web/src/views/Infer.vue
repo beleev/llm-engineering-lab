@@ -7,13 +7,7 @@
     </p>
 
     <ChapterIntro
-      tldr="decode 每出 1 个 token, 都要把整份权重和全部 KV 读一遍。卡住的是带宽, 不是算力。
-        所以前 22 个模块几乎都在省 KV 的搬运和存储:
-        - cache: 省重算
-        - 分页: 省碎片
-        - 前缀复用: 省重复 prefill
-        - 连续批: 省空转
-        - 量化和 GQA/MLA: 省字节"
+      :tldr="tldr"
       question="为什么训练时最贵的是反向, 推理时最贵的却常常是 KV cache、调度和内存带宽?"
       :goals="[
         '说清 KV cache / 分页 / 前缀复用各自省掉的到底是什么',
@@ -129,7 +123,7 @@
       <div class="lead-group">
         <p><RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 是最值得对着源码读的一页。</p>
         <p>
-          它不是完整的 vLLM, 但把调度 (m03)、真分页 KV pool (m02)、前缀复用 (m04)、分块 prefill (m06)、抢占和采样 (m10)
+          它不是完整的 vLLM, 但把调度 (m03)、真分页 KV pool (m02)、前缀复用 (m04)、分块 prefill (m03 的开关, 原理见 m06)、抢占和采样 (m10)
           串在同一条控制流上。
         </p>
         <p>它断言 greedy 输出与朴素生成逐 token 相同。哪怕 9 个 block 的小 pool 逼出了 4 次抢占, 也一样。</p>
@@ -199,6 +193,21 @@ import { inferModules, learningPath } from '@/data/models.js'
 // 上一章从 learningPath 取, 不手写编号 (别的阶段加章后手写的 "4.4" 会过期)
 const prevItem = learningPath[learningPath.findIndex((x) => x.route === 'infer') - 1]
 const prevChapter = { name: prevItem.route, label: `上一章 · ${prevItem.label}` }
+
+// 模块数从数据里数, 不写死 (inferModules 里除了 mNN 还有一行 full)
+const moduleCount = inferModules.filter((m) => /^m\d+$/.test(m.id)).length
+const tldr = `decode 每出 1 个 token, 都要把整份权重和全部 KV 读一遍。卡住的是带宽, 不是算力。
+${moduleCount} 个模块里, 主线这几组在省 KV 的搬运和存储:
+- cache: 省重算
+- 分页: 省碎片
+- 前缀复用: 省重复 prefill
+- 连续批: 省空转
+- 量化和 GQA/MLA: 省字节
+其余模块做别的事:
+- 投机解码: 一次 target 前向验多个 token
+- 采样、语法约束、beam search、测试时计算: 管输出的分布和正确率
+- 权重量化、FlashAttention、CUDA Graph、张量并行: 省权重字节和算子开销
+- 多 LoRA、MoE、多副本路由: 一套服务接多个适配器、专家和副本`
 
 const inferChain = [
   {

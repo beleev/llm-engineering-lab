@@ -18,8 +18,8 @@ import numpy as np
 
 def _logsumexp(S: np.ndarray) -> np.ndarray:
     """按行 logsumexp, (bq,bk) → (bq,); 整行 -inf (本块对该行全被 mask) 时返回 -inf 而不是 nan。"""
-    m = np.max(S, axis=-1)
-    m_safe = np.where(np.isfinite(m), m, 0.0)
+    m = np.max(S, axis=-1)                                # (bq,) 先减最大值再 exp, 防溢出
+    m_safe = np.where(np.isfinite(m), m, 0.0)             # 整行 -inf 时 m=-inf, -inf - (-inf) = nan; 换成 0 再减
     with np.errstate(divide="ignore"):                    # log(0) = -inf 是预期结果
         return m_safe + np.log(np.sum(np.exp(S - m_safe[:, None]), axis=-1))
 
@@ -32,7 +32,7 @@ def merge_attention(O1, lse1, O2, lse2):
     """
     lse = np.logaddexp(lse1, lse2)                        # (Tq,)
     w1 = np.exp(lse1 - lse)[:, None]                      # (Tq,1) 第 1 段占全局 softmax 质量的比例
-    w2 = np.exp(lse2 - lse)[:, None]
+    w2 = np.exp(lse2 - lse)[:, None]                      # (Tq,1) w1 + w2 = 1
     return w1 * O1 + w2 * O2, lse
 
 
@@ -45,12 +45,12 @@ def flash_attention(Q, K, V, block_q: int = 16, block_k: int = 16, causal: bool 
     """
     Tq, d = Q.shape
     Tk = K.shape[0]
-    assert Tq <= Tk, "causal 约定: query 对齐 K 的尾部"
+    assert Tq <= Tk, f"causal 约定: query 对齐 K 的尾部, 所以 Tq={Tq} 不能大于 Tk={Tk}"
     offset = Tk - Tq                                      # query 行 i 的绝对位置 = i + offset
-    O = np.zeros((Tq, V.shape[1]), dtype=np.float32)
-    lse = np.full(Tq, -np.inf, dtype=np.float32)
+    O = np.zeros((Tq, V.shape[1]), dtype=np.float32)      # (Tq, dv) 输出累加器
+    lse = np.full(Tq, -np.inf, dtype=np.float32)          # (Tq,) 初值 -inf = 分母为 0, 还没看过任何 key
     stats = dict(full=0, partial=0, skipped=0, peak_elems=0)
-    n_kblocks = -(-Tk // block_k)
+    n_kblocks = -(-Tk // block_k)                         # ceil(Tk / block_k)
 
     for qs in range(0, Tq, block_q):                      # 外层: Q 块 (FA-2 顺序)
         qe = min(Tq, qs + block_q)
@@ -61,11 +61,12 @@ def flash_attention(Q, K, V, block_q: int = 16, block_k: int = 16, causal: bool 
             if causal and ks > qe - 1 + offset:           # 块内最早的 key 也晚于块内最晚的 query
                 stats["skipped"] += n_kblocks - kb        # 后面的 K 块更晚, 一起跳过
                 break
+            # np.sqrt(d) 是 np.float64 标量, NumPy 2 下这一块 S 是 fp64; 写回 O / lse 时转回 fp32
             S = Qb @ K[ks:ke].T / np.sqrt(d)              # (bq, bk) ← 唯一的 "attention 矩阵", 只有一块
             stats["peak_elems"] = max(stats["peak_elems"], S.size)
             if causal and ke - 1 > qs + offset:           # 块跨过对角线 → 逐元素 mask
                 i_abs = np.arange(qs, qe)[:, None] + offset        # (bq,1)
-                S = np.where(np.arange(ks, ke)[None, :] > i_abs, -np.inf, S)
+                S = np.where(np.arange(ks, ke)[None, :] > i_abs, -np.inf, S)   # (1,bk) 与 (bq,1) 广播成 (bq,bk)
                 stats["partial"] += 1
             else:
                 stats["full"] += 1

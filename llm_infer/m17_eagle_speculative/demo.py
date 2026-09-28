@@ -1,6 +1,8 @@
 """
 m17 demo — 同一个 target、同一批训练数据、同一个验证循环 (m07.speculative_decode),
 唯一变量是 draft 的输入里有没有 target 特征 h。
+
+运行: python -m llm_infer.m17_eagle_speculative.demo
 assert: (1) 两种 draft 的输出都与 target greedy 逐 token 相同;
         (2) target 调用数 = 1 次 prefill + 验证轮数, 没有任何漏记的调用;
         (3) 特征级 draft 每轮接受更多、target 调用更少。
@@ -35,7 +37,7 @@ def main() -> None:
     A = {name: fit_draft(x, H_next) for name, x in X.items()}
     kv("draft 训练对 (lstsq 一步拟合)", f"{len(H_next)} 条")
     for name, x in X.items():
-        pred = np.concatenate([x, np.ones((len(x), 1))], 1) @ A[name]
+        pred = np.concatenate([x, np.ones((len(x), 1))], 1) @ A[name]   # (N, D) 补 bias 列后过线性 draft
         kv(f"特征拟合相对误差: {name}", f"{np.linalg.norm(pred - H_next) / np.linalg.norm(H_next):.1%}")
 
     n_prompts, max_new, K = 32, 24, 4
@@ -55,13 +57,19 @@ def main() -> None:
             assert out == ref, f"{name}: 输出必须与 target greedy 逐 token 相同"
             calls += c
             accepts += acc
-        assert calls == lm.n_forward == n_prompts + len(accepts), "target 调用必须全部入账"
+        assert calls == lm.n_forward == n_prompts + len(accepts), \
+            f"{name}: target 调用必须全部入账: 自报 {calls}, 实际 forward {lm.n_forward}, " \
+            f"prefill + 验证轮数 {n_prompts + len(accepts)}"
+        # (每轮平均接受数, 至少接受 1 个的轮次占比, target 调用数)
         stats[name] = (np.mean(accepts), np.mean(np.array(accepts) > 0), calls)
         kv(name, f"每轮接受 {stats[name][0]:.2f}/{K}, 首槽命中 {stats[name][1]:.0%}, "
                  f"target 调用 {calls} ({baseline_calls / calls:.2f}x)")
 
     (acc_e, first_e, calls_e), (acc_t, first_t, calls_t) = stats.values()
-    assert acc_e > 1.3 * acc_t and first_e > 1.5 * first_t and calls_e < calls_t < baseline_calls
+    assert acc_e > 1.3 * acc_t, f"特征级 draft 每轮接受数应超过 token-only 的 1.3 倍: {acc_e:.2f} vs {acc_t:.2f}"
+    assert first_e > 1.5 * first_t, f"特征级 draft 首槽命中率应超过 token-only 的 1.5 倍: {first_e:.0%} vs {first_t:.0%}"
+    assert calls_e < calls_t < baseline_calls, \
+        f"target 调用数应为 特征级 < token-only < 逐 token 解码: {calls_e} / {calls_t} / {baseline_calls}"
 
     print("\n结论: target、训练数据、验证循环全都一样, draft 只多喂一个 target 特征 h, 接受就拉开。")
     print("      数字远低于论文的 ~80%: 这里的 draft 是一个线性映射, 真 EAGLE 是一层带注意力的")

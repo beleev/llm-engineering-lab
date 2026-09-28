@@ -1,2 +1,2 @@
-"""m01: minimal agent loop."""
+"""m01: 最小的 agent loop。"""
 

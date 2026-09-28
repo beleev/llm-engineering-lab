@@ -1,2 +1,2 @@
-"""Mixed precision and loss scaling demo."""
+"""混合精度与 loss scaling 演示。"""
 

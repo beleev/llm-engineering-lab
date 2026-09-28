@@ -18,13 +18,15 @@ from llm_infer.m02_paged_attention.paged_attention import write_kv, paged_attent
 
 
 class ModelRunner:
+    """持有物理 KV pool, 按页表读写。不知道调度, 也不知道序列的状态。"""
+
     def __init__(self, lm: TinyLM, num_blocks: int, block_size: int):
         self.lm = lm
         shape = (lm.cfg.n_layer, num_blocks, block_size, lm.cfg.d_model)
         dtype = lm.w.tok_emb.dtype                         # pool 精度必须与模型一致, 否则写入时悄悄截断
         self.k_pool = np.zeros(shape, dtype=dtype)         # (L, num_blocks, bs, D), 存 RoPE 之后的 K
-        self.v_pool = np.zeros(shape, dtype=dtype)
-        self.tokens_computed = 0                           # 真正做了前向的 token 数 (诚实的省算力统计)
+        self.v_pool = np.zeros(shape, dtype=dtype)         # (L, num_blocks, bs, D)
+        self.tokens_computed = 0                           # 真正做了前向的 token 数 (命中前缀的不计)
 
     def run(self, ids: Sequence[int], block_table: Sequence[int], start_pos: int) -> np.ndarray:
         """算 ids[start_pos:] 这 n 个 token, KV 写入 pool → 最后一个 token 的 logits (V,)。"""
@@ -33,13 +35,14 @@ class ModelRunner:
         pos = np.arange(start_pos, len(ids))               # (n,) 绝对位置: RoPE 与 slot 换算都用它
         x = lm.w.tok_emb[new]                              # (n, D)
         for li, layer in enumerate(lm.w.layers):
-            h = rms_norm(x, layer.norm1_g)
+            h = rms_norm(x, layer.norm1_g)                 # (n, D)
             q = apply_rope(h @ layer.wq, lm.cos, lm.sin, positions=pos)   # (n, D)
-            k = apply_rope(h @ layer.wk, lm.cos, lm.sin, positions=pos)
+            k = apply_rope(h @ layer.wk, lm.cos, lm.sin, positions=pos)   # (n, D)
+            # 先写后读: 本步新 token 的 KV 要先进 pool, 下面的 attention 才看得到它们自己
             write_kv(self.k_pool[li], self.v_pool[li], block_table, pos, k, h @ layer.wv)
             # q 只有 n 行, K/V 是经页表读回的全部 len(ids) 行 (含别的请求算好的共享前缀)
             attn = paged_attention(q, self.k_pool[li], self.v_pool[li], block_table, len(ids))
-            x = x + attn @ layer.wo
+            x = x + attn @ layer.wo                        # (n, D)
             x = x + mlp_forward(rms_norm(x, layer.norm2_g), layer)
         self.tokens_computed += len(new)
         return rms_norm(x[-1], lm.w.norm_f_g) @ lm.w.lm_head               # (V,)

@@ -20,6 +20,7 @@ from llm_agent.core.schema import Message, ModelAction, ToolCall
 
 _META_TOOLS = {"todo_write", "exit_plan_mode", "skill"}  # 结果不算"任务数据"
 _CITIES = {"北京": "Beijing", "beijing": "Beijing", "上海": "Shanghai", "shanghai": "Shanghai", "深圳": "Shenzhen"}
+# 算式: 一个数后面跟至少一组 "运算符 + 数", 如 "17 * 23"、"2 + 3 * 4"。不认括号
 _EXPR = re.compile(r"\d+(?:\.\d+)?(?:\s*[-+*/]\s*\d+(?:\.\d+)?)+")
 
 Result = Tuple[str, str, bool]  # (tool name, content, is_error)
@@ -30,11 +31,18 @@ def _any(text: str, words: List[str]) -> bool:
 
 
 class RuleBasedLLM:
+    """规则替身。gullible=True 时会照着工具结果里的 "AGENT: run shell: ..." 去调 shell。"""
+
     def __init__(self, gullible: bool = False) -> None:
         self.gullible = gullible
 
     def next(self, messages: List[Message], tools: List[Dict[str, Any]]) -> ModelAction:
+        """看完整上下文, 决定下一步: 发一批工具调用, 或给出最终回答。
+
+        只按关键词决定调哪些工具。手里没有的工具 (不在 tools 里) 不会去调。
+        """
         schemas = {t["name"]: t for t in tools}
+        # 本轮从最后一条用户 prompt 开始。摘要请求的 prompt 以 [compact] 开头, 走另一条路
         start = max((i for i, m in enumerate(messages) if m.is_user_prompt), default=0)
         prompt = messages[start].text if messages else ""
         if prompt.startswith("[compact]"):
@@ -53,10 +61,13 @@ class RuleBasedLLM:
         if any(name == "exit_plan_mode" and err for name, _, err in results):
             return ModelAction.final("计划未获批准, 未执行任何写操作。")
 
+        # hint = 可信来源给的指令: hook 追加的上下文 + skill 正文。其它工具结果不进 hint
         hint = "\n".join(m.text for m in turn if m.name == "hook_context")
         hint += "\n".join(c for name, c, err in results if name == "skill" and not err)
         plan = self._plan(prompt, hint.lower(), schemas, messages)
 
+        # 从计划里划掉已经做过的。按"同名工具调过几次"来数:
+        # 计划里第 n 个同名调用, 只有在本轮已调次数 < n 时才算没做
         seen: Counter = Counter()
         remaining = []
         for phase, call in plan:
@@ -68,6 +79,7 @@ class RuleBasedLLM:
                 return ModelAction.tool(*[c for p, c in remaining if p == "gather"])
             return ModelAction.tool(remaining[0][1])
 
+        # 计划全部做完: 把工具结果拼成最终回答。失败的结果也拼进去
         data = [(n, c) for n, c, _ in results if n not in _META_TOOLS]
         if not data:
             return ModelAction.final("这是一个无需工具的直接回答。")
@@ -78,6 +90,11 @@ class RuleBasedLLM:
 
     # ------------------------------------------------------------------ plan
     def _plan(self, prompt: str, hint: str, schemas: Dict[str, Any], messages: List[Message]) -> List[Tuple[str, ToolCall]]:
+        """由 prompt 推出本轮的完整计划, 返回 [(阶段, 调用), ...]。
+
+        阶段: pre (加载 skill、交计划、列 todo) → gather (只读, 可并行) → act (写, 一次一个) → post。
+        每次都从头推一遍, 哪些已经做过由 next() 去对比。
+        """
         lower = prompt.lower()
         pre: List[ToolCall] = []
         gather: List[ToolCall] = []
@@ -150,6 +167,7 @@ class RuleBasedLLM:
     # --------------------------------------------------------------- helpers
     @staticmethod
     def _results(messages: List[Message]) -> List[Result]:
+        """取出全部工具结果。tool_result 里没有工具名, 要靠 tool_use_id 回查对应的 tool_use。"""
         names = {b["id"]: b["name"] for m in messages for b in m.tool_uses()}
         return [
             (names.get(b["tool_use_id"], "?"), str(b["content"]), bool(b.get("is_error")))
@@ -158,12 +176,14 @@ class RuleBasedLLM:
         ]
 
     def _last_data(self, messages: List[Message]) -> str:
+        """整个上下文里最近一条成功的数据类工具结果; 写笔记时拿它当正文。"""
         skip = _META_TOOLS | {"write_note"}
         data = [c for n, c, err in self._results(messages) if n not in skip and not err]
         return data[-1] if data else ""
 
     @staticmethod
     def _skill_catalog(messages: List[Message]) -> List[Tuple[str, str]]:
+        """从 system 消息的 "## Skills" 段落里解析出 [(skill 名, 描述), ...]。"""
         text = "\n".join(m.text for m in messages if m.role == "system" and "## Skills" in m.text)
         return re.findall(r"(?m)^- ([\w-]+): (.+)$", text.split("## Skills")[-1]) if text else []
 

@@ -1,2 +1,2 @@
-"""ZeRO / FSDP sharding demo."""
+"""ZeRO / FSDP 分片演示。"""
 

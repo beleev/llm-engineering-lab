@@ -22,9 +22,7 @@ class SyntheticDataGenerator:
     合成数据生成器基类。Trainer 每步调用一次 `generate_batch()`。
 
     fixed=True (默认): 第一次 `_sample()` 的结果被缓存, 之后每步都返回同一个 batch。
-        随机 token 没有可学的规律, 每步换新 batch 时 loss 只会停在 ln V;
-        固定 batch 后 "loss 下降" 的含义是 "模型能背下这一个 batch" —— 这是对
-        forward / backward / 优化器通路的诚实检验, 不代表泛化。
+        为什么要固定、"loss 下降" 此时意味着什么, 见文件头。
     fixed=False: 每步重新采样 (用于真有规律的任务, 或想看 ln V 平台时)。
 
     内部子类实现 `_sample()`; 外部子类直接覆写 `generate_batch()` 也仍然有效。
@@ -38,6 +36,7 @@ class SyntheticDataGenerator:
         raise NotImplementedError
 
     def generate_batch(self) -> Dict[str, torch.Tensor]:
+        """返回一个 batch (dict)。fixed=True 时每次都是第一次采到的那个。"""
         if not self.fixed:
             return self._sample()
         if self._cache is None:
@@ -79,34 +78,25 @@ class DecoderOnlyDataGenerator(SyntheticDataGenerator):
 
 class EncoderDecoderDataGenerator(SyntheticDataGenerator):
     """
-    Encoder-Decoder (seq2seq) 模型的合成数据生成器。
+    Encoder-Decoder (seq2seq) 的数据, 给原版 Transformer (Vaswani et al. 2017) 用。
 
-    适用模型: 原版 Transformer (Vaswani et al. 2017)
+    返回的键 (= Transformer.forward 的形参 + labels):
+        src      [B, src_len]           源语言 token, 由 encoder 自注意力处理
+        tgt      [B, tgt_len]           目标语言 teacher forcing 输入
+        labels   [B, tgt_len]           目标语言右移一位
+        src_mask [B, 1, src_len]        源 padding 掩码 (encoder 自注意力里屏蔽 pad)
+        tgt_mask [B, tgt_len, tgt_len]  目标 padding 掩码 与 因果掩码 按位 AND (交集):
+                                        一个 key 既不是 pad、也不在未来, 才可见
 
-    数据构造:
-        - src        : 源语言 token, 由 encoder 自注意力处理
-        - tgt_input  : 目标语言 teacher forcing 输入
-        - labels     : 目标语言右移一位
-        - src_mask   : 源 padding 掩码 (encoder 自注意力中屏蔽 pad)
-        - tgt_mask   : 目标 padding 掩码 与 因果掩码 的并集
-                       (decoder 自注意力既要屏蔽 pad，也要屏蔽未来 token)
+    为什么要因果掩码:
+        训练时整个目标序列并行喂进 decoder。位置 t 能看到 t 之后的 token, 就等于看到了答案。
+        下三角 mask 在 softmax 前把未来位置的分数置 -inf。
+    为什么要屏蔽 pad:
+        pad 是为了对齐 batch 长度填的占位符, 没有语义。
+        不屏蔽的话 attention 会把它当成有效 key, loss 也会算在 pad 上。
+    本生成器的 token 从 1 开始采, 序列里不会出现 pad_idx=0, 两张 padding 掩码全为 True。
 
-    为什么需要 causal mask？
-        训练时整个目标序列被并行喂入 decoder，但每个位置不应看到未来 token，
-        否则就泄漏了答案。下三角 mask 在 softmax 前置 -inf，阻断未来信息。
-
-    为什么 pad 不能参与计算？
-        pad 是为对齐 batch 而填充的占位符，没有语义。若不掩掉，
-        attention 会把 pad 当成有效 key，污染表示；loss 也会浪费在 pad 上。
-
-    Args:
-        src_vocab_size: 源词表大小。
-        tgt_vocab_size: 目标词表大小。
-        batch_size:     批次大小。
-        src_len:        源序列长度。
-        tgt_len:        目标序列长度。
-        pad_idx:        padding token 的索引 (默认 0)。
-        device:         设备。
+    pad_idx: padding token 的 id (默认 0)。
     """
 
     def __init__(
@@ -128,25 +118,24 @@ class EncoderDecoderDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        # 源序列从 1 开始，避开 pad_idx=0，保证全部位置有效。
-        src = torch.randint(
+        # 源序列从 1 开始采, 避开 pad_idx=0, 全部位置有效
+        src = torch.randint(                                             # [B, src_len]
             1, self.src_vocab_size, (self.batch_size, self.src_len), device=self.device
         )
 
-        # 目标序列：先生成 tgt_len + 1 长度，再切片得到 input 与 shifted labels
-        tgt_full = torch.randint(
+        # 目标序列: 多采 1 个 token, 再切成 "输入" 和 "右移一位的标签"
+        tgt_full = torch.randint(                                        # [B, tgt_len + 1]
             1, self.tgt_vocab_size, (self.batch_size, self.tgt_len + 1), device=self.device
         )
-        tgt_input = tgt_full[:, :-1]  # decoder 输入 [B, tgt_len]
-        labels = tgt_full[:, 1:]      # decoder 目标 [B, tgt_len]
+        tgt_input = tgt_full[:, :-1]  # decoder 输入 [B, tgt_len]: 去掉最后一个
+        labels = tgt_full[:, 1:]      # decoder 目标 [B, tgt_len]: 去掉第一个, 位置 t 的目标是第 t+1 个 token
 
-        # 构造掩码
-        # src_mask: 仅 padding mask, 形状 [B, 1, src_len]，可广播到 [B, H, T_q, src_len]
+        # src_mask: 只有 padding mask, [B, 1, src_len], 可广播到 [B, H, T_q, src_len]
         src_mask = get_pad_mask(src, self.pad_idx)
         # tgt_mask: padding ∩ causal, 让 decoder 既忽略 pad 又看不到未来
         tgt_pad_mask = get_pad_mask(tgt_input, self.pad_idx)             # [B, 1, tgt_len]
         tgt_subsequent_mask = get_subsequent_mask(tgt_input)             # [1, tgt_len, tgt_len]
-        tgt_mask = combine_masks(tgt_pad_mask, tgt_subsequent_mask)
+        tgt_mask = combine_masks(tgt_pad_mask, tgt_subsequent_mask)      # 广播 AND → [B, tgt_len, tgt_len]
 
         return {
             "src": src,
@@ -159,32 +148,27 @@ class EncoderDecoderDataGenerator(SyntheticDataGenerator):
 
 class VisionLanguageDataGenerator(SyntheticDataGenerator):
     """
-    视觉语言模型 (VLM) 的合成数据生成器。
+    视觉语言模型 (Qwen2-VL) 的数据。
 
-    适用模型: Qwen2-VL
+    返回的键:
+        input_ids [B, seq_len]                       文本 token
+        images    [B, 3, H, W]                       随机像素图
+        labels    [B, num_vision_tokens + seq_len]   视觉位置填 -100, 文本位置是 next-token
 
-    数据构造:
-        - input_ids: 文本 token [B, seq_len]
-        - images:    随机像素图 [B, 3, H, W]
-        - labels:    在视觉 token 位置填 -100 (不计 loss)，文本位置为 next-token
-
-    为什么 vision tokens 位置要填 -100？
-        Qwen2-VL 的 forward 流程：图像 → vision encoder → resampler →
-        固定数量 (num_vision_tokens) 的视觉 embedding，与文本 embedding 拼接成
-        [vision_tokens, text_tokens] 一起进入 LLM。
-        最终 logits 形状为 [B, num_vision_tokens + seq_len, V]。
-        但视觉 token 不需要 "预测下一 token"——它们是给文本生成提供条件的，
-        因此对应位置标签设为 -100，让 cross_entropy 通过 ignore_index=-100 跳过。
-        若不忽略，模型会被强迫为视觉 embedding "预测" 一个无意义的随机文本 token，
-        浪费容量并干扰真正的语言建模目标。
+    为什么视觉位置填 -100:
+        Qwen2-VL 的 forward: 图像 → vision encoder → resampler → num_vision_tokens 个视觉 embedding,
+        和文本 embedding 拼成 [vision_tokens, text_tokens] 一起进 LLM。
+        logits 的形状是 [B, num_vision_tokens + seq_len, V], labels 要和它等长。
+        视觉 token 只给文本生成提供条件, 自己没有 "下一个 token" 可预测。
+        填 -100 后 cross_entropy 按 ignore_index 跳过这些位置;
+        不填的话, 模型要在视觉位置上拟合一个随机文本 token。
 
     Args:
-        vocab_size:        文本词表大小。
-        batch_size:        批次大小。
-        seq_len:           文本序列长度。
         image_size:        图像边长 (H = W)。
-        num_vision_tokens: resampler 后输出的视觉 token 数 (通常远小于 patch 数)。
-        device:            设备。
+        num_vision_tokens: 必须等于模型实际产出的视觉 token 数。
+                           vision_num_latents > 0 时就是它 (通常远小于 patch 数);
+                           = 0 (关 Resampler) 时是 (image_size / patch_size)²。
+                           不一致时 labels 与 logits 长度不同, loss 报形状错。
     """
 
     def __init__(
@@ -204,25 +188,25 @@ class VisionLanguageDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        # 文本 token: 多生成 1 个用于 shift
-        text_tokens = torch.randint(
+        # 文本 token: 多采 1 个, 用来切出右移一位的标签
+        text_tokens = torch.randint(                                     # [B, seq_len + 1]
             1, self.vocab_size, (self.batch_size, self.seq_len + 1), device=self.device
         )
         input_ids = text_tokens[:, :-1]      # 模型输入 [B, seq_len]
         text_labels = text_tokens[:, 1:]     # next-token 标签 [B, seq_len]
 
-        # 图像: 模拟标准化后的像素 (高斯分布即可，反正训练几步看不出差别)
-        images = torch.randn(
+        # 图像: 标准高斯随机数, 充当标准化后的像素
+        images = torch.randn(                                            # [B, 3, H, W]
             self.batch_size, 3, self.image_size, self.image_size, device=self.device
         )
 
         # 视觉 token 位置: 全 -100, cross_entropy 会跳过这些位置
-        vision_ignore = torch.full(
+        vision_ignore = torch.full(                                      # [B, num_vision_tokens]
             (self.batch_size, self.num_vision_tokens), -100,
             dtype=torch.long, device=self.device,
         )
         # 拼接顺序必须和模型 forward 中 [vision, text] 的拼接顺序一致
-        labels = torch.cat([vision_ignore, text_labels], dim=1)
+        labels = torch.cat([vision_ignore, text_labels], dim=1)          # [B, num_vision_tokens + seq_len]
 
         return {
             "input_ids": input_ids,
@@ -233,34 +217,35 @@ class VisionLanguageDataGenerator(SyntheticDataGenerator):
 
 class OmniDataGenerator(SyntheticDataGenerator):
     """
-    全模态模型 (文本 + 视觉 + 音频 + 视频) 的合成数据生成器。
+    全模态模型 Qwen2.5-Omni (文本 + 视觉 + 音频 + 视频) 的数据。
 
-    适用模型: Qwen2.5-Omni (Thinker + Talker 双分支结构)
+    Thinker: 主 LLM, 处理多模态输入, 产出文本 logits。
+    Talker:  额外的小型自回归头, 基于 Thinker 隐状态生成离散音频 token, 实现端到端 "说话"。
+    所以本生成器同时给出文本 labels 和音频 labels。
 
-    Thinker / Talker 概念:
-        - Thinker: 主 LLM，处理多模态输入并产出文本 logits；
-        - Talker:  额外的小型自回归头，基于 Thinker 隐状态生成离散音频 token，
-                   实现端到端 "说话"。
-        因此本生成器同时给出 文本 labels 与 音频 labels。
+    返回的键:
+        input_ids          [B, seq_len]
+        images             [B, 3, H, W]
+        audio_spectrograms [B, 1, F, T_a]
+        videos             [B, 3, T, H, W]
+        audio_input_ids    [B, audio_seq_len]        Talker 的输入
+        labels             [B, N_prefix + seq_len]   前缀位置全 -100, 只有文本 token 参与 LM loss
+        audio_labels       [B, audio_seq_len]        audio_input_ids 右移一位
+      N_prefix = num_vision_tokens + num_video_tokens + num_audio_tokens。
 
-    标签处理同 VLM:
-        所有模态 (vision / audio_spec / video) 经各自 encoder + resampler 投影成
-        固定数量的 embedding，拼接到文本前作为前缀；这些前缀位置的标签全部 -100，
-        只有真正的文本 token 参与 LM loss。
+    标签处理同 VLM: 各模态 (vision / audio_spec / video) 经各自的 encoder + resampler
+    投影成固定数量的 embedding, 拼在文本前面当前缀。
 
     Args:
-        vocab_size:         文本词表大小。
-        audio_vocab_size:   音频离散 token 词表大小 (Talker 输出)。
-        batch_size:         批次大小。
-        seq_len:            文本序列长度。
-        audio_seq_len:      音频 token 序列长度 (Talker 自回归长度)。
-        image_size:         图像边长。
-        audio_spec_size:    声谱图尺寸 (T, F)，T 为帧数, F 为梅尔/频率维度。
-        video_size:         视频尺寸 (T, H, W)。
-        num_vision_tokens:  resampler 后视觉 token 数。
-        num_audio_tokens:   resampler 后音频 token 数。
-        num_video_tokens:   resampler 后视频 token 数。
-        device:             设备。
+        audio_vocab_size: 音频离散 token 的词表大小 (Talker 输出)。
+        audio_seq_len:    音频 token 序列长度 (Talker 自回归长度)。
+        audio_spec_size:  声谱图尺寸 (F, T_a): F = mel 频率维, T_a = 帧数。
+                          生成 [B, 1, F, T_a], 与 Qwen2_5_OmniModel.forward 一致。
+        video_size:       视频尺寸 (T, H, W)。
+        num_vision_tokens / num_audio_tokens / num_video_tokens:
+                          必须等于模型里该模态实际产出的 token 数:
+                          对应的 *_num_latents > 0 时就是它, 关 Resampler 时是 patch 数。
+                          不一致时 labels 与 logits 长度不同, loss 报形状错。
     """
 
     def __init__(
@@ -293,44 +278,44 @@ class OmniDataGenerator(SyntheticDataGenerator):
 
     def _sample(self) -> Dict[str, torch.Tensor]:
         # ---- 文本分支 ----
-        text_tokens = torch.randint(
+        text_tokens = torch.randint(                                     # [B, seq_len + 1]
             1, self.vocab_size, (self.batch_size, self.seq_len + 1), device=self.device
         )
-        input_ids = text_tokens[:, :-1]
-        text_labels = text_tokens[:, 1:]
+        input_ids = text_tokens[:, :-1]                                  # [B, seq_len]
+        text_labels = text_tokens[:, 1:]                                 # [B, seq_len] 右移一位
 
         # ---- 多模态原始信号 (随机噪声充当占位)----
-        images = torch.randn(
+        images = torch.randn(                                            # [B, 3, H, W]
             self.batch_size, 3, self.image_size, self.image_size, device=self.device
         )
-        audio_spectrograms = torch.randn(
+        audio_spectrograms = torch.randn(                                # [B, 1, F, T_a]
             self.batch_size, 1, self.audio_spec_size[0], self.audio_spec_size[1],
             device=self.device,
         )
         t, h, w = self.video_size
-        videos = torch.randn(
+        videos = torch.randn(                                            # [B, 3, T, H, W]
             self.batch_size, 3, t, h, w, device=self.device
         )
 
         # ---- 音频离散 token (Talker 输入 + 自回归标签)----
-        audio_tokens = torch.randint(
+        audio_tokens = torch.randint(                                    # [B, audio_seq_len + 1]
             1, self.audio_vocab_size,
             (self.batch_size, self.audio_seq_len + 1), device=self.device,
         )
-        audio_input_ids = audio_tokens[:, :-1]
-        audio_labels = audio_tokens[:, 1:]
+        audio_input_ids = audio_tokens[:, :-1]                           # [B, audio_seq_len]
+        audio_labels = audio_tokens[:, 1:]                               # [B, audio_seq_len] 右移一位
 
-        # ---- 文本标签：模态前缀位置全部 -100 ----
-        # 拼接顺序必须与模型 forward 内 [vision, video, audio, text] 的拼接顺序一致；
-        # 否则 logits 与 labels 错位，loss 完全无意义。
+        # ---- 文本标签: 模态前缀位置全部 -100 ----
+        # 拼接顺序必须与模型 forward 内 [vision, video, audio, text] 的拼接顺序一致,
+        # 否则 logits 与 labels 错位, loss 没有意义
         num_modality_tokens = (
             self.num_vision_tokens + self.num_video_tokens + self.num_audio_tokens
         )
-        modality_ignore = torch.full(
+        modality_ignore = torch.full(                                    # [B, N_prefix]
             (self.batch_size, num_modality_tokens), -100,
             dtype=torch.long, device=self.device,
         )
-        labels = torch.cat([modality_ignore, text_labels], dim=1)
+        labels = torch.cat([modality_ignore, text_labels], dim=1)        # [B, N_prefix + seq_len]
 
         return {
             "input_ids": input_ids,
@@ -344,16 +329,16 @@ class OmniDataGenerator(SyntheticDataGenerator):
 
 
 # =============================================================================
-# 新增: BERT / CLIP / Whisper / VAE / Diffusion / VAR 数据生成器
+# 其它形态: BERT / CLIP / Whisper / VAE / Diffusion / VAR
 # =============================================================================
 
 
 class MaskedLMDataGenerator(SyntheticDataGenerator):
     """
-    BERT MLM 合成数据生成器。
+    BERT MLM 的数据: input_ids [B, seq_len] (部分位置被改过) + labels [B, seq_len]。
 
-    15% 概率做 mask 处理 (80% → [MASK] id, 10% → 随机 token, 10% 保持原样),
-    仅 mask 位置的 label 是原 token, 其余位置填 -100。
+    每个位置以 15% 概率被选中 (80% → [MASK] id, 10% → 随机 token, 10% 保持原样)。
+    只有被选中位置的 label 是原 token, 其余位置填 -100。
 
     Args:
         vocab_size: 词表大小
@@ -379,17 +364,18 @@ class MaskedLMDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        input_ids = torch.randint(
+        # 真实 token 的范围是 [1, vocab_size - 2]: 0 留给 pad, vocab_size - 1 留给 [MASK]
+        input_ids = torch.randint(                                       # [B, seq_len]
             1, self.vocab_size - 1, (self.batch_size, self.seq_len), device=self.device,
         )
-        labels = torch.full_like(input_ids, -100)
+        labels = torch.full_like(input_ids, -100)                        # [B, seq_len] 先全填 -100
 
-        # 选中 mask 的位置 (按概率采样)
-        mask = torch.rand_like(input_ids, dtype=torch.float) < self.mlm_prob
-        labels[mask] = input_ids[mask]
+        # 每个位置独立掷一次, 小于 mlm_prob 就选中
+        mask = torch.rand_like(input_ids, dtype=torch.float) < self.mlm_prob   # [B, seq_len] bool
+        labels[mask] = input_ids[mask]   # 必须在改 input_ids 之前存: label 要的是原 token
 
-        # 在 mask 位置里再分三份: 80% [MASK], 10% 随机, 10% 保持
-        rand = torch.rand_like(input_ids, dtype=torch.float)
+        # 在选中的位置里再分三份: 80% [MASK], 10% 随机, 10% 保持
+        rand = torch.rand_like(input_ids, dtype=torch.float)             # 另掷一次, 与 mask 独立
         mask_replace = mask & (rand < 0.8)
         mask_random = mask & (rand >= 0.8) & (rand < 0.9)
         # 剩下的 mask 区间 (rand >= 0.9) 保持原样, 不改 input_ids
@@ -409,7 +395,7 @@ class MaskedLMDataGenerator(SyntheticDataGenerator):
 
 class CLIPDataGenerator(SyntheticDataGenerator):
     """
-    CLIP 合成数据生成器.
+    CLIP 的数据: images [B, 3, H, W] + input_ids [B, text_len] + eos_token_id。
 
     生成 B 对 (image, text), 对比 loss 的正样本由对角线隐式给出, 不需要额外 labels。
     "labels" 字段保留是为了符合 Trainer 的接口 (用 dummy 零张量)。
@@ -439,7 +425,8 @@ class CLIPDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        text = torch.randint(
+        # 上界 vocab_size - 1: 默认的 EOS id 是 vocab_size - 1, 正文里不能提前出现
+        text = torch.randint(                                            # [B, text_len]
             1, self.vocab_size - 1, (self.batch_size, self.text_len), device=self.device,
         )
         # 在每行末尾填 EOS, 保证 CLIPTextEncoder 的 pooler 能找到位置
@@ -460,10 +447,10 @@ class CLIPDataGenerator(SyntheticDataGenerator):
 
 class WhisperDataGenerator(SyntheticDataGenerator):
     """
-    Whisper 合成数据生成器。
+    Whisper 的数据:
 
-    - mel spectrogram: 随机张量, [B, n_mels, T_mel]
-    - decoder 输入: 随机 token 序列, labels 为右移一位 (teacher forcing)
+    - mel [B, n_mels, T_mel]: 随机张量充当 mel 声谱图
+    - decoder_input_ids [B, tgt_len]: 随机 token 序列; labels [B, tgt_len] 为右移一位 (teacher forcing)
 
     Args:
         vocab_size:   文本词表
@@ -489,15 +476,15 @@ class WhisperDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        mel = torch.randn(self.batch_size, self.n_mels, self.t_mel, device=self.device)
+        mel = torch.randn(self.batch_size, self.n_mels, self.t_mel, device=self.device)  # [B, n_mels, T_mel]
 
-        tokens = torch.randint(
+        tokens = torch.randint(                                          # [B, tgt_len + 1]
             1, self.vocab_size, (self.batch_size, self.tgt_len + 1), device=self.device,
         )
         return {
             "mel": mel,
-            "decoder_input_ids": tokens[:, :-1],
-            "labels": tokens[:, 1:],
+            "decoder_input_ids": tokens[:, :-1],   # [B, tgt_len]
+            "labels": tokens[:, 1:],               # [B, tgt_len] 输入右移一位
         }
 
 
@@ -528,7 +515,7 @@ class ImageDataGenerator(SyntheticDataGenerator):
         self.device = device
 
     def _sample(self) -> Dict[str, torch.Tensor]:
-        coarse = torch.randn(self.batch_size, self.image_channels, 4, 4, device=self.device)
+        coarse = torch.randn(self.batch_size, self.image_channels, 4, 4, device=self.device)  # [B, C, 4, 4]
         x = torch.nn.functional.interpolate(
             coarse, size=self.image_size, mode="bilinear", align_corners=False,
         ).tanh()                                                  # [B, C, H, W]
@@ -574,30 +561,30 @@ class DiffusionDataGenerator(SyntheticDataGenerator):
 
     def _sample(self) -> Dict[str, torch.Tensor]:
         # 1) 模拟一批 "x_0" (真实训练应来自 VAE.encode)
-        x0 = torch.randn(
+        x0 = torch.randn(                                                # [B, C, h, w]
             self.batch_size, self.latent_channels, self.latent_size, self.latent_size,
             device=self.device,
         )
         # 2) 采 t, 加噪
-        t = self.scheduler.sample_timesteps(self.batch_size, self.device)
+        t = self.scheduler.sample_timesteps(self.batch_size, self.device)   # [B]
         noised = self.scheduler.add_noise(x0, t)
 
         batch = {
-            "x": noised.noisy,
-            "t": noised.t_norm,
-            "labels": noised.target,
+            "x": noised.noisy,         # [B, C, h, w] 含噪 latent
+            "t": noised.t_norm,        # [B] 给模型看的时间, [0, 1000) 量纲
+            "labels": noised.target,   # [B, C, h, w] 回归目标
         }
         # 可选类别条件
         if self.num_classes > 0:
-            batch["y"] = torch.randint(
+            batch["y"] = torch.randint(                                  # [B]
                 0, self.num_classes, (self.batch_size,), device=self.device,
             )
         # 可选文本条件 (MM-DiT)
         if self.text_seq_len is not None and self.text_dim is not None:
-            batch["text_embeds"] = torch.randn(
+            batch["text_embeds"] = torch.randn(                          # [B, text_seq_len, text_dim]
                 self.batch_size, self.text_seq_len, self.text_dim, device=self.device,
             )
-            batch["text_pooled"] = torch.randn(
+            batch["text_pooled"] = torch.randn(                          # [B, text_dim]
                 self.batch_size, self.text_dim, device=self.device,
             )
         return batch
@@ -605,7 +592,8 @@ class DiffusionDataGenerator(SyntheticDataGenerator):
 
 class VideoDiffusionDataGenerator(SyntheticDataGenerator):
     """
-    Video DiT 训练合成数据, 与 DiffusionDataGenerator 同构但输入是 5D 视频 latent。
+    Video DiT 的训练数据, 与 DiffusionDataGenerator 同构, 只是输入换成 5D 视频 latent:
+    x / labels [B, C, T', H', W'], t [B], 可选 y [B]。
     """
 
     def __init__(
@@ -626,7 +614,7 @@ class VideoDiffusionDataGenerator(SyntheticDataGenerator):
 
     def _sample(self) -> Dict[str, torch.Tensor]:
         T, H, W = self.latent_size
-        x0 = torch.randn(
+        x0 = torch.randn(                                                # [B, C, T', H', W']
             self.batch_size, self.latent_channels, T, H, W, device=self.device,
         )
         t = self.scheduler.sample_timesteps(self.batch_size, self.device)
@@ -642,7 +630,7 @@ class VideoDiffusionDataGenerator(SyntheticDataGenerator):
 
 class VARImageDataGenerator(SyntheticDataGenerator):
     """
-    VAR 训练数据: 只需原始图像, tokenizer 在模型内部离散化。
+    VAR 训练数据: 只需原始图像 images [B, 3, H, W], tokenizer 在模型内部离散化。
     """
 
     def __init__(

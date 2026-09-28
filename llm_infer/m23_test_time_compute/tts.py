@@ -25,7 +25,7 @@ from llm_infer.m10_sampling.samplers import SamplingParams, sample
 OPS = {"+": lambda v, a: v + a, "-": lambda v, a: v - a, "*": lambda v, a: v * a}
 CONFUSE = {"+": "*", "-": "+", "*": "+"}        # 系统性误解: 把运算符看错
 OFFSETS = (0, 1, -1, 10, -10)                   # 候选 0 = 正确值, 其余 = 粗心错 (个位 / 十位差 1)
-LOGIT_OK, LOGIT_SLIP, LOGIT_TRAP = 3.0, 0.3, 3.5
+LOGIT_OK, LOGIT_SLIP, LOGIT_TRAP = 3.0, 0.3, 3.5   # 正确值 / 每种粗心错 / 陷阱步上"看错运算符" 的 logit
 # T=1 时: 普通步答对 e^3/(e^3+5·e^0.3) = 0.75; 陷阱步 "看错运算符" 的 logit 3.5 > 正确的 3.0 → 模型的众数就是错的
 SIGMA = 0.5                                     # ORM / PRM 判分噪声 (真值 0/1 上加 N(0, σ²))
 DETECT = 0.5                                    # 自查时发现一处粗心错的概率 (看不见自己的误解)
@@ -34,7 +34,8 @@ STOP = 0.6                                      # 模型每次"想停"的概率 
 
 @dataclass(frozen=True)
 class Problem:
-    x0: int
+    """一道 K 步算术题: 从 x0 出发, 依次做 K 次运算。"""
+    x0: int                                     # 起始值
     ops: Tuple[Tuple[str, int], ...]            # K 步, 每步 (运算符, 操作数)
     trap: int                                   # 陷阱步下标; -1 = 这道题没有陷阱
 
@@ -45,6 +46,7 @@ class Problem:
 
     @property
     def answer(self) -> int:
+        """从 x0 起每步都算对, 得到的最终答案。"""
         v = self.x0
         for i in range(len(self.ops)):
             v = self.truth(v, i)
@@ -52,6 +54,7 @@ class Problem:
 
 
 def make_problems(n: int, k: int, trap_frac: float, rng: np.random.RandomState) -> List[Problem]:
+    """随机出 n 道 k 步的题, 其中约 trap_frac 比例的题带一个陷阱步。"""
     out = []
     for _ in range(n):
         ops = tuple((str(rng.choice(list(OPS))), int(rng.randint(3, 10))) for _ in range(k))  # a≥3: v·a ≠ v+a
@@ -62,7 +65,7 @@ def make_problems(n: int, k: int, trap_frac: float, rng: np.random.RandomState) 
 def step_dist(prob: Problem, i: int, v: int) -> Tuple[np.ndarray, np.ndarray]:
     """第 i 步的候选值 (6,) 与 logits (6,): 正确值 + 4 种粗心错 + 看错运算符。"""
     op, a = prob.ops[i]
-    c = OPS[op](v, a)
+    c = OPS[op](v, a)                           # 这一步的正确值
     values = np.array([c + d for d in OFFSETS] + [OPS[CONFUSE[op]](v, a)])
     logits = np.array([LOGIT_OK] + [LOGIT_SLIP] * 4 + [LOGIT_TRAP if i == prob.trap else LOGIT_SLIP])
     return values, logits
@@ -93,6 +96,7 @@ def orm(prob: Problem, final: int, rng) -> float:
 
 
 def best_of_n(prob: Problem, chains: List[List[int]], rng) -> int:
+    """ORM 给每条链的最终答案打分, 返回得分最高那条的答案。"""
     return chains[int(np.argmax([orm(prob, c[-1], rng) for c in chains]))][-1]
 
 
@@ -106,7 +110,7 @@ def prm_beam_search(prob: Problem, width: int, expand: int, rng) -> Tuple[int, i
 
     错的步在它出现的那一步就被剪掉, 不会再为它的后续步付费 —— 这是它比 best-of-N 省 token 的原因。
     """
-    beams: List[Tuple[float, List[int]]] = [(0.0, [])]
+    beams: List[Tuple[float, List[int]]] = [(0.0, [])]   # (累计 PRM 分, 已写的链)
     tokens = 0
     for i in range(len(prob.ops)):
         cand = []

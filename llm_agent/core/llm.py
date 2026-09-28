@@ -15,6 +15,11 @@ from llm_agent.core.schema import Message, ModelAction
 
 
 class LLM(Protocol):
+    """任何有 next() 方法的对象都算 LLM, 不需要继承这个类 (typing.Protocol 按结构匹配)。"""
+
     def next(self, messages: List[Message], tools: List[Dict[str, Any]]) -> ModelAction:
-        """tools 是 Tool.schema() 列表: 模型需要参数的 JSON Schema, 只给名字它只能猜。"""
+        """messages 是完整上下文, 返回模型的下一步 (调工具或最终回答)。
+
+        tools 是 Tool.schema() 列表: 模型需要参数的 JSON Schema, 只给名字它只能猜。
+        """
         ...

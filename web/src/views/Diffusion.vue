@@ -22,18 +22,18 @@
         { path: 'llm_models/layers/diffusion/adaln.py', label: 'adaln.py · AdaLNZeroBlock' },
         { path: 'llm_models/training/diffusion.py', label: 'training/diffusion.py' },
       ]"
-      :prereq="{ name: 'moe', label: 'MoE 路由 (左脑分支)' }"
-      :next-step="{ name: 'train', label: '阶段 3 — 把训练循环扩到分布式' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <!-- 控制 -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="controls-grid">
         <div>
-          <div class="slot-title">调度器</div>
-          <div class="btn-group">
-            <button :class="{ active: scheduler === 'ddpm' }" @click="scheduler = 'ddpm'">DDPM (cosine)</button>
-            <button :class="{ active: scheduler === 'fm' }" @click="scheduler = 'fm'">Flow Matching (linear)</button>
+          <div id="diffusion-scheduler-label" class="slot-title">调度器</div>
+          <div class="btn-group" role="group" aria-labelledby="diffusion-scheduler-label">
+            <button type="button" :class="{ active: scheduler === 'ddpm' }" :aria-pressed="scheduler === 'ddpm'" @click="scheduler = 'ddpm'">DDPM (cosine)</button>
+            <button type="button" :class="{ active: scheduler === 'fm' }" :aria-pressed="scheduler === 'fm'" @click="scheduler = 'fm'">Flow Matching (linear)</button>
           </div>
         </div>
         <div>
@@ -44,47 +44,49 @@
         </div>
       </div>
       <div class="form-row" style="margin-top: 14px;">
-        <label>timestep t</label>
-        <input type="range" min="0" max="1" step="0.01" v-model.number="t" />
+        <label for="diffusion-timestep">timestep t</label>
+        <input id="diffusion-timestep" type="range" min="0" max="1" step="0.01" v-model.number="t" />
         <span class="val">{{ t.toFixed(2) }}</span>
       </div>
       <div class="btn-group" style="margin-top: 10px;">
-        <button @click="animate" :disabled="animating">{{ animating ? '播放中…' : '▷ 播放完整去噪' }}</button>
-        <button @click="t = 1">置为纯噪声 (t=1)</button>
-        <button @click="t = 0">置为原图 (t=0)</button>
+        <button type="button" @click="animate" :disabled="animating">{{ animating ? '播放中…' : '▷ 播放完整去噪' }}</button>
+        <button type="button" @click="t = 1">置为纯噪声 (t=1)</button>
+        <button type="button" @click="t = 0">置为原图 (t=0)</button>
       </div>
     </div>
 
-    <!-- 主可视化: 三格 x_0 / x_t / 预测 -->
+    <!-- 主可视化: 三格 x_0 / x_t / 回归目标。三张图都是按公式算出来的, 本页不跑网络 -->
     <div class="grid grid-3">
       <div class="card panel">
-        <h3><Tex text="$x_0$" /> <span class="tag">clean</span></h3>
+        <h3><Tex text="$x_0$" /> <span class="tag">原图</span></h3>
         <p class="desc">真值原图 (教学用的合成环形图案)</p>
-        <canvas ref="canvasX0" width="128" height="128" class="canvas" />
-        <div class="stat" style="margin-top: 10px;">
-          <div class="k"><Tex text="$\sigma(x)$" /> · 信号强度</div>
-          <div class="v mono">{{ sigmaX0.toFixed(3) }}</div>
-        </div>
+        <canvas ref="canvasX0" width="128" height="128" class="canvas" role="img" aria-label="原图: 合成的环形图案" />
       </div>
 
       <div class="card panel">
-        <h3><Tex text="$x_t$" /> <span class="tag">noised</span></h3>
+        <h3><Tex text="$x_t$" /> <span class="tag">加噪后</span></h3>
         <p class="desc"><Tex :text="noiseFormula" /></p>
-        <canvas ref="canvasXt" width="128" height="128" class="canvas" />
-        <div class="stat" style="margin-top: 10px;">
-          <div class="k"><Tex text="$\sqrt{\bar\alpha_t}\ /\ \sqrt{1-\bar\alpha_t}$" /></div>
-          <div class="v mono">{{ sqrtAB.toFixed(3) }} / {{ sqrt1ma.toFixed(3) }}</div>
+        <canvas ref="canvasXt" width="128" height="128" class="canvas" role="img"
+                :aria-label="`t = ${t.toFixed(2)} 时的加噪图, 信噪比 ${snrText}`" />
+        <div>
+          <div class="stat" style="margin-top: 10px;">
+            <div class="k">信号系数 / 噪声系数: <Tex :text="coefLabel" /></div>
+            <div class="v mono">{{ coef.a.toFixed(3) }} / {{ coef.b.toFixed(3) }}</div>
+          </div>
+          <div class="stat" style="margin-top: 8px;">
+            <div class="k">信噪比 = (信号系数 / 噪声系数)²</div>
+            <div class="v mono">{{ snrText }}</div>
+            <div class="hint">由当前 t 和调度器算出; t = 0 时没有噪声, 记作 ∞</div>
+          </div>
         </div>
       </div>
 
       <div class="card panel">
-        <h3><Tex :text="scheduler === 'ddpm' ? '$\\hat\\varepsilon$' : '$\\hat v$'" /> <span class="tag">model pred</span></h3>
-        <p class="desc">网络要回归的目标 (这里用真值加一点噪声模拟, 不是真跑出来的)</p>
-        <canvas ref="canvasPred" width="128" height="128" class="canvas" />
-        <div class="stat" style="margin-top: 10px;">
-          <div class="k">MSE(pred, target)</div>
-          <div class="v mono">{{ mseLoss.toFixed(4) }}</div>
-        </div>
+        <h3><Tex :text="scheduler === 'ddpm' ? '$\\varepsilon$' : '$v = \\varepsilon - x_0$'" /> <span class="tag">回归目标</span></h3>
+        <p class="desc">网络要回归的目标真值, 用的就是中间那张图里的同一份噪声。</p>
+        <p class="desc" style="margin-top: 6px;">本页不跑网络, 这张图不是网络输出。显示时幅度除以 2, 大部分像素才不会被截断。</p>
+        <canvas ref="canvasPred" width="128" height="128" class="canvas" role="img"
+                :aria-label="scheduler === 'ddpm' ? '回归目标: 噪声 ε' : '回归目标: 速度 v, 等于噪声减原图'" />
       </div>
     </div>
 
@@ -104,7 +106,8 @@
         </ul>
       </div>
       <div class="card">
-        <svg viewBox="0 0 600 240" width="100%" height="240">
+        <svg viewBox="0 0 600 240" width="100%" height="240" role="img"
+             aria-label="原图系数随 t 的变化: DDPM 的 cosine 曲线两端平缓, Flow Matching 是一条直线">
           <!-- 坐标轴 -->
           <line x1="40" y1="20" x2="40" y2="200" stroke="var(--border)" />
           <line x1="40" y1="200" x2="580" y2="200" stroke="var(--border)" />
@@ -114,9 +117,9 @@
           <text x="580" y="220" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="SF Mono">t=1</text>
 
           <!-- DDPM cosine curve -->
-          <path :d="ddpmCurve" fill="none" stroke="#7c6bf1" stroke-width="2" />
+          <path :d="ddpmCurve" fill="none" stroke="var(--accent)" stroke-width="2" />
           <!-- FM linear curve -->
-          <path :d="fmCurve" fill="none" stroke="#3dd68c" stroke-width="2" stroke-dasharray="4 4" />
+          <path :d="fmCurve" fill="none" stroke="var(--left)" stroke-width="2" stroke-dasharray="4 4" />
 
           <!-- 当前 t 标记 -->
           <line :x1="40 + t * 540" :x2="40 + t * 540" y1="20" y2="200"
@@ -124,13 +127,13 @@
           <circle :cx="40 + t * 540"
                   :cy="200 - 180 * alphaBarCurve(t)"
                   r="5"
-                  :fill="scheduler === 'ddpm' ? '#7c6bf1' : '#3dd68c'" />
+                  :fill="scheduler === 'ddpm' ? 'var(--accent)' : 'var(--left)'" />
 
           <!-- Legend -->
           <g transform="translate(420, 30)">
-            <line x1="0" y1="0" x2="20" y2="0" stroke="#7c6bf1" stroke-width="2" />
+            <line x1="0" y1="0" x2="20" y2="0" stroke="var(--accent)" stroke-width="2" />
             <text x="26" y="4" fill="var(--text-muted)" font-size="11">DDPM ᾱ_t (cosine)</text>
-            <line x1="0" y1="18" x2="20" y2="18" stroke="#3dd68c" stroke-width="2" stroke-dasharray="4 4" />
+            <line x1="0" y1="18" x2="20" y2="18" stroke="var(--left)" stroke-width="2" stroke-dasharray="4 4" />
             <text x="26" y="22" fill="var(--text-muted)" font-size="11">FM (1-t) 线性</text>
           </g>
         </svg>
@@ -155,13 +158,13 @@
     <div class="card" style="margin-top: 20px;">
       <h3>为什么 DiT / MM-DiT / Sora 后来都换成了 Flow Matching?</h3>
       <p class="desc">
-        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型，全部从 <Tex text="$\varepsilon$" />-pred 切到了 v-pred + Rectified Flow。
-        三个理由：
+        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型, 全部从 <Tex text="$\varepsilon$" />-pred 切到了 v-pred + Rectified Flow。
+        三个理由:
       </p>
       <ul class="desc" style="padding-left: 20px; list-style: disc; line-height: 1.9; margin-top: 6px;">
-        <li><strong>训练更稳</strong>：直线路径上速度目标的量级从头到尾差不多，不像 <Tex text="$\varepsilon$" /> 在 t 接近 0 时方差剧烈变化</li>
-        <li><strong>推理更快</strong>：路径是直的，欧拉法几步就走完了: SD3 推荐 28 步，DDIM 要 50 步</li>
-        <li><strong>可调的东西更少</strong>：没有 noise schedule 要挑，超参数少一截，别人复现起来也更容易</li>
+        <li><strong>训练更稳</strong>: 直线路径上速度目标的量级从头到尾差不多, 不像 <Tex text="$\varepsilon$" /> 在 t 接近 0 时方差剧烈变化</li>
+        <li><strong>推理更快</strong>: 路径是直的, 欧拉法几步就走完了: SD3 推荐 28 步, DDIM 要 50 步</li>
+        <li><strong>可调的东西更少</strong>: 没有 noise schedule 要挑, 超参数少一截, 别人复现起来也更容易</li>
       </ul>
     </div>
 
@@ -173,8 +176,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'moe', label: 'MoE 路由', hint: '语言侧的稀疏化与生成侧的连续化是两种「减算力」哲学' }"
-      :next="{ name: 'train', label: '阶段 3 · 规模化训练', hint: '从模型结构进入分布式训练主循环' }"
+      :prev="prevChapter"
+      :next="nextChapter"
     />
   </div>
 </template>
@@ -187,6 +190,13 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
+import { learningPath } from '@/data/models.js'
+import { mulberry32, randn } from '@/utils/labmath.js'
+
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'diffusion')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
 const t = ref(0.5)
 const scheduler = ref('ddpm')
@@ -206,9 +216,23 @@ function alphaBarCurve(tau) {
   return scheduler.value === 'ddpm' ? alphaBarCosine(tau) : (1 - tau)
 }
 
-const alphaBar = computed(() => alphaBarCurve(t.value))
-const sqrtAB = computed(() => Math.sqrt(alphaBar.value))
-const sqrt1ma = computed(() => Math.sqrt(Math.max(0, 1 - alphaBar.value)))
+// ★ x_t = a·x_0 + b·ε 的两个系数, 和 llm_models/training/diffusion.py 里两个 add_noise 同式:
+//   DDPM 是 (√ᾱ_t, √(1-ᾱ_t)), Flow Matching 是 (1-t, t)
+const coef = computed(() => {
+  if (scheduler.value === 'fm') return { a: 1 - t.value, b: t.value }
+  const ab = alphaBarCosine(t.value)
+  return { a: Math.sqrt(ab), b: Math.sqrt(Math.max(0, 1 - ab)) }
+})
+const coefLabel = computed(() => scheduler.value === 'ddpm'
+  ? '$\\sqrt{\\bar\\alpha_t}\\ /\\ \\sqrt{1-\\bar\\alpha_t}$'
+  : '$(1-t)\\ /\\ t$')
+// 信噪比: 信号和噪声的功率之比。b = 0 (t = 0) 时是 Infinity
+const snr = computed(() => (coef.value.a / coef.value.b) ** 2)
+const snrText = computed(() => {
+  const v = snr.value
+  if (!Number.isFinite(v)) return '∞'
+  return v >= 100 ? v.toFixed(0) : v.toPrecision(3)
+})
 
 const ddpmCurve = computed(() => {
   const pts = []
@@ -237,15 +261,8 @@ const fmMath = `$$\\begin{aligned} x_t &= (1-t)\\cdot x_0 + t\\cdot\\varepsilon 
 训练时网络预测速度。推理 (Euler ODE, 极少步), 沿直线反推:
 $$\\begin{aligned} \\hat v &= \\mathrm{model}(x_t, t) \\\\ x_{t-\\Delta t} &= x_t - \\Delta t\\cdot\\hat v \\end{aligned}$$`
 
-const sigmaX0 = computed(() => 0.412)  // 展示用的固定值
-
-const mseLoss = computed(() => {
-  // 模拟: t 大时噪声大, MSE 更高
-  return 0.02 + t.value * 0.08 + (scheduler.value === 'ddpm' ? 0.01 : 0)
-})
-
 // --- Canvas 渲染 ---
-// 画一个合成的环形/辐射图案作为 x_0, 然后根据调度器画 x_t 与 prediction
+// 画一个合成的环形/辐射图案作为 x_0, 再按公式算出 x_t 和回归目标
 
 function drawPattern(ctx, w, h) {
   // 同心圆 + 辐射线 + 渐变
@@ -274,51 +291,24 @@ function drawPattern(ctx, w, h) {
   }
 }
 
-// 伪随机噪声, 用固定种子保证 t 变化时 noise 一致, 看起来是"同一份噪声逐步加入"
-function prng(seed) {
-  let s = seed
-  return () => {
-    s = (s * 9301 + 49297) % 233280
-    return s / 233280
-  }
+const SIZE = 128
+let x0 = null    // 原图像素换算到 [-1, 1], 每个通道一个值
+let eps = null   // ε ~ N(0, 1), 每个像素一个值, 三个通道共用。种子固定: 拖 t 时是同一份噪声逐步加进去
+
+function prepare() {
+  const ctx = canvasX0.value.getContext('2d')
+  drawPattern(ctx, SIZE, SIZE)
+  x0 = Float32Array.from(ctx.getImageData(0, 0, SIZE, SIZE).data, (p) => p / 127.5 - 1)
+  const rand = mulberry32(42)
+  eps = Float32Array.from({ length: SIZE * SIZE }, () => randn(rand))
 }
 
-function drawNoisy(ctx, w, h, alphaBar) {
-  // 先画清晰图像
-  const temp = document.createElement('canvas')
-  temp.width = w; temp.height = h
-  const tctx = temp.getContext('2d')
-  drawPattern(tctx, w, h)
-  const clean = tctx.getImageData(0, 0, w, h)
-  // 噪声混合
-  const img = ctx.createImageData(w, h)
-  const rng = prng(42)
-  const sA = Math.sqrt(alphaBar)
-  const sN = Math.sqrt(Math.max(0, 1 - alphaBar))
-  for (let i = 0; i < clean.data.length; i += 4) {
-    // Box-Muller for gaussian noise
-    const u1 = rng(), u2 = rng()
-    const n = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-9))) * Math.cos(2 * Math.PI * u2)
-    const noise = Math.min(255, Math.max(0, 128 + n * 80))
-    for (let c = 0; c < 3; c++) {
-      img.data[i + c] = clean.data[i + c] * sA + noise * sN
-    }
-    img.data[i + 3] = 255
-  }
-  ctx.putImageData(img, 0, 0)
-}
-
-function drawPred(ctx, w, h) {
-  // 展示: 模型预测的 ε 或 v - 这里画一个噪声样, 加少量原图泄漏, 表示模型没完美学到
-  const rng = prng(42)
-  const img = ctx.createImageData(w, h)
+// 把 [-1, 1] 的量画成像素。gain 用来把幅度更大的量 (ε 和 v) 压进显示范围; 越界的由 ImageData 自动截断
+function paint(canvas, valueAt, gain = 1) {
+  const ctx = canvas.getContext('2d')
+  const img = ctx.createImageData(SIZE, SIZE)
   for (let i = 0; i < img.data.length; i += 4) {
-    const u1 = rng(), u2 = rng()
-    const n = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-9))) * Math.cos(2 * Math.PI * u2)
-    const v = Math.min(255, Math.max(0, 128 + n * 60))
-    img.data[i] = v
-    img.data[i + 1] = v * 0.9
-    img.data[i + 2] = v * 1.1
+    for (let c = 0; c < 3; c++) img.data[i + c] = (valueAt(i + c, i >> 2) * gain + 1) * 127.5
     img.data[i + 3] = 255
   }
   ctx.putImageData(img, 0, 0)
@@ -326,10 +316,12 @@ function drawPred(ctx, w, h) {
 
 function renderAll() {
   if (!canvasX0.value) return
-  const w = 128, h = 128
-  drawPattern(canvasX0.value.getContext('2d'), w, h)
-  drawNoisy(canvasXt.value.getContext('2d'), w, h, alphaBar.value)
-  drawPred(canvasPred.value.getContext('2d'), w, h)
+  if (!x0) prepare()
+  const { a, b } = coef.value
+  paint(canvasXt.value, (k, p) => a * x0[k] + b * eps[p])
+  // 回归目标的真值: DDPM 是 ε, Flow Matching 是 v = ε - x_0
+  const target = scheduler.value === 'ddpm' ? (k, p) => eps[p] : (k, p) => eps[p] - x0[k]
+  paint(canvasPred.value, target, 0.5)
 }
 
 watch([t, scheduler], renderAll)

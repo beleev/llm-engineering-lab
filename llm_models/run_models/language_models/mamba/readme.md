@@ -23,12 +23,19 @@ python -m llm_models.run_models.language_models.mamba.train_mamba
   反例 `a=+16` 在第 57 步溢出为 inf。
 - train: 初始 loss 6.215 (ln 500 = 6.215) → 60 步后 0.508。数据是**固定的随机 batch**, 下降 = 记忆, 只说明梯度链路通。
 
+## 与真实系统的差距
+- **规模**: infer 是 4 层、d_model=128、d_state=16、d_conv=4; train 是 2 层、d_model=64、d_state=8、d_conv=3。
+- **SSM 是逐 token 的 Python 循环**: `SelectiveSSM.forward` 顺序扫描 T 步。生产实现用并行 scan kernel。
+- **卷积是手写的**: CPU 上 `nn.Conv1d(groups=C)` 是逐组循环, 实测占前向 90% 时间。这里用 `unfold` 直接写出 depthwise 卷积 (数值等价, 快 ~100×)。
+- **不乘 √D**: 本库的 decoder-only LM 里只有 Mamba 不给 embedding 乘 √D。`lm_head` 与 embedding 共享权重, 和本库其他 LM 一样。
+- **`attention_mask` 只支持左 pad**: pad 位置的卷积输入和 SSM 输入置 0 (与 HF 相同)。h 从 0 出发, 输入为 0 时 h 一直是 0, 读到第一个真 token 时状态和不 pad 一样。pad 夹在真 token 中间时不成立: 已有状态会被 A_bar 衰减。infer 脚本断言了左 pad 后 logits 不变、批量生成与单独生成逐 token 相同。
+- **数据是合成的**: 固定一个随机 batch (2 条 × 16 token) 反复训 60 步。固定 batch 是本库约定。
+
 ## 常见误区
-- "Mamba 生成出 NaN 要用 nan_to_num 兜底" —— 不需要。本库曾有这个兜底, 排查后在现行代码上无法复现 NaN
+- "Mamba 生成出 NaN 要用 nan_to_num 兜底" —— 不需要。不加兜底时实测没有出现 NaN
   (3 个种子 × T=300、lr=1e-2 训练 300 步、200 步采样均有限): A 恒负 + Δ 恒正已从结构上排除溢出。真正危险的写法是 `A = +exp(·)` 或 Δ 不过 softplus。
 - "init_weights 对所有 Linear 一视同仁就行" —— `dt_proj.bias` 被清零后 Δ≈0.69, 所有通道同一时间尺度; 必须再调 `reset_dt()`。
 - "没有 mask 会不会偷看未来" —— 不会, 递推方向 + 左填充的因果卷积天然因果 (infer 脚本有断言)。
-- CPU 上 `nn.Conv1d(groups=C)` 是逐组循环, 曾占前向 90% 时间; 这里用 `unfold` 直接写出 depthwise 卷积 (数值等价, 快 ~100×)。
 
 ## 自测题
 1. 解码第 10000 个 token 时, Mamba 每层要保存多少状态? —— `d_inner·N + d_inner·(d_conv-1)` 个数, 与 10000 无关。

@@ -12,6 +12,8 @@
            SLERP: 两个权重张量摊平成向量, 沿球面插值:  sin((1−t)Ω)/sinΩ · θ_A + sin(tΩ)/sinΩ · θ_B,  Ω = ∠(θ_A, θ_B)
 读代码时盯住: `task_vectors()` —— 除 SLERP 外, 所有方法都只是对 τ 做不同的 "逐坐标" 处理再加回 θ₀。
 所有函数只处理浮点张量, 输入输出都是 state_dict; 不碰模型结构 (LoRA 也一样: τ 就是合并后的 ΔW = (α/r)BA)。
+本库的做法 (简化): TIES 的修剪逐张量取 top-k, 每个权重张量各自保留 density 比例,
+                   没有把整个模型的任务向量摊平后统一排序。DARE 的随机掩码用固定种子生成。
 """
 
 from typing import Dict, List
@@ -32,6 +34,7 @@ def add_to_base(base: StateDict, delta: StateDict, lam: float = 1.0) -> StateDic
 
 
 def task_arithmetic(base: StateDict, taus: List[StateDict], lam: float) -> StateDict:
+    """θ = θ₀ + λ·Σ_t τ_t。taus 是 task_vectors() 的输出; T 个任务时 λ = 1/T 就是简单平均。"""
     return add_to_base(base, {k: sum(t[k] for t in taus) for k in taus[0]}, lam)
 
 
@@ -43,20 +46,23 @@ def ties_merge(base: StateDict, taus: List[StateDict], density: float, lam: floa
         flat = stack.reshape(len(taus), -1)                               # [T, N]
         n_keep = max(1, int(density * flat.shape[1]))
         # ① 修剪: 每个任务只保留自己 |τ| 的 top-k; 第 k 大的值作为阈值
+        # kthvalue 取的是第 k **小**: 第 (N − n_keep + 1) 小 = 第 n_keep 大
         thresh = flat.abs().kthvalue(flat.shape[1] - n_keep + 1, dim=1, keepdim=True).values   # [T, 1]
         trimmed = torch.where(flat.abs() >= thresh, flat, torch.zeros_like(flat))
         # ② 选符号: 修剪后求和的符号 —— 大幅度的更新票更重
         sign = torch.sign(trimmed.sum(dim=0))                             # [N]
         # ③ 不相交合并: 只对 "非零且与 γ 同号" 的任务取平均; 冲突的那一方直接不参与, 而不是被平均稀释
         agree = (torch.sign(trimmed) == sign) & (trimmed != 0)            # [T, N]
-        total = (trimmed * agree).sum(dim=0)
-        merged[k] = (total / agree.sum(dim=0).clamp(min=1)).reshape(stack.shape[1:])
+        total = (trimmed * agree).sum(dim=0)                              # [N]
+        # clamp(min=1): 没有任何任务同意的坐标分母是 0, 防除零 (分子也是 0 → 结果 0)
+        merged[k] = (total / agree.sum(dim=0).clamp(min=1)).reshape(stack.shape[1:])   # [N] → 原形状
     return add_to_base(base, merged, lam)
 
 
 def dare(taus: List[StateDict], p: float, seed: int = 0) -> List[StateDict]:
     """DARE: 每个坐标以概率 p 置零, 其余 ×1/(1−p) —— E[τ̃] = τ, 但单次实现有方差。返回处理后的任务向量。"""
-    g = torch.Generator().manual_seed(seed)
+    g = torch.Generator().manual_seed(seed)       # 自带的随机数发生器: 不扰动全局随机流, 同一个 seed 得到同一张掩码
+    # rand >= p 为 True 的概率是 1 − p: 这些坐标保留并放大 1/(1−p), 其余置 0
     return [{k: v * (torch.rand(v.shape, generator=g) >= p) / (1 - p) for k, v in t.items()} for t in taus]
 
 
@@ -71,9 +77,9 @@ def slerp(a: StateDict, b: StateDict, t: float = 0.5, eps: float = 1e-8) -> Stat
         if not va.is_floating_point():
             out[k] = va.clone()
             continue
-        cos = torch.dot(va.flatten(), vb.flatten()) / (va.norm() * vb.norm() + eps)
-        omega = torch.arccos(cos.clamp(-1, 1))
-        if omega.sin() < 1e-4:
+        cos = torch.dot(va.flatten(), vb.flatten()) / (va.norm() * vb.norm() + eps)   # eps: 全 0 张量时防除零
+        omega = torch.arccos(cos.clamp(-1, 1))            # clamp: 浮点误差会让 cos 略超出 [−1, 1], arccos 会给 nan
+        if omega.sin() < 1e-4:                            # 几乎平行: 除以 sinΩ 数值不稳, 改用线性插值
             out[k] = (1 - t) * va + t * vb
         else:
             out[k] = (torch.sin((1 - t) * omega) * va + torch.sin(t * omega) * vb) / omega.sin()
@@ -82,7 +88,7 @@ def slerp(a: StateDict, b: StateDict, t: float = 0.5, eps: float = 1e-8) -> Stat
 
 def sign_conflict(taus: List[StateDict]) -> float:
     """两个任务向量里, 双方都非零的坐标中符号相反的比例 —— "干扰" 的一个直接度量。"""
-    a = torch.cat([v.flatten() for v in taus[0].values()])
-    b = torch.cat([v.flatten() for v in taus[1].values()])
+    a = torch.cat([v.flatten() for v in taus[0].values()])        # 任务 A 的全部参数摊平成一个向量
+    b = torch.cat([v.flatten() for v in taus[1].values()])        # 任务 B 同样处理, 与 a 逐坐标对齐
     both = (a != 0) & (b != 0)
     return float(((torch.sign(a) != torch.sign(b)) & both).sum() / both.sum())

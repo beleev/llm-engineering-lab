@@ -76,7 +76,7 @@ export default {
     {
       q: 'gradcheck 的中心差分里, $\\varepsilon$ 为什么不是越小越好?',
       options: ['太小时截断误差 $O(\\varepsilon^2)$ 反而变大, 差分偏离导数', '太小时 $\\varepsilon$ 下溢成 0, 除以 $2\\varepsilon$ 直接报除零', '太小时两次 f 的差被舍入误差淹没, 误差按 $\\delta/\\varepsilon$ 涨', '太小时差分要迭代更多次才收敛, 计算量按 $1/\\varepsilon$ 涨'],
-      answer: 3,
+      answer: 2,
       why: '总误差 $\\approx \\varepsilon^2\\,(\\text{截断}) + \\delta/\\varepsilon\\,(\\text{舍入})$, 是一条 U 形曲线; float64 下谷底在 1e-5 附近, 所以 gradcheck.py 取 eps=1e-5。',
     },
     {
@@ -96,11 +96,11 @@ export default {
     {
       q: 'Adam 用 $\\hat m/\\sqrt{\\hat v}$ 更新, 最关键的性质是?',
       options: ['二阶矩相当于曲率信息, 保证在非凸 loss 上也收敛到全局最优', '偏差修正后步长由 $\\hat m$ 自己决定, 不再需要设学习率', '每个参数的步长约等于 lr, 与该方向梯度的绝对大小基本无关', '除以 $\\sqrt{\\hat v}$ 放大梯度大的方向, 帮它更快冲出平坦区'],
-      answer: 3,
+      answer: 2,
       why: '除以 $\\sqrt{\\hat v}$ 等于给每个坐标单独归一化, 相当于每个参数有自己的学习率。偏差修正则补回 $m$、$v$ 从 0 起步被拖小的那部分。',
     },
     {
-      q: 'README 实测: 2 层 + AdamW + clip + cosine 跑 2000 步, val_loss 2.045, 比默认 1 层的 1.981 还差。最该得出的结论是?',
+      q: 'README 实测: 2 层 + AdamW + clip + cosine 跑 2000 步, val_loss 2.042, 比默认 1 层的 1.986 还差。最该得出的结论是?',
       options: ['AdamW 把 1 维的 RMSNorm gain 也衰减到 0, 两层的归一化失效了', '开关不是开了就好: 步数太短, cosine 过早把 lr 压到 3e-5, 新层没学起来', '78,656 个参数已经超过数据能支撑的量, 2 层模型过拟合了', '层数多了反向链更长, 手写 backward 的舍入误差累积拖垮了训练'],
       answer: 1,
       why: '这些开关要学的是怎么实现、各自解决什么问题。规模、步数、调度必须配套, 否则加容量反而拖慢收敛。',

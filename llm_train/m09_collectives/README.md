@@ -3,6 +3,20 @@
 运行: `python -m llm_train.m09_collectives.demo`
 
 ## 直觉
+N 张卡各拿一块数据。四个原语只在两件事上不同:
+- 要不要把各卡的数据加起来;
+- 每张卡最后拿回整份, 还是只拿一片。
+
+逐个看:
+- **all-reduce**: 加。每张卡拿回整份总和。
+- **reduce-scatter**: 加。每张卡只拿总和的一片。
+- **all-gather**: 不加。把各卡手里的片拼成整份, 每张卡一份。
+- **all-to-all**: 不加, 互换。卡 r 给卡 s 准备的那块, 最后到了卡 s 手里。
+
+先 reduce-scatter 再 all-gather, 结果就是一次 all-reduce。
+
+下表的 S 是一份完整张量的字节数, N 是卡数, rank 指一张卡。
+
 | 原语 | 每 rank 输入 → 输出 | 谁在用 |
 |---|---|---|
 | all-reduce | S → S (总和) | DDP 梯度, TP 激活 |
@@ -32,7 +46,10 @@ all_to_all: rank 1 发出 / 收到 = [10, 11, 12, 13] / [1, 11, 21, 31]
 
 ## 常见误区
 - "卡越多 all-reduce 越慢" —— 带宽项几乎不变, 变的是延迟项。
-- "ZeRO 通信一定比 DDP 多" —— stage 1/2 与 DDP 相同。
+- "ZeRO 通信一定比 DDP 多" —— 分 stage 看:
+  - ZeRO-2 与 DDP 相同: reduce-scatter + all-gather 正好是一次 all-reduce。
+  - ZeRO-1 看实现: DeepSpeed 用 reduce-scatter, 与 DDP 持平; 本库 m05 用 all-reduce + all-gather, 是 1.5× (864 B vs 576 B)。
+  - ZeRO-3 也是 1.5×。
 
 ## 自测题
 1. N=8 的 ring all-reduce 要几步? **答: 2(N-1) = 14 步。**

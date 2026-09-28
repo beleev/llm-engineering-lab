@@ -8,6 +8,7 @@ Qwen3-Next (Alibaba, 2025) — 混合线性注意力架构 (教学版)
           同路线: Jamba (Mamba+Attn), MiniMax-Text (Lightning Attention 7:1)。
 关键数字: 推理缓存 = n_attn × T × 2·Hkv·Dh  +  n_delta × H·Dh² (后一项与 T 无关)。
 简化: 真实模型还有超稀疏 MoE (见 DeepSeekMoE)、MTP (见 mtp.py)、zero-centered RMSNorm, 此处只留 "混合层"。
+      lm_head 与 embedding 共享权重、embedding 乘 √D 是本库约定 (见 models/__init__.py)。
 读代码时盯住: `layer_types` 和每层 cache dict 里存的东西 —— attn 层是 k/v (随 T 增长), delta 层是 state (恒定)。
 """
 
@@ -41,6 +42,8 @@ class Qwen3Next(GenerationMixin, nn.Module):
         max_len / d_ff / dropout: 同 LLaMA。
         linear_ratio: 每 (linear_ratio + 1) 层里放 linear_ratio 个 DeltaNet 层
                       (Qwen3-Next 取 3, 即 75% 线性层)。
+
+    forward 返回 Tensor; 接受 attention_mask (attn 层屏蔽 pad key, delta 层跳过 pad 的写入); 支持 KV cache。
     """
 
     def __init__(
@@ -69,7 +72,7 @@ class Qwen3Next(GenerationMixin, nn.Module):
 
         if d_ff is None:
             d_ff = int(8 / 3 * d_model)
-            d_ff = ((d_ff + 63) // 64) * 64
+            d_ff = ((d_ff + 63) // 64) * 64      # 向上对齐到 64 的倍数, 同 LLaMA
 
         # 周期排布: 每个周期的最后一层是全注意力, 其余是 DeltaNet
         period = linear_ratio + 1
@@ -97,9 +100,9 @@ class Qwen3Next(GenerationMixin, nn.Module):
 
         self.ln_f = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.token_embedding.weight
+        self.lm_head.weight = self.token_embedding.weight     # weight tying (本库约定)
 
-        causal = build_causal_mask(max_len, torch.device("cpu"))
+        causal = build_causal_mask(max_len, torch.device("cpu"))   # [1, max_len, max_len]
         self.register_buffer("causal_mask", causal, persistent=False)
 
         init_weights(self)   # weight tying 之后; 初始 CE ≈ ln V
@@ -109,6 +112,7 @@ class Qwen3Next(GenerationMixin, nn.Module):
                 nn.init.constant_(m.gate_alpha.bias, 2.0)
 
     def _causal_mask(self, seq_len: int) -> torch.Tensor:
+        """取左上角 [1, seq_len, seq_len] 的下三角 mask; 超过缓存大小就现建一张。"""
         if seq_len <= self.causal_mask.size(-1):
             return self.causal_mask[:, :seq_len, :seq_len]
         return build_causal_mask(seq_len, self.causal_mask.device)
@@ -127,27 +131,39 @@ class Qwen3Next(GenerationMixin, nn.Module):
     def forward(
         self,
         idx: torch.Tensor,                              # [B, T]
-        attention_mask: Optional[torch.Tensor] = None,  # [B, past+T]; 只作用于 attn 层
+        attention_mask: Optional[torch.Tensor] = None,  # [B, past+T], 1=有效 0=pad
         cache: Optional[KVCache] = None,
     ) -> torch.Tensor:                                  # [B, T, V]
+        """
+        idx [B, T] -> logits [B, T, V], 返回 Tensor。
+        attention_mask: [B, past+T], 1=有效 0=pad。两类层用法不同:
+            attn 层: 和 LLaMA 一样并进因果 mask, pad 不当 key。
+            delta 层: 只拿本次 T 个 token 那一段 [B, T], pad 位置不写状态 (见 GatedDeltaNet)。
+            所以左 pad 不改真 token 的输出, 批量生成与逐条生成一致。
+        cache: 给了就走增量解码。attn 层往 cache.layers[i] 里存 k/v, delta 层存 state。
+        """
         B, T = idx.shape
-        past = cache.pos if cache is not None else 0
+        past = cache.pos if cache is not None else 0                     # 已缓存的 token 数
         if past + T > self.max_len:
             raise ValueError(f"序列长度 {past + T} 超过 max_len={self.max_len}")
 
-        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]
-        position_ids = torch.arange(past, past + T, device=idx.device)
+        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]; ·√D 是本库约定
+        position_ids = torch.arange(past, past + T, device=idx.device)   # [T] 新 token 的绝对位置
+        # 行 past: 是新 token (query), 列 :past+T 是全部历史 (key)
         causal = self._causal_mask(past + T)[:, past:]                   # [1, T, past+T]
-        mask = combine_causal_and_padding_mask(causal, attention_mask)
+        mask = combine_causal_and_padding_mask(causal, attention_mask)   # [B 或 1, T, past+T]
+        # delta 层要的是 "本次每个 token 是不是真的": 取 attention_mask 的最后 T 列
+        token_mask = None if attention_mask is None else attention_mask[:, past:]   # [B, T]
 
-        # mask / rope 对 DeltaNet 层是 no-op (递推天然因果, 衰减门隐式编码位置);
-        # 同一个 cache dict 协议: attn 层往里放 k/v, delta 层往里放 state —— 主干循环不区分层类型
-        for i, layer in enumerate(self.layers):
+        # rope 对 DeltaNet 层是 no-op (衰减门隐式编码位置)。
+        # 同一个 cache dict 协议: attn 层往里放 k/v, delta 层往里放 state
+        for i, (layer, kind) in enumerate(zip(self.layers, self.layer_types)):
             x = layer(
-                x, mask=mask, rope=self.rope, position_ids=position_ids,
+                x, mask=mask if kind == "attn" else token_mask,
+                rope=self.rope, position_ids=position_ids,
                 cache=cache.layers[i] if cache is not None else None,
             )
         if cache is not None:
-            cache.pos += T
+            cache.pos += T                                               # 下一次调用从这里接着数
 
-        return self.lm_head(self.ln_f(x))
+        return self.lm_head(self.ln_f(x))                                # [B, T, V]

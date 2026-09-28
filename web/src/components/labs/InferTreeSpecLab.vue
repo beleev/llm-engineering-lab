@@ -9,8 +9,8 @@
     module="llm_infer/m19"
     run="python -m llm_infer.m19_tree_speculation.demo"
     :challenge="{
-      ask: '默认树 [3,2,1] 有 16 个节点。同样验 16 个 token 的链 (K=15) 和它比, 谁每轮接受得多? 把 top-1 命中率拖到 0.9 再比一次。为什么同一层的兄弟节点 RoPE 位置相同?',
-      answer: '- $p_1=0.5$: 树 ≈1.60, 链 $K=15$ ≈1.00。链第一个猜错后面 14 个全废; 树在最容易错的第一层留了 3 个备胎 (命中率 0.5 → 0.78)。\n- $p_1=0.9$: 反过来, 链 ≈7.1 远超树的 2.90 (树最深只有 3 层)。draft 足够准时, 深度比宽度值钱, 所以 EAGLE-2 按置信度动态长树。\n兄弟节点是同一个位置的不同候选, 最终只有一个会留下, 所以位置都是 $n_{\\text{ctx}} + \\text{depth}$。\nmask 保证兄弟之间互相看不见: 每个节点看到的恰好是从根到自己的那条链。这等价于每条路径各跑一次顺序 decode。',
+      ask: '默认树 [3,2,1] 有 16 个节点。同样验 16 个 token 的链 (K=15) 和它比, 谁每轮接受得多?',
+      answer: '看 draft 准不准:\n- 默认 $p_1=0.5$: 树 ≈1.60, 链 $K=15$ ≈1.00。链第一个猜错后面 14 个全废; 树在最容易错的第一层留了 3 个备胎 (命中率 0.5 → 0.78)。\n- 把 top-1 命中率拖到 $p_1=0.9$: 反过来, 链 ≈7.1 远超树的 2.90 (树最深只有 3 层)。draft 足够准时, 深度比宽度值钱, 所以 EAGLE-2 按置信度动态长树。\n同一层的兄弟节点 RoPE 位置相同: 它们是同一个位置的不同候选, 最终只有一个会留下, 所以位置都是 $n_{\\text{ctx}} + \\text{depth}$。\nmask 保证兄弟之间互相看不见: 每个节点看到的恰好是从根到自己的那条链。这等价于每条路径各跑一次顺序 decode。',
     }"
   >
     <template #controls>
@@ -54,8 +54,7 @@
       <div class="kv"><span>1 次 target 调用验证节点数</span><b>{{ tree.n }}</b></div>
       <div class="kv"><span>本轮接受 (+1 个 target token)</span><b>{{ path.length - 1 }} + 1</b></div>
       <div class="kv"><span>树: 期望接受 (公式 / 模拟)</span><b :class="eTree >= chain(tree.n - 1) ? 'good' : ''">{{ eTree.toFixed(2) }} / {{ emp.toFixed(2) }}</b></div>
-      <div class="kv"><span>链, 同深度 K={{ widths.length }}</span><b>{{ chain(widths.length).toFixed(2) }}</b></div>
-      <div class="kv"><span>链, 同验证量 K={{ tree.n - 1 }}</span><b :class="chain(tree.n - 1) > eTree ? 'good' : ''">{{ chain(tree.n - 1).toFixed(2) }}</b></div>
+      <div class="kv"><span>链: 同深度 K={{ widths.length }} / 同验证量 K={{ tree.n - 1 }}</span><b :class="chain(tree.n - 1) > eTree ? 'good' : ''">{{ chain(widths.length).toFixed(2) }} / {{ chain(tree.n - 1).toFixed(2) }}</b></div>
       <div class="lab-note">
         <p>玩具模型 (每层独立):</p>
         <ul class="pts">

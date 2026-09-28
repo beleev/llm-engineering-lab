@@ -7,6 +7,8 @@
 
 只对 2-D 隐藏层权重用 Muon; embedding、输出头、bias、norm 增益仍用 AdamW。
 
+Muon 的更新是满秩的, 大规模训练时 attention 的 logit 容易越涨越大, softmax 变成 one-hot, 梯度消失。QK-clip 在 logit 超过阈值时把 Wq、Wk 一起缩小。
+
 ## 核心公式
 ```
 M ← μM + G;   O = NS₅(G + μM);   W ← (1 − lr·wd)·W − lr · 0.2·√max(n,m) · O
@@ -14,16 +16,28 @@ NS: X ← X/‖X‖_F;  重复 5 次  X ← aX + (bA + cA²)X,  A = XXᵀ,  (a,b
 ```
 `0.2·√max(n,m)` 让更新的 RMS 与 AdamW 相当, 学习率可直接复用 (Moonlight)。
 
+符号: `G` 梯度, `M` 动量, `μ` 动量系数, `O` 正交化后的更新方向, `wd` 权重衰减, `(n, m)` 是 W 的形状。
+
+QK-clip:
+```
+S_max = 这个 batch 上最大的 attention logit;   τ = 阈值 (demo 取 100)
+S_max > τ 时:  η = τ / S_max,   Wq ← √η·Wq,   Wk ← √η·Wk
+```
+
 ## 运行后应该看到什么
 ```
 输入奇异值 max / min       = 1e+00 / 1e-04
 NS 1 / 3 / 5 步后 min      = 0.000 / 0.003 / 0.041      (max 始终 ≈ 1.16)
 与精确 UVᵀ 的方向余弦       = 0.880
-旋转过的病态 (非轴对齐)     = AdamW 4.52e-03 / Muon 4.93e-04  → Muon 好 9.2x
-轴对齐的病态 (Adam 的主场)  = AdamW 5.54e-04 / Muon 1.08e-03  → Adam 好 1.9x
-max attention logit 裁剪前 → 后 = 752.1 → 100.0
+Adam: 各 lr 的末步 loss    = {0.03: 0.0731, 0.1: 0.0181, 0.3: 0.00741, 1.0: 0.00452, 3.0: 0.0134}
+Muon: 各 lr 的末步 loss    = {0.03: 1.3, 0.1: 0.0355, 0.3: 0.000493, 1.0: 0.000588, 3.0: 0.00434}
+旋转过的病态 (非轴对齐)     = Adam 4.52e-03 / Muon 4.93e-04  → Muon 好 9.2x
+轴对齐的病态 (Adam 的主场)  = Adam 5.54e-04 / Muon 1.08e-03  → Adam 好 1.9x
+max attention logit 裁剪前 → 后 = 752.1 → 100.0      (τ = 100)
 ```
-两个优化器各扫 5 个 lr 取最好, 最优点都在网格内部。第二行是诚实的反例: 病态恰好沿坐标轴时, Adam 的逐元素缩放本来就够用。
+- 两个优化器各扫 5 个 lr 取最好。两行 `各 lr 的末步 loss` 是旋转问题上的整条曲线: Adam 最优在 lr=1.0, Muon 在 0.3, 都不在网格两端。轴对齐问题只打印最优值。
+- 「轴对齐」那一行是反例: 病态恰好沿坐标轴时, Adam 的逐元素缩放本来就够用。
+- 对照臂是 Adam, 两边 weight decay 都为 0。这里只比 "逐元素缩放 vs 正交化"; 无噪声回归上加衰减只会把 W 往 0 拉, 多出一个不相干的变量。
 
 ## 与真实系统的差距
 - 玩具问题是线性回归; "真实网络上 Muon 省 ~一半 FLOPs" 是 Moonlight/Kimi 的报告结论, 本 demo 不能证明。

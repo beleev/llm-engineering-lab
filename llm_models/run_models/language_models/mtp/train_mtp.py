@@ -28,19 +28,22 @@ def main():
         vocab_size=vocab_size, d_model=256, n_heads=4, num_kv_heads=2,
         num_layers=2, max_len=128, mtp_depth=1, dropout=0.0,
     )
-    print(f"MTPLLaMA Mini | 参数量: {sum(p.numel() for p in model.parameters()):,} (mtp_depth=1)")
+    print(f"MTPLLaMA Mini | 参数量: {sum(p.numel() for p in model.parameters()):,} "
+          f"(mtp_depth={len(model.mtp_modules)})")
 
     data_gen = DecoderOnlyDataGenerator(
         vocab_size=vocab_size, batch_size=cfg.batch_size, seq_len=cfg.seq_len,
     )
-    metrics = Trainer(model, cfg, data_gen, MTPLoss(mtp_lambda=0.3)).train()
+    metrics = Trainer(model, cfg, data_gen, MTPLoss(mtp_lambda=0.3)).train()   # λ = 0.3
 
     first, last, ln_v = metrics[0], metrics[-1], math.log(vocab_size)
     print(f"main {first['main_loss']:.3f} → {last['main_loss']:.3f}   "
           f"mtp {first['mtp_loss']:.3f} → {last['mtp_loss']:.3f}   (ln V = {ln_v:.3f})")
     # 两条支路初始都应是 "均匀瞎猜"
-    assert abs(first["main_loss"] - ln_v) < 0.5 and abs(first["mtp_loss"] - ln_v) < 0.5
-    assert abs(first["total_loss"] - (first["main_loss"] + 0.3 * first["mtp_loss"])) < 1e-4
+    assert abs(first["main_loss"] - ln_v) < 0.5, "main 支路的初始 loss 应 ≈ ln V"
+    assert abs(first["mtp_loss"] - ln_v) < 0.5, "mtp 支路的初始 loss 应 ≈ ln V"
+    assert abs(first["total_loss"] - (first["main_loss"] + 0.3 * first["mtp_loss"])) < 1e-4, \
+        "total_loss 应等于 main_loss + λ·mtp_loss (λ = 0.3)"
     assert last["main_loss"] < 0.5 * first["main_loss"], "main loss 未明显下降"
     assert last["mtp_loss"] < 0.5 * first["mtp_loss"], "mtp loss 未明显下降 (级联通路梯度不通?)"
 

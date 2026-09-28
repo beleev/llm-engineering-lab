@@ -4,10 +4,17 @@ Qwen2.5-Omni — 全模态输入 + 文本/语音双输出的 Thinker-Talker 架�
 是什么: Thinker = 吃 [图像; 视频; 音频; 文本] 前缀的 LLM (就是 Qwen2-VL 的 decoder), 输出文本;
        Talker = 小型自回归 decoder, 通过 cross-attention 读 Thinker 的隐状态, 输出离散语音 codec token。
 解决了什么: 级联方案 (LLM 出文本 → 独立 TTS) 丢失语气/情绪, 且要等整句文本; Talker 直接读 Thinker 的隐状态
-           (比文本信息多), 并可边想边说 (流式)。拆成两个模型也让文本 loss 和语音 loss 互不干扰。
+           (比文本信息多), 并可边想边说 (流式)。拆成两个模型后, 文本和语音各有各的输出头。
+           两个 loss 并没有隔离: thinker_hidden 传给 Talker 前没有 detach, audio_loss 的梯度会流回 Thinker。
+           要隔离, 就在传给 Talker 前 .detach()。
 关键公式: x = concat([vision; video; audio; text]) → Thinker → (text_logits, hidden)
          audio_logits = Talker(codec_tokens, context=hidden);   loss = CE_text + λ·CE_audio  (λ=0.5)
 原版还有 TMRoPE (音视频按真实时间戳对齐位置); 本实现未做, 位置就是拼接后的下标。
+本库的做法 (教学简化, 不代表原模型的结构):
+    - Talker 用 cross-attention 读 Thinker 的隐状态。这是为了让两条序列的长度解耦, 代码也更短。
+    - 三种非文本模态都走 "ViT → (Perceiver Resampler) → Projector" 同一条流水线。
+    - Thinker 的 lm_head 与 embedding 共享权重, Talker 的不共享; 两者的 embedding 都乘 √D。
+    - 没有 KV cache 和 generate(), 也没有流式: forward 一次算完整段。
 读代码时盯住: thinker_hidden —— 两个"大脑"之间唯一的连接。
 """
 
@@ -44,6 +51,10 @@ class OmniTalkerDecoder(nn.Module):
 
     词表是语音 codec 码本索引 (如 1024 个), 由外部 codec decoder 还原波形。
     用 cross-attn 而非 prefix: Thinker 隐状态可以流式追加, 不占 Talker 自己的上下文; Talker 可以很小 (低延迟)。
+
+    forward 返回 Tensor [B, T_a, V_audio]。
+    两个 mask: attention_mask 管 Talker 自己的 padding, context_mask 管 Thinker 侧的 padding。
+    不支持 KV cache 和 generate()。
     """
 
     def __init__(
@@ -66,7 +77,7 @@ class OmniTalkerDecoder(nn.Module):
         self.use_rope = use_rope
 
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self._embed_scale = math.sqrt(d_model)
+        self._embed_scale = math.sqrt(d_model)                         # ·√D 是本库约定
 
         if use_rope:
             d_head = d_model // n_heads
@@ -75,7 +86,7 @@ class OmniTalkerDecoder(nn.Module):
             self.pos_encoder = SinPositionalEncoding(d_model, max_len)
 
         if d_ff is None:
-            d_ff = int(4 * d_model * 2 / 3)
+            d_ff = int(4 * d_model * 2 / 3)      # SwiGLU 有 3 个矩阵, 乘 2/3 使参数量与 4·D 的两矩阵 FFN 持平
 
         self.layers = nn.ModuleList(
             [
@@ -119,7 +130,13 @@ class OmniTalkerDecoder(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         context_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """input_ids [B, T_a] (codec token), context [B, S, D] (Thinker 隐状态), context_mask [B, S] -> [B, T_a, V_audio]"""
+        """
+        input_ids [B, T_a] (codec token) 或 inputs_embeds [B, T_a, D], 二选一
+        context [B, S, D]: Thinker 隐状态, 必传。D 必须等于 Talker 的 d_model
+        attention_mask [B, T_a]: Talker 自己的 padding, 1=有效
+        context_mask [B, S] 或 [B, 1, S]: Thinker 侧的 padding
+        -> logits [B, T_a, V_audio], 返回 Tensor
+        """
         if context is None:
             raise ValueError("Talker 需要 context (Thinker 隐状态) 作为条件输入")
         if (input_ids is None) == (inputs_embeds is None):
@@ -130,6 +147,7 @@ class OmniTalkerDecoder(nn.Module):
         if seq_len > self.max_len:
             raise ValueError(f"序列长度 {seq_len} 超过最大长度 {self.max_len}")
 
+        # RoPE 交给每层 self-attn 去旋转 Q/K; Sinusoidal 则一次性加到输入上
         rope_handler: Optional[nn.Module] = None
         if self.use_rope:
             rope_handler = self.pos_encoder
@@ -149,8 +167,8 @@ class OmniTalkerDecoder(nn.Module):
                 rope=rope_handler,
             )
 
-        x = self.ln_f(x)
-        return self.lm_head(x)
+        x = self.ln_f(x)                                               # [B, T_a, D]
+        return self.lm_head(x)                                         # [B, T_a, V_audio]
 
 
 class Qwen2_5_OmniModel(nn.Module):
@@ -162,6 +180,9 @@ class Qwen2_5_OmniModel(nn.Module):
 
     拼接顺序固定为 vision → video → audio → text; 文本在最后, 因果 mask 下看得到全部模态前缀。
     不传 audio_input_ids 就不跑 Talker (纯文本输出)。
+
+    forward 默认返回 dict, return_dict=False 时返回三元 tuple (键和顺序见 forward)。
+    padding mask 的参数名是 text_attention_mask 和 audio_attention_mask。不支持 KV cache。
     """
 
     MODALITY_VISION = 0
@@ -302,7 +323,7 @@ class Qwen2_5_OmniModel(nn.Module):
 
         # --- Talker (通常比 Thinker 小得多) ---
         if talker_d_model is None:
-            talker_d_model = text_d_model
+            talker_d_model = text_d_model        # 不指定就和 Thinker 同宽, 此时不需要下面的投影
 
         self.talker = OmniTalkerDecoder(
             vocab_size=audio_vocab_size,
@@ -352,10 +373,10 @@ class Qwen2_5_OmniModel(nn.Module):
         projector: nn.Module,
     ) -> torch.Tensor:
         """encoder -> (resampler) -> projector: x -> [B, N, D_text]"""
-        tokens = encoder(x)
+        tokens = encoder(x)                                            # [B, N_patch, D_模态]
         if resampler is not None:
-            tokens = resampler(tokens)
-        return projector(tokens)
+            tokens = resampler(tokens)                                 # [B, num_latents, D_模态]
+        return projector(tokens)                                       # [B, N, D_text]
 
     def forward(
         self,
@@ -370,8 +391,17 @@ class Qwen2_5_OmniModel(nn.Module):
     ):
         """
         input_ids [B, T]; images [B, 3, H, W]; audio_spectrograms [B, 1, F, T_a]; videos [B, 3, T_v, H, W] (后三者可选)
+            F = mel 频率维, T_a = 帧数。
+        text_attention_mask [B, T]: 只管文本段, 1=有效 0=pad。其它模态没有 padding。
         audio_input_ids [B, T_audio]: 给了才跑 Talker
-        -> text_logits [B, N_total, V], audio_logits [B, T_audio, V_audio] 或 None, thinker_hidden [B, N_total, D]
+        audio_attention_mask [B, T_audio]: Talker 输入的 padding
+
+        返回 dict (return_dict=True, 默认), 三个键:
+            "text_logits":           [B, N_total, V]
+            "audio_logits":          [B, T_audio, V_audio]; 没传 audio_input_ids 时是 None
+            "thinker_hidden_states": [B, N_total, D]  Thinker 最后一层 norm 之后的隐状态
+        return_dict=False 时返回三元 tuple, 顺序同上: (text_logits, audio_logits, thinker_hidden)。
+        N_total = 各模态 token 数之和 + T, 文本在最后 T 个位置。
         """
         B = input_ids.size(0)
         parts: List[Tuple[int, torch.Tensor]] = []                     # (模态 id, [B, N, D]) 按固定顺序
@@ -402,6 +432,7 @@ class Qwen2_5_OmniModel(nn.Module):
                 dim=1,
             )                                                          # [B, N_total]
 
+        # return_hidden=True: Thinker 返回 (logits, hidden), hidden 要交给 Talker
         text_logits, thinker_hidden = self.thinker(
             inputs_embeds=combined_embeds,
             attention_mask=combined_attention_mask,
@@ -410,14 +441,15 @@ class Qwen2_5_OmniModel(nn.Module):
 
         audio_logits = None
         if audio_input_ids is not None:
+            # 没有 detach: audio_loss 的梯度会经 context 流回 Thinker
             context = thinker_hidden                                   # [B, N_total, D]
             if self.thinker_to_talker is not None:
-                context = self.thinker_to_talker(context)
+                context = self.thinker_to_talker(context)              # [B, N_total, D_talker]
             audio_logits = self.talker(
                 input_ids=audio_input_ids,
                 context=context,
                 attention_mask=audio_attention_mask,
-                context_mask=combined_attention_mask,
+                context_mask=combined_attention_mask,                  # Talker 不去看 Thinker 侧的 pad
             )
 
         if return_dict:

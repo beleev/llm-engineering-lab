@@ -7,15 +7,15 @@
 <template>
   <LabFrame
     title="DoRA — 把「转方向」和「改长度」拆成两个旋钮"
-    sub="- 灰色箭头: 冻结的预训练权重 $w_0$ (权重矩阵里的一个向量)。
+    sub="- 灰色箭头: 冻结的预训练权重 $w_0$ (权重矩阵里的一个向量)。黄色 ★: 全参微调想到达的目标。
       - 紫色圆点: 拖它 = 低秩更新把 $w_0$ 带到 $w_0+\Delta V$。
       - 粉色: LoRA 的结果, 就是 $w_0+\Delta V$ 本身。
-      - 绿色: DoRA 的结果。方向取自 $w_0+\Delta V$, 长度由滑杆 $m$ 单独决定。
-      - 黄色 ★: 全参微调想到达的目标。"
+      - 绿色: DoRA 的结果。方向取自 $w_0+\Delta V$, 长度由滑杆 $m$ 单独决定。"
     module="llm_finetune/methods/dora.py"
+    run="python -m llm_finetune.run_finetune.dora.train_dora"
     :challenge="{
       ask: '选「目标: 只转 35°」。只拖紫点, 让 LoRA 的误差 < 0.05, 紫点必须落在哪? 再看 DoRA。紫点沿着从原点出发的射线来回拖, 绿色箭头动吗? 这说明 DoRA 对 ΔV 的梯度有什么性质?',
-      answer: '- LoRA: 要「只转不伸」, $\\Delta V$ 必须精确落在弦的另一端那一个点上。拖偏一点, 长度就跟着变: $\\Delta M$ 和 $\\Delta D$ 被同一个旋钮绑死。\n- DoRA: $W^\\prime = m\\cdot V/\\|V\\|$。紫点沿射线移动只改变 $\\|V\\|$, 归一化把它消掉了, 所以绿色箭头不动。\n这正是 DoRA 论文观察到的现象:\n- LoRA: 训练中幅度变化与方向变化强正相关。\n- 全参微调: 两者几乎独立, 甚至负相关。\n绿箭头不动说明: loss 对 $V$ 的梯度天然没有径向分量。它被投影到与 $V$ 垂直的方向, 再乘 $m/\\|V\\|$。\n于是低秩容量全部花在转方向上, 长度交给每个向量一个标量 $m$。\n代价是多 $d$ 个参数, 相对 LoRA 的 $2dr$ 只多了 $1/(2r)$。推理前同样可以 merge 回一个普通矩阵。',
+      answer: '- LoRA: 要「只转不伸」, 紫点必须精确落在弦的另一端那一个点上。拖偏一点长度就跟着变, $\\Delta M$ 和 $\\Delta D$ 被同一个旋钮绑死。论文观察到 LoRA 训练中幅度变化与方向变化强正相关, 全参微调里两者几乎独立, 甚至负相关。\n- DoRA: $W^\\prime = m\\cdot V/\\|V\\|$。紫点沿射线移动只改变 $\\|V\\|$, 归一化把它消掉, 所以绿色箭头不动。\n- 梯度: 精确求导时, loss 对 $V$ 的梯度没有径向分量。它被投影到与 $V$ 垂直的方向, 再乘 $m/\\|V\\|$。低秩容量全部花在转方向上, 长度交给每个向量一个标量 $m$。\n- 代价: 多 $d$ 个参数, 相对 LoRA 的 $2dr$ 只多了 $1/(2r)$。推理前同样可以 merge 回一个普通矩阵。',
     }"
   >
     <template #controls>
@@ -26,7 +26,7 @@
       <LabSlider v-model="m" label="DoRA 幅度 m" :min="0.5" :max="4.5" :step="0.05" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 380" role="img" aria-label="二维权重向量的幅度与方向分解">
+    <svg ref="svgEl" viewBox="0 0 640 380" role="group" aria-label="二维权重向量的幅度与方向分解">
       <defs>
         <marker v-for="c in ['text-dim', 'right', 'left']" :id="'ah-' + c" :key="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0,0 L10,5 L0,10 Z" :fill="`var(--${c})`" />
@@ -88,7 +88,8 @@ const TARGETS = [
 ]
 const px = ([x, y]) => [OX + x * SC, OY - y * SC]
 
-const v = ref([...W0])          // w₀ + ΔV
+const V_INIT = [3.2, 1.9]       // 初始就带一点 ΔV: 三支箭头分得开, 一打开就看得到 LoRA 和 DoRA 的差别
+const v = ref([...V_INIT])      // w₀ + ΔV
 const m = ref(Math.round(N0 * 20) / 20)
 const tgt = ref(0)
 const svgEl = ref(null)
@@ -110,9 +111,10 @@ const measure = (w) => ({
 const lora = computed(() => measure(v.value))                          // LoRA: W′ = w₀ + ΔV
 const dora = computed(() => measure(doraW.value))
 const arrows = computed(() => [
-  { id: 'w₀', v: W0, c: 'text-dim', w: 2, dy: 14 },
+  // dy 错开: 复位后三支箭头重合, 标签仍然一行一个 (紫点自己的标签在 −10)
+  { id: 'w₀', v: W0, c: 'text-dim', w: 2, dy: 30 },
   { id: 'LoRA', v: v.value, c: 'right', w: 2, dy: 16 },
-  { id: 'DoRA', v: doraW.value, c: 'left', w: 3, dy: -8 },
+  { id: 'DoRA', v: doraW.value, c: 'left', w: 3, dy: -24 },
 ])
 const sg = (x) => (x >= 0 ? '+' : '') + x.toFixed(2)
 </script>

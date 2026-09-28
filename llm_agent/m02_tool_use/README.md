@@ -31,7 +31,7 @@ approved > 1 ?  ThreadPoolExecutor.map(tools.execute)  :  直接执行
 user: [tool_result A, tool_result B]           # 全部放进同一条 user 消息, 顺序与 tool_use 一致
 ```
 
-关键设计决定:
+关键设计:
 
 - 授权串行、执行并行: 审批可能要问人, 不能并发弹窗; 而互不依赖的只读调用并行后总耗时约等于最慢的那个。
 - 被拒绝的调用也占一个 `tool_result` 位置 (`is_error: true`), 否则同一 turn 里其它调用的配对会被破坏。
@@ -43,8 +43,7 @@ user: [tool_result A, tool_result B]           # 全部放进同一条 user 消�
 ## 运行后应该看到什么
 
 ```bash
-cd llm-engineering-lab
-python3 -m llm_agent.m02_tool_use.demo
+cd <仓库根目录> && python3 -m llm_agent.m02_tool_use.demo
 ```
 
 ```
@@ -68,7 +67,7 @@ python3 -m llm_agent.m02_tool_use.demo
   [m02] tool_result toolu_0003 -> note[1] saved
 ```
 
-`assert` 验证的内容:
+断言验证的内容:
 
 - 每个 schema 的键恰好是 `{name, description, input_schema}`, 且 `input_schema.type == "object"`。
 - 三个坏调用都得到 `ok=False` 的结果 (没有异常逃出 `execute`); 正确调用 `1+1` 返回 `1+1 = 2`。
@@ -85,6 +84,7 @@ python3 -m llm_agent.m02_tool_use.demo
 - "并行调用"由 `RuleBasedLLM` 的 gather / act 规则决定; 真实模型是否在一个 turn 里发多个 `tool_use` 取决于模型和提示, harness 只能支持, 不能强制。
 - 所有工具都是模拟或纯计算 (`ShellTool` 从不执行真实命令), 没有真实 I/O 的失败模式: 网络超时、部分写入、巨大输出。
 - 工具 `description` 在真实系统里是提示工程的重点 (何时用、何时不用、返回什么); 这里只有一句话。
+- `Tool` 基类的默认值是 `risk = "low"`、`read_only = True`, 偏宽松。写一个会写盘的工具却忘了改这两项, 权限门会把它当成低风险的只读工具放行 (见 m03)。
 
 ## 常见误区
 

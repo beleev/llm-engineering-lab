@@ -1,5 +1,6 @@
-// 模型元数据 — 与 llm_models/ 代码一一对应
-// 三条主线: left (语言), eye (多模态理解), right (生成)
+// 全站的结构数据: 六个阶段、每阶段的章节目录、训练 / 推理 / Agent 的模块表、模型时间轴。
+// 章节正文不在这里, 在 data/topics/<stage>.js。
+// 时间轴的三条主线: left (语言), eye (多模态理解), right (图像视频生成)
 
 import { extraChapters, extraPages } from './topics/index.js'
 
@@ -8,15 +9,15 @@ function place(list) {
   const out = list.filter((c) => !c.after)
   for (const c of list.filter((c) => c.after)) {
     const i = out.findIndex((x) => x.route === c.after)
-    out.splice(i < 0 ? out.length - 1 : i + 1, 0, c)   // after 写错了就退回末尾
+    out.splice(i < 0 ? out.length - 1 : i + 1, 0, c)   // after 指向的章不存在: 插到倒数第二, 也就是压轴章之前
   }
   return out
 }
 
 export const tracks = {
-  left:  { label: '左脑 · 语言',      color: 'var(--left)',  cls: 'left'  },
-  eye:   { label: '眼耳 · 多模态理解', color: 'var(--eye)',   cls: 'eye'   },
-  right: { label: '右脑 · 生成',      color: 'var(--right)', cls: 'right' },
+  left:  { label: '语言',         color: 'var(--left)',  cls: 'left'  },
+  eye:   { label: '多模态理解',   color: 'var(--eye)',   cls: 'eye'   },
+  right: { label: '图像视频生成', color: 'var(--right)', cls: 'right' },
 }
 
 export const basicChapters = place([
@@ -99,7 +100,7 @@ export const stages = [
     oneliner: '把零件 (attn / ffn / norm / pos) 装进 Pre-LN Block, 堆出二十多种主流模型。',
     status: 'ready',
     route: 'models',
-    // 这一阶段拆成 5 个章节, 用 chapters 映射;  Compare 合到终章。
+    // 这一阶段的章节见 modelChapters; 总览对照表 (Compare) 放在终章。
     chapters: modelChapters,
   },
   {
@@ -122,7 +123,13 @@ export const stages = [
     status: 'ready',
     route: 'finetune',
     chapters: finetuneChapters,
-    files: ['methods/{sft,lora,qlora}.py', 'methods/dpo.py', 'methods/grpo.py', 'methods/distill.py'],
+    // 16 种方法各一个文件, 这里按用途分四组列全
+    files: [
+      'methods/{sft,lora,qlora,dora}.py',
+      'methods/{dpo,orpo,simpo,kto}.py',
+      'methods/{reward_model,prm,ppo,grpo,rlaif}.py',
+      'methods/{distill,on_policy_distill,merge}.py',
+    ],
   },
   {
     id: 'infer',
@@ -275,7 +282,7 @@ export const trainModules = [
   {
     id: 'm17',
     name: 'Data Pipeline',
-    concept: 'MinHash-LSH 近似去重、启发式质量过滤、温度采样配比',
+    concept: 'MinHash-LSH 近似去重、启发式质量过滤、数据源温度配比',
     link: '去重召回 0.258 → 0.967; T=5 时小语料上采样 ×50.9',
     file: 'llm_train/m17_data_pipeline/demo.py',
   },
@@ -673,8 +680,9 @@ export const timeline = [
     file: 'models/language_models/bert.py' },
   { id: 'gpt3', year: 2020, track: 'left', name: 'GPT-3',
     kind: 'Decoder-only',
-    parts: { attn: 'MHA', ffn: 'GELU', norm: 'LayerNorm', pos: 'Sinusoidal' },
-    blurb: '大规模 decoder-only + few-shot, 开启生成式 LLM 范式',
+    // pos 写的是本库 gpt3.py 的实现 (SinPositionalEncoding); 原版 GPT-3 用的是可学习的位置向量
+    parts: { attn: 'MHA', ffn: 'GELU', norm: 'LayerNorm', pos: 'Sinusoidal (本库实现)' },
+    blurb: '大规模 decoder-only + few-shot, 开启生成式 LLM 范式。位置编码一栏写的是本库的实现, 原版 GPT-3 用可学习的位置向量',
     file: 'models/language_models/gpt3.py' },
   { id: 'clip', year: 2021, track: 'eye', name: 'CLIP',
     kind: '对比学习双塔',

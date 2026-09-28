@@ -18,6 +18,7 @@ from llm_models.models.moe.deepseekV3 import DeepSeekV3
 from llm_models.training import DecoderOnlyDataGenerator, MoELMLoss, Trainer, TrainingConfig
 
 VOCAB, STEPS = 1000, 100
+GAMMA, TAIL = 1e-3, 20          # bias 更新步长 γ; 负载 CV 取最后 TAIL 步的平均
 
 
 class _KeepRouting(MoELMLoss):
@@ -29,6 +30,7 @@ class _KeepRouting(MoELMLoss):
 
 
 def train(gamma: float):
+    """训练 STEPS 步, 每步之后按 gamma 更新路由 bias; 返回 (model, 每步的 lm_loss, 最后 TAIL 步的平均负载 CV)。"""
     config = TrainingConfig(
         learning_rate=3e-4, batch_size=4, seq_len=32, num_steps=STEPS,
         warmup_steps=5, aux_loss_weight=0.0, log_interval=25, seed=42,
@@ -56,23 +58,24 @@ def train(gamma: float):
         lm_losses.append(metrics["lm_loss"].item())
         cvs.append(cv)
         if step == 1 or step % config.log_interval == 0:
-            print(f"  step {step:>3d} | lm_loss {lm_losses[-1]:.4f} | aux(监控) {metrics['aux_loss'].item():.3f} "
-                  f"| load CV {cv:.3f} | layer0 load {load[0].int().tolist()}")
-    return model, lm_losses, sum(cvs[-20:]) / 20
+            print(f"  第 {step:>3d} 步 | lm_loss {lm_losses[-1]:.4f} | aux(监控) {metrics['aux_loss'].item():.3f} "
+                  f"| load CV {cv:.3f} | 第 0 层负载 {load[0].int().tolist()}")
+    return model, lm_losses, sum(cvs[-TAIL:]) / TAIL
 
 
 def main():
     print("--- 不更新 bias (gamma=0) ---")
     _, loss_off, cv_off = train(gamma=0.0)
-    print("--- aux-loss-free bias 更新 (gamma=1e-3) ---")
-    model, loss_on, cv_on = train(gamma=1e-3)
+    print(f"--- aux-loss-free bias 更新 (gamma={GAMMA:g}) ---")
+    model, loss_on, cv_on = train(gamma=GAMMA)
 
     info = model.get_num_active_params()
     print(f"\n总参数 {info['total_params']:,} | 每 token 激活 {info['active_params']:,}")
     print(f"初始 lm_loss {loss_on[0]:.4f} (ln V = {math.log(VOCAB):.4f}) → 最终 {loss_on[-1]:.4f}")
-    print(f"最后 20 步平均 load CV: 无 bias {cv_off:.3f}  vs  有 bias {cv_on:.3f}")
-    print(f"layer0 routing_bias: {[round(b, 3) for b in model.layers[0].moe.routing_bias.tolist()]}")
+    print(f"最后 {TAIL} 步平均 load CV: 无 bias {cv_off:.3f}  vs  有 bias {cv_on:.3f}")
+    print(f"第 0 层 routing_bias: {[round(b, 3) for b in model.layers[0].moe.routing_bias.tolist()]}")
 
+    # 阈值: 初始 loss 离 ln V 不超过 0.5; loss 至少降 1.0; CV 至少低 30%; 两次的终态 loss 相差不到 0.1
     assert abs(loss_on[0] - math.log(VOCAB)) < 0.5, "初始 loss 应 ≈ ln V (init_weights 失效?)"
     assert loss_on[-1] < loss_on[0] - 1.0, "loss 未下降"
     assert cv_on < 0.7 * cv_off, "bias 更新没有让负载更均衡"

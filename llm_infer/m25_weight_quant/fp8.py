@@ -24,7 +24,7 @@ def fp8_round(x: np.ndarray, fmt: str) -> np.ndarray:
     """把 fp32 舍入到最近的 FP8 可表示值 (饱和到 ±max, 不产生 inf)。结果仍用 fp32 存, 只验证数值。"""
     e_bits, m_bits, fmax = FORMATS[fmt]
     e_min = 2 - 2 ** (e_bits - 1)                                         # 最小正规数的指数 = 1 − bias
-    with np.errstate(divide="ignore"):
+    with np.errstate(divide="ignore"):                                    # x=0 时 log2 得 -inf, 被下面的 maximum 钳住
         e = np.maximum(np.floor(np.log2(np.abs(x))), e_min)               # 非正规区: 指数钉在 e_min, 格距不再缩小
     step = 2.0 ** (e - m_bits)                                            # 本段格距: 每段 2^m 个格点
     return np.clip(np.round(x / step) * step, -fmax, fmax).astype(np.float32)
@@ -32,5 +32,6 @@ def fp8_round(x: np.ndarray, fmt: str) -> np.ndarray:
 
 def fake_quant_fp8(x: np.ndarray, fmt: str, axis=None) -> np.ndarray:
     """scale = amax / fmax (在 axis 上统计; None → per-tensor), 量化 x/scale 再乘回。"""
+    # 1e-12: 整组为 0 时防除零
     scale = np.maximum(np.max(np.abs(x), axis=axis, keepdims=True), 1e-12) / FORMATS[fmt][2]
     return fp8_round(x / scale, fmt) * scale

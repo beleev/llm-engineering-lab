@@ -36,7 +36,7 @@ python -m llm_models.run_models.language_models.llada.infer_llada   # ~12s CPU, 
 
 ```
 初始 loss 3.014  vs  ln V = 2.833
-step  100 | loss 0.364   ...   step  400 | loss 0.188
+第  100 步 | loss 0.364   ...   第  400 步 | loss 0.188
 训练后 held-out loss 0.189  (理论下界 ln P / L = 0.173)
 每步剩余 [MASK] 数 [11, 8, 4, 0]  期望 [11, 8, 4, 0]
   给首 token 续写      | 1 步并行 0.887 | 15 步 low-confidence 1.000 | 15 步 random 0.910
@@ -59,6 +59,14 @@ step  100 | loss 0.364   ...   step  400 | loss 0.188
 ```
 
 并断言: `[MASK]` 个数走日程、已定 token 不再变、输出无 `[MASK]`、padding mask 生效且不传 mask 时右侧能影响左侧 (双向)。
+
+## 与真实系统的差距
+
+- **规模**: 2 层、d_model=64、4 头, 词表 17 (16 个符号 + `[MASK]`), 序列长度固定为 16。
+- **任务是合成的**: 置换链只有起点是随机的, 整条序列的信息量只有 ln 16。它能验证 ELBO 和采样日程, 说明不了自然语言上的生成质量。
+- **只有一种训练方式**: 整条序列一起加噪。没有 "prompt 保持不动, 只遮回复" 的指令微调阶段。
+- **长度固定**: 训练数据里没有 pad 和 EOS。生成长度 `gen_len` 由调用方给, 模型自己不会决定在哪里停。
+- **本库约定**: `lm_head` 与 embedding 共享权重, embedding 乘 √D。这是本库 LM 统一的写法, 不代表原模型的做法。
 
 ## 常见误区
 

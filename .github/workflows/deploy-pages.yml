@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
+# 等 Tests 工作流在 main 上跑通后再部署: 检查没过的代码不会上线。
 on:
-  push:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,9 +19,14 @@ concurrency:
 
 jobs:
   build:
+    # workflow_run 在 Tests 失败时也会触发, 这里只放行 push 触发且成功的那次; 手动触发不受限
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run 默认检出默认分支的最新提交, 这里要检出通过测试的那个提交
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:

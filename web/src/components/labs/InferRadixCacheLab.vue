@@ -2,22 +2,19 @@
 <template>
   <LabFrame
     title="Radix cache — 公共前缀只算一次"
-    sub="每一行是树上的一个节点, 行里的 token 串就是「父 → 它」这条边 (边压缩: 一条边可以存很多 token)。逐条放入请求:
-      - 绿色: 这条请求命中的前缀, KV 直接复用, 不用前向。
-      - 蓝色: 新插入的部分。
-      - 橙色: 刚被从中间劈开的边。
+    sub="每一行是树上的一个节点, 行里的 token 串就是「父 → 它」这条边 (边压缩: 一条边可以存很多 token)。
+      请求逐条放入, 打开时停在最后一条; 按播放从头重看。格子的三种底色见树下面的图例。
       把容量往小拖, 看 LRU 从叶子开始驱逐。点任意节点, 看它代表的完整前缀。"
     module="llm_infer/m05"
     run="python -m llm_infer.m05_radix_cache.demo"
     :challenge="{
-      ask: '容量不够时, 为什么只能驱逐叶子? 如果直接扔掉「最久没用」的中间节点会怎样?',
-      answer: 'KV 依赖它前面的全部 token, 中间节点的 KV 是所有后代前缀的一部分。\n扔了这个中间节点, 后代的 KV 虽然还在显存里, 却再也匹配不上 (从根走不到)。它们等于一起作废。所以驱逐顺序只能是: 叶子 → 变成叶子的父节点 → …。\n右侧对比:\n- radix: 能命中任意长度 $n$。\n- block hash: 只能命中 $\\lfloor n/\\text{bs} \\rfloor \\cdot \\text{bs}$。共享 100 个 token、bs=16 时, 只能复用 96 个。',
+      ask: '容量不够时, 如果直接扔掉「最久没用」的中间节点, 会怎样?',
+      answer: '它的后代会一起作废, 所以只能驱逐叶子。\nKV 依赖它前面的全部 token, 中间节点的 KV 是所有后代前缀的一部分。\n扔了这个中间节点, 后代的 KV 虽然还在显存里, 却再也匹配不上 (从根走不到)。它们等于一起作废。所以驱逐顺序只能是: 叶子 → 变成叶子的父节点 → …。\n右侧对比:\n- radix: 能命中任意长度 $n$。\n- block hash: 只能命中 $\\lfloor n/\\text{bs} \\rfloor \\cdot \\text{bs}$。共享 100 个 token、bs=16 时, 只能复用 96 个。',
     }"
   >
     <template #controls>
       <div class="row">
         <button v-for="(p, k) in PRESETS" :key="k" type="button" :class="{ active: preset === k }" @click="preset = k">{{ p.name }}</button>
-        <button type="button" class="active" :disabled="stepper.step.value >= reqs.length - 1" @click="stepper.next()">下一条请求 ▶</button>
       </div>
       <LabSlider v-model="cap" label="缓存容量" :min="8" :max="64" unit=" tok" />
       <LabSlider v-model="bsExp" label="对比: block hash 的 block" :min="2" :max="4" :format="(v) => 2 ** v" unit=" tok" />
@@ -43,6 +40,11 @@
       </div>
       <p v-if="!tree.rows.length" class="lab-note">树被驱逐空了。</p>
     </div>
+    <p class="legend">
+      <span class="cell tok ok">tok</span> 这条请求命中的前缀, KV 直接复用, 不用前向
+      <span class="cell tok on">tok</span> 新插入的部分
+      <span class="cell tok hot">tok</span> 刚被从中间劈开的边
+    </p>
     <p v-if="selNode" class="lab-note sel-note">
       选中节点代表的完整前缀 ({{ selPrefix.length }} tok): <span class="mono">{{ selPrefix.join(' ') }}</span>
     </p>
@@ -50,9 +52,8 @@
     <template #stats>
       <div class="kv"><span>本条命中 / 长度</span><b :class="cur.hit ? 'good' : ''">{{ cur.hit }} / {{ cur.ids.length }}</b></div>
       <div class="kv"><span>同样前缀, block hash 只能命中</span><b :class="blockHit < cur.hit ? 'bad' : ''">{{ blockHit }}</b></div>
-      <div class="kv"><span>累计命中率 (省掉的 prefill)</span><b class="good">{{ (tree.hitRate * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span>树里 token / 容量</span><b :class="tree.size > cap ? 'bad' : ''">{{ tree.size }} / {{ cap }}</b></div>
-      <div class="kv"><span>累计驱逐</span><b :class="tree.evicted ? 'bad' : ''">{{ tree.evicted }} tok</b></div>
+      <div class="kv"><span>累计命中率 (省掉的 prefill)</span><b>{{ (tree.hitRate * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>树里 token / 容量 · 累计驱逐</span><b :class="tree.evicted ? 'bad' : ''">{{ tree.size }} / {{ cap }} · {{ tree.evicted }}</b></div>
       <p class="lab-note">
         {{ cur.msg }}<br />
         匹配只有三步: 按「子边首 token」找孩子 → 沿边求最长公共前缀 → 停在边中间就 <code class="inline">_split</code>。
@@ -89,7 +90,8 @@ const bsExp = ref(2)
 const selId = ref(-1)
 const reqs = computed(() => PRESETS[preset.value].reqs)
 const stepper = useStepper(() => reqs.value.length, { interval: 1100 })
-watch(preset, () => { stepper.reset(); selId.value = -1 })
+// 换预设后直接跳到最后一条, 先看到整棵树, 再按播放重看它怎么长出来
+watch(preset, () => { stepper.pause(); stepper.step.value = reqs.value.length - 1; selId.value = -1 }, { immediate: true })
 
 // 把第 0..upto 条请求依次放进一棵新树 —— 纯函数, 滑杆一动整棵树重建
 const tree = computed(() => {
@@ -161,5 +163,6 @@ const selPrefix = computed(() => selChain.value.flatMap((n) => n.tokens))
 .edge.sel { border-color: var(--accent); }
 .twig { color: var(--text-dim); font-size: 12px; }
 .meta { margin-left: auto; font-size: 10px; color: var(--text-dim); }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); margin-top: 10px; }
 .sel-note { margin-top: 10px; }
 </style>

@@ -1,22 +1,22 @@
+<!--
+  模型结构浏览器, 挂在阶段首页。它不出题: 选一个模型, 看组件怎么接、四种运行态下各个节点在干什么。
+  随模型变的数字只有「规模读数」那一行, 全部由 modelArchitectures.js 里的 config 算出来。
+-->
 <template>
   <section class="architecture-lab" aria-labelledby="architecture-lab-title">
     <header class="lab-header">
       <div>
-        <span class="lab-kicker">MODEL STRUCTURE EXPLORER</span>
+        <span class="lab-kicker">模型结构浏览器</span>
         <h2 id="architecture-lab-title">模型结构与运行态实验台</h2>
-        <p>拖动画布追踪组件组合，展开节点进入内部；切换运行态，观察同一结构上的权重、激活、梯度与缓存。</p>
+        <p>选一个模型, 拖画布看组件怎么接, 点节点右下角的 + 看内部。再切换运行态, 看同一张图上权重、激活、梯度和缓存各在哪。</p>
       </div>
       <RepoLink :path="currentModel.source" label="当前模型源码" tiny />
     </header>
 
     <div class="model-tabs" role="tablist" aria-label="选择模型结构">
       <button
-        v-for="model in modelArchitectures"
-        :key="model.id"
-        type="button"
-        role="tab"
-        :aria-selected="model.id === selectedModelId"
-        :class="{ active: model.id === selectedModelId }"
+        v-for="model in modelArchitectures" :key="model.id" type="button" role="tab"
+        :aria-selected="model.id === selectedModelId" :class="{ active: model.id === selectedModelId }"
         @click="selectedModelId = model.id"
       >
         <span>{{ model.name }}</span>
@@ -32,14 +32,19 @@
       <p>{{ currentModel.description }}</p>
     </div>
 
+    <!-- 规模读数: 换模型时只有这一行的数字会变 -->
+    <dl class="runtime-stats config-stats" aria-live="polite" aria-label="规模读数, 按构造函数默认配置算">
+      <div v-for="r in readings" :key="r.label" :data-tone="r.tone || 'neutral'">
+        <dt>{{ r.label }}</dt>
+        <dd>{{ r.value }}</dd>
+      </div>
+    </dl>
+
     <div class="runtime-toolbar">
       <div class="runtime-modes" role="group" aria-label="选择模型运行状态">
         <button
-          v-for="item in runtimeModes"
-          :key="item.id"
-          type="button"
-          :class="{ active: runtimeMode === item.id }"
-          :aria-pressed="runtimeMode === item.id"
+          v-for="item in runtimeModes" :key="item.id" type="button"
+          :class="{ active: runtimeMode === item.id }" :aria-pressed="runtimeMode === item.id"
           @click="runtimeMode = item.id"
         >
           <span aria-hidden="true">{{ item.icon }}</span>
@@ -91,10 +96,7 @@
             <strong>{{ node.label }}</strong>
             <span class="node-shape mono">{{ node.shape || '结构节点' }}</span>
             <button
-              v-if="node.expandable"
-              type="button"
-              class="expand-button"
-              :style="{ background: node.color }"
+              v-if="node.expandable" type="button" class="expand-button" :style="{ background: node.color }"
               :title="node.open ? '收起内部组件' : '展开内部组件'"
               :aria-label="`${node.open ? '收起' : '展开'} ${node.label} 内部组件`"
               @click.stop="toggleExpanded(node.id)"
@@ -105,14 +107,14 @@
         </DagView>
 
         <div class="viewport-status" aria-hidden="true">
-          <span>{{ visibleNodes.length }} components</span>
+          <span>{{ visibleNodes.length }} 个组件</span>
           <span>{{ currentModeMeta.short }}</span>
         </div>
       </div>
 
       <aside class="node-inspector" aria-labelledby="node-inspector-title">
         <div class="inspector-heading">
-          <span>{{ currentModeMeta.label }} · COMPONENT INSPECTOR</span>
+          <span>{{ currentModeMeta.label }} · 组件详情</span>
           <h3 id="node-inspector-title">{{ selectedNode?.label || '选择一个组件' }}</h3>
         </div>
 
@@ -125,14 +127,8 @@
           </div>
 
           <dl class="node-facts">
-            <div>
-              <dt>组件类型</dt>
-              <dd>{{ categoryLabel(selectedNode.category) }}</dd>
-            </div>
-            <div>
-              <dt>张量形状</dt>
-              <dd class="mono">{{ selectedNode.shape || '随上游保持不变' }}</dd>
-            </div>
+            <div><dt>组件类型</dt><dd>{{ categoryLabel(selectedNode.category) }}</dd></div>
+            <div><dt>张量形状</dt><dd class="mono">{{ selectedNode.shape || '随上游保持不变' }}</dd></div>
           </dl>
 
           <section v-if="selectedNode.weights?.length" class="inspector-section">
@@ -162,7 +158,7 @@
           </div>
         </template>
 
-        <p v-else class="inspector-empty">点击画布中的组件，查看权重、激活、运行态和源码入口。</p>
+        <p v-else class="inspector-empty">点画布里的一个组件, 看它的权重、激活、运行态和源码入口。</p>
       </aside>
     </div>
   </section>
@@ -173,47 +169,34 @@ import Tex from '@/components/Tex.vue'
 import { computed, ref, watch } from 'vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
-import { architectureById, modelArchitectures } from '@/data/modelArchitectures.js'
-
-// 分类配色: 这是这张图的视觉语言, 节点边框和分类圆点都用它。
-// 通过 DagView 的 node.color 传下去, 不走 kind 的统一配色。
-const CATEGORY_COLOR = {
-  input: '#64748b', embedding: '#8b5cf6', position: '#8b5cf6', stack: '#2563eb',
-  norm: '#0ea5e9', attention: '#06b6d4', ffn: '#f59e0b', router: '#f97316',
-  expert: '#ef4444', state: '#10b981', weight: '#eab308', condition: '#ec4899',
-  merge: '#14b8a6', output: '#6366f1', result: '#22c55e',
-}
+import { architectureById, categories, modelArchitectures } from '@/data/modelArchitectures.js'
+import { fmtBytes } from '@/utils/labmath.js'
 
 const runtimeModes = [
-  { id: 'structure', label: '结构', short: 'STRUCTURE', icon: '◇' },
-  { id: 'training', label: '训练态', short: 'FORWARD + BACKWARD', icon: '↔' },
-  { id: 'prefill', label: '并行前向', short: 'FULL-SEQUENCE', icon: '▦' },
-  { id: 'decode', label: '迭代推理', short: 'STEP-BY-STEP', icon: '▷' },
+  { id: 'structure', label: '结构', short: '只看接线', icon: '◇' },
+  { id: 'training', label: '训练态', short: '前向 + 反向', icon: '↔' },
+  { id: 'prefill', label: '并行前向', short: '整段一次过', icon: '▦' },
+  { id: 'decode', label: '迭代推理', short: '一步一个', icon: '▷' },
 ]
-
-const categoryLabels = {
-  input: '输入',
-  embedding: '嵌入',
-  stack: '重复层',
-  norm: '归一化',
-  attention: '注意力',
-  ffn: '前馈网络',
-  router: '路由器',
-  expert: '专家',
-  state: '持久状态',
-  weight: '投影权重',
-  position: '位置编码',
-  condition: '条件调制',
-  merge: '合并',
-  output: '输出层',
-  result: '结果',
-}
 
 const selectedModelId = ref('llama')
 const runtimeMode = ref('structure')
 const selectedNodeId = ref('blocks')
 const expanded = ref(new Set())
 
+// 规模读数。★ 跨步保留的状态 = 层数 × (每 token 的个数 × T + 与 T 无关的个数), fp16 每个数 2 字节
+const T_REF = 1024
+const readings = computed(() => {
+  const c = currentModel.value.config
+  const kept = c.perToken ? `每 token ${c.perToken} 个数` : c.fixed ? `固定 ${c.fixed} 个数` : '不保留'
+  const bytes = c.layers * (c.perToken * T_REF + c.fixed) * 2
+  return [
+    { label: '层数 N (默认配置)', value: c.layers },
+    { label: '隐藏维 D', value: c.d, tone: 'activation' },
+    { label: '每层跨步保留的状态', value: kept, tone: 'cache' },
+    { label: `T = ${T_REF} 时全模型状态 (fp16)`, value: bytes ? fmtBytes(bytes) : '0', tone: 'cache' },
+  ]
+})
 
 const currentModel = computed(() => architectureById[selectedModelId.value] || modelArchitectures[0])
 const currentModeMeta = computed(() => runtimeModes.find((item) => item.id === runtimeMode.value))
@@ -247,7 +230,7 @@ const graph = computed(() => ({
   nodes: visibleNodes.value.map((n) => ({
     id: n.id,
     label: n.label,
-    color: CATEGORY_COLOR[n.category],
+    color: categories[n.category]?.color,
     shape: n.shape,
     category: n.category,
     chip: nodeRuntimeChip(n),
@@ -271,13 +254,12 @@ const graph = computed(() => ({
   })),
 }))
 
-
-const categoryLabel = (category) => categoryLabels[category] || '组件'
+const categoryLabel = (category) => categories[category]?.label || '组件'
 
 const nodeRuntimeChip = (item) => {
   if (runtimeMode.value === 'structure') return hasChildren(item.id) ? '可展开' : '组件'
   if (runtimeMode.value === 'training') {
-    if (item.category === 'result') return 'LOSS 起点'
+    if (item.category === 'result') return 'loss 起点'
     if (item.weights?.length) return 'W + dW'
     if (item.category === 'state') return '保存状态'
     return '保存激活'
@@ -290,22 +272,22 @@ const nodeRuntimeChip = (item) => {
   }
   if (item.category === 'attention') return '读 / 追加'
   if (item.category === 'state') return '跨步保留'
-  if (item.category === 'input') return '1 STEP'
+  if (item.category === 'input') return '只进 1 步'
   if (item.weights?.length) return '只读 W'
   return '临时激活'
 }
 
 const genericRuntimeDescriptions = {
-  structure: (item) => item.detail || `它在结构主干中承担“${categoryLabel(item.category)}”角色。`,
+  structure: (item) => item.detail || `它在主干里是「${categoryLabel(item.category)}」。`,
   training: (item) => item.weights?.length
-    ? '前向读取权重产生激活；反向根据上游梯度计算 dW，优化器随后更新参数。'
-    : '前向结果需保留到 backward 或由 activation checkpoint 重算；梯度沿相反方向通过此节点。',
+    ? '前向读权重, 算出激活。反向拿上游梯度算 dW, 优化器再更新参数。'
+    : '前向结果要留到 backward, 或者由 activation checkpoint 重算。梯度沿相反方向穿过这个节点。',
   prefill: (item) => item.category === 'attention' || item.category === 'state'
-    ? '整段输入并行计算，并建立后续迭代会复用的持久状态。'
-    : '权重只读，整段输入并行通过；临时激活在下游消费后即可释放。',
+    ? '整段输入并行算完, 并写下后面每一步都要读的状态。'
+    : '权重只读, 整段输入并行通过。临时激活被下游用完就能释放。',
   decode: (item) => item.category === 'attention' || item.category === 'state'
-    ? '读取之前步骤留下的状态，处理本轮新输入并把新状态追加或覆盖。'
-    : '只处理当前 step 的小激活；权重重复使用，中间张量不跨 step 保留。',
+    ? '读前面各步留下的状态, 处理这一步的新输入, 再把新状态追加或覆盖进去。'
+    : '只处理当前这一步的小激活。权重每步重复读, 中间张量不留到下一步。',
 }
 
 const nodeRuntimeDescription = (item) => (
@@ -313,9 +295,7 @@ const nodeRuntimeDescription = (item) => (
   || genericRuntimeDescriptions[runtimeMode.value](item)
 )
 
-const selectNode = (id) => {
-  selectedNodeId.value = id
-}
+const selectNode = (id) => { selectedNodeId.value = id }
 
 const toggleExpanded = (id) => {
   const next = new Set(expanded.value)
@@ -336,7 +316,6 @@ const toggleExpanded = (id) => {
 const expandAll = () => {
   expanded.value = new Set(currentModel.value.nodes.filter((item) => hasChildren(item.id)).map((item) => item.id))
 }
-
 const collapseAll = () => {
   expanded.value = new Set()
   if (selectedNode.value?.parent) selectedNodeId.value = currentModel.value.nodes.find((item) => !item.parent)?.id || ''
@@ -348,97 +327,27 @@ watch(selectedModelId, () => {
     || currentModel.value.nodes.find((item) => !item.parent)?.id
     || ''
 }, { immediate: true })
-
 </script>
 
 <style scoped>
-.architecture-lab {
-  --runtime-weight: #f59e0b;
-  --runtime-activation: #38bdf8;
-  --runtime-gradient: #f472b6;
-  --runtime-cache: #34d399;
-  margin-top: 24px;
-  border: 1px solid var(--border-strong);
-  border-radius: calc(var(--radius) + 4px);
-  background: var(--bg-card);
-  overflow: hidden;
-  box-shadow: 0 18px 52px color-mix(in srgb, var(--text) 8%, transparent);
-}
-
-.lab-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-  padding: 22px 24px 18px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 8%, var(--bg-elev)), var(--bg-card) 62%);
-}
-.lab-kicker,
-.inspector-heading > span,
-.runtime-copy > span {
-  color: var(--accent);
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
+.architecture-lab { --runtime-weight: var(--warn); --runtime-activation: var(--code-fn); --runtime-gradient: var(--right); --runtime-cache: var(--left); margin-top: 24px; border: 1px solid var(--border-strong); border-radius: calc(var(--radius) + 4px); background: var(--bg-card); overflow: hidden; box-shadow: 0 18px 52px color-mix(in srgb, var(--text) 8%, transparent); }
+.lab-header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; padding: 22px 24px 18px; border-bottom: 1px solid var(--border); background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 8%, var(--bg-elev)), var(--bg-card) 62%); }
+.lab-kicker, .inspector-heading > span, .runtime-copy > span { color: var(--accent); font-family: "SF Mono", Menlo, monospace; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
 .lab-header h2 { margin-top: 3px; font-size: 20px; text-wrap: balance; }
 .lab-header p { margin-top: 5px; max-width: 780px; color: var(--text-muted); font-size: 12.5px; line-height: 1.7; text-wrap: pretty; }
-
-.model-tabs {
-  display: flex;
-  gap: 1px;
-  padding: 8px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elev);
-}
-.model-tabs button {
-  flex: 1 0 128px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-height: 52px;
-  padding: 8px 11px;
-  border-color: transparent;
-  background: transparent;
-  text-align: left;
-}
+.model-tabs { display: flex; gap: 1px; padding: 8px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+.model-tabs button { flex: 1 0 128px; display: flex; flex-direction: column; align-items: flex-start; min-height: 52px; padding: 8px 11px; border-color: transparent; background: transparent; text-align: left; }
 .model-tabs button:hover { background: var(--bg-card); }
-.model-tabs button.active {
-  border-color: var(--border-strong);
-  background: var(--bg-card);
-  color: var(--text);
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--text) 6%, transparent);
-}
+.model-tabs button.active { border-color: var(--border-strong); background: var(--bg-card); color: var(--text); box-shadow: 0 3px 10px color-mix(in srgb, var(--text) 6%, transparent); }
 .model-tabs button span { font-size: 12px; font-weight: 650; }
-.model-tabs button small { margin-top: 1px; color: var(--text-muted); font-size: 9.5px; }
+.model-tabs button small { margin-top: 1px; color: var(--text-muted); font-size: 10px; }
 .model-tabs button.active small { color: var(--accent); }
-
-.model-intro {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 18px;
-  align-items: center;
-  min-height: 66px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
-}
+.model-intro { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 18px; align-items: center; min-height: 66px; padding: 12px 24px; border-bottom: 1px solid var(--border); }
 .model-intro > div { display: flex; flex-direction: column; align-items: flex-start; }
 .model-intro strong { margin-top: 2px; font-size: 16px; }
-.model-badge { color: var(--accent); font-size: 9.5px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; }
+.model-badge { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; }
 .model-intro p { color: var(--text-muted); font-size: 12.5px; line-height: 1.65; text-wrap: pretty; }
-
-.runtime-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
-}
+.runtime-toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--code-bg); }
 .runtime-modes { display: flex; flex-wrap: wrap; gap: 6px; }
 .runtime-modes button { min-height: 40px; padding: 6px 12px; font-size: 11.5px; }
 .runtime-modes button span { margin-right: 4px; font-family: "SF Mono", Menlo, monospace; }
@@ -450,84 +359,43 @@ watch(selectedModelId, () => {
 .activation { background: var(--runtime-activation); }
 .gradient { background: var(--runtime-gradient); }
 .cache { background: var(--runtime-cache); }
-
-.runtime-readout {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(420px, 0.9fr);
-  gap: 20px;
-  align-items: center;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent) 4%, var(--bg-card));
-}
+.runtime-readout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 20px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 4%, var(--bg-card)); }
 .runtime-readout[data-mode="training"] { background: color-mix(in srgb, var(--runtime-gradient) 6%, var(--bg-card)); }
 .runtime-readout[data-mode="prefill"] { background: color-mix(in srgb, var(--runtime-activation) 6%, var(--bg-card)); }
 .runtime-readout[data-mode="decode"] { background: color-mix(in srgb, var(--runtime-cache) 6%, var(--bg-card)); }
 .runtime-copy strong { display: block; margin-top: 3px; font-size: 13.5px; text-wrap: balance; }
 .runtime-copy p { margin-top: 3px; color: var(--text-muted); font-size: 11.5px; line-height: 1.65; text-wrap: pretty; }
 .runtime-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+/* 规模读数: 四格一行, 窄屏折成两格 */
+.config-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 10px 20px; border-bottom: 1px solid var(--border); }
 .runtime-stats > div { min-width: 0; padding: 8px 10px; border-left: 2px solid var(--border-strong); background: var(--bg-elev); }
 .runtime-stats > div[data-tone="weight"] { border-left-color: var(--runtime-weight); }
 .runtime-stats > div[data-tone="activation"] { border-left-color: var(--runtime-activation); }
 .runtime-stats > div[data-tone="gradient"] { border-left-color: var(--runtime-gradient); }
 .runtime-stats > div[data-tone="cache"] { border-left-color: var(--runtime-cache); }
-.runtime-stats dt { color: var(--text-dim); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; }
+.runtime-stats dt { color: var(--text-dim); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
 .runtime-stats dd { margin-top: 2px; overflow-wrap: anywhere; color: var(--text); font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; }
-
 .diagram-shell { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 650px; }
 .canvas-column { min-width: 0; border-right: 1px solid var(--border); }
-.canvas-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  min-height: 50px;
-  padding: 6px 10px 6px 14px;
-  border-bottom: 1px solid var(--border);
-}
+.canvas-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 50px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--border); }
 .canvas-hint { color: var(--text-muted); font-size: 10.5px; }
 .canvas-hint span { margin-right: 6px; color: var(--accent); }
 .canvas-actions { display: flex; align-items: center; gap: 5px; }
 .canvas-actions button { min-height: 38px; padding: 5px 9px; font-size: 10.5px; }
-.canvas-actions .icon-button { width: 38px; padding: 0; font-size: 16px; }
-.toolbar-divider { width: 1px; height: 24px; margin: 0 2px; background: var(--border); }
-.zoom-value { min-width: 42px; color: var(--text-muted); font-family: "SF Mono", Menlo, monospace; font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
 
 /* 节点内容渲染在 DagView 的 #node 插槽里 —— 外框、定位、连线都归 DagView 管,
    这里只管插槽内部那几行的排版和分类配色。 */
 .node-topline { display: flex; justify-content: space-between; gap: 5px; align-items: center; }
-.category-label { display: inline-flex; align-items: center; min-width: 0; color: var(--text-muted); font-size: 8.5px; font-weight: 700; letter-spacing: 0.5px; }
+.category-label { display: inline-flex; align-items: center; min-width: 0; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
 .category-label i { flex: 0 0 auto; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: currentColor; }
-.runtime-chip { max-width: 84px; overflow: hidden; color: var(--text-dim); font-family: "SF Mono", Menlo, monospace; font-size: 7.5px; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-chip { max-width: 84px; overflow: hidden; color: var(--text-dim); font-family: "SF Mono", Menlo, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 strong { display: block; margin-top: 6px; color: var(--text); font-size: 12.5px; font-weight: 680; line-height: 1.25; }
-.node-shape { display: block; margin-top: 4px; color: var(--text-muted); font-size: 8.5px; line-height: 1.3; }
-.expand-button {
-  position: absolute;
-  right: -9px;
-  bottom: -9px;
-  width: 26px;
-  min-height: 26px;
-  padding: 0;
-  border: 2px solid var(--bg);
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 14px;
-  line-height: 1;
-  box-shadow: 0 4px 10px color-mix(in srgb, var(--text) 15%, transparent);
-}
+.node-shape { display: block; margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.3; }
+.expand-button { position: absolute; right: -9px; bottom: -9px; width: 26px; min-height: 26px; padding: 0; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); color: var(--bg); font-family: "SF Mono", Menlo, monospace; font-size: 14px; line-height: 1; box-shadow: 0 4px 10px color-mix(in srgb, var(--text) 15%, transparent); }
 .expand-button:hover { filter: brightness(1.08); }
-
-/* 原来浮在画布上; DagView 自己带左下角的折叠条, 这里改成排在图下面, 免得打架 */
-.viewport-status {
-  display: flex;
-  gap: 7px;
-  padding: 8px 12px 10px;
-  pointer-events: none;
-}
-.viewport-status span { padding: 3px 7px; border: 1px solid var(--border); border-radius: 4px; background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--text-muted); font-family: "SF Mono", Menlo, monospace; font-size: 8.5px; }
-
+/* 排在图下面: DagView 左下角有自己的折叠条, 浮在画布上会和它重叠 */
+.viewport-status { display: flex; gap: 7px; padding: 8px 12px 10px; pointer-events: none; }
+.viewport-status span { padding: 3px 7px; border: 1px solid var(--border); border-radius: 4px; background: color-mix(in srgb, var(--bg-elev) 88%, transparent); color: var(--text-muted); font-family: "SF Mono", Menlo, monospace; font-size: 10px; }
 .node-inspector { min-width: 0; padding: 18px; background: var(--bg-elev); }
 .inspector-heading { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .inspector-heading h3 { margin-top: 4px; font-size: 17px; line-height: 1.35; text-wrap: balance; }
@@ -536,23 +404,23 @@ strong { display: block; margin-top: 6px; color: var(--text); font-size: 12.5px;
 .runtime-callout[data-mode="training"] { border-left-color: var(--runtime-gradient); }
 .runtime-callout[data-mode="prefill"] { border-left-color: var(--runtime-activation); }
 .runtime-callout[data-mode="decode"] { border-left-color: var(--runtime-cache); }
-.runtime-callout span { color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: 0.7px; }
+.runtime-callout span { color: var(--text-dim); font-size: 10px; font-weight: 700; letter-spacing: 0.7px; }
 .runtime-callout p { margin-top: 3px; color: var(--text); font-size: 11px; line-height: 1.65; text-wrap: pretty; }
 .node-facts { display: grid; grid-template-columns: 1fr; gap: 1px; margin-top: 14px; border: 1px solid var(--border); background: var(--border); }
 .node-facts > div { padding: 8px 10px; background: var(--bg-card); }
-.node-facts dt { color: var(--text-dim); font-size: 8.5px; letter-spacing: 0.5px; text-transform: uppercase; }
+.node-facts dt { color: var(--text-dim); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
 .node-facts dd { margin-top: 2px; overflow-wrap: anywhere; color: var(--text); font-size: 10.5px; }
 .inspector-section { margin-top: 16px; }
 .inspector-section h4 { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; color: var(--text); font-size: 11px; }
 .tensor-row { padding: 8px 0; border-top: 1px solid var(--border); }
 .tensor-row > div { display: flex; justify-content: space-between; gap: 10px; }
-.tensor-row strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font-size: 9.5px; }
-.tensor-row span { flex: 0 0 auto; color: var(--runtime-weight); font-size: 9px; }
+.tensor-row strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font-size: 10px; }
+.tensor-row span { flex: 0 0 auto; color: var(--runtime-weight); font-size: 10px; }
 .tensor-row p,
 .inspector-section > p { margin-top: 3px; color: var(--text-muted); font-size: 10.5px; line-height: 1.6; text-wrap: pretty; }
 .inspector-section .formula { margin: 0; overflow-x: auto; padding: 9px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--code-bg); font-size: 12px; line-height: 1.6; }
 .source-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--border); }
-.source-row > span { color: var(--text-dim); font-size: 9px; letter-spacing: 0.5px; }
+.source-row > span { color: var(--text-dim); font-size: 10px; letter-spacing: 0.5px; }
 .inspector-empty { margin-top: 16px; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
 
 @media (max-width: 1080px) {
@@ -576,10 +444,10 @@ strong { display: block; margin-top: 6px; color: var(--text); font-size: 12.5px;
   .runtime-legend { justify-content: flex-start; }
   .runtime-readout { padding: 14px 16px; }
   .runtime-stats { grid-template-columns: 1fr; }
+  .config-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 16px; }
   .canvas-toolbar { align-items: flex-start; flex-direction: column; padding: 9px 10px; }
   .canvas-actions { width: 100%; overflow-x: auto; }
   .canvas-hint { padding-left: 3px; }
-  .diagram-viewport { height: 520px; }
   .node-inspector { display: block; padding: 16px; }
   .node-facts { margin-top: 14px; }
 }

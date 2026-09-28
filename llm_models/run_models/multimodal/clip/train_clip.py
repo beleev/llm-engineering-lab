@@ -39,6 +39,7 @@ def main():
     print(f"CLIP Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
     data_gen = CLIPDataGenerator(vocab_size=V, batch_size=B, text_len=cfg.seq_len, image_size=56)
+    # generate_batch 每次返回同一个固定 batch: 训练前后在同一批 8 对上各测一次检索准确率
     acc0 = diag_accuracy(model, data_gen.generate_batch())
     metrics = Trainer(model, cfg, data_gen, ContrastiveLoss()).train()
     acc1 = diag_accuracy(model, data_gen.generate_batch())
@@ -46,8 +47,11 @@ def main():
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss {first:.3f} (ln B = {math.log(B):.3f}) -> 终态 {last:.4f} | "
           f"对角线 top-1: {acc0:.2f} -> {acc1:.2f} | logit_scale {metrics[0]['logit_scale']:.2f} -> {metrics[-1]['logit_scale']:.2f}")
+    # 未训练时每张图对 B 条文本近似均匀瞎猜, 交叉熵 ≈ ln B
     assert abs(first - math.log(B)) < 0.5, "未训练时对比 loss 应 ≈ ln B"
-    assert last < 0.1 and acc1 == 1.0 and acc1 > acc0
+    assert last < 0.1, "训练后对比 loss 应降到 0.1 以下"
+    assert acc1 == 1.0, "训练后每张图最相似的文本应是自己那条 (对角线 top-1 = 1.0)"
+    assert acc1 > acc0, "训练后的检索准确率应高于训练前"
 
 
 if __name__ == "__main__":

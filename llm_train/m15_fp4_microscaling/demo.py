@@ -20,35 +20,42 @@ E2M1_MAX = 6.0
 
 
 def _blocks(x: np.ndarray, block: int) -> np.ndarray:
-    assert x.size % block == 0
+    """拍平后每 block 个元素切成一行。"""
+    assert x.size % block == 0, "元素个数必须能被 block 整除"
     return x.reshape(-1, block)                                          # [n_blocks, block]
 
 
 def mxfp4(x: np.ndarray, block: int = 32) -> np.ndarray:
+    """量化到 MXFP4 再还原, 返回值与 x 同形。误差就是返回值与 x 的差。"""
     b = _blocks(x, block)
-    amax = np.abs(b).max(axis=1, keepdims=True)
+    amax = np.abs(b).max(axis=1, keepdims=True)                          # [n_blocks, 1] 每个 block 的最大绝对值
+    # 1e-30: 整块全 0 时 log2(0) = -inf, 先钳住
     # E8M0: scale = 2^(⌊log2 amax⌋ − 2); 2 是 E2M1 最大指数 (6 = 1.5·2²)。amax/scale ∈ [4, 8) → 大于 6 的会饱和
     scale = 2.0 ** (np.floor(np.log2(np.maximum(amax, 1e-30))) - 2)
     return (fake_quant_float(b / scale, "e2m1") * scale).reshape(x.shape)
 
 
 def nvfp4(x: np.ndarray, block: int = 16) -> np.ndarray:
+    """量化到 NVFP4 再还原, 返回值与 x 同形。和 mxfp4 只差 scale 那两行。"""
     b = _blocks(x, block)
-    amax = np.abs(b).max(axis=1, keepdims=True)
+    amax = np.abs(b).max(axis=1, keepdims=True)                          # [n_blocks, 1]
+    # 448 是 E4M3 的最大值, 6 是 E2M1 的最大值
     tensor_scale = np.abs(x).max() / (448.0 * E2M1_MAX)                  # FP32, 整个张量 1 个: 把 block scale 搬进 E4M3 的范围
     scale = fake_quant_float(amax / E2M1_MAX / tensor_scale, "e4m3") * tensor_scale   # block scale 本身只有 8 位
-    scale[scale == 0] = 1.0
+    scale[scale == 0] = 1.0                                              # 防除零
     return (fake_quant_float(b / scale, "e2m1") * scale).reshape(x.shape)
 
 
 def int4(x: np.ndarray, block: int = 32) -> np.ndarray:
+    """同位宽的整数对照: 每个 block 一个 scale, 元素量化到整数 −7..7。返回值与 x 同形。"""
     b = _blocks(x, block)
     scale = np.abs(b).max(axis=1, keepdims=True) / 7.0                   # 对称 INT4: 整数 −7..7 均匀网格
-    scale[scale == 0] = 1.0
+    scale[scale == 0] = 1.0                                              # 整块全 0 时防除零
     return (np.clip(np.round(b / scale), -7, 7) * scale).reshape(x.shape)
 
 
 def rel_err(q, x) -> float:
+    """相对量化误差 ‖q − x‖ / ‖x‖, x 是原值。"""
     return float(np.linalg.norm(q - x) / np.linalg.norm(x))
 
 
@@ -56,9 +63,10 @@ def main() -> None:
     banner("M15 - Microscaling FP4 (MXFP4 / NVFP4)")
     rs = make_rng(15)
 
+    # 以 0.005 为步长扫一遍 [-8, 8], 看量化后一共落到哪几个值上
     grid = np.unique(np.abs(fake_quant_float(np.linspace(-8, 8, 3201), "e2m1")))
     kv("E2M1 的全部非负取值", grid.tolist())
-    assert grid.tolist() == [0, 0.5, 1, 1.5, 2, 3, 4, 6]
+    assert grid.tolist() == [0, 0.5, 1, 1.5, 2, 3, 4, 6], "E2M1 的非负取值必须正好是这 8 个"
 
     n = 1 << 14
     tensors = {
@@ -77,7 +85,7 @@ def main() -> None:
         err[name] = [rel_err(fn(t), t) for t in tensors.values()]
         print(f"  {name:<34}" + "".join(f"{e:>20.4f}" for e in err[name]))
 
-    fp8, nv, mx, i4 = (np.array(err[k]) for k in methods)
+    fp8, nv, mx, i4 = (np.array(err[k]) for k in methods)                # 各 [2]: (高斯, 重尾) 上的误差
     assert (fp8 < nv).all() and (nv < mx).all(), "FP8 < NVFP4 < MXFP4: 位宽, 然后是 scale 的精细度"
     print()
     kv("FP8 → NVFP4 误差放大", f"{(nv / fp8).round(1).tolist()}x  (位宽砍半的代价)")
@@ -89,16 +97,17 @@ def main() -> None:
 
     # ---- scale 格式单独消融: 同为 block 16, 只换 scale ----
     x = tensors["高斯 (权重)"]
-    mx16 = rel_err(mxfp4(x, block=16), x)
-    kv("同为 block16: E8M0 scale vs E4M3 scale", f"{mx16:.4f} vs {nv[0]:.4f}")
+    blk = 16                                                             # NVFP4 的 block 大小
+    mx16 = rel_err(mxfp4(x, block=blk), x)
+    kv(f"同为 block{blk}: E8M0 scale vs E4M3 scale", f"{mx16:.4f} vs {nv[0]:.4f}")
     assert nv[0] < mx16, "block 大小相同时, 差距全部来自 scale 的精度"
 
     # ---- MXFP4 的饱和: amax/scale ∈ (6, 8) 的 block 最大值被截到 6 ----
-    b = _blocks(x, 32)
-    amax = np.abs(b).max(1)
-    ratio = amax / 2.0 ** (np.floor(np.log2(amax)) - 2)
+    b = _blocks(x, 32)                                                   # [n_blocks, 32]
+    amax = np.abs(b).max(1)                                              # [n_blocks]
+    ratio = amax / 2.0 ** (np.floor(np.log2(amax)) - 2)                  # amax / scale, 落在 [4, 8)
     kv("MXFP4 中最大值被饱和截断的 block", f"{np.mean(ratio > 6):.0%}")
-    assert 0.2 < np.mean(ratio > 6) < 0.7
+    assert 0.2 < np.mean(ratio > 6) < 0.7, "最大值被饱和截断的 block 应占 20%~70%: 饱和是常态"
 
     print("\n  OK: 误差排序 FP8 < NVFP4 < MXFP4; FP4 目前主要用于推理权重和 QAT, 全程 FP4 预训练仍需额外技巧")
     print("      (随机舍入、Hadamard 旋转去 outlier、关键层保留 BF16)。")

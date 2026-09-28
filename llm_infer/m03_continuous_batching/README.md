@@ -10,17 +10,47 @@
 batch = [(seq, n_tokens), ...]        n>1: prefill (或一个 chunk)    n=1: decode
 seq.num_computed                      KV 已就绪的 token 数; 每步 += n, 追平 num_tokens 才采样
 waiting (deque, FCFS)  ⇄  running (list, 越靠后越年轻)
-prefill 优先 (chunked_prefill=False):  _admit(budget)  or  _schedule_running(budget)   ← 这个 or 就是活锁修复
+prefill 优先 (chunked_prefill=False):  _admit(budget)  or  _schedule_running(budget)   ← 少了这个 or 就会活锁
 decode 优先 (chunked_prefill=True):    _schedule_running 之后, 剩余预算给 _admit      (m06)
 抢占 (recompute): 还掉最年轻序列的全部 block, num_computed=0, 回 waiting 队首; output_ids 原样保留
 ```
 `core/sequence.py` 是状态, `scheduler.py` 是策略; `full_engine` 直接 import 这个 `Scheduler`。
 
 ## 运行后应该看到什么
-`python -m llm_infer.m03_continuous_batching.demo` (mock 模型, 第 k 个输出 token 值就是 k)
-- 宽松 pool: `step 1 [s0:P5 s1:P3 s2:P7 s3:P2]`, s1 在 step 4 完成, step 5 `s4:P5` 立刻补位, 共 11 步
-- 7 个 block 的紧张 pool: step 3 抢占 s3, step 5 它重新 prefill (`s3:P4`: 2 prompt + 2 已生成), step 6 又被抢占; 共 17 步、抢占 2 次
-- 断言: 每条输出恰为 `[0..max_new-1]` (不多不少不乱序), block 全部归还, 全程无空 batch
+```bash
+python -m llm_infer.m03_continuous_batching.demo      # mock 模型, 第 k 个输出 token 值就是 k
+```
+下面是节选, `...` 处省略了中间的 step。`P5` = prefill 5 个 token, `D` = decode 1 个 token。
+```
+[1] 宽松 pool (32 blocks × 4): 请求随到随进, 各自完成各自退出
+  step  1  [s0:P5 s1:P3 s2:P7 s3:P2     ] pool= 18.8% preempt=0
+  step  2  [s0:D s1:D s2:D s3:D         ] pool= 18.8% preempt=0
+  ...
+  step  4  [s0:D s1:D s2:D s3:D         ] pool= 21.9% preempt=0  ✓完成 [1]
+  step  5  [s4:P5                       ] pool= 28.1% preempt=0
+  ...
+  step 11  [s2:D                        ] pool=  0.0% preempt=0  ✓完成 [2]
+
+[2] 紧张 pool (7 blocks × 4 = 28 token): 触发抢占; 队首进不来时 running 照常 decode, 不会活锁
+  step  1  [s0:P5 s1:P3 s2:P7 s3:P2     ] pool= 85.7% preempt=0
+  step  2  [s0:D s1:D s2:D s3:D         ] pool= 85.7% preempt=0
+  step  3  [s0:D s1:D s2:D              ] pool=100.0% preempt=1
+  step  4  [s0:D s1:D s2:D              ] pool= 71.4% preempt=1  ✓完成 [1]
+  step  5  [s3:P4                       ] pool= 85.7% preempt=1
+  step  6  [s0:D s2:D                   ] pool= 85.7% preempt=2
+  ...
+  step 10  [s3:P5                       ] pool= 85.7% preempt=2
+  ...
+  step 17  [s4:D                        ] pool=  0.0% preempt=2  ✓完成 [4]
+
+  总 step (宽松 / 紧张)                 = 11 / 17
+  抢占次数                             = 2
+  各序列被抢占次数                         = [0, 0, 0, 2, 0]
+```
+- [1] s1 在 step 4 完成, step 5 `s4:P5` 立刻补位, 共 11 步。
+- [2] step 3 抢占 s3。step 5 它重新 prefill, `s3:P4` 是 2 个 prompt token + 2 个已生成的 token。step 6 它又被抢占。共 17 步、抢占 2 次。
+
+断言: 每条输出恰为 `[0..max_new-1]` (不多不少不乱序), block 全部归还, 全程无空 batch。
 
 ## 与真实系统的差距
 - 真实 batch 是一个摊平的 `(Σn, D)` 张量一次前向; 这里 `(seq, n)` 列表由 runner 逐条算

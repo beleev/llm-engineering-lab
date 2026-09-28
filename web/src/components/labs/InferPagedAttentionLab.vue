@@ -8,8 +8,8 @@
     module="llm_infer/m02"
     run="python -m llm_infer.m02_paged_attention.demo"
     :challenge="{
-      ask: '分页之后, attention 本身算得更快了吗? 把 block 大小从 4 拖到 32, 浪费率怎么变, 为什么真实系统不干脆用 1?',
-      answer: '没有更快。经页表间接寻址, 反而多一次查表。\n分页买到的是显存利用率:\n- 分页: 浪费只剩每个请求最后一个 block 的尾巴, 平均 $\\text{bs}/2$ 个 token。\n- 连续预留: 要为每条请求押上整个 max_len。\n利用率高 → 同一张卡能塞更多并发 → batch 更大 → 吞吐更高。\nblock 越小浪费越少, 但页表越长、kernel 访存越碎。所以 vLLM 默认取 16。',
+      ask: '分页之后, attention 本身算得更快了吗?',
+      answer: '没有更快。经页表间接寻址, 反而多一次查表。\n分页买到的是显存利用率:\n- 分页: 浪费只剩每个请求最后一个 block 的尾巴, 平均 $\\text{bs}/2$ 个 token。\n- 连续预留: 要为每条请求押上整个 max_len。\n利用率高 → 同一张卡能塞更多并发 → batch 更大 → 吞吐更高。\n把 block 大小从 4 拖到 32, 浪费率跟着涨。block 越小浪费越少, 但页表越长、kernel 访存越碎。所以 vLLM 默认取 16。',
     }"
   >
     <template #controls>
@@ -57,8 +57,7 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>分页: 已分配里的浪费</span><b class="good">{{ pct(st.pagedWaste) }}</b></div>
-      <div class="kv"><span>连续预留 max_len: 浪费</span><b class="bad">{{ pct(st.contWaste) }}</b></div>
+      <div class="kv"><span>浪费: 分页 / 连续预留 max_len</span><b :class="wasteCls(st.pagedWaste, st.contWaste)">{{ pct(st.pagedWaste) }} / {{ pct(st.contWaste) }}</b></div>
       <div class="kv">
         <span>这 {{ st.live.length }} 条请求, 连续预留装得下</span>
         <b :class="st.contFit < st.live.length ? 'bad' : ''">{{ st.contFit }} 条</b>
@@ -152,6 +151,8 @@ const st = computed(() => {
   }
 })
 
+// 两种分配方式互相比: 分页浪费得少就绿, 多就红, 一样就不上色
+const wasteCls = (paged, cont) => (paged < cont ? 'good' : paged > cont ? 'bad' : '')
 const sel = computed(() => st.value.live.find((r) => r.id === selId.value) || st.value.live[0] || null)
 const focus = computed(() => hover.value ?? sel.value?.id ?? null)
 watch(sel, (r) => { if (r) pos.value = clamp(pos.value, 0, r.len - 1) })

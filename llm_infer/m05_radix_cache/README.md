@@ -39,7 +39,7 @@ ref_count 全归零; 驱逐释放的槽位与锁定槽位不相交; 剩余节点
 ## 与真实系统的差距
 - slots 在这里只是整数; SGLang 里是指向 `token_to_kv_pool` 的索引张量, 命中后直接拼进请求的 KV 索引表。
 - SGLang `page_size>1` 时 match 也会对齐到页边界, 此时粒度优势缩小到"页内"; vLLM 的 APC 是 block hash。
-- evict 每次 O(N) 扫全树 (代码里 `ponytail:` 注释); SGLang 用按访问时间的小顶堆。
+- evict 每次 O(N) 扫全树 (`radix_tree.py` 的 `evict` 里有注释写明这个上限); SGLang 用按访问时间的小顶堆。
 - 没有 cache-aware 调度: SGLang 会优先调度命中前缀最长的请求 (longest-prefix-first), 让命中率更高。
 - 真实负载的命中率取决于流量形态; [3] 的 44.8% / 33.5% 只对这份合成负载成立。
 

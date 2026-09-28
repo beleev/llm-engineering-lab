@@ -5,13 +5,13 @@
 <template>
   <LabFrame
     title="Block scaling — 一个 outlier 会连累多少邻居?"
-    sub="64 个元素的一行张量, 其中一个是 outlier (橙色)。上下拖动它的柱顶改变大小, 点别的柱子把 outlier 挪过去。
+    sub="64 个元素的一行张量, 其中一个是 outlier (柱顶带圆形把手)。上下拖动把手改变大小, 点别的柱子把 outlier 挪过去。
       下面两行色块是每个元素量化后的相对误差: 整张量共用一个 scale vs 每个 block 一个 scale。"
     module="llm_train/m13 · m15"
     run="python -m llm_train.m15_fp4_microscaling.demo"
     :challenge="{
       ask: '先选 FP8 E4M3: outlier 要多大, 整张量 scale 才开始把别的元素冲成 0? 再换 MXFP4: 为什么 FP4 的 block 必须小到 16~32?',
-      answer: 'FP8 (E4M3) 自带约 $2^{15} \\sim 2^{17}$ 的动态范围:\n- outlier 在 1 万倍以内: 整张量 scale 和 block scale 几乎打平 (m13 的训练消融里 4.54e-4 vs 4.61e-4)。\n- 10 万倍: 约 18% 的元素归零。\n- 100 万倍: 几乎全灭。\n所以 block scaling 在 FP8 上是给极端 outlier 上的保险, 不是日常收益。\nFP4 E2M1 只有 $\\pm\\{0.5, 1, 1.5, 2, 3, 4, 6\\}$, 动态范围才 12 倍。outlier 只要比邻居大十几倍, 共享 scale 的邻居就大片归零, 所以 block 必须很小。代价是每 block 多存 8 bit 的 scale (32 → +0.25 bit/元素, 16 → +0.5)。\n- NVFP4: scale 带尾数, 能把 amax 精确对到 6。\n- MXFP4: scale 只能是 2 的幂, amax/scale 落在 (6,8) 时, 最大值自己还会被饱和截断。',
+      answer: 'FP8 (E4M3) 自带约 $2^{15} \\sim 2^{17}$ 的动态范围:\n- outlier 在 1 万倍以内: 整张量 scale 和 block scale 几乎打平 (m13 的训练消融里, 同为全程 E4M3: 4.64e-4 vs 4.61e-4)。\n- 10 万倍: 约 18% 的元素归零。\n- 100 万倍: 几乎全灭。\n所以 block scaling 在 FP8 上是给极端 outlier 上的保险, 不是日常收益。\nFP4 E2M1 只有 $\\pm\\{0.5, 1, 1.5, 2, 3, 4, 6\\}$, 动态范围才 12 倍。outlier 只要比邻居大十几倍, 共享 scale 的邻居就大片归零, 所以 block 必须很小。代价是每 block 多存 8 bit 的 scale (32 → +0.25 bit/元素, 16 → +0.5)。\n- NVFP4: scale 带尾数, 能把 amax 精确对到 6。\n- MXFP4: scale 只能是 2 的幂, amax/scale 落在 (6,8) 时, 最大值自己还会被饱和截断。',
     }"
   >
     <template #controls>
@@ -23,7 +23,7 @@
       <LabSlider v-model="logOut" label="outlier 倍数" :min="0" :max="6" :step="0.05" :format="(v) => '×' + fmtNum(Math.round(10 ** v))" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="张量各元素的绝对值 (对数) 与 block scale">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="张量各元素的绝对值 (对数) 与 block scale; outlier 的把手可拖">
       <rect v-for="b in nBlocks" :key="'bg' + b" :x="bx((b - 1) * block)" :width="block * BW" y="6" :height="PLOT" :class="['blk', { alt: b % 2 }]" />
       <g v-for="t in [-4, -2, 0, 2, 4]" :key="t">
         <line :x1="X0" :x2="W" :y1="py(t)" :y2="py(t)" class="grid" />
@@ -31,14 +31,15 @@
       </g>
       <rect
         v-for="(v, i) in x" :key="i" :x="bx(i) + 1" :width="BW - 2" :y="py(log10(Math.abs(v)))" :height="Math.max(1, PLOT + 6 - py(log10(Math.abs(v))))"
-        :class="['bar', { out: i === outIdx }]" tabindex="0" role="button" :aria-label="`把 outlier 放到第 ${i} 个元素`"
-        @click="outIdx = i" @keydown.enter="outIdx = i"
+        :class="['bar', { out: i === outIdx }]" @click="outIdx = i"
       />
       <!-- 每个 block 的 "能表示的最小非零值" 线: 低于它的元素会变 0 -->
       <line v-for="(f, b) in blockRes.floors" :key="'fl' + b" :x1="bx(b * block)" :x2="bx((b + 1) * block)" :y1="py(log10(f))" :y2="py(log10(f))" class="floor" />
       <circle
         :cx="bx(outIdx) + BW / 2" :cy="py(log10(Math.abs(x[outIdx])))" r="7" class="handle draggable"
-        tabindex="0" role="slider" aria-label="outlier 大小" :aria-valuenow="logOut"
+        tabindex="0" role="slider" aria-label="outlier: 上下方向键改大小, 左右方向键换位置" :aria-valuenow="logOut"
+        :aria-valuetext="`第 ${outIdx} 个元素, 基准的 ${Math.round(10 ** logOut)} 倍`"
+        @keydown.left.prevent="outIdx = Math.max(0, outIdx - 1)" @keydown.right.prevent="outIdx = Math.min(NEL - 1, outIdx + 1)"
         @pointerdown="start($event, { svg, onMove: ({ y }) => (logOut = clamp(Math.round((pyInv(y) - log10(BASE)) * 20) / 20, 0, 6)) })"
         @keydown.up.prevent="logOut = Math.min(6, logOut + 0.25)" @keydown.down.prevent="logOut = Math.max(0, logOut - 0.25)"
       />
@@ -50,7 +51,9 @@
         ><title>#{{ i }}: x = {{ x[i].toExponential(2) }}, Q(x) = {{ row.q[i].toExponential(2) }}, 误差 {{ (e * 100).toFixed(0) }}%</title></rect>
       </g>
     </svg>
-    <p class="lab-note">红 = 被冲成 0 (误差 100%), 黄越深误差越大。红色虚线 = 该 block 里能表示的最小非零值的一半, 柱子低于它就归零。</p>
+    <p class="lab-note">
+      <i class="sw z" /> 被冲成 0 (误差 100%) <i class="sw e" /> 有误差, 颜色越深误差越大 <i class="sw f" /> 虚线 = 该 block 里能表示的最小非零值的一半, 柱子低于它就归零。
+    </p>
 
     <template #stats>
       <div class="kv"><span>整张量 scale: 归零元素</span><b :class="tensorRes.zeros ? 'bad' : 'good'">{{ tensorRes.zeros }} / 64</b></div>
@@ -128,9 +131,15 @@ const pct = (v) => (v * 100).toFixed(1) + '%'
 .grid { stroke: var(--border); }
 .tick { font-size: 9px; fill: var(--text-dim); font-family: "SF Mono", Menlo, monospace; }
 .bar { fill: var(--text-dim); cursor: pointer; outline: none; }
-.bar:hover, .bar:focus-visible { fill: var(--accent); }
+.bar:hover { fill: var(--accent); }
 .bar.out { fill: var(--eye); }
 .floor { stroke: var(--danger); stroke-dasharray: 3 2; stroke-width: 1.5; }
 .handle { fill: var(--eye); stroke: var(--bg-card); stroke-width: 2; }
 .errc { stroke: var(--border); stroke-width: 0.5; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 8px; vertical-align: -1px; }
+.sw:first-child { margin-left: 0; }
+.sw.z { background: var(--danger); }
+.sw.e { background: color-mix(in srgb, var(--warn) 60%, transparent); }
+.sw.f { height: 0; border-top: 2px dashed var(--danger); vertical-align: 3px; }
+.handle:focus-visible { stroke: var(--text); }
 </style>

@@ -19,26 +19,28 @@ def main():
     banner("M02 - Paged Attention: 显存的虚拟内存")
 
     # --- 1) 多序列并发分配 ---------------------------------------- #
-    print("\n[1] 多序列并发分配 (pool=8 blocks, block_size=4)")
     bm = BlockManager(num_blocks=8, block_size=4)
+    print(f"\n[1] 多序列并发分配 (pool={bm.num_blocks} blocks, block_size={bm.block_size})")
     bm.allocate(seq_id=101, n_tokens=10)  # ceil(10/4)=3 blocks
     bm.allocate(seq_id=102, n_tokens=6)   # ceil(6/4) =2 blocks
     bm.allocate(seq_id=103, n_tokens=3)   # 1 block
     print(f"  seq 101 block_table: {bm.block_table(101)}")
     print(f"  seq 102 block_table: {bm.block_table(102)}")
     print(f"  seq 103 block_table: {bm.block_table(103)}")
-    print(f"  pool stats:          {bm.stats()}")
+    print(f"  pool 状态:           {bm.stats()}")
 
     # --- 2) 序列结束, block 自动归还 ----------------------------- #
     print("\n[2] seq 102 结束, 它的 block 立即被 free_list 吃掉")
     bm.free(102)
-    print(f"  pool stats:          {bm.stats()}")
+    print(f"  pool 状态:           {bm.stats()}")
     print(f"  free_list:           {list(bm.free_list)}")
 
     # --- 3) 序列追加 token, 必要时分配新 block -------------------- #
-    print("\n[3] seq 101 增长到 13 token, 触发新 block 分配")
-    blk = bm.append(seq_id=101, current_len=12)   # 12→13, 13/4=3 block 满, 需新 block
-    print(f"  appended new block: {blk}")
+    cur = 12                                     # 3 个 block 刚好装满的长度
+    print(f"\n[3] seq 101 增长到 {cur + 1} token, 触发新 block 分配")
+    # 3 个 block 装满 12 个 token, 第 13 个要第 4 个 block (跳过 11、12, 只演示跨 block 的那一步)
+    blk = bm.append(seq_id=101, current_len=cur)
+    print(f"  新分配的 block:      {blk}")
     print(f"  seq 101 block_table: {bm.block_table(101)}")
 
     # --- 4) 池子用满, 申请失败 ----------------------------------- #
@@ -73,19 +75,19 @@ def main():
 
     diff = np.max(np.abs(out_paged - out_dense))
     kv("max |paged - dense|", f"{diff:.2e}")
-    assert diff < 1e-6, "paged_attention 实现错误"
+    assert diff < 1e-6, f"decode (T_q=1): 分页 KV 上的 attention 必须等于连续 KV, 实际差 {diff:.2e}"
 
     # chunked prefill 形状: 最后 5 个 token 一起当 query, 因果 mask 对齐尾部
     Q5 = rs.randn(5, D).astype(np.float32)
     diff5 = np.max(np.abs(paged_attention(Q5, k_pool, v_pool, table, ctx_len=T)
                           - dense_attention(Q5, K_full, V_full)))
     kv("[6] T_q=5 (prefill chunk) max diff", f"{diff5:.2e}")
-    assert diff5 < 1e-6
+    assert diff5 < 1e-6, f"prefill chunk (T_q=5): 分页 KV 上的 attention 必须等于连续 KV, 实际差 {diff5:.2e}"
     K_back, _ = gather_kv(k_pool, v_pool, table, T)
-    assert np.array_equal(K_back, K_full)
-    waste = len(table) * block_size - T
+    assert np.array_equal(K_back, K_full), "写进 pool 再按页表读回的 K 必须与原数组逐元素相同"
+    waste = len(table) * block_size - T                  # 已分配的槽位数 - 实际 token 数
     kv("内碎片 (末页空槽)", f"{waste} / {len(table) * block_size} slot, 上界 block_size-1={block_size - 1}")
-    assert waste < block_size
+    assert waste < block_size, f"内碎片只出现在最后一页, 应小于 block_size={block_size}, 实际 {waste}"
     print("  ✓ 数值一致, 分页对外语义透明")
 
 

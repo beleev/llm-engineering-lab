@@ -23,6 +23,15 @@ python -m llm_models.run_models.multimodal.whisper.train_whisper
   远低于"不听音频"的理论下界 ln 2 = 0.693 ⇒ cross-attention 在起作用。若换成默认 N(0,1) 初始化 + 绑权重: 初始 loss 是 **82.30**。
 - 数据是固定随机 batch: 这是记忆, 不是语音识别。
 
+## 与真实系统的差距
+- **规模**: 编码器和解码器各 2 层、d_model=128, 音频 50~100 帧。类的默认参数是各 6 层、d_model=512; 真实输入是 3000 帧 (30 秒)。
+- **数据是合成的**: mel 是 `randn` 出来的 `[B, 80, T_mel]`, 不是从波形算的 log-mel 声谱。文本是随机 token, 固定 2 条样本。
+- **没有音频前处理**: 重采样、分帧、mel 滤波都不在库里。
+- **task token 只是普通 token**: 语言、转写 / 翻译、时间戳这些控制符没有实现, 也没有多任务数据。
+- **解码没有 KV cache**: encoder 只跑一次, 但 decoder 每步重跑整个前缀, cross-attn 的 K/V 也每步重算。只有贪心, 没有 beam search。
+- **decoder 没有 padding mask**: 一个 batch 里文本长短不一时没法屏蔽 pad。
+- **本库约定在这里的情况**: decoder 的 `lm_head` 与 embedding 共享权重, embedding 不乘 √D。
+
 ## 常见误区
 - "Whisper 需要专门的语音架构" —— 除了 Conv stem, 其余与 2017 Transformer 完全相同; 能力来自 68 万小时弱监督数据。
 - "音频和文本拼成一条序列" —— 那是 Qwen2-Audio / Omni 的 prefix 路线; Whisper 的音频只通过 cross-attn 的 K/V 进入 decoder。

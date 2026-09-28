@@ -1,14 +1,14 @@
 <template>
   <nav class="chapter-nav">
     <router-link v-if="prev" :to="{ name: prev.name }" class="nav-side prev">
-      <span class="dir">← 上一章</span>
+      <span class="dir">← 上一章<template v-if="levelLabel"> · {{ levelLabel }}档</template></span>
       <span class="title">{{ prev.label }}</span>
       <span v-if="prev.hint" class="hint">{{ prev.hint }}</span>
     </router-link>
     <span v-else class="nav-side disabled" />
 
     <router-link v-if="next" :to="{ name: next.name }" class="nav-side next">
-      <span class="dir">下一章 →</span>
+      <span class="dir">下一章<template v-if="levelLabel"> · {{ levelLabel }}档</template> →</span>
       <span class="title">{{ next.label }}</span>
       <span v-if="next.hint" class="hint">{{ next.hint }}</span>
     </router-link>
@@ -17,21 +17,23 @@
 </template>
 
 <script setup>
-// 上一章 / 下一章 一律从 learningPath 推导 —— 手写的 prev/next 容易在插入新章后过期。
-// 传入的 props 只在当前路由不在 learningPath 里时兜底。
+// 上一章 / 下一章由 useChapterNav 从 learningPath 推, 并按当前阅读档位过滤。
+//
+// props 什么时候生效:
+//   当前路由在 learningPath 里 (所有章节页) → 忽略 props, 用推出来的结果。
+//     手写的 prev / next 在插入新章后会过期, 所以章节页上传进来的值不会被采用。
+//   当前路由不在 learningPath 里 (速成路线、术语速查、兜底页) → 用 props。
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { learningPath } from '@/data/models.js'
+import { useChapterNav } from '@/composables/useChapterNav.js'
 
 const props = defineProps({
-  prev: { type: Object, default: null },
+  prev: { type: Object, default: null },   // { name, label, hint? }, 只在路由不属于 learningPath 时使用
   next: { type: Object, default: null },
 })
-const route = useRoute()
-const at = computed(() => learningPath.findIndex((p) => p.route === route.name))
-const toNav = (p) => (p ? { name: p.route, label: p.label } : null)
-const prev = computed(() => (at.value >= 0 ? toNav(learningPath[at.value - 1]) : props.prev))
-const next = computed(() => (at.value >= 0 ? toNav(learningPath[at.value + 1]) : props.next))
+const nav = useChapterNav()
+const levelLabel = computed(() => (nav.inPath.value ? nav.levelLabel.value : ''))
+const prev = computed(() => (nav.inPath.value ? nav.prev.value : props.prev))
+const next = computed(() => (nav.inPath.value ? nav.next.value : props.next))
 </script>
 
 <style scoped>

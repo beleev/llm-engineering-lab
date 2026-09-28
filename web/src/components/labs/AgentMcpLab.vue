@@ -41,9 +41,9 @@
     <template #stats>
       <div class="kv"><span>已发 JSON-RPC 请求</span><b>{{ sent.requests }}</b></div>
       <div class="kv"><span>到达 server 的 tools/call</span><b :class="sent.calls ? '' : 'good'">{{ sent.calls }}</b></div>
-      <div class="kv"><span>模型看到的工具名</span><b class="small">mcp__weather__get_weather</b></div>
+      <div class="kv"><span>stdio 上已走的 JSON 行 (发 / 收)</span><b>{{ sent.out }} / {{ sent.back }}</b></div>
       <div class="kv"><span>结局</span><b :class="outcome.cls">{{ outcome.text }}</b></div>
-      <p class="lab-note">前缀 <code class="inline">mcp__server__tool</code> 有两个用途: 防止和内置工具重名; 让一条规则就能管住整个 server。发给 server 时前缀会被剥掉, 还原成它自己的工具名。</p>
+      <p class="lab-note">模型看到的工具名是 <code class="inline">mcp__weather__get_weather</code>。前缀 <code class="inline">mcp__server__tool</code> 有两个用途: 防止和内置工具重名; 让一条规则就能管住整个 server。发给 server 时前缀会被剥掉, 还原成它自己的工具名。</p>
     </template>
   </LabFrame>
 </template>
@@ -105,8 +105,10 @@ const stepper = useStepper(() => steps.value.length, { interval: 1100 })
 watch(steps, (s) => { stepper.pause(); stepper.step.value = s.length - 1 }, { immediate: true })
 const cur = computed(() => steps.value[stepper.step.value] || steps.value[0])
 const sent = computed(() => {
-  const seen = steps.value.slice(0, stepper.step.value + 1).filter((s) => s.dir === 'req' && s.json.id)
-  return { requests: seen.length, calls: seen.filter((s) => s.json.method === 'tools/call').length }
+  const past = steps.value.slice(0, stepper.step.value + 1)
+  const seen = past.filter((s) => s.dir === 'req' && s.json.id)
+  // 发 = 请求 + 通知 (通知没有 id, 也占一行); 收 = 响应
+  return { requests: seen.length, calls: seen.filter((s) => s.json.method === 'tools/call').length, out: past.filter((s) => s.dir === 'req').length, back: past.filter((s) => s.dir === 'res').length }
 })
 const outcome = computed(() => {
   const last = steps.value[steps.value.length - 1]

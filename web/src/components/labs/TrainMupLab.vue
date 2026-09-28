@@ -3,6 +3,7 @@
   只讲一件事: SP 下最优 lr 随宽度左移, 小模型调好的 lr 搬不过去; μP 下三个宽度的最优点对齐。
   loss 表逐格抄自 m20 demo 输出的 [SP] / [μP] 两张表 (150 步 Adam, 线性衰减到 0, 最后 10 步平均)。
   这是真训出来的数, 浏览器里不重跑, 只做查表和比较。
+  SP 与 μP 只差三处 / m: 输出层初始化的标准差一处 (方差除 m²), 隐藏层和输出层的 lr 各一处。
 -->
 <template>
   <LabFrame
@@ -13,7 +14,7 @@
     run="python -m llm_train.m20_mup.demo"
     :challenge="{
       ask: 'SP 下宽度 ×16, 最优 lr 应该缩多少? m20 实测缩了多少?',
-      answer: '- 按直觉: 宽 16 倍, lr 该缩 16 倍 (左移 4 格)。\n- 实测: −5 → −11, 左移 6 格, 缩了 64 倍, 比 $1/\\text{width}$ 还多。宽 512 的 SP 曲线在 −9 到 −7 之间也不光滑, 是短训练加大 lr 的不稳定。\n- μP: 隐藏层和输出层的 lr 除以 $m = \\text{width}/32$, 输出层初始化也多除 $m$。三个宽度的最优点都落在 $2^{-5}$, 且同一 lr 下越宽越好。\n直觉的来由: Adam 每个元素的更新约等于 lr, 与梯度大小无关。隐藏层有 width 个输入, width 个同向小更新叠加, 激活的变化 $\\propto \\text{lr} \\cdot \\text{width}$。\n注意: 最优点附近很平 (宽 512: 0.0090 / 0.0088 / 0.0101)。常数 lr 时, μP 的最优会在 −5 / −7 / −8 之间漂。',
+      answer: '- 按直觉: 宽 16 倍, lr 该缩 16 倍 (左移 4 格)。\n- 实测: −5 → −11, 左移 6 格, 缩了 64 倍, 比 $1/\\text{width}$ 还多。宽 512 的 SP 曲线在 −9 到 −7 之间也不光滑, 是短训练加大 lr 的不稳定。\n- μP: 隐藏层和输出层的 lr 除以 $m = \\text{width}/32$, 输出层初始化的标准差也多除 $m$ (方差除 $m^2$)。三个宽度的最优点都落在 $2^{-5}$, 且同一 lr 下越宽越好。\n直觉的来由: Adam 每个元素的更新约等于 lr, 与梯度大小无关。隐藏层有 width 个输入, width 个同向小更新叠加, 激活的变化 $\\propto \\text{lr} \\cdot \\text{width}$。\n注意: 最优点附近很平 (宽 512: 0.0090 / 0.0088 / 0.0101)。常数 lr 时, μP 的最优会在 −5 / −7 / −8 之间漂。',
     }"
   >
     <template #controls>
@@ -24,15 +25,19 @@
       </div>
     </template>
 
-    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="三个宽度的 loss 随学习率变化">
+    <svg :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="三个宽度的 loss 随学习率变化, 点一列选学习率">
       <g v-for="t in [0.01, 0.03, 0.1, 0.3]" :key="t">
         <line :x1="X0" :x2="W - 10" :y1="py(t)" :y2="py(t)" class="grid" />
         <text :x="X0 - 5" :y="py(t) + 3" class="tick" text-anchor="end">{{ t }}</text>
       </g>
-      <g v-for="(lg, i) in LRS" :key="lg">
-        <rect :x="px(i) - CW / 2" y="4" :width="CW" :height="H - 26" class="col" :class="{ on: pick === i }" tabindex="0" role="button"
-          :aria-label="`选 lr = 2^${lg}`" @click="pick = i" @keydown.enter="pick = i" />
-        <text :x="px(i)" :y="H - 8" class="tick" text-anchor="middle">{{ lg }}</text>
+      <!-- 10 列只占一个 Tab 停靠点, 左右方向键换列 -->
+      <g class="cols" tabindex="0" role="slider" aria-label="在 base 上选的 log2 学习率, 左右方向键切换"
+        :aria-valuemin="LRS[0]" :aria-valuemax="LRS[LRS.length - 1]" :aria-valuenow="LRS[pick]"
+        @keydown.left.prevent="pick = Math.max(0, pick - 1)" @keydown.right.prevent="pick = Math.min(LRS.length - 1, pick + 1)">
+        <g v-for="(lg, i) in LRS" :key="lg">
+          <rect :x="px(i) - CW / 2" y="4" :width="CW" :height="H - 26" class="col" :class="{ on: pick === i }" @click="pick = i" />
+          <text :x="px(i)" :y="H - 8" class="tick" text-anchor="middle">{{ lg }}</text>
+        </g>
       </g>
       <g v-for="(w, k) in WIDTHS" :key="w" class="curves">
         <polyline :points="TABLE[pz][k].map((v, i) => `${px(i)},${py(v)}`).join(' ')" fill="none" :stroke="COLORS[k]" stroke-width="2" />
@@ -47,7 +52,11 @@
       <div class="kv"><span>选的 lr = 2^{{ LRS[pick] }}: 宽 512 的 loss</span><b>{{ TABLE[pz][2][pick].toFixed(4) }}</b></div>
       <div class="kv"><span>宽 512 自己的最优</span><b>{{ TABLE[pz][2][best(2)].toFixed(4) }}</b></div>
       <div class="kv"><span>搬过去亏了</span><b :class="ratio < 1.2 ? 'good' : 'bad'">×{{ ratio.toFixed(2) }}</b></div>
-      <p class="lab-note">★ SP 与 μP 的全部差别在 init_and_lrs 的两处 /m。宽 32 时 m=1, 两张表的第一行完全相同。</p>
+      <div class="lab-note">
+        <p>★ SP 与 μP 的全部差别是 init_and_lrs 里的三处 / m: 输出层初始化的标准差一处 (方差除 m²), 隐藏层和输出层的 lr 各一处。</p>
+        <p>宽 32 时 m=1, 两张表的第一行完全相同。</p>
+        <p>三条曲线是 m20 demo 的实测表, 浏览器里不重跑, 只查表。</p>
+      </div>
     </template>
   </LabFrame>
 </template>
@@ -88,5 +97,7 @@ const py = (v) => 8 + (1 - (Math.log10(v) - YLO) / (YHI - YLO)) * (H - 34)
 .col { fill: transparent; cursor: pointer; }
 .col:hover { fill: var(--accent-soft); }
 .col.on { fill: var(--accent-soft); }
+.cols { outline: none; }
+.cols:focus-visible .col.on { stroke: var(--accent); stroke-width: 2; }
 .curves { pointer-events: none; }
 </style>

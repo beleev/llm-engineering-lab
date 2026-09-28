@@ -6,6 +6,8 @@
   2. summarize_with_llm  让模型写结构化摘要, 替换掉旧历史 (有损, 花一次模型调用)
   3. truncate_messages   头尾保留 + 中间硬截 (最差: 消息被拍平成文本, tool_use/tool_result 结构全部抹掉, 仅作反例)
 对应: Claude API 的 context editing (clear_tool_uses) 与 compaction; Claude Code 的 /compact 和 CLAUDE.md。
+差异: CLAUDE.md 是整份载入上下文。这里的 FileMemory 按当前 prompt 做关键词检索, 每次最多取 3 个文件。
+  预算的单位是字符 (total_chars), 不是 token。
 """
 
 from __future__ import annotations
@@ -28,12 +30,15 @@ class FileMemory:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def add(self, title: str, body: str) -> Path:
+        """写一条记忆, 返回文件路径。同名的会被覆盖。"""
+        # 标题要当文件名用: 只留字母、数字、下划线、连字符和汉字, 其余换成 "_"
         safe = re.sub(r"[^a-zA-Z0-9_\-一-鿿]+", "_", title).strip("_")
         path = self.root / f"{safe or 'memory'}.md"
         path.write_text(f"# {title}\n\n{body.strip()}\n", encoding="utf-8")
         return path
 
     def search(self, query: str, limit: int = 3) -> List[Tuple[str, str]]:
+        """按"和 query 共有几个词"打分, 返回得分最高的 limit 个 (文件名, 全文)。0 分的不返回。"""
         q = set(tokenize(query))
         hits = []
         for path in sorted(self.root.glob("*.md")):
@@ -46,11 +51,13 @@ class FileMemory:
 
 
 def memory_messages(memory: FileMemory, query: str) -> List[Message]:
+    """检索记忆, 每个命中的文件包成一条 name="memory" 的 system 消息。"""
     # 每轮按当前 prompt 现查现拼, 不写进 transcript: 记忆文件改了, 下一轮立刻生效
     return [Message("system", f"Memory {name}:\n{text}", name="memory") for name, text in memory.search(query)]
 
 
 def total_chars(messages: Iterable[Message]) -> int:
+    """消息拍平成文本后的总字符数。上下文预算就是拿它和 context_budget_chars 比。"""
     return sum(len(m.text) for m in messages)
 
 
@@ -59,13 +66,15 @@ def clear_tool_results(messages: List[Message], keep_last: int = 1) -> List[Mess
 
     工具结果通常是上下文里最胖、也最快过时的部分; tool_use/tool_result 的配对结构原样保留。
     """
-    ids = [b["tool_use_id"] for m in messages for b in m.tool_results()]
+    ids = [b["tool_use_id"] for m in messages for b in m.tool_results()]  # 按出现顺序, 越靠后越新
+    # 要清掉的 id。keep_last=0 单独判断, 因为 ids[:-0] 是空列表, 会变成一个也不清
     stale = set(ids[:-keep_last] if keep_last else ids)
     out = []
     for m in messages:
         if not any(b["tool_use_id"] in stale for b in m.tool_results()):
             out.append(m)
             continue
+        # 占位符里写明原文有多少字符
         blocks = [
             {**b, "content": f"[cleared: {len(str(b['content']))} chars]"}
             if b["type"] == "tool_result" and b["tool_use_id"] in stale
@@ -79,6 +88,7 @@ def clear_tool_results(messages: List[Message], keep_last: int = 1) -> List[Mess
 def summarize_with_llm(llm, messages: List[Message], keep: str = "") -> Message:
     """压缩 = 再调一次模型。keep 来自 pre_compact hook: 人指定"摘要里必须留下什么"。"""
     ask = Message("user", COMPACT_PROMPT + (f"\n必须保留: {keep}" if keep else ""))
+    # 摘要请求 = 旧历史 + 一条"请压缩"的 user 消息; 工具列表传空, 不让模型在这一步调工具
     summary = llm.next(list(messages) + [ask], []).content
     return Message("system", f"[compact summary of {len(messages)} messages]\n{summary}", name="compact_summary")
 
@@ -87,9 +97,10 @@ def truncate_messages(messages: List[Message], max_chars: int) -> List[Message]:
     """反例基线: 头 2 条 + 尾 2 条, 中间每条只留 32 字符。便宜, 但语义和配对结构都会坏。"""
     if total_chars(messages) <= max_chars or len(messages) <= 4:
         return list(messages)
-    edge = max(40, max_chars // 6)
+    edge = max(40, max_chars // 6)  # 头尾每条最多留这么多字符: 预算的 1/6, 下限 40
     clip = lambda m: Message(m.role, m.text[:edge], m.name)  # noqa: E731
     head, tail, middle = [clip(m) for m in messages[:2]], [clip(m) for m in messages[-2:]], messages[2:-2]
+    # 留给中间那条概要的字符数: 预算减去头尾, 再留 80 字符余量; 下限 80
     room = max(80, max_chars - total_chars(head) - total_chars(tail) - 80)
     gist = " | ".join(f"{m.role}:{m.text[:32]}" for m in middle)[:room]
     return head + [Message("system", f"[truncated {len(middle)} messages] {gist}", name="compact_summary")] + tail

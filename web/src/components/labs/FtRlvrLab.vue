@@ -7,12 +7,12 @@
   <LabFrame
     title="可验证奖励要「看题」— 否则 RL 只学会一个常数"
     sub="每一行是一个 prompt, 右边 10 个格子是策略可能输出的答案 token。点格子 = 决定策略在这道题上输出什么; 绿框 = 当前奖励函数会给 1 分的输出。
-      先用「常数策略」(无视 prompt, 所有题输出同一个 token) 试着拿满分。"
+      一打开是「看题奖励」加「常数策略」(无视 prompt, 所有题输出同一个 token)。先试着用它拿满分。"
     module="llm_finetune/data/tasks.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
-      ask: '「区域奖励」下, 常数策略最高能拿多少分? 再切到「看题奖励 (a+b) mod 10」。常数策略最高还能拿多少? 绿框的形状从什么变成了什么?',
-      answer: '- 区域奖励 (token ≥ 5 就给分): 绿框是几条竖带, 每一行可行的输出都一样。永远输出 7 的常数策略就是满分 100%。训练曲线很漂亮, 但策略根本没读 prompt, 学到的是一个 unigram 偏好, 不是任务。\n- 看题奖励: 每行只有一个绿框, 位置随 prompt 变。常数策略最多蒙对 4 题里的 1 题 (25%), 要拿满分必须让输出依赖输入。\n这是教学用 RL 任务最容易踩的坑: 验证「RL 管线能让 reward 上升」和验证「RL 学会了条件行为」是两回事。\n真实 RLVR (数学答案、单元测试) 天然是看题的。自己造玩具任务时要主动保证这一点, 并单独报告「常数基线」的得分。',
+      ask: '「看题奖励 (a+b) mod 10」下, 点格子换常数策略的输出, 最高能拿多少分? 先猜再点: 切到「区域奖励」后, 常数策略最高能拿多少? 绿框的形状从什么变成了什么?',
+      answer: '- 看题奖励: 每行只有一个绿框, 位置随 prompt 变。常数策略最多蒙对 4 题里的 1 题 (25%), 要拿满分必须让输出依赖输入。\n- 区域奖励 (token ≥ 5 就给分): 绿框是几条竖带, 每一行可行的输出都一样。永远输出 7 的常数策略就是满分 100%。训练曲线很漂亮, 但策略根本没读 prompt, 学到的是一个 unigram 偏好, 不是任务。\n这是教学用 RL 任务最容易踩的坑: 验证「RL 管线能让 reward 上升」和验证「RL 学会了条件行为」是两回事。\n真实 RLVR (数学答案、单元测试) 天然是看题的。自己造玩具任务时要主动保证这一点, 并单独报告「常数基线」的得分。',
     }"
   >
     <template #controls>
@@ -61,7 +61,8 @@ import { computed, ref, watch } from 'vue'
 import LabFrame from '@/components/lab/LabFrame.vue'
 import { mulberry32, range, sum } from '@/utils/labmath.js'
 
-const reward = ref('region'), constant = ref(true), seed = ref(1)
+// 默认是看题奖励: 常数策略拿不到满分。切到区域奖励才会看到 100%, 留给读者自己去点
+const reward = ref('sum'), constant = ref(true), seed = ref(1)
 
 // 4 道题, 保证答案两两不同 (否则常数策略能蒙对不止一题, 对比不够干净)
 const prompts = computed(() => {

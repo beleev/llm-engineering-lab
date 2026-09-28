@@ -8,7 +8,7 @@
 
 前缀感知路由问每个副本"你缓存里有这个请求多长的前缀", 送给最长的那个。命中率一下子上去了, 但新问题来了:
 - 所有新对话都带着同一个热门 system prompt, 只有最先缓存它的副本能命中 → 全挤过去。
-- 其它副本闲着, 热点副本队列越排越长。
+- 其它副本闲着, 热点副本队列越排越长, TTFT (首 token 延迟) 跟着涨。
 
 治法是**负载阈值兜底**:
 - 最佳副本比最闲副本积压多出阈值, 就放弃缓存, 走最少负载。
@@ -40,7 +40,7 @@ python -m llm_infer.m27_multi_replica_routing.demo     # ≈ 2.5 s
 ```
 ```
 1084 个请求, prompt 共 1,133,527 tokens; 8 副本, 每个缓存 24,000 tokens; prefill 1000 tok/s, decode 100 tok/s (估算)
-[1] policy                  命中率    miss  max/mean  TTFT 均值  TTFT p90 (秒, 估算)
+[1] 策略                    命中率    miss  max/mean  TTFT 均值  TTFT p90 (秒, 估算)
     round_robin              59.3%   40.7%     1.03      0.507     1.090
     least_load               59.3%   40.7%     1.02      0.469     0.999
     prefix (最长前缀匹配)     93.9%    6.1%     4.18    105.954   300.605
@@ -58,7 +58,7 @@ python -m llm_infer.m27_multi_replica_routing.demo     # ≈ 2.5 s
 - thr=1s 时 max/mean < 1.5、命中率比最少负载高 15 个百分点以上、TTFT < 0.8× 最少负载。
 - 阈值越紧命中率越低、越均衡; TTFT 最优阈值落在扫描范围中间。
 
-## 与真实系统的差距 (诚实边界)
+## 与真实系统的差距
 - **TTFT 和负载都来自代价模型**: 每个副本是一条 FIFO 工作队列, prefill 与 decode 按固定速度串行消化。
   - 真实引擎做 continuous batching, decode 不会整段挡住后来请求的 prefill。
   - 真实引擎过载表现为 batch 变大、TPOT 变差、KV 显存打满后排队。

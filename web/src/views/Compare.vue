@@ -22,17 +22,18 @@
         { path: 'llm_infer/' },
         { path: 'llm_agent/' },
       ]"
-      :prereq="{ name: 'agent-full-loop', label: '阶段 6.6 · mini Agent harness' }"
+      :prereq="prevChapter"
     />
 
     <!-- 过滤器 -->
-    <div class="btn-group" style="margin-bottom: 16px;">
-      <button :class="{ active: trackFilter === null }" @click="trackFilter = null">全部</button>
-      <button v-for="(t, k) in tracks" :key="k"
+    <div class="btn-group" style="margin-bottom: 16px;" role="group" aria-label="按主线筛选模型">
+      <button type="button" :class="{ active: trackFilter === null }" :aria-pressed="trackFilter === null" @click="trackFilter = null">全部</button>
+      <button v-for="(t, k) in tracks" :key="k" type="button"
               :class="{ active: trackFilter === k }"
+              :aria-pressed="trackFilter === k"
               @click="trackFilter = k">
         <span class="dot" :style="{ background: t.color }"></span>
-        {{ t.label }}
+        {{ trackName(k) }}
       </button>
     </div>
 
@@ -54,7 +55,7 @@
           <tr v-for="m in filtered" :key="m.id"
               :class="{ highlight: focusId === m.id }">
             <td>
-              <span :class="['pill', tracks[m.track].cls]" style="font-size: 10px;">{{ trackShort(m.track) }}</span>
+              <span :class="['pill', tracks[m.track].cls]" style="font-size: 10px;">{{ trackName(m.track) }}</span>
               <strong>{{ m.name }}</strong>
             </td>
             <td class="mono muted">{{ m.year }}</td>
@@ -142,10 +143,10 @@
           <h3>llm_basic · 最小闭环</h3>
           <p class="desc">numpy 手写 forward / backward / Adam / 采样</p>
         </router-link>
-        <router-link :to="{ name: 'attention' }" class="card chapter-card">
+        <router-link :to="{ name: 'models' }" class="card chapter-card">
           <div class="chapter-idx">2</div>
           <h3>llm_models · 架构家族</h3>
-          <p class="desc">Attention / Position / Blocks / MoE / Diffusion 五章合集</p>
+          <p class="desc">注意力 / 位置编码 / Block / MoE / 扩散等 {{ modelChapters.length }} 章</p>
         </router-link>
         <router-link :to="{ name: 'train' }" class="card chapter-card">
           <div class="chapter-idx">3</div>
@@ -178,7 +179,7 @@
 
 
     <ChapterNav
-      :prev="{ name: 'agent-full-loop', label: '阶段 6.6 · mini Agent harness', hint: '从应用层闭环回到全局地图' }"
+      :prev="{ ...prevChapter, hint: '从应用层闭环回到全局地图' }"
       :next="{ name: 'home', label: '返回主线总览', hint: '六阶段地图全景重看一遍' }"
     />
   </div>
@@ -189,7 +190,7 @@ import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { tracks, timeline } from '@/data/models.js'
+import { tracks, timeline, learningPath, modelChapters, trainModules, inferModules, agentModules } from '@/data/models.js'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import RepoLink from '@/components/RepoLink.vue'
@@ -213,6 +214,16 @@ const prefixForCode = (code, p) => {
   return `${code}${p}`
 }
 
+// 上一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)。本页是最后一章, 没有下一章
+const prevItem = learningPath[learningPath.findIndex((x) => x.route === 'compare') - 1]
+const prevChapter = { name: prevItem.route, label: `上一章 · ${prevItem.label}` }
+
+// 'm01..m21' 这样的模块范围从数据里数, 不写死 (模块表里除了 mNN 还有一行 full)
+const moduleSpan = (mods) => {
+  const n = mods.filter((m) => /^m\d+$/.test(m.id)).length
+  return `m01..m${String(n).padStart(2, '0')}`
+}
+
 const route = useRoute()
 const focusId = ref(route.query.focus || null)
 const trackFilter = ref(null)
@@ -223,10 +234,11 @@ const filtered = computed(() => {
   return sorted.filter(m => m.track === trackFilter.value)
 })
 
-const trackShort = (k) => ({ left: '语言', eye: '多模', right: '生成' }[k])
+// 三条线的叫法: 语言 / 多模态理解 / 图像视频生成
+const trackName = (k) => ({ left: '语言', eye: '多模态理解', right: '图像视频生成' }[k])
 
 const tradeoffs = [
-  { topic: 'Normalization',    early: 'Post-LN (需 warmup)', modern: 'Pre-LN + RMSNorm',
+  { topic: '归一化',           early: 'Post-LN (需 warmup)', modern: 'Pre-LN + RMSNorm',
     file: 'layers/core/{blocks,normalization}.py' },
   { topic: 'FFN 激活',         early: 'ReLU',               modern: 'GELU → SwiGLU (门控)',
     file: 'layers/core/feedforward.py' },
@@ -238,7 +250,7 @@ const tradeoffs = [
     file: 'layers/sparse/moe.py + models/moe/deepseekV3.py' },
   { topic: '序列建模',          early: 'Attention O(T²)',   modern: 'Mamba SSM O(T) / DSA O(T·k)',
     file: 'layers/sparse/ssm.py + layers/core/attention.py' },
-  { topic: '多模态融合',        early: 'Cross-attention (Flamingo)', modern: 'Prefix-token (VL) / 双脑 (Omni)',
+  { topic: '多模态融合',        early: 'Cross-attention (Flamingo)', modern: 'Prefix-token (VL) / Thinker + Talker (Omni)',
     file: 'models/multimodal/{qwen2_vl,qwen2_5_omni}.py' },
   { topic: '多模态对齐',        early: 'VSE++ triplet',      modern: 'CLIP 对称对比 + 可学温度',
     file: 'models/multimodal/clip.py' },
@@ -267,7 +279,7 @@ const projectRows = [
     code: 'llm_train/',
     question: '同一个训练循环如何扩到多卡并保持等价?',
     link: '把 loss/grad/update 拆成 batch、矩阵、层、状态、精度和通信。',
-    file: 'm01..m21/demo.py · full_loop/demo.py',
+    file: `${moduleSpan(trainModules)}/demo.py · full_loop/demo.py`,
   },
   {
     code: 'llm_finetune/',
@@ -279,13 +291,13 @@ const projectRows = [
     code: 'llm_infer/',
     question: '训练好的模型如何低延迟、高吞吐、可控地产出 token?',
     link: '把自回归生成接上 KV cache、分页、调度、前缀复用和采样约束。',
-    file: 'm01..m27/demo.py · full_engine/engine.py',
+    file: `${moduleSpan(inferModules)}/demo.py · full_engine/engine.py`,
   },
   {
     code: 'llm_agent/',
     question: '推理服务如何变成能调用工具、保留状态、隔离子任务的系统?',
     link: '把模型输出接上工具、权限、上下文、记忆、Hook、持久化和子智能体。',
-    file: 'm01..m08/demo.py · full_loop/demo.py',
+    file: `${moduleSpan(agentModules)}/demo.py · full_loop/demo.py`,
   },
 ]
 </script>

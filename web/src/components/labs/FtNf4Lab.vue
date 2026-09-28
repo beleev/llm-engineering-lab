@@ -15,7 +15,7 @@
     run="python -m llm_finetune.run_finetune.qlora.train_qlora"
     :challenge="{
       ask: '先把 outlier 拖回 0: NF4 和 INT4 的「有效比特」各是多少? 再把 outlier 拖到 8σ、block 调到 256, 然后只把 block 缩到 16: RMSE 为什么大幅回落, 代价是什么?',
-      answer: '没有 outlier、$B=64$ 时:\n- NF4: 16 个码几乎被等概率使用, 熵约 3.9 bit, 4 bit 的容量基本吃满。\n- INT4: 等间距, 两端的码很少有人用, 熵只有 3.4–3.5 bit, RMSE 也高出约 20%。\n这就是「分位数码本适合正态权重」的含义: 权重密的地方码点也密。\noutlier 的伤害范围 = 它所在的那一个 block: absmax 被它撑大, 同 block 其余权重全挤进中间几个码点。$B=256$、$8\\sigma$ 时, NF4 的 RMSE 从约 0.10 涨到 0.16, INT4 涨到 0.26。\nblock 越小被连累的权重越少, 但每个 block 要多存一个 FP32 scale: $4 + 32/B$ bit/参数。$B=64$ 是 4.5 bit, $B=16$ 已经 6 bit。\nQLoRA 的双重量化就是把这些 scale 再压到 8 bit, 抵消这部分开销。',
+      answer: '- 没有 outlier、$B=64$: NF4 的 16 个码几乎被等概率使用, 熵约 3.9 bit, 4 bit 的容量基本吃满。INT4 等间距, 两端的码很少有人用, 熵只有 3.4–3.5 bit, RMSE 也高出约 20%。分位数码本适合正态权重, 因为权重密的地方码点也密。\n- outlier: 它伤到的是自己所在的那一个 block。absmax 被它撑大, 同 block 其余权重全挤进中间几个码点。$B=256$、$8\\sigma$ 时, NF4 的 RMSE 从约 0.10 涨到 0.16, INT4 涨到 0.26。\n- block 缩小: 被连累的权重变少, 但每个 block 要多存一个 FP32 scale, 存储是 $4 + 32/B$ bit/参数。$B=64$ 是 4.5 bit, $B=16$ 已经 6 bit。\n- 双重量化: QLoRA 把这些 scale 再压到 8 bit, 抵消这部分开销。',
     }"
   >
     <template #controls>
@@ -28,7 +28,7 @@
       <LabSlider v-model="logB" label="block 大小 B" :min="4" :max="8" :format="(v) => String(2 ** v)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 300" role="img" aria-label="权重直方图与两套量化码点">
+    <svg ref="svgEl" viewBox="0 0 640 300" role="group" aria-label="权重直方图与两套量化码点">
       <!-- 全体权重直方图 -->
       <rect v-for="(h, i) in hist" :key="'h' + i" :x="sx(-XMAX) + i * binW + 0.5" :y="92 - h * 80" :width="binW - 1" :height="h * 80" fill="var(--border-strong)" />
       <text x="8" y="16" class="t">全部 {{ N }} 个权重的分布 (单位 σ)</text>
@@ -63,8 +63,7 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>RMSE · NF4</span><b :class="res.nf4.rmse <= res.int4.rmse ? 'good' : 'bad'">{{ res.nf4.rmse.toFixed(4) }}</b></div>
-      <div class="kv"><span>RMSE · INT4</span><b :class="res.int4.rmse < res.nf4.rmse ? 'good' : 'bad'">{{ res.int4.rmse.toFixed(4) }}</b></div>
+      <div class="kv"><span>RMSE NF4 / INT4</span><b :class="res.nf4.rmse <= res.int4.rmse ? 'good' : 'bad'">{{ res.nf4.rmse.toFixed(4) }} / {{ res.int4.rmse.toFixed(4) }}</b></div>
       <div class="kv"><span>有效比特 NF4 / INT4</span><b>{{ res.nf4.bits.toFixed(2) }} / {{ res.int4.bits.toFixed(2) }}</b></div>
       <div class="kv"><span>block 0 用到的码点</span><b>{{ rows[0].used }} / {{ rows[1].used }}</b></div>
       <div class="kv"><span><Tex text="存储 $4 + 32/B$" /></span><b>{{ (4 + 32 / B).toFixed(2) }} bit</b></div>

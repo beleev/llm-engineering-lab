@@ -21,6 +21,12 @@ python -m llm_models.run_models.foundation.attention.train_attention
   权重行和为 1, 因果 mask 下 `w[0,0,:3] = [1.0, 0.0, 0.0]`; 改未来 token 过去输出变化 0; 置换等变误差 8.9e-08。
 - train (联想检索, 每步新数据): 无 attention 基线 mse 0.998 (= 瞎猜); 单层 MHA 1.003 → 0.013 (400 步, 约 5 秒)。
 
+## 与真实系统的差距
+- **规模**: train 是单层 4 头注意力, d_model=64, 序列 9 个位置 (8 个键值对 + 1 个查询)。没有残差、FFN 和归一化。
+- **数据是合成的**: key / value 是 `randn` 向量, 直接当输入, 没有 token 和 embedding。每步新采样, 所以这里的 loss 下降是学会了检索。
+- **`MultiHeadAttention` 是教学版**: 每个 head 是一个独立的 `SingleHeadSelfAttention`, 用 Python 循环逐头算, 不支持 KV cache。本库要 cache 的模型都用 `GroupedQueryAttention`。
+- **分数矩阵整张算出来**: 先得到 `[T, S]` 的分数, 再填 -inf、softmax。FlashAttention 这类 kernel 分块算, 不把整张矩阵写进显存 (见 `llm_infer/m11_flash_attention`)。
+
 ## 常见误区
 - "attention 天然知道词序" —— 不知道。无位置编码时它是置换等变的 (infer 第 4 条断言), 词序全靠 PE / RoPE 注入。
 - "mask 是把权重乘 0" —— 是在 softmax **之前**把分数置 -inf; 之后再乘 0 会让每行和不为 1。

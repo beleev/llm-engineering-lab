@@ -2,7 +2,7 @@
   PRM vs ORM 实验台。标签规则与 llm_finetune/methods/prm.py:ArithChain.sample 相同:
   第 i 步 "对" = 写下的 v_i 等于 op_i(解里写的 v_{i−1}, k_i); 最终答案对 = 写下的 v_K 等于真值。
   只讲一件事: 同一条解, ORM 拿到 1 个标签, PRM 拿到 K 个; 过程错、答案蒙对时 ORM 会被骗。
-  右侧 best-of-8 读数来自 python -m llm_finetune.run_finetune.prm.train_prm 的输出表。
+  右侧 best-of-8 表格来自 python -m llm_finetune.run_finetune.prm.train_prm 的输出表, 不随左侧变化。
 -->
 <template>
   <LabFrame
@@ -44,13 +44,17 @@
     </p>
 
     <template #stats>
-      <div class="kv"><span>每条解的标签数 ORM / PRM</span><b>1 / 4</b></div>
-      <div class="row pick">
-        <button v-for="p in PICK" :key="p.id" type="button" :class="{ active: pick === p.id }" @click="pick = p.id">{{ p.id }}</button>
-      </div>
-      <div class="kv"><span>best-of-8 答案对</span><b :class="cur.ans > 0.6 ? 'good' : ''">{{ cur.ans.toFixed(3) }}</b></div>
-      <div class="kv"><span>best-of-8 每步都对</span><b :class="cur.proc > 0.6 ? 'good' : ''">{{ cur.proc.toFixed(3) }}</b></div>
-      <div class="kv"><span>训练 600 步后 BCE</span><b>{{ cur.bce }}</b></div>
+      <div class="kv"><span>ORM 拿到的标签 (1 个)</span><b :class="outcome ? 'good' : 'bad'">{{ outcome ? '✓' : '✗' }}</b></div>
+      <div class="kv"><span>PRM 拿到的标签 (4 个)</span><b>{{ steps.map((s) => (s.ok ? '✓' : '✗')).join(' ') }}</b></div>
+      <div class="kv"><span>PRM 整条得分 (各步最小值)</span><b :class="firstErr < 0 ? 'good' : 'bad'">{{ firstErr < 0 ? 1 : 0 }}</b></div>
+      <div class="kv"><span>两种标签说的是一回事吗</span><b :class="luckyNow ? 'bad' : 'good'">{{ luckyNow ? 'ORM 被骗' : '一致' }}</b></div>
+      <p class="tcap">train_prm.py best-of-8 (实测, 不随左侧变化)</p>
+      <table class="res mono">
+        <thead><tr><th>打分器</th><th>答案对</th><th>每步都对</th><th>600 步后 BCE</th></tr></thead>
+        <tbody>
+          <tr v-for="p in PICK" :key="p.id"><td>{{ p.id }}</td><td>{{ p.ans.toFixed(3) }}</td><td>{{ p.proc.toFixed(3) }}</td><td>{{ p.bce }}</td></tr>
+        </tbody>
+      </table>
       <div class="lab-note">
         <p>留出集 512 题 × 8 个带噪候选 (每步 20% 写错)。8 个里至少一个答案对的比例 0.992, PRM 离上限还远。</p>
         <p>PRM 定位第一个错步 0.575, 常数猜 "第 1 步" 0.341。</p>
@@ -72,8 +76,6 @@ const PICK = [
   { id: 'ORM', ans: 0.488, proc: 0.422, bce: '0.682' },
   { id: 'PRM', ans: 0.648, proc: 0.627, bce: '0.359' },
 ]
-const pick = ref('PRM')
-const cur = computed(() => PICK.find((p) => p.id === pick.value))
 
 const make = (s) => {
   const rand = mulberry32(s * 7919)
@@ -109,6 +111,9 @@ const luckyNow = computed(() => outcome.value && firstErr.value >= 0)
 .chain button { font-size: 11px; min-height: 26px; padding: 2px 8px; }
 .lbl.good { color: var(--left); }
 .lbl.bad { color: var(--danger); }
-.pick { display: flex; gap: 6px; flex-wrap: wrap; }
-.pick button { font-size: 12px; }
+.tcap { font-size: 11px; color: var(--text); margin-top: 4px; }
+.res { width: 100%; border-collapse: collapse; font-size: 11px; }
+.res th { font-size: 10.5px; color: var(--text-dim); font-weight: 400; text-align: right; padding: 3px 4px; }
+.res td { padding: 3px 4px; text-align: right; color: var(--text-muted); border-top: 1px solid var(--border); }
+.res td:first-child, .res th:first-child { text-align: left; }
 </style>

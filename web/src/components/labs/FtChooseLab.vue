@@ -2,7 +2,7 @@
   微调方法选型计算器 (对应 llm_finetune/README.md 的 "各方法需要什么" 表)。
   只讲一件事: 16 种方法的差别不在 loss 好不好看, 在代价结构 ——
   要不要成对数据 / 要不要 verifier / 要不要在线采样 / 要不要常驻一份 ref 或 teacher / 落盘什么。
-  所有字节数都是 llm_finetune 在 CPU 上实测的真实值 (基座 99,648 参数 = 389 KB), 不是估算。
+  所有字节数都是 llm_finetune 在 CPU 上实测的真实值 (基座 99,648 参数 = 389 KiB), 不是估算。
   模型合并不训练: 前向 0 次、常驻显存记 "—", 不参与 "最省显存" / "信号最密" 的比较。
 -->
 <template>
@@ -15,8 +15,8 @@
     module="llm_finetune/README.md"
     run="python -m llm_finetune.run_all"
     :challenge="{
-      ask: '只勾「成对偏好」, 把显存预算从 1600 KB 往下拖。最先掉队的是哪一个? 到 1200 KB 时还剩谁? 拿掉的那份权重原本在干什么?',
-      answer: 'DPO 最先掉队: 它要常驻 policy + ref 两份权重 (389 + 389 = 778 KB), 再加全参 Adam 状态 778 KB, 合计 1556 KB。SimPO / ORPO / RM 都只要一份权重, 1167 KB 就够。\nref 干的事有两件:\n- 当锚: 不让 policy 漂离 SFT 起点。\n- 抵消长度红利: ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 相减就消了。\n拿掉 ref 就得请人接班: SimPO 用长度归一化 + 目标间隔 $\\gamma$, ORPO 用 NLL 项当锚。\n实测留出集 EM: ORPO 0.543 > DPO 0.121 > SimPO 0.023。SimPO 什么锚都没有, 掉得最惨。',
+      ask: '只勾「成对偏好」, 把显存预算从 1600 KiB 往下拖。最先掉队的是哪两个? 到 1200 KiB 时还剩谁? 拿掉的那份权重原本在干什么?',
+      answer: 'DPO 和 KTO 同时掉队: 两者都要常驻 policy + ref 两份权重 (389 + 389 = 778 KiB), 再加全参 Adam 状态 778 KiB, 合计 1556 KiB。KTO 出现在这里, 是因为成对偏好拆开就是一条好、一条坏。\nSimPO / ORPO / RM 都只要一份权重, 1167 KiB 就够。\nref 干的事有两件:\n- 当锚: 不让 policy 漂离 SFT 起点。\n- 抵消长度红利: ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 相减就消了。\n拿掉 ref 就得请人接班: SimPO 用长度归一化 + 目标间隔 $\\gamma$, ORPO 用 NLL 项当锚。\n实测留出集 EM: ORPO 0.543 > DPO 0.121 > SimPO 0.023。SimPO 什么锚都没有, 掉得最惨。',
     }"
   >
     <template #controls>
@@ -61,7 +61,7 @@
               <div class="bar" :title="m.memText">
                 <i v-for="(s, i) in m.segs" :key="i" :class="s.cls" :style="{ width: (s.kb / MAXKB) * 100 + '%' }" />
               </div>
-              <span class="mono memv" :class="{ over: m.mem > budget }">{{ m.segs.length ? m.mem + ' KB' : '— 不训练' }}</span>
+              <span class="mono memv" :class="{ over: m.mem > budget }">{{ m.segs.length ? m.mem + ' KiB' : '— 不训练' }}</span>
             </td>
             <td class="small">{{ m.save }}</td>
             <td class="num mono sig">
@@ -87,17 +87,20 @@
       <div class="kv"><span>最省显存的可行方法</span><b>{{ cheapest }}</b></div>
       <div class="kv"><span>被显存卡掉</span><b :class="overCount ? 'bad' : 'good'">{{ overCount }}</b></div>
       <div class="kv"><span>信号最密的可行方法</span><b>{{ densest }}</b></div>
-      <div class="lab-note">
-        <p>
-          字节数按本仓库的玩具基座算: 99,648 个参数 = 389 KB (fp32), NF4 基座 59 KB, LoRA adapter 76 KB,
-          全参 Adam 状态 778 KB。PPO 的 critic 是同尺寸主干 + 64 个参数的标量头 = 390 KB, 它的 Adam 状态 779 KB。
-          换成 7B 模型时每一栏同比放大, 相对关系不变。
-        </p>
-        <p>
-          模型合并不训练, 常驻显存记 "—": 输入是基座和两个微调模型共三份权重 (3 × 389 KB),
-          在 CPU 上逐张量加减即可, 没有梯度也没有 Adam 状态。它的代价在前面那两次微调里。
-        </p>
-        <p>"信号/样本" = 一条样本给出多少个监督数字:</p>
+      <p class="lab-note">字节数按本仓库的玩具基座算。换成 7B 模型时每一栏同比放大, 相对关系不变。</p>
+      <details class="more">
+        <summary>字节数怎么来的</summary>
+        <ul class="pts">
+          <li><b>基座:</b> 99,648 个参数 = 389 KiB (fp32); NF4 基座 59 KiB。</li>
+          <li><b>LoRA adapter:</b> 76 KiB。</li>
+          <li><b>全参 Adam 状态:</b> 778 KiB。</li>
+          <li><b>PPO 的 critic:</b> 同尺寸主干 + 64 个参数的标量头 = 390 KiB, 它的 Adam 状态 779 KiB。</li>
+          <li><b>模型合并:</b> 不训练, 常驻显存记 "—"。输入是基座和两个微调模型共三份权重 (3 × 389 KiB), 在 CPU 上逐张量加减, 没有梯度也没有 Adam 状态。代价在前面那两次微调里。</li>
+        </ul>
+      </details>
+      <details class="more">
+        <summary>「信号」一列怎么数</summary>
+        <p>一条样本给出多少个监督数字:</p>
         <ul class="pts">
           <li>偏好对: 1 个 bit</li>
           <li>GRPO / PPO: 一条回复 1 个标量</li>
@@ -107,7 +110,7 @@
           <li>蒸馏: 每个 token 一个 16 维分布 (7×16=112)</li>
           <li>模型合并: 不看样本, 记 "—"</li>
         </ul>
-      </div>
+      </details>
     </template>
   </LabFrame>
 </template>
@@ -133,13 +136,13 @@ const online = ref(true)
 const budget = ref(1250)
 const open = ref('')
 
-// 全部数值都在 300~1600 KB, 统一用 KB 才好横着比
-const fmtKB = (kb) => Math.round(kb) + ' KB'
+// 全部数值都在 300~1600 KiB, 统一用 KiB 才好横着比
+const fmtKB = (kb) => Math.round(kb) + ' KiB'
 
-// 实测字节 (llm_finetune, CPU): 基座 99,648 参数 fp32 = 389 KB; NF4 基座 59 KB;
-// LoRA adapter 19,456 参数 = 76 KB; DoRA 20,736 = 81 KB; student 26,256 = 103 KB。
-// Adam 状态 = 可训参数 × 8 B: 全参 778 KB, LoRA 152 KB, DoRA 162 KB, student 205 KB。
-// PPO critic = RewardModel(同尺寸主干) 99,712 参数 = 390 KB, Adam 779 KB (train_ppo: 常驻 299,008 / 要训 199,360)。
+// 实测字节 (llm_finetune, CPU): 基座 99,648 参数 fp32 = 389 KiB; NF4 基座 59 KiB;
+// LoRA adapter 19,456 参数 = 76 KiB; DoRA 20,736 = 81 KiB; student 26,256 = 103 KiB。
+// Adam 状态 = 可训参数 × 8 B: 全参 778 KiB, LoRA 152 KiB, DoRA 162 KiB, student 205 KiB。
+// PPO critic = RewardModel(同尺寸主干) 99,712 参数 = 390 KiB, Adam 779 KiB (train_ppo: 常驻 299,008 / 要训 199,360)。
 const B = 389, NF4 = 59, LA = 76, DA = 81, STU = 103, CRITIC = 390
 const ADAM_FULL = 778, ADAM_LORA = 152, ADAM_DORA = 162, ADAM_STU = 205, ADAM_CRITIC = 779
 const MAXKB = 2800
@@ -147,19 +150,19 @@ const MAXKB = 2800
 // need: 需要手上有哪几样; sample: 是否必须在线采样
 const METHODS = [
   { id: 'sft', name: 'SFT (全参)', need: ['demo'], fwd: '1', signal: 7,
-    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '数据是 (问, 答), 显存够, 想要上限最高的那一个。同一基座 300 步实测: 全参留出集 EM 0.809, 同配置 LoRA 只有 0.352。LoRA 省的是显存, 不是步数。',
     run: 'python -m llm_finetune.run_finetune.sft.train_sft' },
   { id: 'lora', name: 'LoRA', need: ['demo'], fwd: '1', signal: 7,
-    segs: [{ kb: B, cls: 'base' }, { kb: LA, cls: 'ad' }, { kb: ADAM_LORA, cls: 'adam' }], save: 'adapter 76KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: LA, cls: 'ad' }, { kb: ADAM_LORA, cls: 'adam' }], save: 'adapter 76KiB',
     when: '显存放不下全参的梯度和 Adam 状态, 或者一个基座要挂很多个任务。adapter 能独立分发、按请求热切换; 效果上限 ≤ 全参。',
     run: 'python -m llm_finetune.run_finetune.lora.train_lora' },
   { id: 'qlora', name: 'QLoRA', need: ['demo'], fwd: '1', signal: 7,
-    segs: [{ kb: NF4, cls: 'base' }, { kb: LA, cls: 'ad' }, { kb: ADAM_LORA, cls: 'adam' }], save: 'adapter 76KB + NF4 基座 59KB',
-    when: '连冻结的基座都放不下。整模型 389 KB → 59 KB (6.57×), 基座原任务留出集 EM 仍是 1.000; 代价是每次前向都要反量化一遍。',
+    segs: [{ kb: NF4, cls: 'base' }, { kb: LA, cls: 'ad' }, { kb: ADAM_LORA, cls: 'adam' }], save: 'adapter 76KiB + NF4 基座 59KiB',
+    when: '连冻结的基座都放不下。整模型 389 KiB → 59 KiB (6.57×), 基座原任务留出集 EM 仍是 1.000; 代价是每次前向都要反量化一遍。',
     run: 'python -m llm_finetune.run_finetune.qlora.train_qlora' },
   { id: 'dora', name: 'DoRA', need: ['demo'], fwd: '1', signal: 7,
-    segs: [{ kb: B, cls: 'base' }, { kb: DA, cls: 'ad' }, { kb: ADAM_DORA, cls: 'adam' }], save: 'adapter 81KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: DA, cls: 'ad' }, { kb: ADAM_DORA, cls: 'adam' }], save: 'adapter 81KiB',
     when: '想在同样的 $r$ 下离全参近一点, 且不在乎训练慢一些。3 个种子平均留出集 EM 0.382 → 0.522, 每层只多 $d_{\\text{out}}$ 个参数; 但每步要显式构造整个 $W$。',
     run: 'python -m llm_finetune.run_finetune.dora.train_dora' },
   { id: 'rm', name: 'Reward Model', need: ['pref'], fwd: '1 (2B 条)', signal: 1,
@@ -167,32 +170,32 @@ const METHODS = [
     when: '后面要跑在线 RL, 而任务没法用程序判分。RM 把"A 比 B 好"变成随时可调用的标量分 (留出集偏好准确率 0.549 → 0.930); 它只学分差, 整体加一个常数 loss 不变。',
     run: 'python -m llm_finetune.run_finetune.rm.train_rm' },
   { id: 'dpo', name: 'DPO', need: ['pref'], fwd: '2 (2B 条)', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '有偏好对、有 SFT 起点、显存放得下第二份权重。跑的时候要同时盯 $\\log\\pi(\\text{chosen})$: 实测 200 步偏好准确率 0.965 → 0.996, 但 $\\log\\pi(\\text{chosen})$ −4.03 → −4.18, 贪心 EM 0.332 → 0.137。',
     run: 'python -m llm_finetune.run_finetune.dpo.train_dpo' },
   { id: 'simpo', name: 'SimPO', need: ['pref'], fwd: '1 (2B 条)', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '不想为 ref 再占一份显存。长度归一化顶替 ref, 每步 4.0 s vs DPO 5.4 s; 但它没有任何锚, 实测留出集 EM 掉到 0.023, 得靠小 lr / 少步数自己收着点。',
     run: 'python -m llm_finetune.run_finetune.simpo_orpo.train_simpo_orpo' },
   { id: 'orpo', name: 'ORPO', need: ['pref'], fwd: '1 (2B 条)', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '连 SFT 阶段都想省掉。loss 里的 NLL 项就是 SFT, 同时当锚: 从零训 300 步留出集 EM 0.973 (与纯 SFT 打平), 还把 rejected 压得更低 (−16.34 vs −14.85)。',
     run: 'python -m llm_finetune.run_finetune.simpo_orpo.train_simpo_orpo' },
   { id: 'grpo', name: 'GRPO 系 (DAPO · Dr.GRPO · GSPO)', need: ['verify'], sample: true, fwd: '采样 + 1 + μ', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '答案能被程序判对错, 而且采样代价付得起。$\\beta=0$ 时连 ref 都不用养。验收要看采样 pass@1 (0.186 → 0.287~0.326), 贪心 EM 基本不动。四个变体的最终分数差异在噪声内, 区别在机制。',
     run: 'python -m llm_finetune.run_finetune.grpo.train_grpo' },
   { id: 'kd', name: '离线蒸馏 (forward KL)', need: ['teacher'], fwd: '2', signal: 112,
-    segs: [{ kb: STU, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_STU, cls: 'adam' }], save: 'student 权重 103KB',
-    when: '有一个更强的模型, 想把能力压进小模型, 且数据量有限。128 条固定数据上软标签明显更好 (forward KL 2.292 → 1.860); 数据无限时这个优势会消失。',
+    segs: [{ kb: STU, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_STU, cls: 'adam' }], save: 'student 权重 103KiB',
+    when: '有一个更强的模型, 想把能力压进小模型, 且数据量有限。128 条固定数据上软标签明显更好 (forward KL 2.293 → 1.860); 数据无限时这个优势会消失。',
     run: 'python -m llm_finetune.run_finetune.distill.train_distill' },
   { id: 'opd', name: 'on-policy 蒸馏 (reverse KL)', need: ['teacher'], sample: true, fwd: '采样 + 2', signal: 112,
-    segs: [{ kb: STU, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_STU, cls: 'adam' }], save: 'student 权重 103KB',
+    segs: [{ kb: STU, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_STU, cls: 'adam' }], save: 'student 权重 103KiB',
     when: '离线蒸馏出来的小模型一采样就串台。让学生自己写、老师逐 token 打分: 合格率 0.059 → 0.402。\n代价是老师的少数派答法被彻底放弃 ($\\log\\pi$ −17 → −33)。先热身再上。',
     run: 'python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill' },
   { id: 'ppo', name: 'PPO (带 critic)', need: ['verify'], sample: true, fwd: '采样 + 3 + 2μ', signal: 1,
     segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: CRITIC, cls: 'critic' }, { kb: ADAM_FULL, cls: 'adam' }, { kb: ADAM_CRITIC, cls: 'adam' }],
-    save: 'policy 全量 389KB (critic 不留)',
+    save: 'policy 全量 389KiB (critic 不留)',
     when: '能判分 (verifier 或 RM), 想一题只采 1 条。critic 给每个 token 一个优势 $A_t$。\n- 代价: 要训的参数 ×2 (199,360), 常驻 ×3 (policy + ref + critic), 60 步 11.8 s, GRPO 6.1 s。\n- 实测: pass@1 0.186 → 0.381, GRPO 0.287; 但 critic 冻住也有 0.389。\n多出来的那截来自一题一采, 不是 critic。',
     run: 'python -m llm_finetune.run_finetune.ppo.train_ppo' },
   { id: 'prm', name: 'PRM (过程奖励)', need: ['step'], fwd: '1', signal: 4,
@@ -200,15 +203,15 @@ const METHODS = [
     when: '多步推理, 要给候选解重排 (best-of-N) 或给 RL 逐步奖励, 而且标得起每一步。结构和 RM 相同, 贵在标签: 每条解 K 个。\n4 步算术链, 同样 600 步: best-of-8 答对率 随机 0.473 / ORM 0.488 / PRM 0.648。PRM 还能指出第一个错步 (0.575, 常数猜法 0.341)。',
     run: 'python -m llm_finetune.run_finetune.prm.train_prm' },
   { id: 'kto', name: 'KTO', need: ['label'], fwd: '2 (2B 条)', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '只有单条 👍 / 👎, 同一个 prompt 凑不出一对 (成对偏好拆开也能喂给它)。代价结构同 DPO, 但每步有一半前向花在估 $z_0$ 的错配样本上。\n- 好坏 1:1: 偏好准确率 0.965 → 0.992, 贪心 EM 0.324 (同条件 DPO 0.121)。\n- 好坏 1:9: 要把 $\\lambda_U$ 调成 1/9 (EM 0.254); 不调 EM 掉到 0.000。',
     run: 'python -m llm_finetune.run_finetune.kto.train_kto' },
   { id: 'rlaif', name: 'RLAIF (AI 反馈 + DPO)', need: ['judge'], fwd: '采 1 轮 + 2', signal: 1,
-    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KiB',
     when: '好坏标准能写成条文, 有一个 judge 按条文批评、改写。训前采 1 轮 (4096 条 → 2539 个偏好对), 之后就是 DPO 的代价结构; judge 是规则, 不占训练显存。\n违规率 0.648 → 0.031。规则没查的变体 14 只从 0.418 降到 0.320: 标签上限就是 judge 的上限。',
     run: 'python -m llm_finetune.run_finetune.rlaif.train_rlaif' },
   { id: 'merge', name: '模型合并 (Task Arithmetic 等)', need: ['models'], fwd: '0', signal: null,
-    segs: [], save: '合并后全量权重 389KB',
+    segs: [], save: '合并后全量权重 389KiB',
     when: '同一基座上已有几个各会一件事的微调模型, 想要一个都会的, 又不想重训。合并本身零梯度、零数据, 本例几秒钟。\n代价在前面: 两个模型各全参微调 300 步。\n$\\theta_0 + 1\\cdot(\\tau_A+\\tau_B)$ 留出集 EM 1.000, 前提是两个任务改的地方不重叠。',
     run: 'python -m llm_finetune.run_finetune.merge.train_merge' },
 ]
@@ -228,7 +231,7 @@ const rows = computed(() => METHODS.map((m) => {
   return {
     ...m, mem, why, ok: !why,
     short: m.name.replace(/\s*\(.*/, ''),
-    memText: m.segs.length ? m.segs.map((s) => SEG[s.cls] + ' ' + s.kb + ' KB').join(' + ') + ' = ' + mem + ' KB' : '不训练, 没有训练态显存',
+    memText: m.segs.length ? m.segs.map((s) => SEG[s.cls] + ' ' + s.kb + ' KiB').join(' + ') + ' = ' + mem + ' KiB' : '不训练, 没有训练态显存',
   }
 }))
 
@@ -286,4 +289,6 @@ tr.open .name { color: var(--accent); }
 
 tr.detail td { background: var(--bg-elev); border-bottom: 1px solid var(--border-strong); cursor: default; }
 tr.detail p { color: var(--text-muted); line-height: 1.7; margin-bottom: 6px; font-size: 12px; }
+.more { font-size: 12px; color: var(--text-dim); line-height: 1.7; border-left: 2px solid var(--accent-soft); padding-left: 10px; }
+.more summary { cursor: pointer; color: var(--text-muted); }
 </style>

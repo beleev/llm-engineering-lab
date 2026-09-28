@@ -14,7 +14,7 @@ Quest 打分      ub_b = Σ_i max(q_i·kmin_{b,i}, q_i·kmax_{b,i})   保证 ub_
 mean 打分       s_b = q · mean(K_b)                              NSA 压缩分支 / indexer 的最简替身
 选块            blocks = {0, nb−1} ∪ top-(k−2) by score
 稀疏 attention  dense_attention(q, K[idx], V[idx]),  idx = 选中 block 的 token 下标
-评测            相对 L2 误差 vs 全量 dense_attention; recall = 选中 block 覆盖的真实 attention 概率质量
+评测            相对 L2 误差 vs 全量 dense_attention; 召回 (recall) = 选中 block 覆盖的真实 attention 概率质量
 ```
 上界为什么成立: 对每一维, k_i ∈ [kmin_i, kmax_i], 所以 q_i·k_i ≤ max(q_i·kmin_i, q_i·kmax_i)
 (q_i 为正取 kmax, 为负取 kmin); 逐维相加即得。上界保证 "不会漏掉真正的高分块", 但可能很松。
@@ -25,8 +25,8 @@ python -m llm_infer.m22_sparse_attention.demo     # < 1 s
 ```
 **needle 负载** (T=4096, d=64, 256 blocks; 4 个 needle block 各含 2 个与 q 对齐的 key, logit≈+10, 其余是噪声):
 ```
-[1] min(bound − true max) = 29.969 (≥ 0);  mean(bound / true max) = 6.68x  ← 上界成立但很松
-   k  KV read |  quest err  recall |   mean err  recall |  random err  recall
+[1] min(bound − 真实 max) = 29.969 (≥ 0);  mean(bound / 真实 max) = 6.68x  ← 上界成立但很松
+   k  KV 读取 | quest 误差    召回 |  mean 误差    召回 | random 误差    召回
    4     1.6% |     0.8265   59.1% |     0.8265   59.1% |      1.0793    0.0%     ← 首尾占 2 个名额, 只够装 2 根针
    8     3.1% |     0.0235   97.7% |     0.0234   97.7% |      1.0582    0.1%
   32    12.5% |     0.0206   98.0% |     0.0201   98.0% |      1.3214    6.2%
@@ -35,9 +35,9 @@ python -m llm_infer.m22_sparse_attention.demo     # < 1 s
 ```
 读 3.1% 的 KV 就拿到 97.7% 的 attention 质量、误差 2.3%; 随机选块读 50% 误差仍 >100%。
 
-**真实 TinyLM KV** (T=1024 随机 token, 4 层平均, 64 blocks) —— 如实报告, **效果弱**:
+**真实 TinyLM KV** (T=1024 随机 token, 4 层平均, 64 blocks) —— **效果弱**:
 ```
-   k  KV read |  quest err  recall |   mean err  recall |  random err  recall
+   k  KV 读取 | quest 误差    召回 |  mean 误差    召回 | random 误差    召回
    8    12.5% |     0.6179   15.3% |     0.6359   19.2% |      0.5085   12.0%
   16    25.0% |     0.4218   30.1% |     0.3590   35.5% |      0.3859   24.4%
   32    50.0% |     0.2444   57.6% |     0.1682   63.2% |      0.2209   50.6%
@@ -52,7 +52,9 @@ recall > 随机; quest 误差随 k 大体单调下降; TinyLM 上只断言 recal
 - DSA 的 lightning indexer 和 NSA 的压缩/选择分支是**训练出来**的 (NSA 原生稀疏训练; DSA 在 dense 模型上续训),
   比 min/max 启发式准得多; DSA 是 token 级 top-k (2048 个), 不是 block 级。
 - 真实系统按 head / 按层分别选块, 前几层通常保持 dense; 这里单头。
-- 打分本身也有成本: 摘要 ≈ KV 的 2/bs, 每步对所有 block 打分是 O(nb·d), 超长上下文下也需要优化。
+- 打分本身也有成本:
+  - 摘要是每块 2 个向量 (kmin、kmax), 占 K 的 2/bs, 占 K+V 的 1/bs (bs=16 时 1/16)。
+  - 每步对所有 block 打分是 O(nb·d), 超长上下文下也需要优化。
 
 ## 常见误区
 - "Quest 上界保证选得准" —— 它只保证不低估; 在各向同性噪声上界很松 (6.68x), 排序信息主要来自结构化的 key。

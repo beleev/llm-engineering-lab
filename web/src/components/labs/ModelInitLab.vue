@@ -26,7 +26,7 @@
       <LabSlider v-model="V" label="词表大小 V" :min="100" :max="2000" :step="100" />
     </template>
 
-    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="首步交叉熵随初始化标准差的变化曲线">
+    <svg :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="首步交叉熵随初始化标准差的变化曲线, 曲线上的圆点可拖">
       <line :x1="PAD" :x2="W - 8" :y1="yOf(lnV)" :y2="yOf(lnV)" class="ref" />
       <text :x="W - 10" :y="yOf(lnV) - 5" class="lbl" text-anchor="end">ln V = {{ lnV.toFixed(2) }} (均匀瞎猜)</text>
       <polyline :points="curve" class="curve" />

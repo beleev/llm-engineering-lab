@@ -25,7 +25,7 @@
       </div>
       <div class="row">
         <button type="button" :class="{ active: recheck }" @click="recheck = true">hook → 权限门 → 执行 (改写后重查)</button>
-        <button type="button" :class="{ active: !recheck }" @click="recheck = false">权限门 → hook → 执行 (旧顺序)</button>
+        <button type="button" :class="{ active: !recheck }" @click="recheck = false">权限门 → hook → 执行 (反例)</button>
       </div>
       <StepPlayer :stepper="stepper" :label="stages[stepper.step.value]?.name" />
     </template>
@@ -73,7 +73,7 @@ const HOOKS = [
   { id: 'keep', event: 'PreCompact', label: '指定摘要必须保留的要点' },
   { id: 'notify', event: 'Stop', label: '结束时发通知' },
 ]
-const LABEL = { pass: '通过', idle: '未注册', block: '拦截', rewrite: '改写', deny: 'DENY', allow: 'ALLOW', exec: '执行', boom: '执行了!', skip: '未到达' }
+const LABEL = { pass: '通过', wait: '已注册, 本次未触发', idle: '未注册', block: '拦截', rewrite: '改写', deny: 'DENY', allow: 'ALLOW', exec: '执行', boom: '执行了!', skip: '未到达' }
 
 const prompt = ref(PROMPTS[0])
 const on = reactive({ session: true, secret: true, rewrite: true, audit: true, keep: false, notify: false })
@@ -114,7 +114,7 @@ const stages = computed(() => {
   // 被拦下的调用没有"执行后": PostToolUse 不触发 (agent.py:_run_tools); Stop 在 loop 收尾时照常触发
   hook('audit', 'PostToolUse', () => push('PostToolUse', 'pass', '追加一条 [audited] system 消息; 不改 tool_result 本身。', false), '没有注册 hook。')
   alive = !st.some((s) => s.state === 'block')
-  hook('keep', 'PreCompact', () => push('PreCompact', 'pass', '仅在上下文超预算、要压缩时触发: 告诉摘要器「必须保留什么」。', false), '没有注册 hook。')
+  hook('keep', 'PreCompact', () => push('PreCompact', 'wait', '这次会话的上下文没超预算, 不压缩, 所以它没有运行。它仅在上下文超预算、要压缩时触发: 告诉摘要器「必须保留什么」。', false), '没有注册 hook。')
   hook('notify', 'Stop', () => push('Stop', 'pass', 'loop 结束时触发, 只通知不能阻止结束: 发消息 / 跑收尾检查。', false), '没有注册 hook。')
   return Object.assign(st, { executed, gateSaw })
 })
@@ -141,6 +141,7 @@ watch(stages, (s) => { stepper.pause(); stepper.step.value = s.findIndex((x) => 
 .stage .name { font-size: 12px; }
 .badge { font-size: 11px; color: var(--text-muted); }
 .stage.idle, .stage.skip { opacity: 0.45; }
+.stage.wait { border-style: dashed; }
 .stage.dim { opacity: 0.3; }
 .stage.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .stage.rewrite { border-color: var(--warn); } .stage.rewrite .badge { color: var(--warn); }

@@ -48,7 +48,8 @@ class VectorQuantizer(nn.Module):
 
         # 码本实现为 Embedding: weight.shape = [K, D]
         self.codebook = nn.Embedding(num_embeddings, embedding_dim)
-        # 均匀初始化 (VQ-VAE 官方做法)
+        # 均匀初始化 U(-1/K, 1/K) (VQ-VAE 官方做法)。
+        # 对含码本的模块调 init_weights 会把它改写成 N(0, 0.02²)
         self.codebook.weight.data.uniform_(-1.0 / num_embeddings, 1.0 / num_embeddings)
 
     def _quantize(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -62,13 +63,13 @@ class VectorQuantizer(nn.Module):
             indices: [N] 对应码字 ID
         """
         # 展开公式: ||z - e||^2 = ||z||^2 + ||e||^2 - 2·z·e^T
-        # 避免显式 subtract+square, 利用 matmul 加速
+        # 直接相减要先造出 [N, K, D] 的中间张量; 展开后只需要一次 [N, D] @ [D, K] 的矩阵乘
         z_sq = (z**2).sum(dim=-1, keepdim=True)                     # [N, 1]
         e_sq = (self.codebook.weight**2).sum(dim=-1)                # [K]
-        ze = z @ self.codebook.weight.t()                           # [N, K]
-        distances = z_sq + e_sq.unsqueeze(0) - 2 * ze               # [N, K]
+        ze = z @ self.codebook.weight.t()                           # [N, D] @ [D, K] → [N, K]
+        distances = z_sq + e_sq.unsqueeze(0) - 2 * ze               # [N, 1] + [1, K] - [N, K] → [N, K]
 
-        indices = distances.argmin(dim=-1)                          # [N]
+        indices = distances.argmin(dim=-1)                          # [N] 每个向量最近的码字 id; 不可导
         z_q = self.codebook(indices)                                # [N, D]
         return z_q, indices
 
@@ -86,9 +87,9 @@ class VectorQuantizer(nn.Module):
         is_image = z.dim() == 4
 
         if is_image:
-            # [B, D, H, W] → [B, H, W, D] → [N, D]
+            # 通道维挪到最后, 这样摊平后每一行是一个位置的 D 维向量: [B, D, H, W] → [B, H, W, D]
             z = z.permute(0, 2, 3, 1).contiguous()
-        z_flat = z.reshape(-1, self.embedding_dim)  # [N, D]
+        z_flat = z.reshape(-1, self.embedding_dim)  # [B, H, W, D] 或 [B, T, D] → [N, D]
 
         z_q_flat, indices = self._quantize(z_flat)
 
@@ -98,20 +99,24 @@ class VectorQuantizer(nn.Module):
         commit_loss = F.mse_loss(z_flat, z_q_flat.detach())
         vq_loss = codebook_loss + self.beta * commit_loss
 
-        # straight-through: 前向用 z_q, 反传梯度等价于 z (跳过 argmin 不可导)
+        # straight-through: 前向用 z_q, 反传梯度等价于 z (跳过 argmin 不可导)。
+        # 数值上 z + (z_q - z) = z_q; 括号里 detach 了, 反传时只剩 z 这一项
+        # 顺序不能换: 两个 loss 必须在这一行之前算, 之后 z_q_flat 已经不是纯码字了
         z_q_flat = z_flat + (z_q_flat - z_flat).detach()
 
         # 还原形状
-        z_q = z_q_flat.view(*z.shape)
+        z_q = z_q_flat.view(*z.shape)                   # [N, D] → [B, H, W, D] 或 [B, T, D]
         if is_image:
-            z_q = z_q.permute(0, 3, 1, 2).contiguous()  # [B, D, H, W]
+            z_q = z_q.permute(0, 3, 1, 2).contiguous()  # [B, H, W, D] → [B, D, H, W]
 
         # perplexity: 码本实际使用多样性 (训练中监控码本坍塌)
-        with torch.no_grad():
+        # = exp(使用频率的熵)。K 个码字用得完全均匀时 = K, 只用 1 个时 = 1
+        with torch.no_grad():                           # 纯监控指标, 不需要梯度
             one_hot = F.one_hot(indices, self.num_embeddings).float()   # [N, K]
-            probs = one_hot.mean(dim=0)                                  # [K]
-            perplexity = torch.exp(-(probs * torch.log(probs + 1e-10)).sum())
+            probs = one_hot.mean(dim=0)                                  # [K] 每个码字被用到的频率
+            perplexity = torch.exp(-(probs * torch.log(probs + 1e-10)).sum())   # +1e-10: 没用到的码字 log(0) = -inf
 
+        # indices 还原成输入去掉 D 维后的形状: 序列 [N] → [B, T]; 图像 [N] → [B, H, W]
         indices_reshaped = indices.view(*orig_shape[:-1]) if not is_image else \
                            indices.view(orig_shape[0], orig_shape[2], orig_shape[3])
 
@@ -156,15 +161,16 @@ class MultiScaleVQ(nn.Module):
 
     @staticmethod
     def _down(x: torch.Tensor, s: int) -> torch.Tensor:
-        return F.interpolate(x, size=(s, s), mode="area")                # [B, D, s, s]
+        # mode="area": 每个输出格子取它覆盖区域的平均
+        return F.interpolate(x, size=(s, s), mode="area")                # [B, D, H, H] → [B, D, s, s]
 
     @staticmethod
     def _up(x: torch.Tensor, size: int) -> torch.Tensor:
-        return F.interpolate(x, size=(size, size), mode="bilinear", align_corners=False)
+        return F.interpolate(x, size=(size, size), mode="bilinear", align_corners=False)  # → [B, D, size, size]
 
     def lookup(self, idx: torch.Tensor, size: int) -> torch.Tensor:
         """一级 token [B, s, s] → 码字 → 上采样到 [B, D, size, size] (它对 f_hat 的贡献)。"""
-        e = self.vq.decode_indices(idx).permute(0, 3, 1, 2)              # [B, D, s, s]
+        e = self.vq.decode_indices(idx).permute(0, 3, 1, 2)              # [B, s, s, D] → [B, D, s, s]
         return self._up(e, size)
 
     def forward(self, f: torch.Tensor) -> Tuple[torch.Tensor, Dict]:
@@ -182,9 +188,10 @@ class MultiScaleVQ(nn.Module):
         indices: List[torch.Tensor] = []
         vq_loss = f.new_zeros(())
         for s in self.scales:
+            # 残差只用来 "查最近的码字", 查表不可导, 所以两边都 detach; 梯度走下面的 vq_loss
             r = self._down(f.detach() - f_hat.detach(), s)               # [B, D, s, s]
-            _, idx = self.vq._quantize(r.permute(0, 2, 3, 1).reshape(-1, D))
-            idx = idx.view(B, s, s)
+            _, idx = self.vq._quantize(r.permute(0, 2, 3, 1).reshape(-1, D))   # [B, s, s, D] → [B·s·s, D]
+            idx = idx.view(B, s, s)                                      # [B·s·s] → [B, s, s]
             indices.append(idx)
             f_hat = f_hat + self.lookup(idx, H)                          # 梯度只流向码本
             # 每一级的 "累计重建" 都要贴近 f: 码本端 + β·encoder 端 (commitment)
@@ -192,7 +199,7 @@ class MultiScaleVQ(nn.Module):
         vq_loss = vq_loss / len(self.scales)
 
         with torch.no_grad():                                            # 码本使用度, 监控坍塌
-            probs = torch.bincount(
+            probs = torch.bincount(                                      # 所有尺度的 token 合在一起数, [K]
                 torch.cat([i.flatten() for i in indices]), minlength=self.vq.num_embeddings
             ).float()
             probs = probs / probs.sum()
@@ -209,9 +216,10 @@ class MultiScaleVQ(nn.Module):
         """
         H = self.scales[-1]
         f_hat, outs = 0.0, []
+        # 错开一位配对: 第 k 级的 token 累加进 f_hat 后, 缩到第 k+1 级的尺寸, 当第 k+1 级的输入
         for idx, s_next in zip(indices[:-1], self.scales[1:]):
             f_hat = f_hat + self.lookup(idx, H)                          # [B, D, H, H]
-            outs.append(self._down(f_hat, s_next))
+            outs.append(self._down(f_hat, s_next))                       # [B, D, s_next, s_next]
         return outs
 
     def decode(self, indices: List[torch.Tensor]) -> torch.Tensor:

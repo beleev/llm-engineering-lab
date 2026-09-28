@@ -7,15 +7,15 @@
 
 ## 设计原则
 
-- **零依赖**：只用 `numpy`，与 `llm_basic` 风格一致；让你看见算法骨架而不是 PyTorch 的糖衣
-- **模块自治**：每个 `mXX_*/` 都能在仓库根目录用 `python -m llm_infer.mXX_name.demo` 独立运行（包内绝对 import，直接 `python demo.py` 不行）
-- **demo 即测试**：每个 demo 以 `assert` 收尾（与朴素基线逐 token / max-abs-diff 对拍）；凡是代价模型或 `sleep` 模拟出来的数字都在输出里明说
+- **零依赖**：只用 `numpy`，与 `llm_basic` 风格一致
+- **每个模块单独可跑**：每个 `mXX_*/` 都能在仓库根目录用 `python -m llm_infer.mXX_name.demo` 运行（包内绝对 import，直接 `python demo.py` 不行）。后面的模块会直接 import 前面模块的实现，不复制代码，清单见「学习路径」
+- **demo 即测试**：每个 demo 以 `assert` 收尾（与朴素基线逐 token / max-abs-diff 对拍）；凡是代价模型算出来的数字（不是实测）都在输出里明说
 - **可组合**：`full_engine/` 把核心模块串成一个 mini-vLLM
-- **重原理、轻性能**：CPU、小张量、慢但清晰；公共件在 `core/`（TinyLM、`dense_attention` 基线、`Sequence`），模块不重复造
+- **重原理、轻性能**：CPU、小张量、慢但清晰；公共件在 `core/`（TinyLM、`dense_attention` 基线、`Sequence`），各模块都从这里取，不重复造
 
 ---
 
-## 学习路径（按依赖顺序）
+## 学习路径
 
 ```
                     ┌─ m01 KV Cache ──────────┐
@@ -28,7 +28,7 @@
                     │                          │
             ┌───────┼─ m04 Prefix Cache (hash)─┤   <-- 共享缓存
             │       │                          │
-            │       ├─ m05 Radix Cache ───────┤   (SGLang 招牌)
+            │       ├─ m05 Radix Cache ───────┤   (SGLang)
             │       │                          │
             │       ├─ m06 Chunked Prefill ───┤
             │       │                          │
@@ -75,8 +75,20 @@
             │       └─ m27 Multi-replica ─────┘   <-- 多副本前缀感知路由
             │
             ▼
-    full_engine/   把以上模块组装成 mini-vLLM
+    full_engine/   把 m02 / m03 / m04 / m10 组装成 mini-vLLM
 ```
+
+图里的分组是建议的阅读顺序，不是代码依赖。模块之间真实的 import 一共 13 条：
+
+| 谁 | import 了谁 | 拿来用的东西 |
+|---|---|---|
+| m03、m04 | m02 | `BlockManager` |
+| m06 | m03 | `Scheduler`（分块 prefill 是它的一个开关） |
+| m17、m19 | m07 | `speculative_decode`、`pick`、`ModelDrafter` |
+| m23、m24 | m10 | `sample` |
+| m25 | m08 | `quantize_affine`、`awq_quantize` |
+| m27 | m05 | `RadixCache` |
+| full_engine | m02、m03、m04、m10 | 分页 KV、调度器、前缀缓存、采样 |
 
 ---
 
@@ -111,7 +123,7 @@
 | 25 | [GPTQ / SmoothQuant / FP8](m25_weight_quant/) | `gptq.py`, `smoothquant.py`, `fp8.py` | Hessian 逆逐行补偿误差、激活离群值迁到权重 (W8A8, 扫 α)、E4M3/E5M2 与 scale 粒度 |
 | 26 | [Flash-Decoding](m26_flash_decoding/) | `flash_decoding.py` | decode 沿 KV 长度 split-K、LSE 合并；SM 利用率/延迟代价模型 |
 | 27 | [Multi-replica Routing](m27_multi_replica_routing/) | `router.py` | 轮询/最少负载/前缀感知 (最长前缀匹配)、热点倾斜与负载阈值兜底 |
-| ★  | [Full Engine](full_engine/) | `engine.py`, `model_runner.py` | m02 真分页 + m03 调度 + m04 前缀复用 + m06 分块 + m10 采样；输出与朴素 greedy 逐 token 相同 |
+| ★  | [Full Engine](full_engine/) | `engine.py`, `model_runner.py` | m02 真分页 + m03 调度（含分块 prefill 开关，原理见 m06）+ m04 前缀复用 + m10 采样；输出与朴素 greedy 逐 token 相同 |
 
 ---
 
@@ -166,7 +178,7 @@ python -m llm_infer.run_all
 ```
 均需在仓库根目录执行 (`-m` 方式)。
 
-每个 demo 都会 print 出"现象 → 数字 → 结论"三段式输出，便于直观对比。
+每个 demo 的输出分三段：现象、数字、结论。
 
 ---
 
@@ -184,7 +196,7 @@ python -m llm_infer.run_all
 | m11 FlashAttention | 调 flash-attn 库 | 调 flash-attn 库 |
 | m12 CUDA Graph | `engine/model_runner.py` 的 `capture_cudagraph` | `engine/graph.py` |
 
-读完本目录后再去读上游源码，会有"原来如此"的恍然大悟感：
+读完本目录再去读上游源码，名词都对得上：
 - nano-vllm: https://github.com/GeeeekExplorer/nano-vllm
 - mini-sglang: https://github.com/sgl-project/mini-sglang
 - vLLM: https://github.com/vllm-project/vllm · SGLang: https://github.com/sgl-project/sglang

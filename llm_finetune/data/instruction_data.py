@@ -16,6 +16,11 @@ from llm_finetune.data.tasks import SeqTask, make_labels
 
 
 class InstructionDataGenerator(SyntheticDataGenerator):
+    """
+    每步产出 {"idx": [B, P+R], "labels": [B, P+R]}。"idx" 是 LLaMA.forward 的形参名, Trainer 会 `model(**batch)`。
+    fixed 是基类的缓存开关: True = 第一个 batch 缓存下来反复用; False = 每步重新采样。
+    """
+
     def __init__(self, task: SeqTask, batch_size: int = 64, fixed: bool = False) -> None:
         self.task, self.batch_size, self.fixed = task, batch_size, fixed
 

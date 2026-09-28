@@ -4,25 +4,31 @@
 按功能分类成四个子包:
 
   core/        通用 Transformer 基础组件 (任何 Transformer 都需要)
-                - attention:     SDPA → MHA → GQA → MLA → DSA
-                - position:      Sinusoidal / RoPE / M-RoPE
-                - feedforward:   ReLU / GELU / SwiGLU
-                - normalization: RMSNorm
-                - blocks:        PreLN Transformer Block 组装器
+                - attention:         SDPA → MHA → GQA → MLA → DSA (含 LightningIndexer)
+                - position_encoding: Sinusoidal / RoPE (可选 NTK / YaRN 缩放) / M-RoPE
+                - feedforward:       ReLU / GELU / SwiGLU
+                - normalization:     RMSNorm
+                - blocks:            PreLN Transformer Block 组装器
 
   sparse/      稀疏 / 非注意力序列分支
-                - moe: MixtralMoE (经典稀疏 MoE)
-                - ssm: SelectiveSSM (Mamba)
+                - moe:              MixtralMoE (经典稀疏 MoE)
+                - ssm:              SelectiveSSM (Mamba)
+                - linear_attention: GatedDeltaNet (Qwen3-Next)
 
   diffusion/   扩散 / 生成模型专用
-                - adaln: adaLN-Zero (DiT 条件注入)
-                - vq:    VectorQuantizer (VQ-VAE / VAR)
+                - adaln: adaLN-Zero (DiT 条件注入): AdaLNZeroBlock / FinalLayer / TimestepEmbedding / modulate
+                - vq:    VectorQuantizer (VQ-VAE) / MultiScaleVQ (VAR)
 
   multimodal/  跨模态构建块
-                - PatchEmbed2D / 3D, PerceiverResampler, ModalityProjector
+                - PatchEmbed2D / 3D, PatchTransformerEncoder,
+                  PerceiverResampler (+ PerceiverResamplerBlock), ModalityProjector
 
-通过组合这些零件可拼出 BERT / GPT-3 / LLaMA / Mixtral / Qwen2-VL / DeepSeek-V3 /
-Mamba / CLIP / Whisper / DiT / MM-DiT / Video DiT / VAR 等模型。
+本包不转发、要按完整路径 import 的 3 个名字 (顶层 llm_models 也导出了它们):
+    core.attention.LightningIndexer, core.position_encoding.scaled_inv_freq, diffusion.vq.MultiScaleVQ
+    (GatedDeltaNet 本包有转发)。
+
+通过组合这些零件可拼出 BERT / GPT-3 / LLaMA / Mistral / Qwen3-Next / LLaDA / Mixtral / GPT-OSS /
+Qwen2-VL / DeepSeek-V3 / Mamba / CLIP / Whisper / DiT / MM-DiT / Video DiT / VAR 等模型。
 """
 
 from llm_models.layers.core import (

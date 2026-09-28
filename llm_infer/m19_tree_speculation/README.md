@@ -19,7 +19,7 @@ Medusa、SpecInfer、EAGLE-2 都是这个套路, 区别只在树怎么长。
 ## 运行后应该看到什么
 `python -m llm_infer.m19_tree_speculation.demo` (约 3 s)
 ```
-[1] widths=[2,1], 上下文 3 个 token; parents = [-1, 0, 0, 1, 2]; RoPE 位置 = [3, 4, 4, 5, 5]
+[1] widths=[2, 1], 上下文 3 个 token; parents = [-1, 0, 0, 1, 2]; RoPE 位置 = [3, 4, 4, 5, 5]
     节点0  ■ ■ ■ | ■ · · · ·
     节点1  ■ ■ ■ | ■ ■ · · ·
     节点2  ■ ■ ■ | ■ · ■ · ·

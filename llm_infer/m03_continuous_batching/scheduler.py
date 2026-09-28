@@ -24,14 +24,20 @@ Batch = List[Tuple[Sequence, int]]      # (序列, 本步要算的 token 数)
 
 @dataclass
 class SchedulerConfig:
+    """调度器的四个容量上限 + 一个策略开关。"""
     max_batch_seqs: int = 8             # 同时 running 的序列上限
     max_batch_tokens: int = 256         # 每步 token 预算 (prefill + decode 合计)
-    block_size: int = 16
-    num_blocks: int = 64
-    chunked_prefill: bool = False
+    block_size: int = 16                # 每个 KV block 装几个 token
+    num_blocks: int = 64                # KV pool 的 block 总数
+    chunked_prefill: bool = False       # False = prefill 优先; True = decode 优先 + 分块 prefill
 
 
 class Scheduler:
+    """两个队列 (waiting / running) + 一个 BlockManager。
+
+    每步先 schedule() 拿到 batch, 模型算完后 postprocess() 回写进度和新 token。
+    """
+
     def __init__(self, cfg: SchedulerConfig, prefix_cache=None):
         """prefix_cache: 可选, 鸭子类型 (match_prefix / register), 见 m04; 为 None 则不做前缀复用。"""
         self.cfg = cfg
@@ -46,6 +52,7 @@ class Scheduler:
         self._just_preempted = False
 
     def add_request(self, prompt_ids: List[int], max_new: int = 32, eos_id: int = 2) -> Sequence:
+        """新请求进 waiting 队尾, 返回对应的 Sequence (此时还没分配 block)。"""
         # 单条序列跑满也装不下 → 永远调度不了, 早失败好过死循环
         assert self.bm.blocks_needed(len(prompt_ids) + max_new) <= self.bm.num_blocks, \
             "prompt + max_new 超过整个 KV pool"
@@ -60,6 +67,7 @@ class Scheduler:
     # ---- 调度 ---- #
 
     def schedule(self) -> Batch:
+        """决定这一步算哪些序列、各算几个 token。返回 [(seq, n_tokens), ...]。"""
         budget = self.cfg.max_batch_tokens
         if not self.cfg.chunked_prefill:
             # prefill 优先; 队首拿不到 block 时 batch 为空 → 必须落到 decode,
@@ -77,14 +85,14 @@ class Scheduler:
         self._just_preempted = False
         todo = list(self.running)
         while todo and budget > 0:
-            seq = todo.pop(0)
-            n = min(seq.num_tokens - seq.num_computed, budget)
+            seq = todo.pop(0)                                   # 从最老的开始
+            n = min(seq.num_tokens - seq.num_computed, budget)  # 还欠的 token 数, 不超过剩余预算
             while not self.bm.can_append(seq.seq_id, seq.num_computed + n):
-                victim = todo.pop() if todo else seq
+                victim = todo.pop() if todo else seq            # todo 队尾 = 还没排进本步的最年轻序列
                 self._preempt(victim)
                 if victim is seq:
                     break
-            else:
+            else:                                               # while 没被 break = 没抢占自己, block 够了
                 self.bm.ensure_capacity(seq.seq_id, seq.num_computed + n)
                 batch.append((seq, n))
                 budget -= n
@@ -106,7 +114,7 @@ class Scheduler:
                 break
             self.waiting.popleft()
             self.bm.allocate(seq.seq_id, len(ids), hits)
-            seq.num_computed = n_hit
+            seq.num_computed = n_hit                # 命中的前缀已有 KV, 从这里接着算
             self.prefix_hit_tokens += n_hit
             seq.status = SeqStatus.RUNNING
             self.running.append(seq)
@@ -135,7 +143,7 @@ class Scheduler:
                 self.prefix_cache.register(seq.all_ids, self.bm.block_table(seq.seq_id), seq.num_computed)
             if seq.num_computed < seq.num_tokens:
                 continue                            # prefill 还没追平
-            seq.append_token(tok)
+            seq.append_token(tok)                   # KV 追平了, 这一步的 logits 采出了新 token
             if seq.is_finished():
                 seq.status = SeqStatus.FINISHED
                 self.bm.free(seq.seq_id)

@@ -42,7 +42,7 @@ pool.map(tools.execute, approved)           # 并行; 只有 1 个获批时直�
 所有 tool_result 放进同一条 user 消息
 ```
 
-关键设计 (为什么这样做):
+关键设计:
 
 - **整表覆写而不是增删改单项**: 没有 id、没有局部更新的歧义, 调用是幂等的; 模型每次都要重述整个计划, 最新状态总在上下文的近处。harness 只负责保存, 不调度 —— 推进计划的是模型。
 - **`todo_write` 标成只读**: 它只改 agent 自己的计划状态, 不碰外部世界, 所以 plan 模式下也能用, 否则"先列计划"这一步本身就会被拒。
@@ -73,18 +73,18 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m llm_agent.m10_planning.demo
 [2] 用户批准: 模式切到 accept_edits, 按计划执行, todo 从 pending 走到 completed
   [approved] tool_result toolu_0002 -> plan approved; mode -> accept_edits
   [approved] permission write_note -> allow (accept_edits: low/medium risk)
-  tool order              : ['todo_write', 'exit_plan_mode', 'search_docs', 'write_note', 'todo_write']
+  工具调用顺序                  : ['todo_write', 'exit_plan_mode', 'search_docs', 'write_note', 'todo_write']
 
 [3] plan 模式是 harness 强制的: 就算模型不交计划直接写, 门也不开
   [rogue] turn 1: model -> tool_use toolu_0001 write_note {'text': '写入笔记: 偷偷写'}
   [rogue] permission write_note -> deny (plan: plan mode is read-only until the plan is approved)
 
 [4] 并行工具调用: 3 个 0.2s 的调用
-  serial (max_parallel=1) : 0.61s
-  parallel (max_parallel=4): 0.21s
+  串行 (max_parallel=1)     : 0.61s
+  并行 (max_parallel=4)     : 0.21s
 ```
 
-`assert` 验证的事:
+断言验证的内容:
 
 - [1] 拒绝后: 笔记为空, `gate.mode` 仍是 `plan`, 最终回答含"未获批准", transcript 里根本没有 `write_note` 的 `tool_use`。
 - [2] 批准后: 工具顺序恰为 `todo_write, exit_plan_mode, search_docs, write_note, todo_write`; 模式变成 `accept_edits`; 笔记正好 1 条; todo 第一版全是 `pending`, 最后一版全是 `completed`。

@@ -16,9 +16,11 @@ from llm_models.training import Trainer, TrainingConfig, StandardLMLoss, Whisper
 
 
 class SameTextDifferentAudio(WhisperDataGenerator):
+    """每条样本的 decoder 输入都换成第 0 条的, mel 和标签不动: 不听音频就分不清这几条样本。"""
+
     def _sample(self):
         batch = super()._sample()
-        batch["decoder_input_ids"] = batch["decoder_input_ids"][:1].repeat(self.batch_size, 1)
+        batch["decoder_input_ids"] = batch["decoder_input_ids"][:1].repeat(self.batch_size, 1)   # [1, T] → [B, T]
         return batch
 
 
@@ -42,6 +44,7 @@ def main():
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]
     print(f"初始 loss {first:.3f} (ln V = {math.log(V):.3f}) -> 终态 {last:.3f} (不听音频的下界 ln 2 = {math.log(2):.3f})")
     assert abs(first - math.log(V)) < 0.5, "初始 loss 应 ≈ ln V"
+    # 两条样本二选一的下界是 ln 2; 阈值取 0.5·ln 2, 比下界再低一半才算数
     assert last < 0.5 * math.log(2), "loss 低于 ln 2 才说明 decoder 用上了音频"
 
 

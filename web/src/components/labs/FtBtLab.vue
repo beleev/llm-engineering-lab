@@ -14,7 +14,7 @@
     run="python -m llm_finetune.run_finetune.rm.train_rm"
     :challenge="{
       ask: '先把 ε 拖到 0, 一直把 A 往右拖: loss 有最小值吗? 再把 ε 调到 0.2, 找到 loss 最低的分差, 它是多少? 最后点「两个一起 +2」: 什么变了?',
-      answer: '- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小。\n- 有一点标注噪声: 期望 loss $= -(1-\\varepsilon)\\cdot\\log\\sigma(\\Delta) - \\varepsilon\\cdot\\log\\sigma(-\\Delta)$ 变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$。\n碗底位置: $\\varepsilon = 0.2 \\to 1.386$, $\\varepsilon = 0.1 \\to 2.197$, $\\varepsilon = 0.5 \\to 0$ (纯噪声, 学不到任何偏好)。\n此时 $\\sigma(\\Delta^*)$ 恰好等于 $1-\\varepsilon$: 训练良好的 RM 输出的是校准过的「标注员一致率」。\n碗底的高度是二元熵 $H(\\varepsilon)$。这是噪声数据上 loss 的下限, 训到这里就别再训了。\n两个点一起平移, $P$ 和 loss 完全不变: BT 模型对整体平移不可辨识。这也是 GRPO/PPO 要做 baseline/归一化的原因之一。',
+      answer: '- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小。\n- 有标注噪声: 期望 loss $= -(1-\\varepsilon)\\cdot\\log\\sigma(\\Delta) - \\varepsilon\\cdot\\log\\sigma(-\\Delta)$ 变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$。$\\varepsilon = 0.2 \\to 1.386$, $\\varepsilon = 0.1 \\to 2.197$, $\\varepsilon = 0.5 \\to 0$ (纯噪声, 学不到任何偏好)。\n- 碗底: $\\sigma(\\Delta^*)$ 恰好等于 $1-\\varepsilon$, 训练良好的 RM 输出的是校准过的「标注员一致率」。碗底的高度是二元熵 $H(\\varepsilon)$, 这是噪声数据上 loss 的下限, 训到这里就别再训了。\n- 一起 +2: $P$ 和 loss 完全不变, BT 模型对整体平移不可辨识。这也是 GRPO/PPO 要做 baseline/归一化的原因之一。',
     }"
   >
     <template #controls>
@@ -26,7 +26,7 @@
       <LabSlider v-model="eps" label="标注噪声 ε (标反的概率)" :min="0" :max="0.5" :step="0.01" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 330" role="img" aria-label="两条回答的奖励分数与期望 loss 曲线">
+    <svg ref="svgEl" viewBox="0 0 640 330" role="group" aria-label="两条回答的奖励分数与期望 loss 曲线">
       <!-- 上: 奖励数轴 -->
       <line :x1="rx(-R)" :x2="rx(R)" y1="60" y2="60" stroke="var(--border-strong)" />
       <text v-for="t in [-6, -3, 0, 3, 6]" :key="'r' + t" :x="rx(t)" y="88" text-anchor="middle" class="t">{{ t }}</text>

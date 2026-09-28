@@ -20,7 +20,7 @@ from llm_infer.m03_continuous_batching.scheduler import Scheduler, SchedulerConf
 
 def chunked_prefill(lm: TinyLM, prompt_ids: np.ndarray, chunk_size: int):
     """逐块 prefill → (最后一块的 logits (≤chunk, V), kv_cache)。"""
-    kv, logits = None, None
+    kv, logits = None, None                       # kv=None 让第一块走 prefill 路径
     for s in range(0, len(prompt_ids), chunk_size):
         # 第 s 块的 Q (chunk, D) 对 已缓存+本块 的 K (s+chunk, D) 做因果 attention; 分数矩阵只有 chunk × (s+chunk)
         logits, kv = lm.forward(prompt_ids[s:s + chunk_size], kv)
@@ -34,6 +34,7 @@ class CostModel:
     per_token_ms: float = 0.25      # batch 里每多 1 个 token 的计算开销
 
     def step_ms(self, n_tokens: int) -> float:
+        """一步 batch 里共 n_tokens 个 token 时的耗时 (ms)。"""
         return self.fixed_ms + self.per_token_ms * n_tokens
 
 
@@ -44,14 +45,14 @@ def simulate(chunked: bool, token_budget: int, arrivals: List[Tuple[int, int, in
     sched = Scheduler(SchedulerConfig(max_batch_seqs=16, max_batch_tokens=token_budget,
                                       block_size=16, num_blocks=1024, chunked_prefill=chunked))
     arrivals = sorted(arrivals)
-    now, step = 0.0, 0
-    arrive_t: Dict[int, float] = {}
-    token_t: Dict[int, List[float]] = {}
-    step_tokens: List[int] = []
+    now, step = 0.0, 0                          # now: 代价模型累计出的时刻 (ms); step: 已跑步数
+    arrive_t: Dict[int, float] = {}             # seq_id → 到达时刻
+    token_t: Dict[int, List[float]] = {}        # seq_id → 每个输出 token 的产出时刻
+    step_tokens: List[int] = []                 # 每步 batch 的 token 数
     while arrivals or sched.has_unfinished():
-        while arrivals and arrivals[0][0] <= step:
+        while arrivals and arrivals[0][0] <= step:              # 到点的请求进队
             _, plen, max_new = arrivals.pop(0)
-            seq = sched.add_request([7] * plen, max_new, eos_id=-1)
+            seq = sched.add_request([7] * plen, max_new, eos_id=-1)   # token 内容随便填; eos=-1 保证跑满 max_new
             arrive_t[seq.seq_id], token_t[seq.seq_id] = now, []
         batch = sched.schedule()
         n_tok = sum(n for _, n in batch)
@@ -64,7 +65,7 @@ def simulate(chunked: bool, token_budget: int, arrivals: List[Tuple[int, int, in
             if e:
                 token_t[seq.seq_id].append(now)
     return {
-        "tbt": {sid: np.diff(ts) for sid, ts in token_t.items()},
+        "tbt": {sid: np.diff(ts) for sid, ts in token_t.items()},               # 相邻产出时刻之差
         "ttft": {sid: ts[0] - arrive_t[sid] for sid, ts in token_t.items()},
         "step_tokens": step_tokens,
         "total_ms": now,

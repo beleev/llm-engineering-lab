@@ -10,7 +10,7 @@
     module="llm_agent/m13"
     run="python -m llm_agent.m13_evals.demo"
     :challenge="{
-      ask: 'p = 0.9 听起来很可靠。k = 8 时 pass@k 和 pass^k 各是多少? 一个每天被调用 8 次的客服 agent, 用户感受到的是哪一个?',
+      ask: 'p = 0.9 听起来很可靠。默认 k = 1, 两个指标都是 90%。先猜: 把 k 拖到 8, pass@k 和 pass^k 各变成多少? 一个每天被调用 8 次的客服 agent, 用户感受到的是哪一个?',
       answer: 'pass@8 $= 1 - 0.1^8 \\approx 100\\%$, pass^8 $= 0.9^8 \\approx 43\\%$。\n- pass@k: 回答「多给几次机会, 它做不做得到」。适合有验证器、可以重试挑最优的场景 (写代码跑测试)。\n- pass^k: 回答「每一次都做对的概率」。动作不可撤销、没人复核的 agent (退款、发邮件、改库), 用户感受到的就是它。\n要把 pass^8 提到 90%, 单次 $p$ 得到 98.7%。可靠性是指数级昂贵的。',
     }"
   >
@@ -20,7 +20,7 @@
       <div class="row"><button type="button" @click="seed++">换一组抽样</button></div>
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="pass@k 与 pass^k 曲线" @click="pickK">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="pass@k 与 pass^k 曲线, 圆点可拖动改 p" @click="pickK">
       <g class="grid">
         <line v-for="y in [0, 0.25, 0.5, 0.75, 1]" :key="y" :x1="X0" :x2="W - 10" :y1="py(y)" :y2="py(y)" />
         <text v-for="y in [0, 0.5, 1]" :key="'t' + y" :x="X0 - 6" :y="py(y) + 4" text-anchor="end">{{ y * 100 }}%</text>
@@ -52,10 +52,11 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>pass@{{ k }} (至少一次)</span><b class="good">{{ pct(passAt) }}</b></div>
-      <div class="kv"><span>pass^{{ k }} (次次都对)</span><b :class="passHat < 0.5 ? 'bad' : ''">{{ pct(passHat) }}</b></div>
+      <div class="kv"><span>pass@{{ k }} (至少一次)</span><b :class="vsP(passAt)">{{ pct(passAt) }}</b></div>
+      <div class="kv"><span>pass^{{ k }} (次次都对)</span><b :class="vsP(passHat)">{{ pct(passHat) }}</b></div>
       <div class="kv"><span>{{ TASKS }} 个任务的抽样值</span><b>{{ pct(emp.at) }} / {{ pct(emp.hat) }}</b></div>
       <div class="kv"><span>要 pass^{{ k }} ≥ 90%, p 需</span><b>{{ pct(0.9 ** (1 / k)) }}</b></div>
+      <p class="lab-note">颜色是和单次成功率 p 比: 高于 p 变绿, 低于 p 变红。k = 1 时两个指标都等于 p。</p>
       <p class="lab-note">只看最终答案还不够。轨迹检查 (trajectory check) 会另外断言过程: 有没有调用不该调的工具、有没有跳过必须的确认步骤。答案对、过程违规, 同样算失败。</p>
     </template>
   </LabFrame>
@@ -70,7 +71,7 @@ import { clamp, mulberry32, range } from '@/utils/labmath.js'
 
 const KMAX = 16, TASKS = 40
 const W = 560, H = 230, X0 = 44, Y0 = 12, YB = 24
-const p = ref(0.9), k = ref(8), seed = ref(1)
+const p = ref(0.9), k = ref(1), seed = ref(1) // k = 1 是对照: 两个指标重合, 拖 k 才分开
 const svg = ref(null)
 const { start } = useDrag()
 
@@ -82,6 +83,7 @@ const pct = (v) => (v * 100).toFixed(1) + '%'
 // ★ 全部的数学: 独立同分布的 k 次尝试
 const passAt = computed(() => 1 - (1 - p.value) ** k.value)
 const passHat = computed(() => p.value ** k.value)
+const vsP = (v) => (v > p.value + 1e-9 ? 'good' : v < p.value - 1e-9 ? 'bad' : '')
 
 // 抽样: 每个格子先抽一个固定的 u, 成功 = u < p。拖 p 时格子只会单调地翻面, 不会乱跳
 const us = computed(() => { const rand = mulberry32(seed.value * 7919); return range(TASKS).map(() => range(KMAX).map(() => rand())) })

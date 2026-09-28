@@ -12,14 +12,15 @@
     run="python -m llm_agent.m19_prompt_caching.demo"
     :challenge="{
       ask: '「时间戳在用户消息末尾」模式下, 把轮间停顿从 30 秒慢慢往右拖。先猜: 拖到多少秒时账单突然跳涨? 跳到多少?',
-      answer: '拖到 285 秒, cost 从 15267 跳到 50380, 命中从 11/12 掉到 6/12。\n- 过期时刻: 上一轮最后一次调用写入缓存, 过期时刻 = 那一刻 + 300 秒。\n- 下一轮开头: 第一次调用在 15 + 停顿 秒之后。停顿 ≥ 285 秒, 就晚于过期时刻。\n- 还能命中的: 只剩每轮内的第 2 次调用 (15 秒后)。\n它是个悬崖, 不是斜坡。长任务里有两条路:\n- 缩短间隔: 让轮次间隔落在 TTL 内。\n- 换长 TTL: 付 1 小时 TTL 更高的写入价。',
+      answer: '拖到 285 秒, cost 从 15267 跳到 50380, 命中从 11/12 掉到 6/12。\n- 过期时刻: 上一轮最后一次调用写入缓存, 过期时刻 = 那一刻 + 300 秒。\n- 下一轮开头: 第一次调用在 15 + 停顿 秒之后。停顿 ≥ 285 秒, 就晚于过期时刻。\n- 还能命中的: 只剩每轮内的第 2 次调用 (15 秒后)。\n这是一个悬崖: 停顿 270 秒还命中 11/12, 285 秒就只剩 6/12, 中间没有过渡。长任务里有两条路:\n- 缩短间隔: 让轮次间隔落在 TTL 内。\n- 换长 TTL: 付 1 小时 TTL 更高的写入价。',
     }"
   >
     <template #controls>
       <div class="row">
         <button v-for="m in MODES" :key="m.id" type="button" :class="{ active: mode === m.id }" @click="mode = m.id">{{ m.label }}</button>
       </div>
-      <LabSlider v-model="pause" label="轮间停顿" :min="30" :max="600" :step="15" unit=" s" />
+      <LabSlider v-if="mode === 'user'" v-model="pause" label="轮间停顿" :min="30" :max="600" :step="15" unit=" s" />
+      <p v-else class="tip">「轮间停顿」已隐藏: {{ mode === 'none' ? '不缓存时每次都按全价算' : '前缀每次都变, 一次也命中不了' }}, 停多久账单都一样。</p>
     </template>
 
     <div class="calls">
@@ -33,6 +34,9 @@
         <span class="mono cost">{{ Math.round(c.cost) }}</span>
       </button>
     </div>
+    <p v-if="mode === 'user'" class="detail mono" :class="{ expired: calls[sel].gap >= TTL }">
+      {{ sel ? `距上次写入 ${calls[sel].gap}s / TTL ${TTL}s → ${calls[sel].gap < TTL ? '还没过期, 能读缓存' : '已过期, 整段重新写入'}` : `第 1 次调用: 还没有缓存可读。之后每次写入或命中, 过期时刻都推到那一刻 + ${TTL}s` }}
+    </p>
     <p class="detail mono">调用 {{ sel + 1 }} · t={{ calls[sel].now }}s · read {{ calls[sel].read }} · write {{ calls[sel].write }} · input {{ calls[sel].input }} → cost {{ Math.round(calls[sel].cost) }}, TTFT ≈ {{ Math.round(calls[sel].ms) }}ms</p>
 
     <template #stats>
@@ -90,7 +94,7 @@ const calls = computed(() => {
     }
     const cost = u.input * PRICE.input + u.write * PRICE.write + u.read * PRICE.read
     const ms = 300 + (u.input + u.write) * 0.2 + u.read * 0.02
-    return { ...u, now, cost, ms }
+    return { ...u, now, gap: k ? now - timeOf(k - 1) : 0, cost, ms }
   })
 })
 const tot = computed(() => {
@@ -112,4 +116,6 @@ const tot = computed(() => {
 .in { background: var(--text-dim); }
 .cost { width: 48px; flex-shrink: 0; font-size: 11px; text-align: right; }
 .detail { margin-top: 8px; font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.detail.expired { color: var(--danger); }
+.tip { font-size: 12px; color: var(--text-muted); }
 </style>

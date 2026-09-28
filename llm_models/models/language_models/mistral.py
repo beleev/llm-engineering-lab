@@ -5,6 +5,9 @@ Mistral-7B (Jiang et al., 2023) — LLaMA + 滑动窗口注意力 (SWA)
 解决什么: 全注意力计算 O(T²)、KV cache O(T); SWA 降到 O(T·W) 与 O(W) (rolling buffer)。
 关键数字: 感受野没被掐断 —— 信息跨层接力, L 层 × 窗口 W ≈ L·W (Mistral: 32×4096 ≈ 131K)。
 后继: Gemma 2/3 (全局层 : SWA 层交替)、GPT-OSS (SWA + attention sink)。
+与官方实现的差异:
+    - lm_head 与 embedding 共享权重、embedding 乘 √D 是本库约定 (见 models/__init__.py)。
+    - window_size 默认 8 (Mistral-7B 是 4096), 小窗口才能在短序列上看到 "带状"。
 读代码时盯住: `window_mask` 与 forward 里的 `kept` —— SWA 不需要新的注意力类, 只是换了一张 mask;
              有 KV cache 时 cache 被滚动裁到 W, mask 的列要跟着只取最后 kept+T 列。
 """
@@ -69,6 +72,8 @@ class Mistral(GenerationMixin, nn.Module):
         LLaMA:   mask = 下三角        (位置 t 看 [0, t])
         Mistral: mask = 带状下三角    (位置 t 看 (t-W, t])
 
+    forward 返回 Tensor; 接受 attention_mask; 支持 KV cache, 每层最多留 W 个 K/V。
+
     Args:
         vocab_size:      词表大小 (Mistral 原版 32000)
         d_model:         隐藏维度
@@ -108,7 +113,7 @@ class Mistral(GenerationMixin, nn.Module):
 
         if d_ff is None:
             d_ff = int(8 / 3 * d_model)
-            d_ff = ((d_ff + 63) // 64) * 64
+            d_ff = ((d_ff + 63) // 64) * 64      # 向上对齐到 64 的倍数, 同 LLaMA
 
         self.layers = nn.ModuleList(
             [
@@ -119,9 +124,9 @@ class Mistral(GenerationMixin, nn.Module):
 
         self.ln_f = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.token_embedding.weight
+        self.lm_head.weight = self.token_embedding.weight     # weight tying (本库约定)
 
-        # 预构建带状因果 mask — 与 LLaMA 唯一的结构性差异
+        # 预构建带状因果 mask [1, max_len, max_len] — 与 LLaMA 唯一的结构性差异
         banded = build_sliding_window_mask(
             max_len, window_size, torch.device("cpu")
         )
@@ -130,6 +135,7 @@ class Mistral(GenerationMixin, nn.Module):
         init_weights(self)   # weight tying 之后; 初始 CE ≈ ln V
 
     def _window_mask(self, seq_len: int) -> torch.Tensor:
+        """取左上角 [1, seq_len, seq_len] 的带状 mask; 超过缓存大小就现建一张。"""
         if seq_len <= self.window_mask.size(-1):
             return self.window_mask[:, :seq_len, :seq_len]
         return build_sliding_window_mask(
@@ -154,18 +160,24 @@ class Mistral(GenerationMixin, nn.Module):
         attention_mask: Optional[torch.Tensor] = None,  # [B, past+T], 1=有效 0=pad
         cache: Optional[KVCache] = None,
     ) -> torch.Tensor:                                  # [B, T, V]
+        """
+        idx [B, T] -> logits [B, T, V], 返回 Tensor。
+        attention_mask: [B, past+T], 覆盖 "已读过的 + 本次的" 全部 token (窗口外的也要给)。
+        cache: 给了就走 KV cache。每层跑完把 K/V 裁到最近 W 个, cache 大小不随 T 增长。
+        """
         B, T = idx.shape
-        past = cache.pos if cache is not None else 0
+        past = cache.pos if cache is not None else 0                     # 已读过的 token 数 (不是 cache 里的条数)
         if past + T > self.max_len:
             raise ValueError(f"序列长度 {past + T} 超过 max_len={self.max_len}")
 
-        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]
-        position_ids = torch.arange(past, past + T, device=idx.device)
+        x = self.token_embedding(idx) * math.sqrt(self.d_model)          # [B, T, D]; ·√D 是本库约定
+        position_ids = torch.arange(past, past + T, device=idx.device)   # [T] 新 token 的绝对位置
 
         # 带状 mask 的行 past:past+T (新 query) × 列 :past+T (全部历史), 再 ∩ padding
         banded = self._window_mask(past + T)[:, past:]                   # [1, T, past+T]
-        mask = combine_causal_and_padding_mask(banded, attention_mask)
-        # rolling buffer: cache 里只留了最近 kept 个 key, mask 的列要对齐到这 kept+T 个
+        mask = combine_causal_and_padding_mask(banded, attention_mask)   # [B 或 1, T, past+T]
+        # rolling buffer: cache 里只留了最近 kept 个 key, mask 的列要对齐到这 kept+T 个。
+        # 这两步顺序不能换: 要先按完整的 past+T 列与 padding 求交, 再裁列
         kept = min(past, self.window_size)
         mask = mask[..., -(kept + T):]                                   # [*, T, kept+T]
 
@@ -174,10 +186,10 @@ class Mistral(GenerationMixin, nn.Module):
             x = layer(x, mask=mask, rope=self.rope, position_ids=position_ids, cache=layer_cache)
             if layer_cache is not None:
                 # 窗口外的 K/V 永远不会再被看到 → 丢掉。K 已带 RoPE (绝对位置), 裁剪不影响正确性
-                layer_cache["k"] = layer_cache["k"][:, :, -self.window_size:]
+                layer_cache["k"] = layer_cache["k"][:, :, -self.window_size:]   # [B, Hkv, ≤W, Dh]
                 layer_cache["v"] = layer_cache["v"][:, :, -self.window_size:]
                 assert layer_cache["k"].size(2) <= self.window_size
         if cache is not None:
-            cache.pos += T
+            cache.pos += T                                               # 位置照常累加, 与裁剪无关
 
-        return self.lm_head(self.ln_f(x))
+        return self.lm_head(self.ln_f(x))                                # [B, T, V]

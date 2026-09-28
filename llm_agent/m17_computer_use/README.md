@@ -74,7 +74,7 @@ cd <仓库根目录> && python3 -m llm_agent.m17_computer_use.demo
       - link "Order #1004 · processing" [ref=e9] @(200,190)
       ...
   动作序列                    : ['type Username', 'type Password', 'click Sign in', 'click Order #1004 · processing', 'scroll 300', 'click Cancel order', 'click Yes, cancel order']
-  final                   : 订单 #1004 已取消。
+  最终回答                    : 订单 #1004 已取消。
 
 [2] 布局位移: 订单列表在观察之后插入 80px 的促销横幅
     click_by=ref  layout_shift=False -> 被取消的订单 [1004]  final='订单 #1004 已取消。'
@@ -109,15 +109,17 @@ cd <仓库根目录> && python3 -m llm_agent.m17_computer_use.demo
 - **坐标点错之后没有自检**: 点进 #1002 的详情页, 标题就写着 `Order #1002`, 一个会核对的 agent 能发现并退回。本 demo 的策略刻意不核对, 以显出坐标点击的静默失败。核对 (动作后验证) 本身是真实系统里重要的一层。
 - **ref 也不是万能**: 页面重新渲染 (新 DOM 节点) 会让旧 ref 失效, 这里 `click` 会报 `stale ref, take a new snapshot`。它的好处是失败时会报错, 不会点到别的东西上。
 - **注入只有一种写法**: `gullible` 只认 `click the X button`。真实注入会改写、分散在多处、藏在不可见文本或图片里。
-- **敏感动作清单是一条正则**: `delete account|close account|transfer|change password`。
-  - 真实系统要按站点和动作类型维护清单, 并对不可逆操作一律要求人工确认。
+- **敏感动作清单是一条正则**: `delete account|close account|transfer|change password`, 共 4 项。
+  - `scope_guard` 拿这条正则去匹配按钮的可见名字。页面把删除按钮起名叫 Confirm, 就绕过了。
   - 判断"是否在用户原话里"也只是子串匹配: 用户原话里提到 Delete account 就会放行。
+  - 真实系统按动作的后果分级, 不看按钮文字。要按站点和动作类型维护清单, 并对不可逆操作一律要求人工确认。
+- **污点规则在这里不起作用**: 浏览器工具的 `risk` 是 `medium`, 污点只锁 `high`。看过一页不可信的网页之后, 点击和输入照常可用, 拦截全靠上面这条 `scope_guard`。
 - 没有截图、没有网络、没有真实浏览器: 所有状态都在 `Browser` 对象里。
 
 ## 常见误区
 
 - **"坐标点击只要坐标准就行。"** 坐标来自上一次观察, 落地在下一刻的布局上。[2] 里坐标完全正确, 只是页面在两者之间挪了 80px。
-- **"agent 报告成功, 任务就成功了。"** [2] 的坐标 agent 最终回答一字不差, 却多取消了一个别人的订单。评测要看环境终态 (m13)。
+- **"agent 报告成功, 任务就成功了。"** [2] 的坐标 agent 最终回答一字不差, 却多取消了用户自己的另一个订单 #1002。评测要看环境终态 (m13)。
 - **"给网页内容打上不可信标记就防住注入了。"** [3] 里标记打上了, 轻信的模型照样去点; 拦住它的是不依赖模型的 hook。
   - 也不能因为网页不可信, 就把所有浏览器动作设成高风险。那样看过一页之后什么都做不了 (m12 的污点规则只锁 high)。
 

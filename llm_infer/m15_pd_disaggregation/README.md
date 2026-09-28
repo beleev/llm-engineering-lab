@@ -1,7 +1,7 @@
 # M15 — Prefill / Decode Disaggregation: 两类负载分到两组节点
 
 ## 直觉
-prefill 一次吃几千 token, **算力瓶颈**, 用户关心 TTFT; decode 一次 1 token, **访存瓶颈**, 用户关心 ITL。
+prefill 一次吃几千 token, **算力瓶颈**, 用户关心 TTFT (首 token 延迟); decode 一次 1 token, **访存瓶颈**, 用户关心 ITL (相邻两个输出 token 的间隔)。
 同卡混跑时, 一个长 prefill 插进来, 同 batch 所有 decode 请求的这一步都要等它算完 → ITL 抖动。
 chunked prefill (m06) 是把 prefill 切碎来缓解; P/D 分离是干脆分家: P 节点只 prefill, 算完把 KV cache
 通过网络发给 D 节点, D 节点只 decode。两边可以各自选并行策略、batch 大小、甚至不同型号的卡。代价: **KV 要过网络**。

@@ -30,8 +30,8 @@ class PreLNBlock(nn.Module):
         attn: 自注意力模块。必须实现 forward(q, k, v, mask, rope, position_ids[, cache])
               并返回张量 (不返回 tuple)
         ffn: 前馈模块。必须实现 forward(x) -> x
-        norm_cls: 归一化工厂函数 (默认 LayerNorm；现代 LLM 通常传 RMSNorm)
-        dropout: 残差分支 dropout 概率 (训练用，预训练大模型一般设很小或 0)
+        norm_cls: 归一化工厂函数 (默认 LayerNorm; 现代 LLM 通常传 RMSNorm)
+        dropout: 残差分支 dropout 概率 (训练用, 预训练大模型一般设很小或 0)
     """
 
     def __init__(
@@ -57,6 +57,11 @@ class PreLNBlock(nn.Module):
         position_ids: Optional[torch.Tensor] = None,
         cache: Optional[dict] = None,
     ) -> torch.Tensor:
+        """x [B, T, D] → [B, T, D]。
+
+        mask: 可广播到 [B, T, S], True = 可见; rope / position_ids 原样传给 attn。
+        cache: 本层的 KV cache dict, 只在给了的时候才传给 attn。
+        """
         # 子层 1: 自注意力分支 (Pre-LN: 归一化只作用于进入 attn 的拷贝)
         residual = x
         h = self.norm1(x)
@@ -78,7 +83,7 @@ class PreLNCrossBlock(nn.Module):
     Pre-LN Decoder Block: Masked Self-Attn + Cross-Attn + FFN
 
     用于经典 encoder-decoder (翻译、Seq2Seq、T5) 或多模态视觉编码器到语言解码器的桥接。
-    self_attn 看 decoder 内部因果序列，cross_attn 让 decoder 去 "查询" encoder 输出。
+    self_attn 看 decoder 内部因果序列, cross_attn 让 decoder 去 "查询" encoder 输出。
 
     数据流:
         x -> norm1 -> self_attn (masked)              -> Add
@@ -88,7 +93,7 @@ class PreLNCrossBlock(nn.Module):
     Args:
         d_model: 模型维度
         self_attn: 自注意力模块 (带因果掩码)
-        cross_attn: 交叉注意力模块 (Q 来自 decoder，K/V 来自 encoder context)
+        cross_attn: 交叉注意力模块 (Q 来自 decoder, K/V 来自 encoder context)
         ffn: FFN 模块
         norm_cls: 归一化工厂 (默认 LayerNorm)
         dropout: Dropout 概率
@@ -121,15 +126,21 @@ class PreLNCrossBlock(nn.Module):
         rope: Optional[nn.Module] = None,
         position_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """x [B, T, D] (decoder 序列), context [B, S, D] (encoder 输出) → [B, T, D]。
+
+        self_mask:    可广播到 [B, T, T], 通常是因果 ∩ padding。
+        context_mask: 可广播到 [B, T, S], 屏蔽 context 里的 pad。
+        不支持 KV cache: 没有 cache 参数。
+        """
         # 子层 1: 因果自注意力 (decoder 内部时序)
         residual = x
         h = self.norm1(x)
         h = self.self_attn(q=h, k=h, v=h, mask=self_mask, rope=rope, position_ids=position_ids)
         x = residual + self.dropout(h)
 
-        # 子层 2: Cross-Attention (Q 来自 decoder，K/V 来自 encoder)
-        # RoPE 显式置 None：Q 和 K 处于不同的位置空间 (decoder 时序 vs encoder 序列)，
-        # 强行加同一套相对位置旋转会引入错误信号
+        # 子层 2: Cross-Attention (Q 来自 decoder, K/V 来自 encoder)
+        # RoPE 显式置 None: Q 和 K 处于不同的位置空间 (decoder 时序 vs encoder 序列),
+        # "相对距离 m - n" 在两条序列之间没有意义
         residual = x
         h = self.norm2(x)
         h = self.cross_attn(q=h, k=context, v=context, mask=context_mask, rope=None)

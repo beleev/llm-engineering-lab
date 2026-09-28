@@ -22,8 +22,8 @@
         '对着源码认出每一种注意力的 forward 差在哪几行',
       ]"
       :codes="[{ path: 'llm_models/layers/core/attention.py' }]"
-      :prereq="{ name: 'home', label: '总览时间轴' }"
-      :next-step="{ name: 'position', label: '位置编码 — RoPE 是怎么注入到 Q/K 的' }"
+      :prereq="prevChapter"
+      :next-step="nextChapter"
     />
 
     <EvolutionChain
@@ -32,15 +32,15 @@
       :steps="evoSteps"
     />
 
-    <!-- 先建立实验任务，再让读者替换内部机制。 -->
+    <!-- 先建立实验任务, 再让读者替换内部机制。 -->
     <section class="concept-workbench card" aria-labelledby="attention-workbench-title">
       <div class="workbench-heading">
-        <span class="eyebrow">INTERACTIVE MENTAL MODEL</span>
+        <span class="eyebrow">动手建立直觉</span>
         <div>
-          <h2 id="attention-workbench-title">先把任务钉死，再换「KV 怎么存」</h2>
+          <h2 id="attention-workbench-title">先把任务钉死, 再换「KV 怎么存」</h2>
           <p>
-            下面是一次对照实验：上下文长度和模型宽度都不动，只换 Attention 方案。
-            这样柱图的差别就只可能来自存储机制本身，而不是你顺手改了参数口径。
+            下面是一次对照实验: 上下文长度和模型宽度都不动, 只换 Attention 方案。
+            这样柱图的差别只可能来自存储机制本身, 参数口径没有动过。
           </p>
         </div>
       </div>
@@ -73,7 +73,7 @@
         <strong>{{ activePresetLabel }}</strong>
         <span>
           {{ formatT(p.T) }} tokens × d_model {{ p.d_model }}。
-          接下来只动 Attention 这一项，看存法换了之后数字怎么走。
+          接下来只动 Attention 这一项, 看存法换了之后数字怎么走。
         </span>
       </div>
     </section>
@@ -133,8 +133,7 @@
     <div class="grid grid-2" style="gap: 20px;">
       <!-- 左: 参数 + 公式 -->
       <div class="card">
-        <h3>参数调节 <span class="tag">interactive</span></h3>
-        <Prose class="desc" style="margin-bottom: 12px;" :text="current.description" />
+        <h3>参数调节 <span class="tag">可拖动</span></h3>
         <div class="form-row">
           <label for="attention-seq-length">序列长度 T</label>
           <input id="attention-seq-length" type="range" min="128" max="131072" step="128" v-model.number="p.T" />
@@ -176,8 +175,8 @@
         </div>
 
         <p class="parameter-feedback" aria-live="polite" aria-atomic="true">
-          每来一个新 token，本层往 cache 里再写
-          <strong class="mono">{{ formatBytes(cacheBytesPerToken(current)) }}</strong>；
+          每来一个新 token, 本层往 cache 里再写
+          <strong class="mono">{{ formatBytes(cacheBytesPerToken(current)) }}</strong>;
           当前整段上下文已经占了
           <strong class="mono">{{ formatBytes(cacheBytes(current)) }}</strong>。
         </p>
@@ -204,8 +203,8 @@
         <h3>整段 KV cache 对比 <span class="tag">单层 · B=1 · fp16</span></h3>
         <p class="desc" style="margin-bottom: 16px;">
           在 <span class="mono">T={{ formatT(p.T) }}</span>、<span class="mono">d_model={{ p.d_model }}</span>、
-          <span class="mono">n_heads={{ p.n_heads }}</span> 下，一层要存下<strong>整段上下文</strong>需要多少 KV cache。
-          柱越短，解码时每一步要重读的字节就越少。
+          <span class="mono">n_heads={{ p.n_heads }}</span> 下, 一层要存下<strong>整段上下文</strong>需要多少 KV cache。
+          柱越短, 解码时每一步要重读的字节就越少。
         </p>
         <div class="bars" aria-label="四种 Attention 的单层 KV cache 对比">
           <div v-for="v in variants" :key="v.id" class="bar-row" :class="{ current: v.id === current.id }">
@@ -233,9 +232,9 @@
             <div class="hint">相对 MHA: {{ relToMHA(current) }}</div>
           </div>
           <div class="stat">
-            <div class="k">128 层合计</div>
-            <div class="v">{{ formatBytes(cacheBytes(current) * 128) }}</div>
-            <div class="hint">只算 KV, 没算 batch 和其他激活</div>
+            <div class="k">{{ LAYERS }} 层合计</div>
+            <div class="v">{{ formatBytes(cacheBytes(current) * LAYERS) }}</div>
+            <div class="hint">按 LLaMA-2-7B 的 {{ LAYERS }} 层算; 只算 KV, 没算 batch 和其他激活</div>
           </div>
           <div class="stat">
             <div class="k">整段要算多少对 (q, k)</div>
@@ -269,7 +268,7 @@
             <rect v-for="cell in matrixCells" :key="cell.i + ':' + cell.j"
                   :x="cell.j * cellSize" :y="cell.i * cellSize"
                   :width="cellSize - 0.5" :height="cellSize - 0.5"
-                  :fill="cell.color" />
+                  :style="{ fill: cell.color }" />
           </svg>
           <div class="legend-attn">
             <div class="legend-strip">
@@ -309,8 +308,8 @@
     <!-- 源码速览 -->
     <section class="section">
       <h2>核心代码</h2>
-      <p class="lead">你现在选中的这一档，在 <RepoLink path="llm_models/layers/core/attention.py" label="llm_models/layers/core/attention.py" tiny /> 里就是 <span class="mono">{{ classFor(current.id) }}</span> 这个类。四个类住在同一个文件里，可以直接对着看差在哪几行。</p>
-      <pre class="code" v-html="highlight(codeSnippet)"></pre>
+      <p class="lead">你现在选中的这一档, 在 <RepoLink path="llm_models/layers/core/attention.py" label="llm_models/layers/core/attention.py" tiny /> 里就是 <span class="mono">{{ classFor(current.id) }}</span> 这个类。四个类住在同一个文件里, 可以直接对着看差在哪几行。</p>
+      <CodeBlock :code="codeSnippet" />
     </section>
 
     <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 没配置时不渲染 -->
@@ -321,8 +320,8 @@
 
 
     <ChapterNav
-      :prev="{ name: 'home', label: '时间轴总览', hint: '回到 2017–2025 全景图' }"
-      :next="{ name: 'position', label: '位置编码 & RoPE', hint: '看完 attention 后, 再看 RoPE 是怎么注入 Q/K 的' }"
+      :prev="prevChapter"
+      :next="{ ...nextChapter, hint: '看完 attention 后, 再看 RoPE 是怎么注入 Q/K 的' }"
     />
   </div>
 </template>
@@ -334,20 +333,31 @@ import QuizCard from '@/components/QuizCard.vue'
 import Prose from '@/components/Prose.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { variants } from '@/data/attention.js'
+import { learningPath } from '@/data/models.js'
+import { clamp } from '@/utils/labmath.js'
+import CodeBlock from '@/components/CodeBlock.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import AttnMaskLab from '@/components/labs/AttnMaskLab.vue'
 
+// 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
+const at = learningPath.findIndex((x) => x.route === 'attention')
+const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
+const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 「N 层合计」用的层数: LLaMA-2-7B 是 32 层, 正文里的 512 KiB = 16 KiB × 32
+const LAYERS = 32
+
 const evoSteps = [
-  { name: 'MHA', year: 2017, color: '#9ca3af',
+  { name: 'MHA', year: 2017, color: 'var(--text-muted)',
     pain: '(原点) 每个头一对独立的 K/V', fix: '表达力拉满, 起点就是上限, 代价留给了八年后的推理' },
-  { name: 'MQA / GQA', year: '2019 / 2023', color: '#60a5fa',
+  { name: 'MQA / GQA', year: '2019 / 2023', color: 'var(--accent)',
     pain: 'KV cache $= 2\\cdot T\\cdot d_{\\text{model}}$, 上下文翻倍显存就翻倍', fix: '多个 Q 头共用一对 K/V: cache ÷ groups, 几乎不掉点 (教学配置 1024 → 256 个数)' },
-  { name: 'MLA', year: 2024, color: '#34d399',
+  { name: 'MLA', year: 2024, color: 'var(--left)',
     pain: '头数已经砍到底了, cache 还是和 d_model 成正比', fix: 'K/V 一次低秩压成 c_kv, 外加一小段共享的 RoPE key; 只存这两样, 用时现场升维 (256 → 96 个数)' },
-  { name: 'DSA', year: 2025, color: '#f472b6',
+  { name: 'DSA', year: 2025, color: 'var(--right)',
     pain: 'cache 压下去了, 但 128K 上下文的 $O(T^2)$ 算力还在', fix: '便宜的 Lightning Indexer 先粗选 top-k, 昂贵的注意力只算这 k 个: $O(T^2) \\to O(T\\cdot k)$' },
 ]
 
@@ -422,31 +432,31 @@ const flopsPerQuery = computed(() => {
 const conceptStory = computed(() => {
   const shared = {
     input: `${formatT(p.T)} tokens × ${p.d_model} 维`,
-    inputNote: `每层 ${p.n_heads} 个 Q 头；换方案时上下文和模型宽度都不动。`,
+    inputNote: `每层 ${p.n_heads} 个 Q 头; 换方案时上下文和模型宽度都不动。`,
     outcome: `${formatBytes(cacheBytes(current.value))} / 层`,
-    outcomeNote: `每多 1 个 token 就再写入 ${formatBytes(cacheBytesPerToken(current.value))}；相对 MHA 是 ${relToMHA(current.value)}。`,
+    outcomeNote: `每多 1 个 token 就再写入 ${formatBytes(cacheBytesPerToken(current.value))}; 相对 MHA 是 ${relToMHA(current.value)}。`,
   }
 
   const stories = {
     mha: {
       mechanism: `${p.n_heads} 个 Q 头各存一组 K/V`,
-      mechanismNote: '不共享也不压缩，是后面三种方案的比较基线。',
-      takeaway: 'MHA 表达力最满，但上下文翻一倍，KV cache 就跟着翻一倍。',
+      mechanismNote: '不共享也不压缩, 是后面三种方案的比较基线。',
+      takeaway: 'MHA 表达力最满, 但上下文翻一倍, KV cache 就跟着翻一倍。',
     },
     gqa: {
       mechanism: `${p.n_heads} 个 Q 头共用 ${p.num_kv_heads} 组 K/V`,
-      mechanismNote: `每 ${Math.max(1, p.n_heads / p.num_kv_heads).toFixed(0)} 个 Q 头复用一组 K/V；Q 的数量一个没减。`,
-      takeaway: 'GQA 砍掉的是“重复存了好多份的 K/V 头”，上下文没变短，注意力公式也一行没改。',
+      mechanismNote: `每 ${Math.max(1, p.n_heads / p.num_kv_heads).toFixed(0)} 个 Q 头复用一组 K/V; Q 的数量一个没减。`,
+      takeaway: 'GQA 砍掉的是「重复存了好多份的 K/V 头」, 上下文没变短, 注意力公式也一行没改。',
     },
     mla: {
       mechanism: `K/V 先压成 ${p.kv_lora_rank} 维的 latent`,
-      mechanismNote: `只缓存 c_kv 加一段 ${p.qk_rope_head_dim} 维的共享位置向量，要用时现场升维还原 K/V。`,
-      takeaway: 'MLA 把“存完整 K/V”换成“存一个能还原出 K/V 的压缩件”，多算一点，换 cache 小一截。',
+      mechanismNote: `只缓存 c_kv 加一段 ${p.qk_rope_head_dim} 维的共享位置向量, 要用时现场升维还原 K/V。`,
+      takeaway: 'MLA 把「存完整 K/V」换成「存一个能还原出 K/V 的压缩件」, 多算一点, 换 cache 小一截。',
     },
     dsa: {
       mechanism: `MLA 的压缩照旧 + 每个 query 只挑 ${Math.min(p.sparse_top_k, p.T)} 个位置算`,
-      mechanismNote: 'K/V 还是全存着（每个旧位置都可能被未来某个 query 选中），省的是 softmax 要处理多少个位置。',
-      takeaway: 'DSA 分两刀砍：MLA 那一刀砍显存，top-k 这一刀砍超长上下文的算力, 不省 cache。',
+      mechanismNote: 'K/V 还是全存着 (每个旧位置都可能被未来某个 query 选中), 省的是 softmax 要处理多少个位置。',
+      takeaway: 'DSA 分两刀砍: MLA 那一刀砍显存, top-k 这一刀砍超长上下文的算力, 不省 cache。',
     },
   }
 
@@ -456,9 +466,9 @@ const conceptStory = computed(() => {
 const formatT = (t) => t >= 1024 ? (t / 1024).toFixed(t % 1024 === 0 ? 0 : 1) + 'K' : String(t)
 const formatBytes = (b) => {
   if (b < 1024) return b.toFixed(0) + ' B'
-  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
-  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB'
-  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KiB'
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MiB'
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GiB'
 }
 const formatFlops = (f) => {
   if (f < 1e6) return f.toFixed(0)
@@ -501,32 +511,17 @@ const matrixCells = computed(() => {
 })
 
 const matrixReading = computed(() => current.value.id === 'dsa'
-  ? '怎么读：右上角空着，是因为看不到未来；左下三角里只剩零星几个色块，那就是 indexer 挑出来的 top-k 个位置。'
-  : '怎么读：右上角空着，是因为看不到未来；左下三角某格颜色越深，说明这个 token 越依赖那个历史位置。'
+  ? '怎么读: 右上角空着, 是因为看不到未来; 左下三角里只剩零星几个色块, 那就是 indexer 挑出来的 top-k 个位置。'
+  : '怎么读: 右上角空着, 是因为看不到未来; 左下三角某格颜色越深, 说明这个 token 越依赖那个历史位置。'
 )
 
 const matrixAriaLabel = computed(() =>
   `${current.value.name} 的 ${N}×${N} 因果注意力矩阵。${matrixReading.value}`
 )
 
+// 权重 0 (含被 mask 的格子) 用卡片底色, 越大越接近强调色。两个端点都是主题变量, 明暗主题都不刺眼
 function colorFor(w) {
-  w = Math.min(1, Math.max(0, w))
-  // 白 → 靛蓝, 亮度单调变暗: 权重 0 (含被 mask 的格子) 是白色, 越大越深
-  const stops = [
-    { t: 0,    c: [255, 255, 255] },
-    { t: 0.25, c: [199, 210, 254] },
-    { t: 0.5,  c: [129, 140, 248] },
-    { t: 0.75, c: [79, 70, 229] },
-    { t: 1,    c: [49, 46, 129] },
-  ]
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (w <= stops[i + 1].t) {
-      const t = (w - stops[i].t) / (stops[i + 1].t - stops[i].t)
-      const c = stops[i].c.map((a, k) => Math.round(a + (stops[i + 1].c[k] - a) * t))
-      return `rgb(${c[0]},${c[1]},${c[2]})`
-    }
-  }
-  return `rgb(${stops.at(-1).c.join(',')})`
+  return `color-mix(in srgb, var(--accent) ${Math.round(clamp(w, 0, 1) * 100)}%, var(--bg-card))`
 }
 
 // --- 代码片段 ---
@@ -601,15 +596,6 @@ const codeSnippet = computed(() => {
   return snippets[current.value.id]
 })
 
-// 简易语法高亮
-function highlight(s) {
-  return s
-    .replace(/#.*$/gm, m => `<span class="cm">${m}</span>`)
-    .replace(/"""[\s\S]*?"""/g, m => `<span class="cm">${m}</span>`)
-    .replace(/\b(class|def|return|for|in|None|if|else|super|self|import|from)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b(nn\.\w+|torch\.\w+|F\.\w+)\b/g, '<span class="fn">$1</span>')
-    .replace(/\b\d+\b/g, m => `<span class="num">${m}</span>`)
-}
 </script>
 
 <style scoped>

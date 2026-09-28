@@ -1,2 +1,2 @@
-"""m06: append-only persistence and resume."""
+"""m06: append-only 会话日志与 resume。"""
 

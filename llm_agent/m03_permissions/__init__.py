@@ -1,2 +1,2 @@
-"""m03: deny-first permissions."""
+"""m03: deny 优先的权限门。"""
 

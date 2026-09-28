@@ -21,14 +21,17 @@ def main():
     )
     torch.manual_seed(cfg.seed)
 
-    model = ImageVAE(image_channels=3, base_channels=16, latent_dim=4, levels=2)
+    C, size, Z, levels = 3, 32, 4, 2                     # 图像通道 / 边长, latent 通道, 下采样级数
+    model = ImageVAE(image_channels=C, base_channels=16, latent_dim=Z, levels=levels)
+    h = size // 2 ** levels                              # 每级空间 ÷2
     print(f"VAE | 参数量: {sum(p.numel() for p in model.parameters()):,} "
-          f"| 压缩: 3×32×32={3 * 32 * 32} → 4×8×8={4 * 8 * 8} 维")
+          f"| 压缩: {C}×{size}×{size}={C * size * size} → {Z}×{h}×{h}={Z * h * h} 维")
 
-    data_gen = ImageDataGenerator(batch_size=cfg.batch_size, image_size=32)
+    data_gen = ImageDataGenerator(batch_size=cfg.batch_size, image_size=size)
     x = data_gen.generate_batch()["x"]
     assert x.abs().max() <= 1.0, "图像值域应与 decoder 的 tanh 输出一致"
 
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, VAELoss(recon_weight=1.0, kl_weight=1e-4)).train()
     first, last = metrics[0], metrics[-1]
     print(f"recon: {first['recon_loss']:.4f} → {last['recon_loss']:.4f} | "
@@ -36,7 +39,7 @@ def main():
 
     assert last["recon_loss"] < 0.3 * first["recon_loss"], "重建 loss 应大幅下降"
     # kl_weight 只有 1e-4: 模型会用更 "尖" 的后验换重建质量, KL 不降反升是预期行为
-    assert last["kl_loss"] > 0
+    assert last["kl_loss"] > 0, "KL 应为正: 后验 q(z|x) 不等于先验 N(0, I)"
 
 
 if __name__ == "__main__":

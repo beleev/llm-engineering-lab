@@ -21,9 +21,13 @@
       <LabSlider v-model="budget" label="上下文预算" :min="2000" :max="14000" :step="500" unit=" tok" />
       <LabSlider v-model="keep" label="保留最近几个工具结果" :min="0" :max="3" />
       <div class="row">
-        <button type="button" :class="{ active: hook }" :aria-pressed="hook" @click="hook = !hook">{{ hook ? '☑' : '☐' }} PreCompact hook: 摘要必须保留文件位置与失败用例</button>
-        <button type="button" :class="{ active: memory }" :aria-pressed="memory" @click="memory = !memory">{{ memory ? '☑' : '☐' }} memory 工具: 把决定写进 /memories</button>
+        <button type="button" :class="{ active: hook }" :aria-pressed="hook" :disabled="!view.summarized" @click="hook = !hook">{{ hook ? '☑' : '☐' }} PreCompact hook: 摘要必须保留文件位置与失败用例</button>
+        <button type="button" :class="{ active: memory }" :aria-pressed="memory" :disabled="!memUseful" @click="memory = !memory">{{ memory ? '☑' : '☐' }} memory 工具: 把决定写进 /memories</button>
       </div>
+      <ul v-if="!view.summarized || !memUseful" class="pts off">
+        <li v-if="!view.summarized"><b>PreCompact hook 置灰:</b> 它只在摘要前触发, 当前没有触发摘要。切到「模型摘要」, 或在级联下把预算拖小。</li>
+        <li v-if="!memUseful"><b>memory 工具置灰:</b> 它救的是丢掉的决定, 当前决定 (msg[5]) 没丢。切到「硬截断」再试。</li>
+      </ul>
     </template>
 
     <div class="stack" :title="`预算 ${budget}`">
@@ -122,15 +126,17 @@ const view = computed(() => {
   return { msgs, total: base.value + total(), paired, calls, summarized }
 })
 
-const facts = computed(() => FACTS.map((f) => {
+const statusOf = (f, mem) => {
   const m = view.value.msgs[f.msg]
   let status = 'kept'
   if (m.change === 'cut') status = f.off < m.after ? 'kept' : 'lost'
   else if (m.change === 'cleared') status = 'refetch'
   else if (m.change === 'gone') status = f.detail ? (hook.value ? 'kept' : 'lost') : 'kept' // 摘要留得住目标和决定, 留不住行号和数值
-  if (status === 'lost' && f.decision && memory.value) status = 'kept' // 写进 /memories 的东西在窗口之外, 任何压缩都碰不到
-  return { ...f, status }
-}))
+  return status === 'lost' && f.decision && mem ? 'kept' : status // 写进 /memories 的东西在窗口之外, 任何压缩都碰不到
+}
+const facts = computed(() => FACTS.map((f) => ({ ...f, status: statusOf(f, memory.value) })))
+// 两个开关只在有东西可救时才起作用: hook 要等摘要触发, memory 要等决定被丢
+const memUseful = computed(() => FACTS.some((f) => f.decision && statusOf(f, false) === 'lost'))
 const count = computed(() => Object.fromEntries(['kept', 'refetch', 'lost'].map((s) => [s, facts.value.filter((f) => f.status === s).length])))
 
 const segs = computed(() => {
@@ -167,4 +173,5 @@ const cur = computed(() => view.value.msgs[sel.value])
 .facts button { min-height: 0; padding: 2px 4px; border: 0; background: none; font-size: 12px; text-align: left; color: inherit; }
 .facts .kept { color: var(--left); } .facts .refetch { color: var(--warn); } .facts .lost { color: var(--danger); }
 .facts .mono { font-size: 10px; color: var(--text-dim); }
+.off { font-size: 12px; color: var(--text-muted); }
 </style>

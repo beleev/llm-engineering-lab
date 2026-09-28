@@ -26,6 +26,16 @@ python -m llm_models.run_models.multimodal.qwen2_vl.train_qwen2_vl
   若换成默认 N(0,1) 初始化 + 绑权重: 初始 loss **130.29**, 30 步后仍是 128.51 (几乎不动)。
 - 数据是固定随机 batch: 记忆, 不是看图说话。
 
+## 与真实系统的差距
+- **视觉压缩方式不同**: 本库用 Perceiver Resampler 把 16 个 patch 压成 8 个 token。原版 Qwen2-VL 用 2×2 相邻 patch 合并加 MLP。
+- **固定分辨率**: 图像尺寸在构造时定死 (demo 是 56×56)。原版是动态分辨率。
+- **规模**: train 的 LLM 和 ViT 各 2 层、d_model=128。ViT 从头随机初始化, 没有加载预训练权重。
+- **projector 末尾有 LayerNorm**: 这是本库加的, 用来把视觉 token 的尺度对齐到文本 embedding。
+- **不能生成**: `Qwen2VLDecoder` 没有 cache 参数, 也没接 `GenerationMixin`。只能做整段前向。
+- **M-RoPE 只演示了单张图**: patch 的时间坐标恒为 0, 没有视频和多图输入。
+- **本库约定**: `lm_head` 与 embedding 共享权重, 文本 embedding 乘 √D, 不代表原模型的做法。
+- **数据是合成的**: 图是 `randn`, 文本是随机 token。2 条样本固定成一个 batch 训 100 步, 固定 batch 是本库约定。
+
 ## 常见误区
 - "视觉 token 也要预测下一个 token" —— 不用, 视觉位置 label = -100; 它们只是条件。
 - "图文之间是双向注意力" —— 本实现 (与多数 VLM) 整条序列都是因果的: 视觉 token 看不到文本 (infer A 第 2 条断言)。

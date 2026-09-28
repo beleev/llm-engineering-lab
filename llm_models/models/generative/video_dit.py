@@ -9,6 +9,7 @@ Video DiT — 把 DiT 从图像搬到视频 (Sora / HunyuanVideo / CogVideoX / W
 adaLN-Zero / FinalLayer / CFG / 训练目标 与 Image DiT 完全相同。
 
 简化: 全时空 token 做一次完整自注意力 (真实系统常拆成 spatial + temporal 两次); 无文本条件。
+      位置用可学习向量。与 Image DiT 一样不调用 init_weights (保住 adaLN 的零初始化)。
 读代码时盯住: forward 里 pos 的广播形状, 以及 unpatchify 的 8 维 permute。
 """
 
@@ -59,6 +60,9 @@ class VideoDiT(nn.Module):
         d_model / n_heads / num_layers: DiT 骨架参数
         num_classes: 类别条件数, 0 表示仅 timestep 条件
         class_dropout: CFG 训练用的 class drop 概率
+
+    forward(x, t, y) 返回 Tensor, 与 x 同形 [B, C, T, H, W]。
+    没有 attention_mask, 没有 KV cache。
     """
 
     def __init__(
@@ -98,7 +102,8 @@ class VideoDiT(nn.Module):
         # Patchify 3D
         self.patchify = Patchify3D(latent_channels, d_model, patch_size_t, patch_size_hw)
 
-        # 3D 位置嵌入: 简化为"时间嵌入 + 空间嵌入"的可学习外积和, 参数省 T·H·W 的乘积
+        # 3D 位置嵌入: 简化为可学习的广播和 (time_pos[T'] + space_pos[H'W']), 参数省 T·H·W 的乘积
+        # time_pos [1, T', 1, D], space_pos [1, 1, H'W', D]
         self.time_pos = nn.Parameter(torch.zeros(1, self.t_grid, 1, d_model))
         self.space_pos = nn.Parameter(torch.zeros(1, 1, self.hw_grid * self.hw_grid, d_model))
         nn.init.trunc_normal_(self.time_pos, std=0.02)
@@ -145,16 +150,19 @@ class VideoDiT(nn.Module):
         p_t = self.patch_size_t
         p_hw = self.patch_size_hw
 
-        x = x.view(B, T_grid, H_grid, W_grid, p_t, p_hw, p_hw, C)
+        x = x.view(B, T_grid, H_grid, W_grid, p_t, p_hw, p_hw, C)  # [B, N, p_t·p²·C] → 8 维
+        # 每个轴的 "第几个 patch" 和 "patch 内偏移" 挨在一起, 下一步才能两两合并
         x = x.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()   # [B, C, T', p_t, H', p, W', p]
-        return x.view(B, C, T_grid * p_t, H_grid * p_hw, W_grid * p_hw)
+        return x.view(B, C, T_grid * p_t, H_grid * p_hw, W_grid * p_hw)  # [B, C, T, H, W]
 
     def _make_condition(
         self, t: torch.Tensor, y: Optional[torch.Tensor], training: bool
     ) -> torch.Tensor:
+        """t [B], y [B] 或 None -> 条件向量 c [B, c_dim]。与 Image DiT 的同名函数相同。"""
         c = self.t_embed(t)
         if self.class_embed is not None and y is not None:
             if training and self.class_dropout > 0:
+                # CFG 训练: 以 class_dropout 的概率把类别换成 null
                 drop = torch.rand(y.shape[0], device=y.device) < self.class_dropout
                 y = torch.where(drop, torch.full_like(y, self.null_class_idx), y)
             c = c + self.class_embed(y)
@@ -167,6 +175,8 @@ class VideoDiT(nn.Module):
         y: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
+        返回 Tensor。采样器按位置参数调用 model(x, t, y), 签名顺序不能换。
+
         Args:
             x: [B, C, T, H, W] 含噪视频 latent
             t: [B] timestep, [0, 1000) 量纲 (AddNoiseResult.t_norm)
@@ -182,8 +192,9 @@ class VideoDiT(nn.Module):
         # token 排列是 (t_idx 外, 空间 idx 内), 与 flatten(2) 的 (T', H', W') 行主序一致
         T_grid, H_grid, W_grid = grid
         spatial_n = H_grid * W_grid
+        # [1, T', 1, D] + [1, 1, H'W', D] 广播成 [1, T', H'W', D]
         pos = (self.time_pos + self.space_pos).expand(-1, T_grid, spatial_n, -1)  # [1, T, HW, D]
-        pos = pos.reshape(1, T_grid * spatial_n, -1)
+        pos = pos.reshape(1, T_grid * spatial_n, -1)                       # [1, N, D]
         tokens = tokens + pos
 
         for block in self.blocks:

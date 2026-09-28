@@ -14,6 +14,10 @@ GRPO 及其变体 (DAPO / Dr.GRPO / GSPO) — 在线 RL, 组内相对优势替�
 读代码时盯住: `old_logp` (采样那一刻的策略, no_grad) 与 `temperature` —— 采样用 π^{1/T}, 算 log-prob 也必须用 π^{1/T},
               否则 ρ 的分母不是真正的行为策略, 第 1 个 epoch 就已经 off-policy。
 为什么不接通用 Trainer: 数据由**当前**策略采样 (生成器得拿到模型), 且一批数据要更新 μ 次 —— "取 batch → 算 loss → 更新一次" 的约定不成立。
+未实现: DAPO 论文的第四项 overlong reward shaping (对超长被截断的回复做软惩罚)。
+        动态采样只过滤不补采: 丢掉 A≡0 的组之后, 本步用剩下的样本更新, batch 会变小。
+依赖 llm_models: `policy.generate(prompts, max_new_tokens, temperature)` 在 no_grad 下采样,
+                 结束时恢复调用前的 train / eval 状态, 返回的是可以直接参与带梯度前向的普通张量。
 """
 
 import copy
@@ -30,6 +34,11 @@ from llm_finetune.utils.param_utils import freeze_module
 
 @dataclass(frozen=True)
 class GRPOConfig:
+    """
+    GRPO 的全部超参。四个变体共用这一个类, 只是其中几项取值不同 (见 VARIANTS)。
+    frozen=True: 建好之后不能改字段, 要换参数就用 make_config 重新造一份。
+    """
+
     group_size: int = 8              # G
     max_new: int = 9                 # C, 每条回复最多采多少 token
     temperature: float = 1.0
@@ -54,16 +63,18 @@ VARIANTS: Dict[str, dict] = {
 
 
 def make_config(variant: str = "grpo", **overrides) -> GRPOConfig:
+    """默认值 ← 变体的开关 ← overrides, 靠后的覆盖靠前的。例: make_config("dapo", lr=3e-4)。"""
     return replace(GRPOConfig(), **{**VARIANTS[variant], **overrides})
 
 
 def group_advantages(rewards: torch.Tensor, group_size: int, std_norm: bool) -> torch.Tensor:
     """rewards [B·G] → A [B·G]。同组 (同一个 prompt) 的 G 条互为 baseline。"""
-    g = rewards.view(-1, group_size)                                  # [B, G]
-    adv = g - g.mean(dim=1, keepdim=True)
+    g = rewards.view(-1, group_size)                                  # [B·G] → [B, G] 一行一道题
+    adv = g - g.mean(dim=1, keepdim=True)                             # [B, G] 减去本题的平均分
     if std_norm:
+        # + 1e-4: 一组里奖励全相同时 std = 0, 防除零 (这时分子也是 0, A 仍是 0)
         adv = adv / (g.std(dim=1, keepdim=True) + 1e-4)
-    return adv.view(-1)
+    return adv.view(-1)                                               # [B, G] → [B·G]
 
 
 def aggregate(per_token: torch.Tensor, mask: torch.Tensor, how: str) -> torch.Tensor:
@@ -99,12 +110,17 @@ class GRPOTrainer:
         self.optimizer = torch.optim.AdamW(policy.parameters(), lr=config.lr)
 
     def step(self, prompts: torch.Tensor) -> Dict[str, float]:
+        """
+        prompts [B, P] → 采样 B·G 条回复、判分、在这一批上更新 μ 次, 返回本步的指标 (全是 float)。
+        整批都没有可学的组时不更新, 返回值里多一个 "skipped" 键, 调用方据此把这一步从统计里去掉。
+        β > 0 时多一个 "kl" 键: 最后一个 epoch 的 KL(π_θ‖π_ref) 估计, 聚合方式与 loss 相同。
+        """
         cfg, P = self.cfg, prompts.size(1)
 
         # ---- 1) rollout: 每个 prompt 采 G 条 ----
-        expanded = prompts.repeat_interleave(cfg.group_size, dim=0)               # [N=B·G, P]
+        expanded = prompts.repeat_interleave(cfg.group_size, dim=0)               # [N=B·G, P] 每个 prompt 连续重复 G 次
         # generate 在 no_grad 下采样 (并在结束时恢复 train/eval 状态), 返回普通张量, 可直接参与带梯度的前向
-        seqs = self.policy.generate(expanded, cfg.max_new, temperature=cfg.temperature)
+        seqs = self.policy.generate(expanded, cfg.max_new, temperature=cfg.temperature)   # [N, P+C]
         completions = seqs[:, P:]                                                 # [N, C]
         mask = completion_mask(completions).float()                               # [N, C] EOS 之后不算回复
 
@@ -118,8 +134,8 @@ class GRPOTrainer:
             "length": float(mask.sum(1).mean()),
         }
         if cfg.dynamic_sampling:
-            # ponytail: 只过滤不补采 (DAPO 原版会继续采样直到凑满 batch); 要保持 batch 恒定时在这里加循环
-            keep = informative.repeat_interleave(cfg.group_size)
+            # 简化: 只过滤不补采 (DAPO 原版会继续采样直到凑满 batch); 要保持 batch 恒定时在这里加循环
+            keep = informative.repeat_interleave(cfg.group_size)                  # [B] → [N] 整组一起留或一起丢
             seqs, mask, adv = seqs[keep], mask[keep], adv[keep]
         metrics["used_zero_adv_frac"] = float((adv == 0).float().mean()) if len(adv) else 0.0
         if len(adv) == 0 or not informative.any():
@@ -137,27 +153,35 @@ class GRPOTrainer:
             logp = completion_logprobs(self.policy, seqs, P, cfg.temperature)     # [N, C] 带梯度
             log_ratio = logp - old_logp                                           # [N, C]
             if cfg.seq_ratio:                                                     # GSPO: 序列内取平均 → 几何平均比率
+                # [N, C] → 每条回复一个均值 [N] → [N, 1] → 铺回 [N, C]: 整条回复的 token 共用一个比率
                 log_ratio = ((log_ratio * mask).sum(1) / mask.sum(1)).unsqueeze(1).expand_as(logp)
-            ratio = log_ratio.exp()
+            ratio = log_ratio.exp()                                               # [N, C] ρ; 在 log 域相减再 exp, 不直接除概率
             clipped = ratio.clamp(1 - cfg.clip_low, 1 + cfg.clip_high)
             surrogate = torch.min(ratio * A, clipped * A)                         # 悲观下界: 只在 "对自己有利的方向" 截断
             per_token = -surrogate
             if ref_logp is not None:
-                d = ref_logp - logp                                               # k3 估计: e^d − d − 1 ≥ 0, 无偏且方差小
-                per_token = per_token + cfg.beta * (d.exp() - d - 1)
+                # KL(π_θ‖π_ref) 的单样本估计 (r − 1) − log r, 其中 r = π_ref/π_θ = e^d (Schulman 称它 k3)。
+                # 它恒 ≥ 0, 方差小于直接用 −log r。样本来自 π_θ 时无偏;
+                # 第 2 个 epoch 起 θ 已经更新过, 样本却还是 π_old 采的, 只是近似。
+                d = ref_logp - logp                                               # [N, C] log r
+                kl = d.exp() - d - 1                                              # [N, C] 逐 token 的 KL 估计
+                per_token = per_token + cfg.beta * kl
             loss = aggregate(per_token, mask, cfg.loss_agg)
 
             self.optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)         # 梯度范数上限 1.0, 防单步走太远
             self.optimizer.step()
 
+            # 以下只是监控量, 用的是本次更新**之前**算出的 ratio
             with torch.no_grad():
-                dev = float(((ratio - 1).abs() * mask).max())
+                dev = float(((ratio - 1).abs() * mask).max())                     # 有效 token 上 |ρ − 1| 的最大值
                 if epoch == 0:
                     metrics["ratio_dev_epoch1"] = dev                             # 恒为 0: 还没更新过
                 is_clipped = ((ratio * A) != surrogate) & (mask > 0)              # min 选中了被截断的那一支
                 metrics["clip_frac"] = float(is_clipped.float().sum() / mask.sum())
                 metrics["ratio_dev_last"] = dev
                 metrics["log_ratio_std"] = float(log_ratio[mask > 0].std())
+                if ref_logp is not None:                                          # 只有 β > 0 时才有这一项
+                    metrics["kl"] = float(aggregate(kl, mask, cfg.loss_agg))      # 按 loss 同样的聚合方式
         return metrics

@@ -1,2 +1,2 @@
-"""m02: tools and tool schemas."""
+"""m02: 工具与工具 schema, 执行前的参数校验。"""
 

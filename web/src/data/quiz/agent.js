@@ -183,9 +183,9 @@ export default {
   'agent-orchestrator': [
     {
       q: '多智能体 (lead + workers) 买到的主要是什么?',
-      options: ['更低的总 token: 每个 worker 只读自己那份, 总量更少', '并行的墙钟时间, 和不被原文淹没的 lead 上下文', '更高的准确率: 多个 worker 投票, 单步出错能被纠正', '更简单的代码: 每个 worker 的 prompt 更短更好写'],
+      options: ['更低的总 token: 每个 worker 只读自己那份, 总量更少', '更小的 lead 上下文: 原文留在 worker 里, 只回摘要', '更高的准确率: 多个 worker 投票, 单步出错能被纠正', '更简单的代码: 每个 worker 的 prompt 更短更好写'],
       answer: 1,
-      why: 'm11 demo: lead 峰值上下文 247 vs 单 agent 375, 但总输入 770 vs 413。Anthropic 报告多智能体约为聊天的 15× token。',
+      why: 'm11 demo: lead 峰值上下文 247 vs 单 agent 375, 但总输入 770 vs 413。Anthropic 报告多智能体约为聊天的 15× token。\n墙钟要看活有多少, m11 demo 没有对并行耗时做断言。实验台的默认配置下并行和单 agent 大致打平 (都是 4 轮模型调用), 子任务或文档多了才拉开。',
     },
     {
       q: '实现并行扇出需要给 agent loop 加一套新的调度器吗?',
@@ -215,8 +215,8 @@ export default {
     },
     {
       q: '路径围栏为什么必须"先 resolve 再判断", 而不是检查拼接后的字符串是否以 root 开头?',
-      options: ['resolve 顺带检查文件是否存在, 能挡住不存在的路径', '/work/../etc/passwd 以 /work 开头却已逃出; symlink 同理', '先 resolve 只需一次系统调用, 比逐段比较字符串快', '两种写法等价, resolve 只是对 Windows 路径更友好'],
-      answer: 2,
+      options: ['resolve 顺带检查文件是否存在, 能挡住不存在的路径', '/work/../etc/passwd 以 /work 开头却已逃出', '先 resolve 只需一次系统调用, 比逐段比较字符串快', '两种写法等价, resolve 只是对 Windows 路径更友好'],
+      answer: 1,
       why: '检查必须作用在真实路径上。先展开 .. 和 symlink, 再 is_relative_to(root)。',
     },
   ],
@@ -250,13 +250,13 @@ export default {
     {
       q: '硬截断 (头尾保留、中间每条留 32 字符) 最大的问题是?',
       options: ['要多花一次模型调用来决定保留哪些内容', '会把 JSONL 里的历史也截掉, resume 回来就缺了', '丢掉中途的决定, 破坏配对, 而且无处取回', '头尾保留得太多, 腾出的空间不够用'],
-      answer: 3,
+      answer: 2,
       why: '它是反例基线: 便宜, 但语义和结构都会坏。而且只裁视图, 历史和 resume 都不会变小。',
     },
     {
       q: '希望一条结论在摘要压缩之后、甚至新会话里仍然可用, 最稳妥的做法是?',
       options: ['用 PreCompact hook 点名保留, 摘要时它一定会被留下', '用 memory 工具写进 /memories, 新会话再读回来', '在对话里多重复几遍, 摘要时被保留的概率更高', '调大上下文预算, 让它永远不触发压缩'],
-      answer: 0,
+      answer: 1,
       why: '不进窗口的状态才不怕压缩。PreCompact hook 能点名保留要点, 但跨会话只能靠文件。',
     },
   ],
@@ -289,7 +289,7 @@ export default {
   'agent-computer-use': [
     {
       q: '观察之后插入 80px 横幅, 按坐标点击多取消了订单 #1002。agent 最终回答是什么?',
-      options: ['报错: 目标行的文字不是 #1004, 点击被拒绝', '"订单 #1004 已取消。", 和点对时一字不差', '"已取消订单 #1002。", 如实报告点错的那一单', '回答里同时提到 #1002 和 #1004 两单被取消'],
+      options: ['报错: 目标行的文字不是 #1004, 点击被拒绝', '"订单 #1004 已取消。", 和点对时一字不差', '"已取消订单 #1002。", 报告的是点错的那一单', '回答里同时提到 #1002 和 #1004 两单被取消'],
       answer: 1,
       why: '坐标点击点到哪算哪, 不会报错。回到列表后拿到新快照, 再点对 #1004。只看 final 的 grader 发现不了, 要按环境终态判分。',
     },
@@ -352,16 +352,16 @@ export default {
       why: 'rerank 改的是名次 (recall@1、MRR)。实验台里把 rerank 范围缩到前 5, resume 题的答案 (融合后第 8) 就彻底丢了。',
     },
     {
-      q: '"Can an interrupted upload resume?": BM25 没召回, dense 排第 1。两路 RRF 融合后, 答案排第几?',
-      options: ['第 1', '第 2', '第 8', '没召回'],
+      q: '"Can an interrupted upload resume?": BM25 没召回, dense 排第 1, 两路 RRF 融合后答案掉到第 8。为什么?',
+      options: ['BM25 分数没有上界, 相加时压过了 dense 的余弦', 'BM25 没召回按末位计, 两路名次一平均就靠后', '只有 dense 一路给分; 两路都排 3–6 名的块反超', 'rerank 只重排前 5 名, 轮不到排第 8 的这一块'],
       answer: 2,
-      why: '它只从 dense 一路拿到 1/61。几个在两路都排 3–6 名的块各拿两份分数, 反超到前面。rerank 再把它拉回第 1。',
+      why: '它只从 dense 一路拿到 1/61。几个在两路都排 3–6 名的块各拿两份分数, 反超到前面。rerank 再把它拉回第 1。\nRRF 只加名次的倒数, 不碰分数; 没召回的一路不给分, 也不扣分。',
     },
     {
-      q: '"How do I get my money back?" (标准答案在 Refunds 小节)。五条路线里哪条把它排到第 1?',
-      options: ['dense: 向量检索懂语义, money back 能对上 refund', '没有一条: 全文无 money / back, 这里的 dense 只比拼写', 'hybrid+rerank: 两路融合再重排, 召回最全', 'BM25: Refunds 小节里 get / my 这类词最多'],
+      q: '"How do I get my money back?" 的标准答案在 Refunds 小节。五条路线的名次是 [0, 0, 5, 5, 5], 没有一条排到第 1。dense 为什么也接不住?',
+      options: ['随机投影降到 128 维, 把 money 和 refund 的语义压丢了', '这里的 dense 只比拼写: 字符 3-gram 和 refunded 对不上', 'RRF 融合把 dense 排第 1 的答案挤到了第 5', 'Refunds 小节太短, 长度归一化压低了它的分数'],
       answer: 1,
-      why: '各路名次 [0, 0, 5, 5, 5]。这里的 dense 只衡量拼写像不像。真实神经 embedding 可能接住, 但要用同一套题实测。',
+      why: '各路名次 [0, 0, 5, 5, 5], dense 自己就排第 5。全文无 money / back, 这里的 dense 只衡量拼写像不像。随机投影只做降维, 不增减语义。真实神经 embedding 可能接住, 但要用同一套题实测。',
     },
   ],
 }

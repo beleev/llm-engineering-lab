@@ -5,7 +5,7 @@ FlashAttention (m11) 的并行单位是 (batch, head, Q 块)。
 - **prefill**: Q 有几千行, 切出来的块多得是。
 - **decode**: 每条序列只有 **1 个 query**, Q 块只有一个, 并行单位只剩 B×H。
 
-B=1、H=32 的长对话: 32 个 thread block 跑在 108 个 SM 上, **70% 的 SM 在闲着**。每个 block 还得独自把 32k token 的 KV 从头读到尾。
+B=1、H=32 的长对话: 32 个 thread block (GPU 上的并行任务单元) 跑在 108 个 SM (流式多处理器, A100 有 108 个) 上, **70% 的 SM 在闲着**。每个 block 还得独自把 32k token 的 KV 从头读到尾。
 
 Flash-Decoding 的治法: Q 切不动, 就切 KV。
 - **split**: 把长度 T 切成 S 段, 每段一个 block 算局部 softmax。并行单位变成 B×H×S。
@@ -31,7 +31,7 @@ t     = launch + waves · (T/S) · KV_bytes_per_token / (HBM_bw / N_SM)
       + [S>1] (launch + units·(d+1)·4 B / HBM_bw)         # reduce kernel: 读回 S 份 O_s(fp32) 与 lse
 加速比上限 = N_SM / (B·H)  (B·H < N_SM 时; 最多把闲着的 SM 全用上)
 ```
-参数: A100, 108 SM, 2000 GB/s, 每个 SM 最多拿到 1/108 的带宽; head_dim 128, fp16 → 512 B/token/head; 每个 kernel 3 μs 固定开销。
+参数: A100, 108 SM, HBM (GPU 显存) 带宽 2000 GB/s, 每个 SM 最多拿到 1/108 的带宽; head_dim 128, fp16 → 512 B/token/head; 每个 kernel 3 μs 固定开销。
 
 ## 运行后应该看到什么
 ```bash
@@ -59,7 +59,7 @@ python -m llm_infer.m26_flash_decoding.demo     # < 1 s
 - B=1 时加速比随 T 单调不减; T=512 的加速 < 0.6×T=128k 的。
 - 每个 T 上 B=4 的加速都小于 B=1; B=64 全部 < 1.1x。
 
-## 与真实系统的差距 (诚实边界)
+## 与真实系统的差距
 - **[2][3] 的所有延迟都是代价模型算出来的**。numpy 里 split 循环是串行的, 反而更慢。
 - 模型假设每个 SM 最多拿到 1/N_SM 的 HBM 带宽。真卡上单个 SM 能拿到的带宽比这高, 少数 SM 也能吃掉一部分带宽。
   所以真实加速比低于这里的数。

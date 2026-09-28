@@ -10,7 +10,7 @@
     module="llm_agent/m17"
     run="python -m llm_agent.m17_computer_use.demo"
     :challenge="{
-      ask: '按坐标点, 横幅 80px, 目标 #1004。agent 最后会说什么? 一个只看最终回答的 grader 会判它通过吗?',
+      ask: '默认按 ref 点, 只取消了 [1004]。横幅 80px、目标 #1004 不动, 切到「按坐标点」。先猜: agent 最后会说什么? 一个只看最终回答的 grader 会判它通过吗?',
       answer: '它会说「订单 #1004 已取消。」, 和点对时一字不差, grader 判通过。\n- 实际发生的: (200, 190) 落在 #1002 那一行。agent 进了 #1002 的详情页, 翻页、取消、确认, 把 #1002 取消了。回到列表拿到新快照, 才点对 #1004。demo 实测被取消的是 [1002, 1004]。\n- 不会报错: 那个位置上确实有一个可点的元素。\n两条对策:\n- 按 ref 点: 浏览器按元素身份找目标。\n- 按终态判分: 评测时数一数到底取消了几单。',
     }"
   >
@@ -19,7 +19,7 @@
         <button type="button" :class="{ active: by === 'ref' }" @click="by = 'ref'">按 ref 点 browser_click</button>
         <button type="button" :class="{ active: by === 'xy' }" @click="by = 'xy'">按坐标点 browser_click_xy</button>
       </div>
-      <LabSlider v-model="shift" label="横幅高度 (观察之后插入)" :min="0" :max="200" :step="10" unit=" px" />
+      <LabSlider v-model="shift" label="横幅高度 (观察之后插入)" :min="0" :max="MAX_SHIFT" :step="10" unit=" px" />
     </template>
 
     <svg :viewBox="`0 0 400 ${H}`" class="page" role="group" aria-label="观察到的布局与点击时的布局">
@@ -60,7 +60,7 @@ import LabSlider from '@/components/lab/LabSlider.vue'
 // 与 Browser.nodes() 的 /orders 页相同: 标题 50px, 每行订单 40px, 最后是 Delete account; 视口高 360
 const ORDERS = [[1001, 'shipped'], [1002, 'processing'], [1003, 'delivered'], [1004, 'processing'], [1005, 'shipped'], [1006, 'delivered']]
 const VIEW = 360, T = 22
-const by = ref('xy')
+const by = ref('ref') // 默认是对照: ref 点得中; 切到坐标才出事
 const shift = ref(80)
 const target = ref(1004)
 
@@ -77,7 +77,9 @@ function stack(banner) {
 }
 const seen = stack(0)
 const live = computed(() => stack(shift.value))
-const H = computed(() => { const l = live.value[live.value.length - 1]; return Math.max(T + VIEW + 18, T + l.top + l.h + 6) })
+const MAX_SHIFT = 200
+// 画布高度按最高的横幅定死: 拖滑杆时只有右栏的元素下移, 整张图不缩放
+const H = (() => { const l = stack(MAX_SHIFT).at(-1); return T + l.top + l.h + 6 })()
 const refOf = (no) => `e${ORDERS.findIndex((o) => o[0] === no) + 6}` // demo 里订单行的 ref 是 e6..e11
 const clickY = computed(() => { const n = seen.find((e) => e.no === target.value); return n.top + n.h / 2 })
 

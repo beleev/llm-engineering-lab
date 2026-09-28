@@ -1,2 +1,2 @@
-"""Gradient accumulation demo."""
+"""梯度累积 (gradient accumulation) 演示。"""
 

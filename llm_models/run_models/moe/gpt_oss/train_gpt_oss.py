@@ -29,8 +29,9 @@ def main():
     print(f"GPT-OSS Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
     data_gen = DecoderOnlyDataGenerator(vocab_size=V, batch_size=cfg.batch_size, seq_len=cfg.seq_len)
+    # sinks(): 取当前各层的 sink logit 快照。训练前后各调一次
     sinks = lambda: torch.stack([layer.attn.sink.detach().clone() for layer in model.layers])  # [L, H]
-    assert (sinks() == 0).all()
+    assert (sinks() == 0).all(), "sink logit 的初值应为 0"
     metrics = Trainer(model, cfg, data_gen, MoELMLoss(aux_loss_weight=cfg.aux_loss_weight)).train()
 
     first, last = metrics[0], metrics[-1]
@@ -45,18 +46,19 @@ def main():
     logits, routing = model(batch["idx"])
     MoELMLoss().compute((logits, routing), batch["labels"])["total_loss"].backward()
     grads = torch.stack([layer.attn.sink.grad for layer in model.layers])                     # [L, H]
-    assert (grads != 0).all() and (sinks() != 0).all(), "sink logit 没有收到梯度"
+    assert (grads != 0).all(), "sink logit 没有收到梯度"
+    assert (sinks() != 0).all(), "训练后 sink logit 应离开初始的 0"
     for i, s in enumerate(sinks()):
         kind = "SWA " if model.is_swa(i) else "full"
-        print(f"  Layer {i} ({kind}) sink logits: {[round(v, 4) for v in s.tolist()]}")
+        print(f"  第 {i} 层 ({kind}) sink logits: {[round(v, 4) for v in s.tolist()]}")
     print(f"  sink 梯度 |g| 最大 {grads.abs().max():.2e}, 最小 {grads.abs().min():.2e} (全部非零)")
 
     # 专家负载: 每个专家被选中的 token 比例 (K 个选择, 每行之和 = K)
     for i, info in enumerate(routing):
         load = torch.bincount(info["selected_experts"].flatten(), minlength=E).float()
-        load = load / info["selected_experts"].size(0)
-        assert abs(load.sum().item() - K) < 1e-5
-        print(f"  Layer {i} 专家负载: {[round(v, 2) for v in load.tolist()]}  (均衡 = {K / E:.2f})")
+        load = load / info["selected_experts"].size(0)  # 次数 ÷ token 数 N → [E]
+        assert abs(load.sum().item() - K) < 1e-5, "每个 token 选 K 个专家, 各专家负载之和应为 K"
+        print(f"  第 {i} 层专家负载: {[round(v, 2) for v in load.tolist()]}  (均衡 = {K / E:.2f})")
 
 
 if __name__ == "__main__":

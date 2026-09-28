@@ -17,18 +17,19 @@ import numpy as np
 
 from llm_infer.m08_quantization.int8_weight import QTensor, quantize_affine
 
-ALPHAS = tuple(np.round(np.arange(0, 1.01, 0.1), 1))
+ALPHAS = tuple(np.round(np.arange(0, 1.01, 0.1), 1))      # α 的搜索网格: 0, 0.1, ..., 1.0
 
 
 def quantize_groupwise(W: np.ndarray, bits: int = 4, group: int | None = 32) -> QTensor:
     """W (D_in, D_out)。group=None → per-channel (整列一组); 否则 reshape 成 (D_in/g, g, D_out) 在 g 上统计。"""
     D_in, D_out = W.shape
     g = D_in if group is None else group
-    assert D_in % g == 0
+    assert D_in % g == 0, f"输入维 {D_in} 必须是 group={g} 的整数倍, 否则 reshape 分不了组"
     return quantize_affine(W.reshape(D_in // g, g, D_out), bits, axis=1)  # scale/lo: (D_in/g, 1, D_out)
 
 
 def quant_dequant(W: np.ndarray, bits: int = 4, group: int | None = 32) -> np.ndarray:
+    """量化再反量化, 返回带量化误差的浮点权重 (D_in, D_out)。"""
     return quantize_groupwise(W, bits, group).dequantize().reshape(W.shape)
 
 
@@ -43,10 +44,10 @@ def awq_quantize(W: np.ndarray, X_calib: np.ndarray, bits: int = 4, group: int =
     act = np.mean(np.abs(X_calib), axis=0)                                # (D_in,) 每个输入通道的激活幅度
     errs, best = {}, None
     for alpha in ALPHAS:
-        s = act ** alpha
+        s = act ** alpha                                                  # (D_in,) 激活越大的通道放大越多
         s = (s / np.sqrt(s.max() * s.min())).astype(np.float32)           # 归一化到几何中心为 1, 不整体放大 W
         W_hat = quant_dequant(W * s[:, None], bits, group) / s[:, None]   # (D_in,D_out): 行 i 放大 s_i → 量化 → 缩回
         errs[float(alpha)] = output_err(X_calib, W, W_hat)
-        if best is None or errs[float(alpha)] < errs[best[1]]:
+        if best is None or errs[float(alpha)] < errs[best[1]]:            # best[1] 是当前最优的 α
             best = (W_hat, float(alpha), s)
     return (*best, errs)

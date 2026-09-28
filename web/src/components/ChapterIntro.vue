@@ -23,7 +23,7 @@
       </ul>
     </div>
 
-    <!-- 元信息: 代码路径 + 前置 + 后续 -->
+    <!-- 元信息: 代码路径 + 上一章 + 下一章 -->
     <div class="intro-meta">
       <div v-if="codeRefs.length" class="meta-block">
         <span class="meta-label">对应代码</span>
@@ -38,16 +38,16 @@
           />
         </span>
       </div>
-      <div v-if="prereq" class="meta-block">
-        <span class="meta-label">前置知识</span>
-        <router-link :to="{ name: prereq.name }" class="meta-link">
-          {{ prereq.label }} →
+      <div v-if="before" class="meta-block">
+        <span class="meta-label">上一章</span>
+        <router-link :to="{ name: before.name }" class="meta-link">
+          ← {{ before.label }}
         </router-link>
       </div>
-      <div v-if="nextStep" class="meta-block">
-        <span class="meta-label">承接</span>
-        <router-link :to="{ name: nextStep.name }" class="meta-link">
-          {{ nextStep.label }} →
+      <div v-if="after" class="meta-block">
+        <span class="meta-label">下一章</span>
+        <router-link :to="{ name: after.name }" class="meta-link">
+          {{ after.label }} →
         </router-link>
       </div>
     </div>
@@ -60,19 +60,27 @@ import RepoLink from '@/components/RepoLink.vue'
 import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
 import { parseRef } from '@/utils/repo.js'
+import { useChapterNav } from '@/composables/useChapterNav.js'
 
 const props = defineProps({
   tldr:     { type: String, required: true },
   question: { type: String, default: '' },
-  // 兼容旧用法: 字符串 — 单条或用 ' · ' / ',' 分隔多条 (路径里不含逗号或中点)
+  // 字符串写法: 单条, 或用 ' · ' / ',' 分隔多条 (路径里不含逗号或中点)
   code:     { type: String, default: '' },
-  // 推荐: 显式给出路径数组, 每项 { path, line?, label? }
+  // 数组写法: 每项 { path, line?, label? }。两种都传时用数组
   codes:    { type: Array, default: () => [] },
   // "读完本章你能..." 的小目标清单, 帮助新手判断是否要往下读
   goals:    { type: Array, default: () => [] },
+  // 上一章 / 下一章。和 ChapterNav 同一条规则: 当前路由在 learningPath 里时忽略这两个 prop,
+  // 用 learningPath 按当前档位推出来的结果; 只有路由不在 learningPath 里时才用传进来的值。
+  // 这里列的是阅读顺序上的前后两章, 不表示「必须先学会」的依赖关系。
   prereq:   { type: Object, default: null },
   nextStep: { type: Object, default: null },
 })
+
+const nav = useChapterNav()
+const before = computed(() => (nav.inPath.value ? nav.prev.value : props.prereq))
+const after = computed(() => (nav.inPath.value ? nav.next.value : props.nextStep))
 
 // 把字符串形态拆成可链接的 ref 列表;  显式 codes 优先。
 const codeRefs = computed(() => {

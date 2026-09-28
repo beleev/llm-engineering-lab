@@ -32,12 +32,13 @@ class SinkCache:
         self.v = [np.zeros((0, d_model), dtype=np.float32) for _ in range(n_layer)]
 
     def __len__(self) -> int:
+        """cache 里现有的 token 数 (各层相同, 取第 0 层)。"""
         return self.k[0].shape[0]
 
     def append(self, li: int, k_raw: np.ndarray, v: np.ndarray) -> None:
         """追加 1 个 token 的 (k_raw, v) (1,D); 超预算就逐出窗口里最老的 (槽位 n_sink), sink 不动。"""
         K = np.concatenate([self.k[li], k_raw])                      # (L+1, D)
-        V = np.concatenate([self.v[li], v])
+        V = np.concatenate([self.v[li], v])                          # (L+1, D)
         if K.shape[0] > self.n_sink + self.window:
             keep = np.r_[0:self.n_sink, self.n_sink + 1:K.shape[0]]  # 去掉槽位 n_sink
             K, V = K[keep], V[keep]
@@ -52,7 +53,7 @@ def stream_step(lm: TinyLM, cache: SinkCache, tok: int,
     """
     x = lm.w.tok_emb[[tok]]                                          # (1, D)
     for li, layer in enumerate(lm.w.layers):
-        h = rms_norm(x, layer.norm1_g)
+        h = rms_norm(x, layer.norm1_g)                               # (1, D)
         q, k_raw, v = h @ layer.wq, h @ layer.wk, h @ layer.wv       # 各 (1, D); k 不旋转就入 cache
         cache.append(li, k_raw, v)
         L = len(cache.k[li])

@@ -1,7 +1,7 @@
 """
 utils.py — 共享小工具
 
-只放纯函数, 无副作用, 无状态。所有模块通用。
+数值算子是纯函数; Timer / banner / kv 只给 demo 计时和打印用。所有模块通用。
 """
 from __future__ import annotations
 import time
@@ -25,6 +25,8 @@ def rms_norm(x: np.ndarray, gamma: np.ndarray, eps: float = 1e-5) -> np.ndarray:
     现代 LLM (LLaMA / Qwen) 都用 RMSNorm 替代 LayerNorm:
     - 少一次均值减法, 算得快
     - 实验表明效果几乎无差
+
+    x (..., D), gamma (D,) 或标量 → (..., D)。eps: x 全 0 时防除零。
     """
     rms = np.sqrt(np.mean(x * x, axis=-1, keepdims=True) + eps)
     return (x / rms) * gamma
@@ -43,7 +45,7 @@ def causal_mask(t_q: int, t_k: int) -> np.ndarray:
     """
     mask = np.zeros((t_q, t_k), dtype=np.float32)
     for i in range(t_q):
-        last_visible = t_k - t_q + i
+        last_visible = t_k - t_q + i          # 第 i 个 query 自己在 K 里的下标, 它后面的都屏蔽
         if last_visible + 1 < t_k:
             mask[i, last_visible + 1:] = -np.inf
     return mask
@@ -59,7 +61,10 @@ def dense_attention(q: np.ndarray, K: np.ndarray, V: np.ndarray,
     """
     if mask is None:
         mask = causal_mask(q.shape[-2], K.shape[-2])
-    scores = q @ np.swapaxes(K, -1, -2) / q.shape[-1] ** 0.5     # (..., Tq, Tk); python float 不会把 fp32 升成 fp64
+    # 除数 d ** 0.5 是 python float, fp32 输入算出来还是 fp32。
+    # 换成 np.sqrt(d) 会得到 np.float64 标量, NumPy 2 下结果被升成 fp64。
+    # mask 传 fp64 数组时结果同样是 fp64, 调用方要 fp32 就自己 astype。
+    scores = q @ np.swapaxes(K, -1, -2) / q.shape[-1] ** 0.5     # (..., Tq, Tk)
     return softmax(scores + mask, axis=-1) @ V
 
 

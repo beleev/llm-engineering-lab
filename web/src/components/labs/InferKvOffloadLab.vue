@@ -9,8 +9,8 @@
     module="llm_infer/m20"
     run="python -m llm_infer.m20_kv_offload.demo"
     :challenge="{
-      ask: '把磁盘带宽拖到 0.5 GB/s, 再切到「命中就加载」。多了一层缓存, 平均 TTFT 为什么反而变差? 切回「取小」后又发生了什么?',
-      answer: '0.5 GB/s 时, 搬一个 block (2 MiB) 要 4.2 ms, 重算它只要 2 ms。命中了也不该搬。\n- 「命中就加载」: 老老实实去搬, TTFT 比没有这一层还差。\n- 「取小」: 每层比较 $\\text{load} = \\text{固定延迟} + \\text{字节}/\\text{带宽}$, 与 recompute。慢就直接重算, 最坏也不比没有这层差。\n带宽够快时还有第二个门槛: 固定延迟要靠命中块数摊薄, 交叉点 $n^* = \\text{延迟} / (\\text{每块重算} - \\text{每块加载})$。',
+      ask: '把磁盘带宽拖到 0.5 GB/s, 再切到「命中就加载」。多了一层缓存, 平均 TTFT 会变好还是变差?',
+      answer: '变差。0.5 GB/s 时, 搬一个 block (2 MiB) 要 4.2 ms, 重算它只要 2 ms。命中了也不该搬。\n- 「命中就加载」: 老老实实去搬, TTFT 比没有这一层还差。\n- 「取小」: 每层比较 $\\text{load} = \\text{固定延迟} + \\text{字节}/\\text{带宽}$, 与 recompute。慢就直接重算, 最坏也不比没有这层差。\n带宽够快时还有第二个门槛: 固定延迟要靠命中块数摊薄, 交叉点 $n^* = \\text{延迟} / (\\text{每块重算} - \\text{每块加载})$。',
     }"
   >
     <template #controls>
@@ -18,6 +18,7 @@
         <button type="button" :class="{ active: !alwaysLoad }" @click="alwaysLoad = false">加载 / 重算取小</button>
         <button type="button" :class="{ active: alwaysLoad }" @click="alwaysLoad = true">命中就加载</button>
         <button type="button" @click="seed++">换一组</button>
+        <button type="button" @click="reset">恢复默认</button>
       </div>
       <LabSlider v-model="users" label="用户数 (各 6 轮)" :min="2" :max="12" />
       <LabSlider v-model="capGpu" label="GPU 层容量" :min="0" :max="256" :step="8" unit=" blk" />
@@ -27,21 +28,30 @@
       <LabSlider v-model="diskLat" label="磁盘每次加载固定延迟" :min="0" :max="20" unit=" ms" />
     </template>
 
-    <svg :viewBox="`0 0 ${W} ${H + 16}`" role="img" aria-label="每个请求的命中构成与 TTFT">
+    <svg :viewBox="`0 0 ${W} ${H + 16}`" role="group" aria-label="每个请求的命中构成与 TTFT">
+      <!-- 整排柱子只有一个 Tab 停靠点, 左右方向键换请求 -->
       <g
-        v-for="(r, i) in sim.reqs" :key="i" tabindex="0" role="button" :aria-label="`请求 ${i + 1}`"
-        @mouseenter="pick = i" @click="pick = i" @keydown.enter="pick = i"
+        class="bars" tabindex="0" role="slider" aria-label="选中的请求" aria-valuemin="1" :aria-valuemax="sim.reqs.length" :aria-valuenow="pickI + 1"
+        :aria-valuetext="`请求 ${pickI + 1}, TTFT ${cur.ttft.toFixed(1)} ms`"
+        @keydown.left.prevent="pick = Math.max(0, pickI - 1)" @keydown.right.prevent="pick = Math.min(sim.reqs.length - 1, pickI + 1)"
       >
-        <rect :x="i * bw" y="0" :width="bw" :height="H" fill="transparent" />
-        <rect
-          v-for="s in r.segs" :key="s.k" :x="i * bw + 0.5" :y="H - (s.y0 + s.n) * ky"
-          :width="Math.max(1, bw - 1)" :height="s.n * ky" :fill="COLORS[s.k]" :opacity="s.k === 3 ? 0.35 : 0.85"
-        />
-        <rect v-if="i === pickI" :x="i * bw" y="0" :width="bw" :height="H" class="pick" />
+        <g v-for="(r, i) in sim.reqs" :key="i" @mouseenter="pick = i" @click="pick = i">
+          <rect :x="i * bw" y="0" :width="bw" :height="H" class="bg" />
+          <rect
+            v-for="s in r.segs" :key="s.k" :x="i * bw + 0.5" :y="H - (s.y0 + s.n) * ky"
+            :width="Math.max(1, bw - 1)" :height="s.n * ky" :fill="COLORS[s.k]" :opacity="s.k === 3 ? 0.35 : 0.85"
+          />
+          <rect v-if="i === pickI" :x="i * bw" y="0" :width="bw" :height="H" class="pick" />
+        </g>
+      </g>
+      <!-- 折线的纵轴: 右侧标 TTFT 刻度 -->
+      <g v-for="f in [0.5, 1]" :key="f" class="yt">
+        <line x1="0" :x2="W" :y1="H - f * (H - 4)" :y2="H - f * (H - 4)" />
+        <text :x="W - 2" :y="H - f * (H - 4) + 11" text-anchor="end">TTFT {{ (sim.maxTtft * f).toFixed(0) }} ms</text>
       </g>
       <polyline :points="sim.reqs.map((r, i) => `${(i + 0.5) * bw},${H - (r.ttft / sim.maxTtft) * (H - 4)}`).join(' ')" class="ttft" />
       <text x="0" :y="H + 13" class="ax">请求 1 (第 1 轮)</text>
-      <text :x="W" :y="H + 13" class="ax" text-anchor="end">请求 {{ sim.reqs.length }} (第 6 轮) · 折线 = TTFT, 峰值 {{ sim.maxTtft.toFixed(0) }} ms</text>
+      <text :x="W" :y="H + 13" class="ax" text-anchor="end">请求 {{ sim.reqs.length }} (第 6 轮) · 柱高 = prompt token 数, 折线 = TTFT (右侧刻度)</text>
     </svg>
     <p class="legend">
       <span v-for="(n, k) in NAMES" :key="k"><i :style="{ background: COLORS[k], opacity: k === 3 ? 0.35 : 0.85 }" />{{ n }}</span>
@@ -87,6 +97,8 @@ const NAMES = ['GPU 命中', 'CPU 命中', '磁盘命中', 'miss → 重算']
 
 const users = ref(8), capGpu = ref(64), capCpu = ref(192), capDisk = ref(4096)
 const diskBw = ref(3), diskLat = ref(2), alwaysLoad = ref(false), seed = ref(0), pick = ref(0)
+
+const reset = () => { users.value = 8; capGpu.value = 64; capCpu.value = 192; capDisk.value = 4096; diskBw.value = 3; diskLat.value = 2; alwaysLoad.value = false }
 
 const diskPerBlock = computed(() => (BLOCK_BYTES / (diskBw.value * 1e9)) * 1e3)
 const nStar = computed(() => (diskPerBlock.value >= 2 ? null : diskLat.value / (2 - diskPerBlock.value)))
@@ -145,6 +157,11 @@ const pct = (x) => (x * 100).toFixed(1) + '%'
 
 <style scoped>
 svg { min-width: 520px; } /* 窄屏: 图保持可读, 由 .lab-viz 横向滚动 */
+.bars { outline: none; cursor: pointer; }
+.bg { fill: transparent; }
+.bars:focus-visible .pick { stroke: var(--accent); stroke-width: 2.5; }
+.yt line { stroke: var(--border-strong); stroke-dasharray: 2 4; pointer-events: none; }
+.yt text { font-size: 10px; fill: var(--text-muted); pointer-events: none; }
 .pick { fill: none; stroke: var(--text); stroke-width: 1.5; pointer-events: none; }
 .ttft { fill: none; stroke: var(--text); stroke-width: 1.5; pointer-events: none; }
 .ax { font-size: 11px; fill: var(--text-dim); }

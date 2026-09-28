@@ -3,7 +3,7 @@ m23 demo — test-time compute: 同一个 sampler, 四种花 token 的方式, �
 
     [0] 任务: K=4 步算术链, 30% 的题有一个"看错运算符"的陷阱步 (模型的众数就是错的)
     [1] 并行采样: best-of-N + ORM vs 多数投票; assert 多花 token 换正确率, 且多数投票在陷阱题上饱和
-    [2] PRM 引导的逐步 beam search: 同样 token 数下 ≥ best-of-N
+    [2] PRM 引导的逐步 beam search: 小预算下高于同 token 数的 best-of-N, 大预算打平 (PRM 有噪声)
     [3] 串行长思考 + budget forcing: 截断 → 0; 追加 "Wait" → 涨, 但涨不过陷阱
 
 运行: python -m llm_infer.m23_test_time_compute.demo
@@ -17,13 +17,14 @@ from llm_infer.m23_test_time_compute.tts import (
     best_of_n, make_problems, majority_vote, prm_beam_search, rollout, think,
 )
 
-N_PROB, K, TRAP_FRAC = 200, 4, 0.3
-NS = [1, 2, 4, 8, 16, 32, 64]
+N_PROB, K, TRAP_FRAC = 200, 4, 0.3                        # 题数, 每题步数, 带陷阱的题的比例
+NS = [1, 2, 4, 8, 16, 32, 64]                             # [1] 里并行采样的条数 N
 BEAMS = [(1, 2), (2, 2), (2, 4), (4, 4), (4, 8)]          # (width, expand)
-BUDGETS = [2, 4, 6, 8, 12, 16, 24, 32, 64]
+BUDGETS = [2, 4, 6, 8, 12, 16, 24, 32, 64]                # [3] 里 budget forcing 的 token 预算 B
 
 
 def acc(answers, probs, mask=None) -> float:
+    """正确率。mask (N_PROB,) bool: 只统计其中为 True 的题。"""
     ok = np.array([a == p.answer for a, p in zip(answers, probs)])
     return float(ok[mask].mean() if mask is not None else ok.mean())
 
@@ -45,7 +46,8 @@ def main():
           f"ops={' '.join(f'{o}{a}' for o, a in p0.ops)}, 答案 {p0.answer}, 陷阱在第 {p0.trap} 步")
     greedy = [rollout(p, rng, temperature=0.0)[-1] for p in probs]
     kv("greedy (T=0) 正确率", f"{acc(greedy, probs):.3f}  ← 恰好 = 无陷阱题比例: 玩具里随机错只来自采样")
-    assert abs(acc(greedy, probs) - (1 - trap.mean())) < 1e-9
+    assert abs(acc(greedy, probs) - (1 - trap.mean())) < 1e-9, \
+        "greedy 应恰好答对所有无陷阱题、答错所有陷阱题"
 
     print(f"\n[1] 并行采样 T=1, 每题采 {NS[-1]} 条, 切成互不重叠的 N 条一组算 @N; token = N·K")
     pool = [[rollout(p, rng) for _ in range(NS[-1])] for p in probs]
@@ -62,7 +64,8 @@ def main():
               f"{r['maj_clean']:>13.3f}{r['maj_trap']:>12.3f}")
     assert rows[64]["bon"] > rows[1]["bon"] + 0.4, "best-of-N: 多花 token 换正确率"
     assert rows[64]["maj"] - rows[16]["maj"] < 0.03, "多数投票 N≥16 后饱和"
-    assert rows[64]["maj_trap"] < 0.15 and rows[64]["maj_clean"] > 0.95, "饱和点 = 无陷阱题比例: 陷阱题投票收敛到错的众数"
+    assert rows[64]["maj_trap"] < 0.15, "陷阱题上投票收敛到错的众数, 正确率应很低"
+    assert rows[64]["maj_clean"] > 0.95, "无陷阱题上投票应几乎全对; 所以饱和点 = 无陷阱题比例"
     assert rows[64]["bon"] > rows[64]["maj"] + 0.15, "外部判分器能越过系统性偏差, 投票不能"
 
     print(f"\n[2] PRM 引导的逐步 beam search (width × expand 个候选/步); 对照同 token 数的 best-of-N")
@@ -77,11 +80,14 @@ def main():
         print(f"  {f'{w}×{e}':>13}{t:>7.0f}{a:>10.3f} | {n:>6}{b:>9.3f}")
     for w, e, t, a, n, b in beam_rows[:3]:
         assert a > b, f"{w}×{e}: 小预算下 PRM beam ({a:.3f}) 应 > 同 token 数的 best-of-N ({b:.3f})"
-    tts.SIGMA, sigma = 0.0, tts.SIGMA                     # 对照: 同样 4×4, 换成无噪声的 PRM
-    exact = acc([prm_beam_search(p, 4, 4, rng)[0] for p in probs], probs)
+    # 对照: 同样的 beam 形状 (BEAMS[3]), 换成无噪声的 PRM。临时改模块全局量 SIGMA, 算完立刻改回
+    w3, e3 = BEAMS[3]
+    tts.SIGMA, sigma = 0.0, tts.SIGMA
+    exact = acc([prm_beam_search(p, w3, e3, rng)[0] for p in probs], probs)
     tts.SIGMA = sigma
-    kv("4×4, PRM 判分无噪声 (σ=0)", f"{exact:.3f}  vs σ={sigma}: {beam_rows[3][3]:.3f}")
-    assert exact > beam_rows[3][3] + 0.1
+    kv(f"{w3}×{e3}, PRM 判分无噪声 (σ=0)", f"{exact:.3f}  vs σ={sigma}: {beam_rows[3][3]:.3f}")
+    assert exact > beam_rows[3][3] + 0.1, \
+        f"PRM 无噪声时 {w3}×{e3} beam 的正确率应明显更高: {exact:.3f} vs {beam_rows[3][3]:.3f}"
     print("  小预算: 错步一出现就被剪掉, 不再为它的后续步付费 → beam 赢;")
     print("  大预算: 打平 —— 候选一多, 带噪声的 PRM 总会给某个错步打出高分 (σ=0 时就没有这个问题)。")
 

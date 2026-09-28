@@ -55,7 +55,7 @@ rerank     = 覆盖率 + 0.5 · 短语率        覆盖率 = 命中的查询实�
 recall@k   = 相关块进了前 k 的题数 / 总题数;   MRR = mean(1 / 第一个相关块的名次), 没召回记 0
 ```
 
-为什么这样设:
+关键设计:
 
 - **结构切块带标题路径**: `How are uploads throttled?` 里的 `uploads` 只出现在文档标题里, 定长块拿不到它。
 - **稠密向量用字符 n-gram**: 前提是纯 stdlib、没有训练数据。在这个前提下, 只有它能在玩具规模上显出"比词面匹配更宽容"。随机投影只做降维 (Johnson–Lindenstrauss: 内积近似保持), 不增加任何语义。
@@ -104,7 +104,9 @@ cd <仓库根目录> && python3 -m llm_agent.m16_rag.demo
 
 ## 与真实系统的差距
 
-- **"稠密向量"不懂语义**: 它只衡量拼写像不像。`How do I get my money back?` 和 `refunded` 没有共同的字符片段, 所有路线都排不到第 1。真实神经 embedding 在大语料上训练过, 能把 money back 和 refund 放到相近的位置, 也能跨语言。这里的 dense 更准确的名字是"压缩后的字符 n-gram TF-IDF"。
+- **"稠密向量"不懂语义**: 它只衡量拼写像不像。这里的 dense 更准确的名字是"压缩后的字符 n-gram TF-IDF"。
+  - `How do I get my money back?` 和 `refunded` 没有共同的字符片段, 所有路线都排不到第 1。
+  - 真实神经 embedding 在大语料上训练过, 能把 money back 和 refund 放到相近的位置, 也能跨语言。
 - **评测集是作者自己写的 20 题**:
   - 刻意包含了词形变化 (`throttled / throttling`、`resume / resumes`)、罕见精确词 (`E413`) 和一道同义改写。
   - dense 在这里胜过 BM25, 主要是因为题目里词形变化多。换一批以精确术语为主的问题, 结论可能反过来。
@@ -128,11 +130,13 @@ cd <仓库根目录> && python3 -m llm_agent.m16_rag.demo
 
 <details><summary>答案</summary>
 
-定长块是按词数切的。标题行 `## Throttling` 可能和下一段落分在不同块, 甚至像示例那样一块以 `## Resuma` 结尾。
+就在 [1] 打印的那个定长块里: `...rejected with error E413. ## Resuma`。原文完整落在这一块, 但块尾已经切进了下一节的标题。
+
+答案原文能不能完整落进某一块, 取决于切点。重叠 10 个词能降低被切断的概率, 但不能保证。
+
+定长块是按词数切的。标题行 `## Throttling` 可能和下一段落分在不同块。
 
 结构切块给每块加了 `Uploads > Throttling` 前缀。查询里的 `uploads` 只在文档标题里出现, 只有带了标题路径的块才能用上它。
-
-答案原文是否完整落在某一块里, 取决于切点。重叠 10 个词能降低被切断的概率, 但不能保证。
 
 </details>
 

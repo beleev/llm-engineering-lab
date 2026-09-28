@@ -2,7 +2,7 @@
 m12 demo — CUDA Graph capture / replay (**模拟**: launch 开销是人为 busy-wait 注入的, 见 graph.py)。
 
 [1] replay 输出 == eager 输出; host 提交次数 16 → 1
-[2] 扫 LAUNCH_OVERHEAD_US ∈ {0, 10, 50, 200}: 开销为 0 时加速比塌到 ~1.3×, 证明收益只来自省掉的 launch
+[2] 扫 LAUNCH_OVERHEAD_US ∈ {0, 10, 50, 200}: 开销为 0 时加速比塌到 1 出头 (断言 < 2×), 证明收益只来自省掉的 launch
 [3] 静态 buffer 语义: 重新绑定输入变量 (bug) vs 拷进 static_input (正确); 输出 buffer 会被下次 replay 覆盖
 [4] batch size 分桶 [1,2,4,8]: B=3 padding 到 4, 输出切片后 == eager; B=9 回退 eager
 
@@ -16,24 +16,25 @@ from llm_infer.core.utils import banner, kv, Timer
 from llm_infer.m12_cuda_graph.graph import FakeGPU, CudaGraph, BucketedGraphRunner, forward, N_LAYER
 
 LAUNCH_OVERHEAD_US_SWEEP = [0, 10, 50, 200]   # 模拟参数; 真实 GPU 上每个 kernel 的 host 端开销约 10 µs 量级 (含框架 dispatcher 更高)
-N_STEPS = 100
-OPS_PER_STEP = 4 * N_LAYER
+N_STEPS = 100                                 # 每次计时跑多少步 forward
+REPEATS = 3                                   # 每格计时重复几轮, 取最快的一轮
+OPS_PER_STEP = 4 * N_LAYER                    # 每层 4 个 kernel
 
 
 def us_per_step(step) -> float:
-    """3 轮取最快, 压掉系统抖动。"""
+    """REPEATS 轮取最快, 压掉系统抖动。"""
     best = float("inf")
-    for _ in range(3):
+    for _ in range(REPEATS):
         with Timer() as t:
             for _ in range(N_STEPS):
                 step()
-        best = min(best, t.ms * 1e3 / N_STEPS)
+        best = min(best, t.ms * 1e3 / N_STEPS)           # ms → µs, 再摊到每步
     return best
 
 
 def main():
     banner("M12 - CUDA Graph capture / replay (模拟)")
-    print("  注意: 本机没有 GPU。'launch 开销' 是 FakeGPU 里 busy-wait 注入的, 下面所有加速比都是这个模型的产物。")
+    print("  注意: 本 demo 不用 GPU。'launch 开销' 是 FakeGPU 里 busy-wait 注入的, 下面所有加速比都是这个模型的产物。")
 
     rs = np.random.RandomState(0)
     B, D, H = 4, 64, 128
@@ -52,10 +53,12 @@ def main():
     diff = float(np.abs(out_eager - out_replay).max())
     kv("host 提交次数 eager / replay", f"{n_eager} / {gpu.n_launch}")
     kv("max |eager - replay|", f"{diff:.2e}")
-    assert (n_eager, gpu.n_launch) == (OPS_PER_STEP, 1) and len(graph.ops) == OPS_PER_STEP
-    assert diff == 0.0                                   # 同样的 numpy kernel、同样的顺序 → 逐位相同
+    assert (n_eager, gpu.n_launch) == (OPS_PER_STEP, 1), \
+        f"host 提交次数: eager 应为 {OPS_PER_STEP}, replay 应为 1, 实际 {(n_eager, gpu.n_launch)}"
+    assert len(graph.ops) == OPS_PER_STEP, f"图里应录下 {OPS_PER_STEP} 个 kernel, 实际 {len(graph.ops)}"
+    assert diff == 0.0, "replay 用同样的 numpy kernel、同样的顺序, 输出应与 eager 逐位相同"
 
-    print(f"\n[2] 扫 launch 开销 (每格 {N_STEPS} 步 ×3 轮取最快, B={B}, 每步 {OPS_PER_STEP} 个 kernel)")
+    print(f"\n[2] 扫 launch 开销 (每格 {N_STEPS} 步 ×{REPEATS} 轮取最快, B={B}, 每步 {OPS_PER_STEP} 个 kernel)")
     print(f"  {'LAUNCH_OVERHEAD_US':>18} {'eager µs/步':>12} {'replay µs/步':>13} {'加速比':>7} {'模型预测':>8}")
     speedup = {}
     for us in LAUNCH_OVERHEAD_US_SWEEP:
@@ -68,8 +71,10 @@ def main():
         speedup[us] = e / r
         print(f"  {us:>18} {e:>12.1f} {r:>13.1f} {e / r:>6.1f}x {pred:>7.1f}x")
     print("  ↑ 开销=0 时剩下的一点差距来自 eager 每步重新分配 4 个中间 buffer + Python 包装, 与 'CUDA graph' 无关。")
-    assert speedup[0] < 2.0, speedup                     # 没有 launch 开销 → 没有数量级收益
-    assert speedup[50] > 3.0 and speedup[200] > speedup[50] > speedup[10]
+    # 这三条依赖墙钟计时, 机器很忙时可能偶发失败, 重跑即可
+    assert speedup[0] < 2.0, f"没有 launch 开销就不该有数量级的加速, 实际 {speedup[0]:.1f}×"
+    assert speedup[50] > 3.0, f"launch 开销 50 µs 时加速比应超过 3×, 实际 {speedup[50]:.1f}×"
+    assert speedup[200] > speedup[50] > speedup[10], f"launch 开销越大, 加速比应越高, 实际 {speedup}"
 
     print("\n[3] 静态 buffer 语义")
     gpu = FakeGPU(0)
@@ -79,15 +84,17 @@ def main():
     out = graph.replay_buggy(x_new)                      # bug: static_input = x_new 只是换了名字的指向
     kv("bug 版 |out - eager(新输入)|", f"{np.abs(out - ref_new).max():.3f}  ← 错")
     kv("bug 版 |out - eager(旧输入)|", f"{np.abs(out - ref_old).max():.1e}  ← 算的还是旧输入")
-    assert np.abs(out - ref_new).max() > 0.1 and np.array_equal(out, ref_old)
+    assert np.abs(out - ref_new).max() > 0.1, "bug 版: 输出不应等于新输入的结果"
+    assert np.array_equal(out, ref_old), "bug 版: 图读的还是旧地址, 输出应等于旧输入的结果"
 
     graph = CudaGraph(gpu, fwd, x_old)
     out1 = graph.replay(x_new)                           # 正确: 拷进 static_input
-    assert np.array_equal(out1, ref_new)
+    assert np.array_equal(out1, ref_new), "把新输入拷进 static_input 后, replay 输出应等于 eager"
     x_new[:] = 0                                         # replay 之后改调用方的数组, 不影响图 (图读的是自己的 buffer)
     out2 = graph.replay(x_old)
     kv("两次 replay 返回同一块内存", np.shares_memory(out1, out2))
-    assert out1 is out2 and np.array_equal(out1, ref_old)   # out1 已被第二次 replay 覆盖 — 要留结果必须 .copy()
+    assert out1 is out2, "两次 replay 返回的应是同一个 static_output"
+    assert np.array_equal(out1, ref_old), "out1 已被第二次 replay 覆盖; 要留结果必须 .copy()"
 
     print("\n[4] batch size 分桶 + padding")
     gpu = FakeGPU(0)
@@ -100,8 +107,11 @@ def main():
         bucket = next((k for k in runner.graphs if k >= b), None)
         how = f"桶 {bucket}, padding {bucket - b} 行" if bucket else "超出最大桶 → eager"
         print(f"  B={b}: {how:<24} host 提交 {gpu.n_launch:>2} 次, 输出 {out.shape}, max-abs-diff {np.abs(out - ref).max():.1e}")
-        assert out.shape == (b, D) and np.allclose(out, ref, atol=1e-5)   # 不同 B 下 BLAS 分块不同, 允许 1e-5
-        assert gpu.n_launch == (1 if bucket else OPS_PER_STEP)
+        assert out.shape == (b, D), f"B={b}: padding 的行应被切掉, 输出形状应为 {(b, D)}, 实际 {out.shape}"
+        # 不同 B 下 BLAS 分块不同, 允许 1e-5
+        assert np.allclose(out, ref, atol=1e-5), f"B={b}: 分桶 + padding 的输出应等于 eager"
+        assert gpu.n_launch == (1 if bucket else OPS_PER_STEP), \
+            f"B={b}: 命中桶时 host 只提交 1 次, 超出最大桶回退 eager 提交 {OPS_PER_STEP} 次"
 
 
 if __name__ == "__main__":

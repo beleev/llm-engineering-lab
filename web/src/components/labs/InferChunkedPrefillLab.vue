@@ -8,8 +8,8 @@
     module="llm_infer/m06"
     run="python -m llm_infer.m06_chunked_prefill.demo"
     :challenge="{
-      ask: '把 token 预算 B 从 128 拖到 1024, decode 用户的最大卡顿和新请求的 TTFT 各往哪边走? 有没有两头都好的 B?',
-      answer: '没有。\n- B 越小: 每步耗时上限 $20 + 0.25 \\cdot B$ 越低, decode 用户的最大 TBT 越小。\n- 代价: 长 prompt 被切成更多块, 每块都要多付一次 20 ms 固定开销, 还要和 decode 分享预算。新请求的 TTFT 变长 (默认参数: 276 ms → 445 ms)。\nB 是延迟抖动和首 token 延迟之间的旋钮, 不是免费午餐。',
+      ask: '把 token 预算 B 从 128 拖到 1024。有没有一个 B 能让最大 TBT 和 TTFT 两头都好?',
+      answer: '没有。默认 P = 1024、D = 4 时:\n- B = 128: 最大 TBT 52 ms, TTFT 445 ms。\n- B = 1024: 最大 TBT 276 ms, TTFT 298 ms。\n- 整段 prefill: 最大 TBT 297 ms, TTFT 276 ms。\nB 越小, 每步耗时上限 $20 + 0.25 \\cdot B$ 越低, decode 用户的最大 TBT 越小。\n代价: 长 prompt 被切成更多块, 每块都要多付一次 20 ms 固定开销, 还要和 decode 分享预算, 新请求的 TTFT 变长。\nB 是延迟抖动和首 token 延迟之间的旋钮, 压低一头就抬高另一头。',
     }"
   >
     <template #controls>
@@ -23,18 +23,24 @@
       <StepPlayer :stepper="stepper" :label="`第 ${stepper.step.value} 步`" />
     </template>
 
-    <svg class="tl" :viewBox="`0 0 ${W} 264`" role="img" aria-label="每步耗时与 token 到达时间轴">
+    <svg class="tl" :viewBox="`0 0 ${W} 264`" role="group" aria-label="每步耗时与 token 到达时间轴">
       <line :x1="0" :x2="W" :y1="yOf(capMs)" :y2="yOf(capMs)" class="cap" />
       <text :x="W - 4" :y="yOf(capMs) - 4" text-anchor="end" class="lbl">{{ mode === 'chunk' ? `预算上限 20 + 0.25×${budget} = ${capMs} ms` : `无上限: 整段 prefill ${capMs} ms` }}</text>
+      <!-- 整排柱子只有一个 Tab 停靠点, 左右方向键换步 -->
       <g
-        v-for="(s, i) in cur.steps" :key="i" role="button" tabindex="0" class="bar"
-        :class="{ dim: i > stepper.step.value, now: i === stepper.step.value }" :aria-label="`第 ${i} 步 ${s.ms} ms`"
-        @click="stepper.step.value = i" @keydown.enter="stepper.step.value = i"
+        class="bars" tabindex="0" role="slider" aria-label="当前步" aria-valuemin="0" :aria-valuemax="cur.steps.length - 1"
+        :aria-valuenow="stepper.step.value" :aria-valuetext="`第 ${stepper.step.value} 步 ${now.ms} ms`"
+        @keydown.left.prevent="stepper.prev()" @keydown.right.prevent="stepper.next()"
       >
-        <rect :x="i * bw" y="0" :width="bw" height="180" fill="transparent" />
-        <rect :x="i * bw + gap" :y="yOf(20)" :width="bw - 2 * gap" :height="180 - yOf(20)" class="fixed" />
-        <rect :x="i * bw + gap" :y="yOf(20 + 0.25 * s.dec)" :width="bw - 2 * gap" :height="yOf(20) - yOf(20 + 0.25 * s.dec)" class="dec" />
-        <rect :x="i * bw + gap" :y="yOf(s.ms)" :width="bw - 2 * gap" :height="yOf(20 + 0.25 * s.dec) - yOf(s.ms)" class="pre" />
+        <g
+          v-for="(s, i) in cur.steps" :key="i" class="bar"
+          :class="{ dim: i > stepper.step.value, now: i === stepper.step.value }" @click="stepper.step.value = i"
+        >
+          <rect :x="i * bw" y="0" :width="bw" height="180" class="bg" />
+          <rect :x="i * bw + gap" :y="yOf(20)" :width="bw - 2 * gap" :height="180 - yOf(20)" class="fixed" />
+          <rect :x="i * bw + gap" :y="yOf(20 + 0.25 * s.dec)" :width="bw - 2 * gap" :height="yOf(20) - yOf(20 + 0.25 * s.dec)" class="dec" />
+          <rect :x="i * bw + gap" :y="yOf(s.ms)" :width="bw - 2 * gap" :height="yOf(20 + 0.25 * s.dec) - yOf(s.ms)" class="pre" />
+        </g>
       </g>
       <!-- 时间轴: 横坐标是真实时间 (ms) -->
       <line x1="0" :x2="W" y1="212" y2="212" class="axis" />
@@ -51,8 +57,8 @@
 
     <template #stats>
       <div class="kv head"><span></span><span class="mono">整段 → 分块</span></div>
-      <div class="kv"><span>decode 最大 TBT</span><b :class="mode === 'chunk' ? 'good' : 'bad'">{{ sims.whole.maxTbt.toFixed(0) }} → {{ sims.chunk.maxTbt.toFixed(0) }} ms</b></div>
-      <div class="kv"><span>新请求 TTFT</span><b :class="mode === 'chunk' ? 'bad' : 'good'">{{ sims.whole.ttft.toFixed(0) }} → {{ sims.chunk.ttft.toFixed(0) }} ms</b></div>
+      <div class="kv"><span>decode 最大 TBT</span><b :class="cmp(sims.whole.maxTbt, sims.chunk.maxTbt)">{{ sims.whole.maxTbt.toFixed(0) }} → {{ sims.chunk.maxTbt.toFixed(0) }} ms</b></div>
+      <div class="kv"><span>新请求 TTFT</span><b :class="cmp(sims.whole.ttft, sims.chunk.ttft)">{{ sims.whole.ttft.toFixed(0) }} → {{ sims.chunk.ttft.toFixed(0) }} ms</b></div>
       <div class="kv"><span>prefill 切成几块</span><b>1 → {{ sims.chunk.nChunks }}</b></div>
       <div class="kv"><span>第 {{ stepper.step.value }} 步</span><b>{{ now.ms.toFixed(1) }} ms</b></div>
       <p class="lab-note">
@@ -98,6 +104,8 @@ const simulate = (chunked) => {
     total: t, nChunks: lastPrefill - WARM + 1 }
 }
 const sims = computed(() => ({ whole: simulate(false), chunk: simulate(true) }))
+// 颜色跟数值走: 分块比整段低 10% 以上才绿, 高 10% 以上才红, 差不多就不上色
+const cmp = (whole, chunk) => (chunk < whole * 0.9 ? 'good' : chunk > whole * 1.1 ? 'bad' : '')
 const cur = computed(() => sims.value[mode.value === 'chunk' ? 'chunk' : 'whole'])
 const capMs = computed(() => (mode.value === 'chunk' ? stepMs(budget.value) : stepMs(P.value)))
 
@@ -114,9 +122,12 @@ watch(cur, (c) => { stepper.pause(); stepper.step.value = c.steps.length - 1 }, 
 
 <style scoped>
 .tl { min-width: 560px; } /* 窄屏: 图保持可读, 由 .lab-viz 横向滚动 */
-.bar { cursor: pointer; outline: none; }
+.bars { outline: none; }
+.bar { cursor: pointer; }
 .bar.dim { opacity: 0.3; }
-.bar.now rect:first-child, .bar:focus-visible rect:first-child { fill: var(--accent-soft); }
+.bg { fill: transparent; }
+.bar.now .bg { fill: var(--accent-soft); }
+.bars:focus-visible .bar.now .bg { stroke: var(--accent); }
 .fixed { fill: var(--border-strong); background: var(--border-strong); }
 .dec { fill: var(--left); background: var(--left); }
 .pre { fill: var(--warn); background: var(--warn); }

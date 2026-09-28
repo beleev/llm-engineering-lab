@@ -26,7 +26,7 @@
       <LabSlider v-model="noise" label="裁判噪声" :min="0.1" :max="1.5" :step="0.05" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="每对回答的真实质量差与裁判结果">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="每对回答的真实质量差与裁判结果, 分界虚线可拖">
       <line :x1="px(0)" :x2="px(0)" :y1="8" :y2="H - 20" class="zero" />
       <g v-for="t in [-3, -2, -1, 0, 1, 2, 3]" :key="t">
         <text :x="px(t)" :y="H - 6" class="tick" text-anchor="middle">{{ t }}</text>
@@ -53,7 +53,7 @@
         <div class="kv"><span>准确率: 好的在 B</span><b :class="Math.abs(r.accA2 - r.accB2) < 0.05 ? 'good' : 'bad'">{{ r.accB2.toFixed(3) }}</b></div>
       </template>
       <div class="kv"><span>真实 A 更好的比例</span><b>{{ r.aBetter.toFixed(3) }}</b></div>
-      <p class="lab-note">★ m21 实测 (bias 0.8, noise 0.5): 单次判选 A 0.700, 准确率 0.994 / 0.593; 交换判 0.993 / 0.991, 平局 0.407。</p>
+      <p class="lab-note">★ m21 实测, 不随滑杆变化 (bias 0.8, noise 0.5): 单次判选 A 0.700, 准确率 0.994 / 0.593; 交换判 0.993 / 0.991, 平局 0.407。</p>
     </template>
   </LabFrame>
 </template>

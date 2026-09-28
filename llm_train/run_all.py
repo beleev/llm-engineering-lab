@@ -32,7 +32,7 @@ DEMOS = [
 
 def main() -> None:
     for module_name in DEMOS:
-        module = importlib.import_module(module_name)
+        module = importlib.import_module(module_name)   # 按名字导入, 再调它的 main()
         module.main()
 
 

@@ -25,7 +25,7 @@
       </div>
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="固定算力下 loss 随模型大小变化的 U 形曲线">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="固定算力下 loss 随模型大小变化的 U 形曲线, 曲线上的圆点可拖">
       <g v-for="t in [0.01, 0.03, 0.1, 0.3]" :key="'y' + t">
         <line :x1="X0" :x2="W - 10" :y1="py(t)" :y2="py(t)" class="grid" />
         <text :x="X0 - 5" :y="py(t) + 3" class="tick" text-anchor="end">{{ t }}</text>
@@ -49,13 +49,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>最优 N_opt / D_opt</span><b class="good">{{ Math.round(opt.N) }} / {{ Math.round(opt.D) }}</b></div>
+      <div class="kv"><span>最优 N_opt / D_opt</span><b>{{ Math.round(opt.N) }} / {{ Math.round(opt.D) }}</b></div>
       <div class="kv"><span>最优 D/N</span><b>{{ (opt.D / opt.N).toFixed(0) }}</b></div>
       <div class="kv"><span>你选的 N={{ Math.round(10 ** lgN) }}: D / loss</span><b>{{ Math.round(10 ** lgC / 6 / 10 ** lgN) }} / {{ L(10 ** lgN).toFixed(4) }}</b></div>
       <div class="kv"><span>比最优多亏</span><b :class="waste < 0.1 ? 'good' : 'bad'">+{{ (waste * 100).toFixed(0) }}%</b></div>
       <div class="lab-note">
         <p>★ 本例 N_opt ∝ C^0.511; 套 Chinchilla 论文的指数 (0.34 / 0.28) 是 C^0.45。本例指数是玩具 teacher 的谱决定的, 不代表 LLM。</p>
-        <p>m19 实测: C ≈ 8e6 时最优是 N=81 (0.0285), 拟合预测 89。这 6 个点也参与了拟合, 不是样本外检验。</p>
+        <p>m19 实测, 不随滑杆变化: C ≈ 8e6 时最优是 N=81 (0.0285), 拟合预测 89。这 6 个点也参与了拟合, 不是样本外检验。</p>
       </div>
     </template>
   </LabFrame>

@@ -9,6 +9,8 @@ Causal 3D VAE — 视频 DiT 的时空压缩器 (Sora / HunyuanVideo / CogVideoX
 要整条链因果, 三处都不能偷看未来: 卷积 (左 padding)、归一化 (逐帧 GroupNorm)、
 上采样 (nearest, 第 i 帧 → 第 2i, 2i+1 帧)。
 
+简化: 主干只有 "因果 Conv3d → 逐帧 GroupNorm → SiLU" 的直筒堆叠, 没有 ResBlock 和注意力。
+      时间下采样用 stride=2 的因果卷积, T 帧出 ceil(T/2) 帧。
 读代码时盯住: _causal_pad 的 pad 顺序, 以及 CausalConv3dBlock 里 norm 前后的 reshape。
 """
 
@@ -30,6 +32,8 @@ class CausalConv3dBlock(nn.Module):
 
     kernel_time=3 → 窗口 [t-2, t-1, t]。GroupNorm 若直接作用在 5D 张量上, 均值/方差会跨
     全部 T 帧统计, 未来帧就经统计量泄漏到过去; 所以把 T 并进 batch 维逐帧归一化。
+
+    forward: x [B, C, T, H, W] -> [B, C', T', H', W']。stride=1 时 T' = T, H' = H。
     """
 
     def __init__(
@@ -52,9 +56,12 @@ class CausalConv3dBlock(nn.Module):
         self.norm = nn.GroupNorm(num_groups=min(32, out_ch), num_channels=out_ch)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 左边补 kernel_time-1 帧: 卷积核的最右一格正好对着当前帧
         x = self.conv(_causal_pad(x, self.kernel_time - 1))           # [B, C', T', H', W']
         B, C, T, H, W = x.shape
+        # [B, C, T, H, W] → [B, T, C, H, W] → [B·T, C, H, W]: 每帧当成一张独立的图
         x = self.norm(x.transpose(1, 2).reshape(B * T, C, H, W))      # 逐帧统计, 不跨时间
+        # 还原: [B·T, C, H, W] → [B, T, C, H, W] → [B, C, T, H, W]
         x = x.view(B, T, C, H, W).transpose(1, 2)                     # [B, C', T', H', W']
         return F.silu(x)
 
@@ -79,7 +86,7 @@ class CausalVAE3DEncoder(nn.Module):
         layers = [CausalConv3dBlock(in_channels, base_channels)]
 
         ch = base_channels
-        # 交替做空间 / 时间下采样, 直到两个预算都花光
+        # 交替做空间 / 时间下采样, 直到两个预算都花光。每下采样一次通道翻倍
         s = spatial_levels
         t = time_levels
         while s > 0 or t > 0:
@@ -97,8 +104,9 @@ class CausalVAE3DEncoder(nn.Module):
         self.logvar_head = nn.Conv3d(ch, latent_dim, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        h = self.trunk(x)
-        return self.mean_head(h), self.logvar_head(h)
+        """x [B, 3, T, H, W] -> tuple (mean, logvar), 各 [B, latent_dim, T', H', W']。"""
+        h = self.trunk(x)                                     # [B, ch, T', H', W']
+        return self.mean_head(h), self.logvar_head(h)         # 1×1×1 卷积只改通道数
 
 
 class CausalVAE3DDecoder(nn.Module):
@@ -117,6 +125,7 @@ class CausalVAE3DDecoder(nn.Module):
     ):
         super().__init__()
 
+        # 从 encoder 最深处的通道数起步, 每上采样一次减半
         ch = base_channels * (2 ** (spatial_levels + time_levels))
         layers = [CausalConv3dBlock(latent_dim, ch)]
 
@@ -138,6 +147,8 @@ class CausalVAE3DDecoder(nn.Module):
         self.out_conv = nn.Conv3d(ch, out_channels, kernel_size=3, padding=(0, 1, 1))
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """z [B, latent_dim, T', H', W'] -> 视频 [B, 3, T, H, W], 值域 [-1, 1]。"""
+        # pad 2 帧 = 出口卷积的时间核 3 减 1
         return torch.tanh(self.out_conv(_causal_pad(self.trunk(z), 2)))  # tanh → [-1, 1]
 
 
@@ -151,6 +162,8 @@ class CausalVideoVAE(nn.Module):
         latent_dim:     潜空间通道数
         spatial_levels: 空间下采样次数
         time_levels:    时间下采样次数
+
+    forward 返回 dict, 四个键 (见 forward)。没有 attention_mask, 没有 KV cache。
     """
 
     def __init__(
@@ -176,19 +189,30 @@ class CausalVideoVAE(nn.Module):
         )
 
     def encode(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """x [B, 3, T, H, W] -> {"mean", "logvar"}, 各 [B, latent_dim, T', H', W']。"""
         mean, logvar = self.encoder(x)
-        logvar = logvar.clamp(-30.0, 20.0)
+        logvar = logvar.clamp(-30.0, 20.0)                    # 防 exp 溢出, 同 ImageVAE
         return {"mean": mean, "logvar": logvar}
 
     @staticmethod
     def reparameterize(mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        std = torch.exp(0.5 * logvar)
+        """z = μ + σ·ε, ε ~ N(0, I)。同 ImageVAE.reparameterize。"""
+        std = torch.exp(0.5 * logvar)                         # logσ² → σ
         return mean + std * torch.randn_like(std)
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
+        """z [B, latent_dim, T', H', W'] -> 视频 [B, 3, T, H, W]。"""
         return self.decoder(z)
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        x [B, 3, T, H, W] (值域 [-1, 1]) -> 返回 dict, 四个键:
+            "recon":  [B, 3, T, H, W]               重建视频
+            "z":      [B, latent_dim, T', H', W']   采样出的 latent
+            "mean":   同 z 的形状, μ
+            "logvar": 同 z 的形状, log σ², 已 clamp 到 [-30, 20]
+        T' = T / 2^time_levels, H' = H / 2^spatial_levels (T、H、W 要能整除)。
+        """
         enc = self.encode(x)
         z = self.reparameterize(enc["mean"], enc["logvar"])
         return {"recon": self.decode(z), "z": z, "mean": enc["mean"], "logvar": enc["logvar"]}

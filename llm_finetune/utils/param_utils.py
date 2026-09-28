@@ -19,7 +19,8 @@ def freeze_module(module: nn.Module) -> None:
 
 
 def print_trainable_parameters(module: nn.Module, name: Optional[str] = None) -> Dict[str, int]:
+    """打印一行 "可训 / 总数 (占比)", 并把 count_parameters 的结果原样返回。"""
     stats = count_parameters(module)
-    pct = 100.0 * stats["trainable"] / max(1, stats["total"])
-    print(f"[{name or module.__class__.__name__}] trainable: {stats['trainable']:,} / total: {stats['total']:,} ({pct:.2f}%)")
+    pct = 100.0 * stats["trainable"] / max(1, stats["total"])     # max(1, ·): 空模块 total = 0, 防除零
+    print(f"[{name or module.__class__.__name__}] 可训 {stats['trainable']:,} / 共 {stats['total']:,} ({pct:.2f}%)")
     return stats

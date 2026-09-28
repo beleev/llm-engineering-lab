@@ -1,5 +1,5 @@
 <!--
-  forward KL vs reverse KL 实验台 —— off-policy 蒸馏与 on-policy 蒸馏的核心直觉。
+  forward KL vs reverse KL 实验台 —— off-policy 蒸馏与 on-policy 蒸馏背后的直觉。
   只讲一件事: 同一个"容量不够"的学生 (单峰), 最小化 KL(p‖q) 会摊开盖住老师的所有峰 (mode-covering),
   最小化 KL(q‖p) 会缩进其中一个峰 (mode-seeking)。期望在谁的样本上取, 决定了惩罚落在哪。
   两个 KL 都在网格上数值积分; forward 的最优解用闭式 (矩匹配) 给出, 与数值结果一致。
@@ -8,8 +8,9 @@
   <LabFrame
     title="forward KL vs reverse KL — 学生该盖住所有峰, 还是钻进一个峰"
     sub="紫色是双峰的 teacher 分布 $p$, 绿色是只能单峰的 student $q$。
-      拖绿色峰顶: 左右 = 均值 $\mu$, 上下 = 宽度 $\sigma$ (越高越窄)。下方小图是被选中那个 KL 的逐点被积函数, 惩罚来自哪里一目了然。"
+      拖绿色峰顶: 左右 = 均值 $\mu$, 上下 = 宽度 $\sigma$ (越高越窄)。下方小图是被选中那个 KL 的逐点被积函数: 哪里鼓起来, 惩罚就来自哪里。"
     module="llm_finetune/methods/on_policy_distill.py"
+    run="python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill"
     :challenge="{
       ask: '先点「最小化 forward KL」, 再点「最小化 reverse KL」。两个最优学生分别落在哪? 各自的「垃圾样本率」是多少? 哪一个更像你希望小模型在生成时的表现?',
       answer: '- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$: 期望在 teacher 的样本上取。teacher 有质量而 student 没有, $\\log(p/q)$ 就爆炸, 所以学生被迫摊开盖住两个峰。\n代价是把大量概率放在两峰之间的低谷里。那里 teacher 认为几乎不可能, 垃圾样本率很高。这就是离线蒸馏 / SFT 的行为: 在 teacher 写的数据上做 MLE。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$: 期望在 student 自己的样本上取。没去的地方完全不罚, 去了 teacher 不认可的地方重罚。于是它缩进一个峰。\n它样样像 teacher, 但放弃了另一种答法。on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的正是它: 容量小的学生宁可少会一点, 也不要胡说。',
@@ -28,13 +29,13 @@
       <LabSlider v-model="w" label="左峰的质量" :min="0.1" :max="0.9" :step="0.05" :format="(v) => v.toFixed(2)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 340" role="img" aria-label="teacher 与 student 的概率密度">
+    <svg ref="svgEl" viewBox="0 0 640 340" role="group" aria-label="teacher 与 student 的概率密度">
       <path :d="area(pPdf, py)" fill="var(--accent)" opacity="0.18" />
       <path :d="line(pPdf, py)" fill="none" stroke="var(--accent)" stroke-width="2" />
       <path :d="line(qPdf, py)" fill="none" stroke="var(--left)" stroke-width="2" />
       <line x1="20" x2="620" :y1="py(0)" :y2="py(0)" stroke="var(--border-strong)" />
       <text x="24" y="18" class="t" fill="var(--accent)">teacher p (双峰)</text>
-      <text x="24" y="34" class="t" fill="var(--left)">student q = N(μ, σ²)</text>
+      <text x="24" y="34" class="t" fill="var(--left)">student q = N(μ, σ²), μ = {{ mu.toFixed(2) }}, σ = {{ sigma.toFixed(2) }}</text>
       <!-- ★ 手放在学生分布上 -->
       <circle
         class="draggable" :cx="sx(mu)" :cy="py(peak)" r="10" fill="var(--left)" stroke="var(--bg-card)" stroke-width="2"
@@ -51,11 +52,11 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="forward $\mathrm{KL}(p\,\|\,q)$" /></span><b :class="{ good: view === 'f' }">{{ kl.f.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="reverse $\mathrm{KL}(q\,\|\,p)$" /></span><b :class="{ good: view === 'r' }">{{ kl.r.toFixed(3) }}</b></div>
+      <!-- 选中的那一行用 .sel 标出; .good / .bad 留给数值比较 -->
+      <div class="kv" :class="{ sel: view === 'f' }"><span><Tex text="forward $\mathrm{KL}(p\,\|\,q)$" /></span><b>{{ kl.f.toFixed(3) }}</b></div>
+      <div class="kv" :class="{ sel: view === 'r' }"><span><Tex text="reverse $\mathrm{KL}(q\,\|\,p)$" /></span><b>{{ kl.r.toFixed(3) }}</b></div>
       <div class="kv"><span>垃圾样本率</span><b :class="junk > 0.15 ? 'bad' : 'good'">{{ (junk * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>漏掉的 teacher 质量</span><b :class="miss > 0.15 ? 'bad' : 'good'">{{ (miss * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span><Tex text="$\mu$ / $\sigma$" /></span><b>{{ mu.toFixed(2) }} / {{ sigma.toFixed(2) }}</b></div>
       <div class="lab-note">
         <ul class="pts">
           <li><b>垃圾样本率:</b> student 落在 teacher 密度 &lt; 5% 峰值处的概率, 即生成时 "胡说" 的比例。</li>
@@ -149,4 +150,7 @@ const area = (ys, fy) => `M${sx(-8)},${fy(0)} L` + pts(ys, fy).join(' L') + ` L$
 
 <style scoped>
 .t { font-size: 11px; fill: var(--text-muted); font-family: "SF Mono", Menlo, monospace; }
+.kv.sel { border-bottom: 1px solid var(--accent); }
+.kv.sel > span { color: var(--text); }
+.kv.sel > span::before { content: '▸ '; color: var(--accent); }
 </style>

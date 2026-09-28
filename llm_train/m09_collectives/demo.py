@@ -26,37 +26,40 @@ def main() -> None:
 
     N = 4
     ranks = [np.arange(8, dtype=np.float32) + 10 * r for r in range(N)]     # 每 rank [8]
-    S = ranks[0].nbytes
+    S = ranks[0].nbytes                                         # S: 一个 rank 上这份张量的字节数
 
     comm.reset()
     ar = all_reduce_sum(ranks)                                  # N × [8] -> N × [8]
     rs = reduce_scatter_sum(ranks)                              # N × [8] -> N × [2]
     ag = all_gather(rs)                                         # N × [2] -> N × [8]
-    ring = ring_all_reduce_sum(ranks)
+    ring = ring_all_reduce_sum(ranks)                           # N × [8] -> N × [8], 一步步传 chunk
 
-    kv("rank r 的输入", "arange(8) + 10r")
+    kv("rank r 的输入", f"arange({ranks[0].size}) + 10r")
     kv("all_reduce", ar[0].tolist())
-    kv("reduce_scatter (rank 0..3 各得)", [x.tolist() for x in rs])
+    kv(f"reduce_scatter (rank 0..{N - 1} 各得)", [x.tolist() for x in rs])
     kv("all_gather(reduce_scatter)", ag[0].tolist())
     kv("ring all_reduce (逐步传 chunk)", ring[0].tolist())
 
     # all-to-all: rank s 给 rank d 发 [s*10+d]; 收到的是发送矩阵的转置
     send = [[np.array([s * 10 + d], dtype=np.float32) for d in range(N)] for s in range(N)]
-    recv = all_to_all(send)
-    kv("all_to_all: rank 1 发出 / 收到", f"{[int(t[0]) for t in send[1]]} / {[int(t[0]) for t in recv[1]]}")
+    recv = all_to_all(send)                                     # recv[d][s] = send[s][d]
+    r = 1                                                       # 挑一个 rank 展示
+    kv(f"all_to_all: rank {r} 发出 / 收到", f"{[int(t[0]) for t in send[r]]} / {[int(t[0]) for t in recv[r]]}")
 
     print(f"\n  每 rank 发送字节 (S = {S} B, N = {N}):")
     for op in ("all_reduce", "reduce_scatter", "all_gather", "ring_all_reduce", "all_to_all"):
         kv(f"  {op}", f"{comm.bytes[op]:.0f} B")
-    naive_root = 2 * (N - 1) * S
+    naive_root = 2 * (N - 1) * S                                # rank 0 收 N-1 份, 再发 N-1 份
     kv("  朴素 reduce→broadcast 的 rank 0", f"{naive_root} B  ({naive_root / comm.bytes['all_reduce']:.0f}x, 且随 N 线性增长)")
 
-    assert all(max_abs_diff(x, ar[0]) == 0 for x in ar)
+    assert all(max_abs_diff(x, ar[0]) == 0 for x in ar), "all-reduce 之后每个 rank 拿到的必须相同"
     assert max_abs_diff(ag[0], ar[0]) == 0, "all-reduce == reduce-scatter + all-gather"
     assert all(max_abs_diff(x, ar[0]) == 0 for x in ring), "ring 实现与直接求和一致"
     assert comm.bytes["ring_all_reduce"] == 2 * (N - 1) / N * S, "真实逐步传输的字节数 == 公式"
-    assert comm.bytes["reduce_scatter"] + comm.bytes["all_gather"] == comm.bytes["all_reduce"]
-    assert all(recv[d][s][0] == s * 10 + d for s in range(N) for d in range(N))
+    assert comm.bytes["reduce_scatter"] + comm.bytes["all_gather"] == comm.bytes["all_reduce"], \
+        "reduce-scatter + all-gather 的字节数必须等于一次 all-reduce"
+    assert all(recv[d][s][0] == s * 10 + d for s in range(N) for d in range(N)), \
+        "all-to-all: rank d 从 rank s 收到的, 必须是 s 发给 d 的那一份"
     print("\n  OK: ring all-reduce 实测字节 == 2(N-1)/N·S == reduce-scatter + all-gather。")
 
 

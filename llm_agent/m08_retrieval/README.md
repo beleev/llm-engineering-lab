@@ -14,7 +14,7 @@ TF-IDF 的修正是: 几乎每篇都有的词权重趋近 0, 罕见词主导排�
 
 - `core/utils.py: tokenize` — 英文 / 数字按词 (先 lower); 连续 CJK 字符 (U+4E00–U+9FFF) 切成字符 bigram, 单字则保留该字。
 - `core/retrieval.py: TfidfIndex` — 构建时对每篇 `title + body` 分词, 统计 df, 算出 `idf` 字典和每篇文档的归一化稀疏向量 `_doc_vec`。
-- `TfidfIndex.embed(text)` — 把任意文本变成同一空间的向量; 这是换成神经 embedding 时唯一要替换的点。
+- `TfidfIndex.embed(text)` — 把任意文本变成同一空间的向量。换成神经 embedding 时从这里改起, 文档向量的构建和 `search()` 的点积也要跟着换 (见自测题 3)。
 - `TfidfIndex.search(query, k)` — 返回 `[(score, title)]`。
 - `core/retrieval.py: VectorSearchTool` — `name = "search_docs"`, schema 与 `core/tools.py: SearchDocsTool` 完全相同; 输出 `[score] title: body`, 只保留 score > 0 的命中。
 
@@ -28,7 +28,7 @@ TF-IDF 的修正是: 几乎每篇都有的词权重趋近 0, 罕见词主导排�
          按 score 降序取前 k
 ```
 
-关键设计决策:
+关键设计:
 
 - **亚线性 tf `1 + ln(tf)`**: 同一个词重复 3 次不该有 3 倍话语权, 否则堆砌关键词的文档占便宜。
 - **BM25 式 idf**: 加 0.5 平滑并包一层 `ln(1 + ·)`, 保证恒为正; 8 篇里出现 6 篇的 `the` 只有 0.33, 只出现 1 篇的 `fragmentation` 是 1.79。
@@ -43,7 +43,7 @@ cd <仓库根目录> && python3 -m llm_agent.m08_retrieval.demo
 
 ```
 [1] 同一查询, 两种排序
-  query                   : how does the model manage memory fragmentation
+  查询                      : how does the model manage memory fragmentation
   关键词命中数                  : {'paged_attention': 4, 'kv_cache': 5, 'faq': 5, 'lora': 5, 'dpo': 5, 'sampling': 4}
   关键词计数 top-1             : lora
     tf-idf [0.33] paged_attention
@@ -58,8 +58,8 @@ cd <仓库根目录> && python3 -m llm_agent.m08_retrieval.demo
     idf(fragmentation) = 1.79
 
 [3] 中文查询: bigram 分词
-  旧分词 [a-z0-9]+           : []
-  bigram                  : ['显存', '存碎', '碎片', '片怎', '怎么', '么解', '解决']
+  只认 [a-z0-9]+ 的分词        : []
+  bigram 分词               : ['显存', '存碎', '碎片', '片怎', '怎么', '么解', '解决']
   top-1                   : [0.30] 分页注意力
 
 [4] 热替换进 agent: 工具名不变, loop 零改动
@@ -71,7 +71,7 @@ cd <仓库根目录> && python3 -m llm_agent.m08_retrieval.demo
 
 - [1] 关键词计数下正确答案 `paged_attention` 的命中数 (4) 低于 top-1 (5), 且 top-1 不是它; TF-IDF 下它排第一, 且分数超过第二名的 1.5 倍。
 - [2] `idf["fragmentation"] > 4 * idf["model"]`。
-- [3] 旧分词对中文查询返回空列表; bigram 分词后 top-1 是 `分页注意力` 且分数 > 0。
+- [3] 只认 `[a-z0-9]+` 的分词对中文查询返回空列表 (输出里那一行标作"只认 [a-z0-9]+ 的分词"); bigram 分词后 top-1 是 `分页注意力` 且分数 > 0。
 - [4] agent 通过 `search_docs` 拿到的第一行结果以 `[分数]` 开头并包含 `paged_attention`。
 
 注意: 关键词版里 `kv_cache / faq / lora / dpo` 四篇并列 5 分, `lora` 排第一只是因为 `(score, title, body)` 元组逆序排序时标题字母序最大 —— 并列时的名次是偶然的, 这本身也是等权计分的毛病。
@@ -86,7 +86,7 @@ cd <仓库根目录> && python3 -m llm_agent.m08_retrieval.demo
 - 索引是静态的内存对象: 增删文档要整体重建 (df 变了所有 idf 都变), 没有持久化和增量更新。
 - 没有词干化 / 停用词 / 拼写容错 (`manage` 与 `manages` 是两个词); CJK 范围只覆盖 U+4E00–U+9FFF, 假名、谚文等会被直接丢弃。
 - 没有检索评测 (recall@k、MRR), 只有一条手工查询; 也没有"分数过低就回答不知道"的阈值, 只过滤 score = 0。
-- `VectorSearchTool` 的 `untrusted_output` 是默认的 False: 检索回来的文档没有被当作不可信数据标记, 而真实 RAG 的语料正是 prompt injection 的常见入口 (m12)。
+- `VectorSearchTool` 标了 `untrusted_output = True`: 语料是 prompt injection 的常见入口。只有配了 `Guardrails` 时检索结果才会被包进 `<untrusted_data>` 并置污点, 本 demo 没配。标签只是提示, 语料里的注入文本模型照样读得到 (m12)。
 
 ## 常见误区
 

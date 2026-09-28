@@ -8,7 +8,7 @@
     title="一个 batch, 三种切法 — 梯度都是同一个"
     sub="24 个样本 = 24 个小格。拖卡数和 micro-batch 数换切法, 再按播放。
       格子一批批点亮, 每张卡右边的梯度缓冲区跟着涨。最后一次 all-reduce 让所有卡握住同一个数。
-      右边四个数字, 是你为这种切法付的账。"
+      右边四个数字, 是你为这种切法付的账。悬停或点击一个格子, 看这个样本落在哪张卡的哪个 micro-batch。"
     module="llm_train/m01+m02"
     run="python -m llm_train.m02_data_parallel.demo"
     :challenge="{
@@ -31,14 +31,17 @@
       <StepPlayer :stepper="stepper" :label="phase" />
     </template>
 
-    <div class="cells beq" :style="{ gridTemplateColumns: `46px repeat(${maxCols}, minmax(18px, 1fr)) 76px` }">
+    <!-- 整张表只占一个 Tab 停靠点: 悬停临时看, 点击固定, 左右方向键按样本编号移动 -->
+    <div class="cells beq" :style="{ gridTemplateColumns: `46px repeat(${maxCols}, minmax(18px, 1fr)) 76px` }"
+         tabindex="0" role="group" aria-label="24 个样本的分配表, 左右方向键换一个样本"
+         @keydown.left.prevent="move(-1)" @keydown.right.prevent="move(1)">
       <template v-for="(row, r) in rows" :key="r">
         <span class="row-label mono">{{ P === 1 ? '单卡' : '卡 ' + r }}</span>
         <span
           v-for="(c, ci) in row" :key="ci"
-          class="cell" :class="cellClass(c)"
+          class="cell" :class="[cellClass(c), { sel: c && cur && c.gi === cur.gi }]"
           :title="c ? `样本 #${c.gi} · 卡 ${r} 的第 ${c.m + 1} 个 micro-batch · 这一个样本的梯度 ${g[c.gi].toFixed(3)}` : ''"
-          @mouseenter="c && (hover = { ...c, r })" @mouseleave="hover = null"
+          @mouseenter="hoverGi = c ? c.gi : -1" @mouseleave="hoverGi = -1" @click="c && (pinGi = pinGi === c.gi ? -1 : c.gi)"
         >{{ c && K > 1 ? c.m + 1 : '' }}</span>
         <span class="buf mono" :class="{ done: reduced }">{{ bufs[r].toFixed(3) }}</span>
       </template>
@@ -48,9 +51,9 @@
       <span class="mono">all-reduce(mean) · {{ reduced ? `${P} 张卡现在握着同一个梯度 ${synced.toFixed(3)}` : '等各卡累积完再同步' }}</span>
     </div>
 
-    <p class="lab-note msg">
-      <template v-if="hover">
-        样本 #{{ hover.gi }} 在卡 {{ hover.r }} 的第 {{ hover.m + 1 }} 个 micro-batch 里, 它自己的梯度是 {{ g[hover.gi].toFixed(3) }}。
+    <p class="lab-note msg" aria-live="polite">
+      <template v-if="cur">
+        样本 #{{ cur.gi }} 在卡 {{ cur.r }} 的第 {{ cur.m + 1 }} 个 micro-batch 里, 它自己的梯度是 {{ g[cur.gi].toFixed(3) }}。
       </template>
       <template v-else>{{ phaseText }}</template>
       <br />
@@ -64,7 +67,7 @@
       </div>
       <div class="kv"><span>激活峰值 (样本/次)</span><b :class="{ good: peak < 24 }">{{ peak }} · {{ (peak / 24).toFixed(2) }}×</b></div>
       <div class="kv"><span>步时间 (每卡串行样本)</span><b :class="{ good: slow < 24 }">{{ slow }} · {{ (slow / 24).toFixed(2) }}×</b></div>
-      <div class="kv"><span>每步通信 / 卡</span><b :class="P > 1 ? 'bad' : 'good'">{{ P > 1 ? fmtBytes(commBytes) : '0 B' }}</b></div>
+      <div class="kv"><span>每步通信 / 卡</span><b :class="commBytes > 0 ? 'bad' : 'good'">{{ commBytes > 0 ? fmtBytes(commBytes) : '0 B' }}</b></div>
       <div class="lab-note">
         <ul class="pts">
           <li><b>等分:</b> <Tex text="all-reduce(mean) 恰好等于全局均值, $|\Delta|$ 只剩浮点求和顺序的零头 (m01/m02 用 float32, 打印出来是 2.98e-08 和 3.73e-09)。" /></li>
@@ -95,7 +98,7 @@ const PSI = 1.3e9                // 参数量, 用来把通信量换算成看得
 const pIdx = ref(3)
 const k = ref(1)
 const uneven = ref(false)
-const hover = ref(null)
+const hoverGi = ref(-1), pinGi = ref(-1)   // 悬停的 / 点击固定的样本编号; 只记编号, 换切法后仍然指向同一个样本
 
 const P = computed(() => PS[pIdx.value])
 const K = computed(() => k.value)
@@ -152,6 +155,13 @@ const rows = computed(() => plan.value.map((r) => {
   while (cells.length < maxCols.value) cells.push(null)
   return cells
 }))
+// 样本编号 → 它落在哪张卡 r 的第几个 micro-batch m
+const where = computed(() => rows.value.flatMap((row, r) => row.filter(Boolean).map((c) => ({ ...c, r }))))
+const cur = computed(() => {
+  const gi = hoverGi.value >= 0 ? hoverGi.value : pinGi.value
+  return gi < 0 ? null : where.value.find((c) => c.gi === gi)
+})
+const move = (d) => { pinGi.value = Math.min(N - 1, Math.max(0, (cur.value ? cur.value.gi + d : 0))); hoverGi.value = -1 }
 const bufs = computed(() => plan.value.map((r) =>
   (reduced.value ? synced.value : sum(r.micros.slice(0, doneK.value).map((m) => m.w * m.mean)))))
 
@@ -168,7 +178,7 @@ const commBytes = computed(() => (PSI * 4 * 2 * (P.value - 1)) / P.value)
 
 const phase = computed(() => (reduced.value ? 'all-reduce' : f.value === 0 ? '未开始' : `micro ${f.value}/${K.value}`))
 const phaseText = computed(() => {
-  if (f.value === 0) return '每卡的梯度缓冲区都是 0。按播放, 或点 ▶ 单步。'
+  if (f.value === 0) return '每卡的梯度缓冲区都是 0。按「▶ 播放」, 或点「下一步 ›」一步一步走。'
   if (reduced.value) return `all-reduce(mean): 每卡把自己那份梯度发出去再收回平均值。${P.value} 张卡现在逐位相同, 可以各自 optimizer.step()。`
   const n = plan.value.map((r) => r.micros[active.value].n).join(' / ')
   return `第 ${f.value} 个 micro-batch: 各卡分别前向反向 ${n} 个样本, 梯度乘 n_k/n_rank 后累进缓冲区 (缓冲区数字在右侧)。`
@@ -179,7 +189,8 @@ watch([P, K, uneven], () => { stepper.pause(); stepper.step.value = frames.value
 
 <style scoped>
 .row-label { font-size: 11px; color: var(--text-dim); align-self: center; }
-.beq .cell { height: 24px; font-size: 9px; }
+.beq .cell { height: 24px; font-size: 9px; cursor: pointer; }
+.cell.sel { outline: 2px solid var(--text); outline-offset: -2px; }
 .cell.pad { border: none; background: none; }
 .cell.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .buf {

@@ -8,6 +8,7 @@ SimPO — Simple Preference Optimization (Meng et al., 2024)
            γ > 0 是目标 margin: 不仅要 chosen 赢, 还要赢出 γ 这么多。
 读代码时盯住: `average=True` 和 γ —— 去掉它们就退化成 "没有 ref 的 DPO", 会无约束地压低 rejected。
 代价: 没有 ref 当锚, 只靠 lr / 步数控制漂移; β 比 DPO 大一个量级 (2~10), 因为平均 log-prob 的数值小得多。
+与论文的差异: loss 公式相同。默认的 β=2、γ=1 是本库的取值。
 """
 
 from typing import Dict
@@ -20,6 +21,13 @@ from llm_finetune.methods.dpo import _preference_metrics, compute_sequence_logpr
 
 
 class SimPOLoss(LossComputer):
+    """
+    beta:  平均每 token log-prob 前面的缩放 β。
+    gamma: 目标 margin γ。两边奖励的差刚好等于 γ 时 loss = ln 2; 超过 γ 越多, loss 越接近 0。
+
+    model_output = 不带 ref 的 PairwiseForward 的输出 {"chosen", "rejected"}, 各是 logits [B, T, V]。
+    """
+
     def __init__(self, beta: float = 2.0, gamma: float = 1.0) -> None:
         self.beta, self.gamma = beta, gamma
 
@@ -31,6 +39,6 @@ class SimPOLoss(LossComputer):
         loss = -F.logsigmoid(chosen_reward - rejected_reward - self.gamma).mean()
         return {
             "total_loss": loss,
-            "logp_chosen": (chosen_reward / self.beta).detach().mean(),
+            "logp_chosen": (chosen_reward / self.beta).detach().mean(),   # 除回 β: 报告的是平均每 token 的 log-prob
             **_preference_metrics(chosen_reward, rejected_reward),
         }

@@ -25,10 +25,13 @@ def main():
     print(f"Mamba Mini | 参数量: {sum(p.numel() for p in model.parameters()):,}")
 
     # Δ 的专用初始化没有被 init_weights 清掉: softplus(bias) ∈ [1e-3, 1e-1]
-    dt = torch.nn.functional.softplus(model.layers[0].layer.ssm.dt_proj.bias)
-    assert 1e-3 * 0.99 <= dt.min() and dt.max() <= 1e-1 * 1.01
+    dt = torch.nn.functional.softplus(model.layers[0].layer.ssm.dt_proj.bias)   # 第 0 层每个通道的初始步长 Δ
+    # 0.99 / 1.01 是 1% 的浮点余量
+    assert 1e-3 * 0.99 <= dt.min(), "Δ 的专用初始化被覆盖了: softplus(dt_proj.bias) 应 ≥ 1e-3"
+    assert dt.max() <= 1e-1 * 1.01, "Δ 的专用初始化被覆盖了: softplus(dt_proj.bias) 应 ≤ 1e-1"
 
     data_gen = DecoderOnlyDataGenerator(vocab_size=V, batch_size=cfg.batch_size, seq_len=cfg.seq_len)
+    # metrics[0] 是第 1 步的 loss: 它在任何参数更新之前算出, 就是未训练模型的 loss
     metrics = Trainer(model, cfg, data_gen, StandardLMLoss()).train()
 
     first, last = metrics[0]["total_loss"], metrics[-1]["total_loss"]

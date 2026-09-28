@@ -1,10 +1,12 @@
 """
-BERT — Encoder-only 双向 Transformer + 掩码语言建模 (Devlin et al., 2019)
+BERT — Encoder-only 双向 Transformer + 掩码语言建模 (Devlin et al., 2018; 发表于 NAACL 2019)
 
 是什么: 和 GPT 同一套 block, 只改两处 —— 不加因果 mask (每个位置看全句); 训练目标从"预测下一个"换成"还原被遮住的 token"。
 解决了什么: GPT 的单向注意力让每个 token 只看得到左边, 做理解类任务 (分类/抽取/检索) 吃亏。
 关键数字: 选 15% 位置 → 其中 80% 换 [MASK] / 10% 换随机 token / 10% 不变; loss 只在这 15% 上算 (其余 label = -100)。
          位置编码是可学习绝对位置; 另有 segment embedding 区分句子 A/B。
+与论文的差异: 原论文是 Post-LN, 这里沿用全库统一的 Pre-LN, 所以末尾多一个出口 LayerNorm (ln_f)。
+             embedding 不乘 √D, MLM head 与 token embedding 共享权重, 这两点与原版一致。
 读代码时盯住: mask —— 这里只有 padding mask [B, 1, T], 没有下三角。对照 GPT 的 causal mask 看。
 """
 
@@ -20,7 +22,11 @@ from llm_models.utils.init import init_weights
 
 
 class BERTEmbeddings(nn.Module):
-    """token + position (可学习) + segment 三者相加, 再 LayerNorm + Dropout。"""
+    """
+    token + position (可学习) + segment 三者相加, 再 LayerNorm + Dropout。
+
+    forward: input_ids [B, T], token_type_ids [B, T] (None 时全 0, 即都算句子 A) -> [B, T, D]
+    """
 
     def __init__(self, vocab_size: int, d_model: int, max_len: int, type_vocab_size: int = 2, dropout: float = 0.1):
         super().__init__()
@@ -49,6 +55,9 @@ class BERT(nn.Module):
 
     原论文是 Post-LN; 这里沿用全库统一的 Pre-LN。[CLS]/[SEP] 由 tokenizer 构造, 模型不特殊处理。
     BERT-base: d_model=768, n_heads=12, num_layers=12, max_len=512。
+
+    forward 默认返回 Tensor, return_hidden=True 时返回 tuple; 接受 attention_mask。
+    没有 KV cache 和 generate(): 双向注意力下, 改一个 token 所有位置都要重算。
     """
 
     def __init__(
@@ -86,7 +95,8 @@ class BERT(nn.Module):
         self.mlm_head = nn.Linear(d_model, vocab_size, bias=True)
         self.mlm_head.weight = self.embeddings.token_embeddings.weight
 
-        # 默认 N(0,1) embedding + 权重共享 ⇒ 初始 logits std≈sqrt(D), 初始 CE ≈ 40 而不是 ln V
+        # 换成 PyTorch 默认的 N(0,1) embedding + 权重共享会怎样: 初始 logits std ≈ sqrt(D),
+        # 初始 CE ≈ 40 而不是 ln V (run_models 的 mini 配置 D=128, V=500 下)
         init_weights(self)
 
     def forward(
@@ -99,6 +109,9 @@ class BERT(nn.Module):
         """
         input_ids [B, T]; attention_mask [B, T] (1=有效, 0=pad); token_type_ids [B, T] ∈ {0,1}
         -> logits [B, T, V] (return_hidden=True 时再返回 hidden [B, T, D], 下游任务取 hidden[:, 0] 即 [CLS])
+
+        返回类型: 默认 Tensor; return_hidden=True 时是 tuple (logits, hidden)。
+        LLaMA 的同名参数是 "用 hidden 代替 logits", 语义不同。
         """
         T = input_ids.size(1)
         if T > self.max_len:
@@ -106,7 +119,7 @@ class BERT(nn.Module):
 
         x = self.embeddings(input_ids, token_type_ids)                 # [B, T, D]
         # 只屏蔽 pad 列; [B, 1, T] 广播到 [B, T, T]。没有下三角 ⇒ 双向
-        mask = None if attention_mask is None else attention_mask.bool().unsqueeze(1)
+        mask = None if attention_mask is None else attention_mask.bool().unsqueeze(1)   # [B, 1, T]
 
         for layer in self.layers:
             x = layer(x, mask=mask)

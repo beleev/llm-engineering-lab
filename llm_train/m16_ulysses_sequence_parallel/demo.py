@@ -5,7 +5,7 @@ M16 — DeepSpeed-Ulysses 序列并行
         "按序列切" 换成 "按头切": [T, H/P, d] —— 每卡看到 **完整序列** 但只负责 H/P 个头; 算完再换回来。
 解决的瓶颈: 长序列激活显存, 与 Ring Attention (m12) 同一个目标, 通信方式不同:
     Ulysses: 4 次 all-to-all (Q, K, V, 输出), 每 rank 发 4·(P-1)/P · (T/P·H·d)   → 随 P 增大而 **下降**
-    Ring   : P-1 轮 P2P,               每 rank 发 (P-1) · 2·(T/P·H·d)           → 随 P 基本 **不变**
+    Ring   : P-1 轮 P2P,               每 rank 发 (P-1) · 2·(T/P·H·d)           → 随 P 缓慢 **上升**, 上限 2·T·H·d
 代价: 头数必须能被 P 整除 (P ≤ H; GQA/MQA 下 KV 头更少, 限制更紧); all-to-all 吃对分带宽, 跨机不如 ring 的邻居 P2P 友好。
       注意力核本身不用改 —— 每卡就是一次普通的 (Flash) attention, 因果 mask 也天然均衡, 不需要 zigzag。
 读代码盯住: `seq_to_head` 的 shape 变化 [T/P, H, d] → [T, H/P, d], 以及它的逆 `head_to_seq`。
@@ -22,8 +22,8 @@ def causal_mha(q, k, v):
     """q/k/v: [T, H, d] → [T, H, d]。各头独立的因果注意力。"""
     t, _, d = q.shape
     scores = np.einsum("thd,shd->hts", q, k) / np.sqrt(d)                # [H, T, T]
-    scores[:, np.triu(np.ones((t, t), dtype=bool), k=1)] = -np.inf
-    return np.einsum("hts,shd->thd", softmax(scores), v)
+    scores[:, np.triu(np.ones((t, t), dtype=bool), k=1)] = -np.inf      # mask [T, T] 上三角 = 未来, 每个头都屏蔽
+    return np.einsum("hts,shd->thd", softmax(scores), v)                 # [H, T, T] · [T, H, d] → [T, H, d]
 
 
 def seq_to_head(shards):
@@ -43,6 +43,7 @@ def head_to_seq(shards):
 
 
 def ulysses_attention(q, k, v, P: int):
+    """q/k/v: [T, H, d] → [T, H, d]。P 是并行度 (卡数)。一共 4 次 all-to-all。"""
     H = q.shape[1]
     assert H % P == 0, f"Ulysses 要求头数能被并行度整除 (H={H}, P={P})"
     qs, ks, vs = (seq_to_head(np.split(a, P, axis=0)) for a in (q, k, v))     # 3 次 all-to-all
@@ -55,7 +56,7 @@ def main() -> None:
 
     rs = make_rng(16)
     T, H, d = 32, 8, 8
-    q, k, v = (rs.randn(T, H, d) for _ in range(3))
+    q, k, v = (rs.randn(T, H, d) for _ in range(3))                       # 各 [T, H, d]
     base = causal_mha(q, k, v)
 
     print(f"\n  T={T}, H={H}, d_head={d}; 每 rank 发送字节:")
@@ -66,6 +67,7 @@ def main() -> None:
         out = ulysses_attention(q, k, v, P)
         uly = comm.total
         comm.reset()
+        # m12 的 ring_attention 一次只管一个头: q[:, h] 是 [T, d]。H 个头各跑一遍, 沿头维叠回 [T, H, d]
         ring = np.stack([ring_attention(q[:, h], k[:, h], v[:, h], P, zigzag=True)[0] for h in range(H)], axis=1)
         ring_bytes = comm.total
         shard_bytes = T // P * H * d * 8                                  # 一个 rank 的 Q (或 K, 或 V) 的字节数
@@ -73,19 +75,21 @@ def main() -> None:
         rows[P] = (uly, ring_bytes)
         print(f"  {P:>4}{uly:>12.0f}{f_uly:>10.0f}{ring_bytes:>14.0f}{f_ring:>10.0f}{max_abs_diff(base, out):>18.1e}")
         assert max_abs_diff(base, out) < 1e-12, "只是换了切法, 数学上就是同一个注意力"
-        assert max_abs_diff(base, ring) < 1e-12
-        assert uly == f_uly and ring_bytes == f_ring
+        assert max_abs_diff(base, ring) < 1e-12, "Ring (逐头跑 m12 的 ring_attention) 也必须等于完整注意力"
+        assert uly == f_uly, "Ulysses 实测通信量必须等于公式 4·(P-1)/P·(T/P·H·d)"
+        assert ring_bytes == f_ring, "Ring 实测通信量必须等于公式 (P-1)·2·(T/P·H·d)"
 
     assert rows[8][0] < rows[4][0] < rows[2][0], "Ulysses: P 越大每卡通信越少"
     assert rows[8][1] > rows[2][1], "Ring: 每卡通信随 P 不降反略升"
+    P_max, P_bad = max(rows), 2 * H                                       # 最大的合法 P; 一个超过头数的 P
     print()
-    kv("P=8 时 Ring / Ulysses 通信量", f"{rows[8][1] / rows[8][0]:.1f}x")
+    kv(f"P={P_max} 时 Ring / Ulysses 通信量", f"{rows[P_max][1] / rows[P_max][0]:.1f}x")
 
     try:
-        ulysses_attention(q, k, v, P=16)                                  # 8 个头切不成 16 份
+        ulysses_attention(q, k, v, P=P_bad)                               # H 个头切不成 2H 份
         raise SystemExit("应当报错")
     except AssertionError as e:
-        kv("P=16 > H=8", f"AssertionError: {e}")
+        kv(f"P={P_bad} > H={H}", f"AssertionError: {e}")
 
     print("\n  OK: Ulysses == 完整注意力; 通信随 P 下降但 P ≤ 头数。实战常混用: 机内 Ulysses × 机间 Ring (USP / 2D-CP)。")
 

@@ -6,9 +6,9 @@
   <LabFrame
     title="Plan 模式 — 只读是门强制的, 不是模型自觉的"
     sub="模型先用 todo_write 把计划写成显式状态, 再用 exit_plan_mode 提交。
-      - 左边的按钮: 扮演用户, 拒绝或批准。
-      - 右边任意一个工具: 看它在当前模式下被怎么裁决、裁决走的哪条分支。
-      - 三个开关: 演示一条 allow 规则在 plan 模式下为什么不管用, 以及把 delegate 错标成只读会捅出多大的洞。"
+      - 顶部第一排按钮: 扮演用户, 拒绝或批准。
+      - 点工具列表里任意一个工具: 看它在当前模式下被怎么裁决、裁决走的哪条分支。
+      - 第二排三个开关: 演示一条 allow 规则在 plan 模式下为什么不管用, 以及把 delegate 错标成只读会捅出多大的洞。"
     module="llm_agent/m10"
     run="python -m llm_agent.m10_planning.demo"
     :challenge="{
@@ -18,12 +18,15 @@
   >
     <template #controls>
       <div class="row">
+        <span class="tip">用户的答复:</span>
         <button v-for="s in STAGES" :key="s.id" type="button" :class="{ active: stage === s.id }" @click="stage = s.id">{{ s.label }}</button>
       </div>
       <div class="row">
+        <span class="tip">开关:</span>
         <button type="button" :class="{ active: allowRule }" :aria-pressed="allowRule" @click="allowRule = !allowRule">{{ allowRule ? '☑' : '☐' }} 配一条 allow write_note 规则</button>
         <button type="button" :class="{ active: fakeRO }" :aria-pressed="fakeRO" @click="fakeRO = !fakeRO">{{ fakeRO ? '☑' : '☐' }} 把 delegate 标成只读 (漏洞)</button>
-        <button type="button" :class="{ active: human }" :aria-pressed="human" @click="human = !human">{{ human ? '☑' : '☐' }} 有人审批高风险工具</button>
+        <button type="button" :class="{ active: human }" :aria-pressed="human" :disabled="mode === 'plan'" @click="human = !human">{{ human ? '☑' : '☐' }} 有人审批高风险工具</button>
+        <span v-if="mode === 'plan'" class="tip">plan 模式不问人, 写操作直接拒。「有人审批」批准计划后才起作用。</span>
       </div>
     </template>
 
@@ -55,10 +58,10 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>gate.mode</span><b :class="mode === 'plan' ? '' : 'good'">{{ mode }}</b></div>
+      <div class="kv"><span>gate.mode</span><b>{{ mode }}</b></div>
       <div class="kv"><span>放行 / 拒绝</span><b>{{ counts.ok }} / {{ counts.no }}</b></div>
-      <div class="kv"><span>直接写进的笔记</span><b :class="notes ? 'bad' : 'good'">{{ notes }}</b></div>
-      <div class="kv"><span>经子 agent 写进的笔记</span><b :class="viaChild ? 'bad' : 'good'">{{ viaChild }}</b></div>
+      <div class="kv"><span>直接写进的笔记 / 已获批</span><b :class="notes > approved ? 'bad' : 'good'">{{ notes }} / {{ approved }}</b></div>
+      <div class="kv"><span>经子 agent 写进的笔记 / 已获批</span><b :class="viaChild > 0 ? 'bad' : 'good'">{{ viaChild }} / 0</b></div>
       <div class="lab-note">
         <p>todo_write 标成只读, 是因为它只改 agent 自己的计划状态, 不碰外部世界。否则 "先列个计划" 这一步本身就会被 plan 模式拒掉。</p>
         <p>翻转模式发生在 ExitPlanModeTool.execute 里: 人点了同意, 它才去改 gate.mode。模型没有别的路径能自己改。</p>
@@ -77,14 +80,14 @@ const STAGES = [
   { id: 'approved', label: '用户批准 → accept_edits' },
 ]
 const STATUS = { pending: '待办', in_progress: '进行中', completed: '已完成' }
-// 元数据全部取自 core/tools.py 的类属性
+// 元数据取自 core/tools.py 和 core/subagents.py 的类属性
 const TOOLS = [
   { name: 'todo_write', ro: true, risk: 'low' },
   { name: 'exit_plan_mode', ro: true, risk: 'low' },
   { name: 'search_docs', ro: true, risk: 'low' },
   { name: 'read_notes', ro: true, risk: 'low' },
   { name: 'write_note', ro: false, risk: 'medium' },
-  { name: 'delegate', ro: false, risk: 'low' },
+  { name: 'delegate', ro: false, risk: 'high' }, // 在 core/subagents.py: 委托出去的子级能做什么父级管不到, 按高风险处理
   { name: 'shell', ro: false, risk: 'high' },
 ]
 
@@ -145,7 +148,9 @@ const stageNote = computed(() => ({
   approved: 'plan approved; mode -> accept_edits',
 }[stage.value]))
 
-const notes = computed(() => (stage.value === 'approved' ? 1 : 0))
+// 计划里只有一条 write_note: 批准后写下的这 1 条在授权之内, 超出已获批条数才算越权
+const approved = computed(() => (stage.value === 'approved' ? 1 : 0))
+const notes = computed(() => (judge(TOOLS.find((t) => t.name === 'write_note')).ok ? 1 : 0))
 // 委托被错标成只读 → plan 模式放行 delegate → 子 agent 用自己的 auto 门写下了笔记
 const viaChild = computed(() => (mode.value === 'plan' && fakeRO.value ? 1 : 0))
 </script>
@@ -172,5 +177,6 @@ const viaChild = computed(() => (mode.value === 'plan' && fakeRO.value ? 1 : 0))
 .tr.pass { color: var(--text-dim); }
 .tr.ok { border-color: var(--left); color: var(--left); }
 .tr.kill { border-color: var(--danger); color: var(--danger); }
-@media (max-width: 900px) { .panes { grid-template-columns: 1fr; min-width: 0; } }
+.tip { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 1200px) { .panes { grid-template-columns: 1fr; min-width: 0; } }
 </style>

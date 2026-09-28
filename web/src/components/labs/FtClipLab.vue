@@ -9,6 +9,7 @@
     sub="横轴是重要性比率 $\rho = \pi_{\text{new}} / \pi_{\text{old}}$。同一批样本做多轮内层更新时, $\rho$ 会逐渐离开 1。
       曲线是这个 token 的代理目标, 阴影区梯度为 0。拖动曲线上的点, 或者改两个 $\varepsilon$。"
     module="llm_finetune/methods/grpo.py"
+    run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
       ask: '设 Â > 0。把 π_old 拖到最右 (≈0.89): 这个 token 能撞到 1+ε_high 的上界吗? 再拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少? 换成 DAPO 的 0.2 / 0.28 呢?',
       answer: '$\\pi_{\\text{new}}$ 不能超过 1, 所以 $\\rho \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。实际上不受约束, 想涨就涨。\n- 低概率探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 0.012, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。\n结果是强者恒强, 熵一路塌缩。\nDAPO 的 clip-higher 只放宽上界 (0.28 → 0.0128), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n只有「做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1。',
@@ -26,15 +27,16 @@
       <LabSlider v-model="logPi" label="π_old (旧策略给它的概率)" :min="-2" :max="-0.05" :step="0.05" :format="() => piOld.toFixed(3)" />
     </template>
 
-    <svg ref="svgEl" viewBox="0 0 640 330" role="img" aria-label="clipped surrogate 目标随 ratio 变化">
+    <svg ref="svgEl" viewBox="0 0 640 330" role="group" aria-label="clipped surrogate 目标随 ratio 变化">
       <!-- 梯度为 0 的区域 -->
       <rect :x="flat.x" y="20" :width="flat.w" height="290" fill="var(--warn)" opacity="0.14" />
       <text :x="flat.x + flat.w / 2" y="36" text-anchor="middle" class="t" fill="var(--warn)">梯度 = 0</text>
       <line x1="50" x2="622" :y1="sy(0)" :y2="sy(0)" stroke="var(--border-strong)" />
       <line :x1="sx(1)" :x2="sx(1)" y1="20" y2="310" stroke="var(--border-strong)" stroke-dasharray="3 3" />
       <text :x="sx(1)" y="325" text-anchor="middle" class="t">ρ = 1</text>
-      <text :x="sx(1 - eLo)" y="325" text-anchor="end" class="t">1−ε_low</text>
-      <text :x="sx(1 + eHi)" y="325" text-anchor="start" class="t">1+ε_high</text>
+      <!-- 两个 ε 的标签放在图的上沿: ε 很小时不会和下沿的「ρ = 1」叠在一起 -->
+      <text :x="sx(1 - eLo) - 3" y="14" text-anchor="end" class="t">1−ε_low</text>
+      <text :x="sx(1 + eHi) + 3" y="14" text-anchor="start" class="t">1+ε_high</text>
       <line v-for="e in [1 - eLo, 1 + eHi]" :key="e" :x1="sx(e)" :x2="sx(e)" y1="20" y2="310" stroke="var(--warn)" stroke-width="1" />
       <!-- 未裁剪的 ρÂ (虚线) 与裁剪后的目标 -->
       <line :x1="sx(0)" :y1="sy(0)" :x2="sx(RMAX)" :y2="sy(RMAX * A)" stroke="var(--text-dim)" stroke-dasharray="4 4" />
@@ -42,7 +44,7 @@
       <!-- π_new ≤ 1 → ρ ≤ 1/π_old -->
       <g v-if="rhoCap < RMAX">
         <rect :x="sx(rhoCap)" y="20" :width="sx(RMAX) - sx(rhoCap)" height="290" fill="var(--text-dim)" opacity="0.25" />
-        <text :x="sx(rhoCap) + 4" y="300" class="t">ρ &gt; 1/π_old: 不可能 (π_new &gt; 1)</text>
+        <text :x="sx(RMAX) - 4" y="300" text-anchor="end" class="t">ρ &gt; 1/π_old: 不可能 (π_new &gt; 1)</text>
       </g>
       <!-- ★ 手放在 ρ 上 -->
       <circle
@@ -54,11 +56,10 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="$\rho = \pi_{\text{new}} / \pi_{\text{old}}$" /></span><b>{{ rho.toFixed(2) }}</b></div>
-      <div class="kv"><span><Tex text="$\pi_{\text{new}}$" /></span><b>{{ (rho * piOld).toFixed(4) }}</b></div>
+      <div class="kv"><span><Tex text="$\rho \to \pi_{\text{new}} = \rho\,\pi_{\text{old}}$" /></span><b>{{ rho.toFixed(2) }} → {{ (rho * piOld).toFixed(4) }}</b></div>
       <div class="kv"><span><Tex text="这个 token 的梯度 $\partial L/\partial\rho$" /></span><b :class="grad ? 'good' : 'bad'">{{ grad ? (A > 0 ? '+1·|Â|' : '−1·|Â|') : '0 (被 clip)' }}</b></div>
       <div class="kv"><span><Tex text="上界内 $\pi$ 最多涨到" /></span><b>{{ Math.min(1, piOld * (1 + eHi)).toFixed(4) }}</b></div>
-      <div class="kv"><span>上界碰得到吗</span><b :class="rhoCap > 1 + eHi ? '' : 'good'">{{ rhoCap > 1 + eHi ? '碰得到' : '碰不到 (1/π_old 不到 1+ε)' }}</b></div>
+      <div class="kv"><span>上界碰得到吗</span><b :class="rhoCap > 1 + eHi ? 'good' : 'bad'">{{ rhoCap > 1 + eHi ? '碰得到' : '碰不到 (1/π_old 不到 1+ε)' }}</b></div>
       <div class="lab-note">
         <p><Tex text="$\min(\cdot)$" /> 让 clip 只在 "对自己有利的方向" 上生效: <Tex text="$\hat{A} \gt 0$" /> 时只封顶, <Tex text="$\hat{A} \lt 0$" /> 时只托底。</p>
         <p><Tex text="走错方向的 token (例如 $\hat{A} \gt 0$ 但 $\rho$ 已经掉到 0.5) 永远有梯度, 会被拉回来。" /></p>

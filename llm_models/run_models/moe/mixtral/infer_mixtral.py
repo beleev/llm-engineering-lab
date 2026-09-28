@@ -32,31 +32,38 @@ def main():
     count = lambda m: sum(p.numel() for p in m.parameters())
     total = count(model)
     experts = sum(count(layer.moe.experts) for layer in model.layers)
-    active = total - experts + experts * top_k // num_experts
+    active = total - experts + experts * top_k // num_experts  # 专家部分每个 token 只用到 K/E
     print(f"Mixtral Mini | 总参数 {total:,} | 每 token 激活 {active:,} ({active / total:.1%})")
-    assert active < total
+    assert active < total, "每个 token 只过 K 个专家, 激活参数应少于总参数"
 
     idx = torch.randint(0, vocab_size, (1, 10))
     with torch.inference_mode():
         logits, all_routing = model(idx)
-    assert logits.shape == (1, 10, vocab_size)
+    assert logits.shape == (1, 10, vocab_size), "logits 形状应为 [B, T, V]"
 
-    for i, info in enumerate(all_routing):
+    for i, info in enumerate(all_routing):  # 每个 MoE 层一份路由记录
+        # sel [N, K]: 选中的专家下标; w [N, K]: 选中后重归一的权重; probs [N, E]: 对全部专家的 softmax
         sel, w, probs = info["selected_experts"], info["routing_weights"], info["routing_probs"]
-        assert (sel[:, 0] != sel[:, 1]).all() and sel.max() < num_experts
-        assert torch.allclose(w.sum(-1), torch.ones(10), atol=1e-5)
-        assert torch.allclose(probs.sum(-1), torch.ones(10), atol=1e-5)  # softmax 路由: 行和为 1
-        print(f"  Layer {i}: 前 3 个 token 的专家 {sel[:3].tolist()}  权重 {[[round(v, 3) for v in r] for r in w[:3].tolist()]}")
+        assert (sel[:, 0] != sel[:, 1]).all(), f"Layer {i}: 同一个 token 选中的两个专家应不同"
+        assert sel.max() < num_experts, f"Layer {i}: 专家下标应小于专家数 E"
+        assert torch.allclose(w.sum(-1), torch.ones(10), atol=1e-5), f"Layer {i}: 选中专家的权重重归一后之和应为 1"
+        assert torch.allclose(probs.sum(-1), torch.ones(10), atol=1e-5), f"Layer {i}: softmax 路由概率的行和应为 1"
+        n = 3                                                # 只打印前 n 个 token
+        print(f"  第 {i} 层: 前 {n} 个 token 的专家 {sel[:n].tolist()}  "
+              f"权重 {[[round(v, 3) for v in r] for r in w[:n].tolist()]}")
 
-    full = torch.randint(0, vocab_size, (2, 30))
+    full = torch.randint(0, vocab_size, (2, 30))  # [B=2, T=30], 前 prefill 个一次喂入, 其余逐个 decode
+    prefill = 10
     with torch.inference_mode():
-        diff = (model(full)[0] - cached_logits(model, full, prefill=10)).abs().max().item()
-    print(f"prefill 10 + 逐 token decode 20 步 vs 一次性 forward: logits 最大差 {diff:.2e}")
+        diff = (model(full)[0] - cached_logits(model, full, prefill=prefill)).abs().max().item()
+    print(f"prefill {prefill} + 逐 token decode {full.size(1) - prefill} 步 vs 一次性 forward: "
+          f"logits 最大差 {diff:.2e}")
     assert diff < 1e-4, "cache 路径与无 cache 路径的 logits 不一致"
-    with_cache = model.generate(idx, max_new_tokens=20, temperature=0, use_cache=True)
-    no_cache = model.generate(idx, max_new_tokens=20, temperature=0, use_cache=False)
+    n_gen = 20
+    with_cache = model.generate(idx, max_new_tokens=n_gen, temperature=0, use_cache=True)
+    no_cache = model.generate(idx, max_new_tokens=n_gen, temperature=0, use_cache=False)
     assert torch.equal(with_cache, no_cache), "cache 与无 cache 的贪心输出必须完全相同"
-    print(f"贪心生成 20 token, cache 与无 cache 完全一致: {with_cache[0, 10:].tolist()}")
+    print(f"贪心生成 {n_gen} token, cache 与无 cache 完全一致: {with_cache[0, idx.size(1):].tolist()}")
 
 
 if __name__ == "__main__":

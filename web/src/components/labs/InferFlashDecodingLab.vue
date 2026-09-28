@@ -13,8 +13,8 @@
     module="llm_infer/m26"
     run="python -m llm_infer.m26_flash_decoding.demo"
     :challenge="{
-      ask: 'B=1、T=32k 时, S 从 2 加到 4 能快多少? 再切到 B=64, split-K 还有用吗?',
-      answer: 'S=2 和 S=4 一样慢, 都是 459.0 μs。\n- S=2: 64 个 block, 1 波就跑完。\n- S=4: 128 个 block, 108 个 SM 要跑 2 波, 每波读的 KV 减半, 总时间不变。\n要让 $B \\cdot H \\cdot S$ 接近 108 的整数倍。S=64 时 3.30×, 上限是 $108 / (B \\cdot H) = 3.38$×。\nB=64 时 $B \\cdot H = 2048$, SM 早就满了, 最优就是 S=1 (1.00×), 多一个 reduce kernel 只会亏。\n这些都来自代价模型: 真卡上单个 SM 能拿到的带宽比 1/108 高, 真实收益更小。',
+      ask: 'B=1、T=32k 时, S 从 2 加到 4 能快多少?',
+      answer: '一点也不快: S=2 和 S=4 都是 459.0 μs。\n- S=2: 64 个 block, 1 波就跑完。\n- S=4: 128 个 block, 108 个 SM 要跑 2 波, 每波读的 KV 减半, 总时间不变。\n要让 $B \\cdot H \\cdot S$ 接近 108 的整数倍。S=64 时 3.30×, 上限是 $108 / (B \\cdot H) = 3.38$×。\n切到 B=64, $B \\cdot H = 2048$, SM 早就满了, 最优的 S 也只有 1.00×, 多一个 reduce kernel 只会亏。\n这些都来自代价模型: 真卡上单个 SM 能拿到的带宽比 1/108 高, 真实收益更小。',
     }"
   >
     <template #controls>
@@ -29,10 +29,10 @@
       <span v-for="i in N_SM" :key="i" class="sm" :style="{ background: smFill(i - 1) }" :title="`SM ${i - 1}: ${smWaves(i - 1)} 波`" />
     </div>
 
-    <svg viewBox="0 0 560 190" role="group" aria-label="延迟随 S">
+    <svg viewBox="0 0 560 190" role="group" :aria-label="`延迟随 S 的曲线, 当前 S=${cur.S}: ${cur.t.toFixed(1)} μs`">
       <line x1="40" x2="550" y1="160" y2="160" class="axis" />
       <polyline :points="rows.map((r, i) => `${sx(i)},${ly(r.t)}`).join(' ')" class="line" />
-      <g v-for="(r, i) in rows" :key="i" class="pt" tabindex="0" role="button" :aria-label="`S=${r.S}: ${r.t.toFixed(1)} μs`" @click="si = i" @keydown.enter="si = i">
+      <g v-for="(r, i) in rows" :key="i" class="pt" tabindex="0" role="button" :aria-label="`S=${r.S}: ${r.t.toFixed(1)} μs`" :aria-pressed="i === si" @click="si = i" @keydown.enter="si = i">
         <circle :cx="sx(i)" :cy="ly(r.t)" r="10" class="hit" />
         <circle :cx="sx(i)" :cy="ly(r.t)" :r="i === si ? 5 : 3.5" :class="{ cur: i === si, best: i === bestI }" />
         <text :x="sx(i)" :y="ly(r.t) - 9" class="tick">{{ r.t.toFixed(0) }}</text>
@@ -46,8 +46,8 @@
       <div class="kv"><span>SM 利用率</span><b :class="cur.util < 0.5 ? 'bad' : cur.util > 0.9 ? 'good' : ''">{{ (cur.util * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>估算延迟</span><b>{{ cur.t.toFixed(1) }} μs</b></div>
       <div class="kv"><span>相对 S=1 加速 (最优 S={{ rows[bestI].S }})</span><b :class="speed > 1.5 ? 'good' : ''">{{ speed.toFixed(2) }}× ({{ (rows[0].t / rows[bestI].t).toFixed(2) }}×)</b></div>
-      <div class="kv"><span>上限 <Tex text="$N_{\text{SM}} / (B \cdot H)$" /></span><b>{{ B * H < N_SM ? `${(N_SM / (B * H)).toFixed(2)}×` : '— (SM 已满)' }}</b></div>
       <div class="lab-note">
+        <p>加速上限 <Tex text="$N_{\text{SM}} / (B \cdot H)$" /> = {{ B * H < N_SM ? `${(N_SM / (B * H)).toFixed(2)}×` : '— (SM 已满)' }}。</p>
         <p><Tex text="★ $t = 3 + \text{waves} \cdot (T/S) \cdot 512\,\text{B} / (2000\,\text{GB/s} / 108)$; $S \gt 1$ 时再加一个 reduce kernel: $3 + \text{units} \cdot 129 \cdot 4\,\text{B} / 2000\,\text{GB/s}$。" /></p>
         <p>公式与 decode_latency_us 相同, 可对 demo 的 [2] [3] 段: B=1、T=32k 时 S=1 909.0 μs, S=64 275.5 μs (3.30×)。</p>
         <p>分段结果按 <Tex text="$\exp(\mathrm{lse}_s - \mathrm{lse})$" /> 加权合并, 与普通 attention 数学相等 (13 组配置最坏误差 2.06e-07)。</p>
@@ -89,7 +89,7 @@ const smFill = (i) => {
 }
 
 const sx = (i) => 60 + i * 68
-const maxT = computed(() => rows.value[0].t * 1.1)
+const maxT = computed(() => Math.max(...rows.value.map((r) => r.t)) * 1.1)   // B 大时 S 越大越慢, 最高点不在 S=1
 const ly = (t) => 160 - (t / maxT.value) * 130
 </script>
 
@@ -101,10 +101,9 @@ svg { min-width: 540px; }
 .axis { stroke: var(--border-strong); }
 .tick { font-size: 9px; fill: var(--text-dim); text-anchor: middle; }
 .line { fill: none; stroke: var(--accent); stroke-width: 2; }
-.pt { cursor: pointer; outline: none; }
+.pt { cursor: pointer; }
 .pt circle:not(.hit) { fill: var(--bg-elev); stroke: var(--accent); stroke-width: 1.5; }
 .pt circle.best { fill: var(--left); stroke: var(--left); }
 .pt circle.cur { stroke: var(--text); stroke-width: 2.5; }
-.pt:focus-visible circle:not(.hit) { stroke: var(--warn); stroke-width: 3; }
 .hit { fill: transparent; stroke: none; }
 </style>

@@ -13,8 +13,8 @@
     module="llm_finetune/methods/distill.py"
     run="python -m llm_finetune.run_finetune.distill.train_distill"
     :challenge="{
-      ask: '关掉「乘 T²」, α 固定 0.5, 把 T 从 1 拖到 8: 软标签项占总梯度的比例从多少掉到多少? 打开 T² 再拖一遍。',
-      answer: '- 不补偿: 软标签梯度范数大约按 $1/T^2$ 掉, $T = 8$ 时只剩 $T = 1$ 时的 2% 左右。「$\\alpha = 0.5$」名义上五五开, 实际上几乎全是硬标签 CE 在训练。你以为在蒸馏, 其实在做普通 SFT。\n- 乘上 $T^2$: 软标签梯度随 $T$ 增大趋于一个常数 (虚线), 等于两边「去均值 logits 之差」除以 $V$。高温极限下蒸馏退化成 logits 回归 (Hinton 2015 的原话)。\n这样 $T$ 只负责「暗知识展开多少」, $\\alpha$ 只负责「软硬各占多少」, 两个超参才互不干扰。',
+      ask: '默认这组 logits, 保持「未乘 T²」, α 固定 0.5, 把 T 从 1 拖到 8: 「软标签占总梯度」从多少掉到多少? 点「乘 T²」再拖一遍。',
+      answer: '- 不补偿: 占比从 43.4% 掉到 1.5%。软标签梯度范数大约按 $1/T^2$ 掉, $T = 8$ 时只剩 $T = 1$ 时的 2% 左右。「$\\alpha = 0.5$」名义上五五开, 实际上几乎全是硬标签 CE 在训练, 等于在做普通 SFT。\n- 乘上 $T^2$: 占比从 43.4% 升到 50.1%, 之后停在 50% 上下。软标签梯度随 $T$ 增大趋于一个常数 (虚线), 等于两边「去均值 logits 之差」除以 $V$。高温极限下蒸馏退化成 logits 回归 (Hinton 2015 的原话)。\n这样 $T$ 只负责「暗知识展开多少」, $\\alpha$ 只负责「软硬各占多少」, 两个超参才互不干扰。',
     }"
   >
     <template #controls>
@@ -27,12 +27,13 @@
       <LabSlider v-model="dist" label="student 离 teacher 多远" :min="0.2" :max="3" :step="0.1" :format="(v) => v.toFixed(1)" />
     </template>
 
-    <svg viewBox="0 0 640 300" role="img" aria-label="软化分布与梯度范数曲线">
+    <svg viewBox="0 0 640 300" role="group" aria-label="软化分布与梯度范数曲线">
       <!-- 左: 温度 T 下的两个分布; 点击选硬标签 -->
       <text x="10" y="16" class="t">softmax(z/T), T = {{ T.toFixed(2) }}</text>
       <g
         v-for="(tk, i) in toks" :key="i" class="tok" role="button" tabindex="0"
-        :aria-label="`把 token ${i} 设为硬标签`" @click="label = i" @keydown.enter="label = i"
+        :aria-label="`把 token ${i} 设为硬标签`" :aria-pressed="label === i"
+        @click="label = i" @keydown.enter="label = i" @keydown.space.prevent="label = i"
       >
         <rect :x="14 + i * 40" y="24" width="36" height="236" :fill="label === i ? 'var(--accent-soft)' : 'transparent'" />
         <rect :x="17 + i * 40" :y="250 - tk.p * 210" width="14" :height="tk.p * 210" fill="var(--accent)" />

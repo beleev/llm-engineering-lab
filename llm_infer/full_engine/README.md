@@ -7,11 +7,11 @@
 ## 核心数据结构或公式
 | 文件 | 职责 | 复用的模块 |
 |---|---|---|
-| `engine.py` | `add_request / step / generate`, 50 行胶水 | m03 `Scheduler` (同一个类, 非拷贝), m10 `sample` |
+| `engine.py` | `add_request / step / generate`, 只有胶水代码 | m03 `Scheduler` (同一个类, 非拷贝), m10 `sample` |
 | `model_runner.py` | 物理 KV pool `(L, num_blocks, bs, D)` + 分页前向 | m02 `write_kv / paged_attention` |
 | (m02) `BlockManager` | block 记账、ref_count、LRU free_list | |
 | (m04) `PrefixCache` | 链式 hash 索引, 随 block 被覆盖而失效 | |
-| (m03+m06) `Scheduler` | 连续批、抢占、`chunked_prefill` 混批 | |
+| (m03) `Scheduler` | 连续批、抢占、`chunked_prefill` 混批 (分块是 m03 调度器的开关, 引擎不 import m06; 原理见 m06) | |
 
 ```
 step():  batch = scheduler.schedule()                       # [(seq, n)]
@@ -22,13 +22,41 @@ step():  batch = scheduler.schedule()                       # [(seq, n)]
 ```
 
 ## 运行后应该看到什么
-`python -m llm_infer.full_engine.demo` (~1.5 s)
-- [1] `step 1 [s0:P45 s1:P3]`, `step 2 [s0:D s1:P39 s2:P8]` —— prefill chunk 与 decode 同步混跑, 每步 ≤ 48 token;
-  需要 KV 的 token 305 = 实算 233 + 前缀命中 72
-- [2] 同样 5 条再来一遍: 实算 105 (第一轮 233) —— 已释放的 block 仍可命中, 且不触发 stale-entry 崩溃
-- [3] 9 个 block 的 pool: 82 / 81 步, 抢占 4 次, 无活锁 (调度写错时这里会死循环)
-- [4] 同 batch 三种采样参数; [5] 30 组随机配置 fuzz: 214 条请求、34 次抢占
-- 全部断言: greedy 输出与 `TinyLM.generate_greedy` **逐 token 相同**, 无 block 泄漏
+```bash
+python -m llm_infer.full_engine.demo      # ~1.5 s
+```
+下面是节选, `...` 处省略了中间的 step。
+```
+[1] 5 条共享 system prompt 的请求 (block=8, 每步 token 预算 48, 分块 prefill + 前缀缓存)
+  step   1 [s0:P45 s1:P3              ] tokens= 48
+  step   2 [s0:D s1:P39 s2:P8         ] tokens= 48
+  step   3 [s0:D s1:D s2:P12 s3:P19   ] tokens= 33
+  step   4 [s0:D s1:D s2:D s3:D       ] tokens=  4
+  ...
+  需要 KV 的 token 总数                 = 305
+  真正做了前向的 token                    = 233
+  前缀命中而跳过的 token                   = 72
+
+[2] 同样 5 条再提交一次: 上一轮的 block 已全部释放, 但内容还在 → prompt 的完整 block 全部命中, 只剩尾巴 + decode 要算
+  第二轮实算 token (第一轮)                = 105 (233)
+
+[3] KV pool 只有 9 个 block (72 token), 单条请求跑完就要 8 个 → 必然抢占
+  chunked=False step / 抢占 / 实算 token = 82 / 4 / 261
+  chunked=True  step / 抢占 / 实算 token = 81 / 4 / 261
+
+[4] 同一个 batch, 每条请求自带采样参数 (m10)
+  T=0.0  top_k=0     top_p=1.0   → '9^PV1111?\n$9'
+  T=0.8  top_k=10    top_p=1.0   → 'y5.V,P?...P.'
+  T=1.0  top_k=0     top_p=0.9   → 'f\n5Vw;9h)gSN'
+
+[5] fuzz: 30 组随机 (block_size / pool / 预算 / 分块 / 前缀缓存) 配置, 含 id ≥ 256 的词表
+  请求数 / 其中触发的抢占                    = 214 / 34
+```
+- [1] prefill chunk 与 decode 在同一步里混跑, 每步 ≤ 48 token。对账: 305 = 233 + 72。
+- [2] 实算从 233 降到 105。命中的都是已释放、还没被覆盖的 block; 索引里没有过期项, 不会命中脏 KV。
+- [3] 无活锁。调度写错时, 这里会死循环。
+
+断言: 每一段的 greedy 输出都与 `TinyLM.generate_greedy` **逐 token 相同**, 无 block 泄漏。
 
 ## 与真实系统的差距
 - 逐序列循环前向; vLLM 把 batch 摊平成一个张量 + varlen FlashAttention + CUDA Graph (m11 / m12)

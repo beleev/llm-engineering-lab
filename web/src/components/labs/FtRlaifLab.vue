@@ -1,20 +1,20 @@
 <!--
   RLAIF 实验台。critique / revise 的规则与 llm_finetune/methods/rlaif.py:CONSTITUTION 相同:
   judge 只查 15 (脏话) 和 13 (电话), 条文里写了的变体 14 不查; 改写 = 打码成 3 (***)。
-  「不啰嗦」原则在最终脚本里已删掉, 这里按 readme 的描述复现 (删掉相邻重复), 右侧那组数据来自 readme 的调参记录。
+  最终脚本里没有「不啰嗦」原则, 这里按 readme 的描述复现 (删掉相邻重复), 右侧那组数据来自 readme 的调参记录。
   只讲一件事: 偏好对里 chosen 和 rejected 一样的地方, DPO 没有信号 —— judge 没查的, 模型就学不到。
 -->
 <template>
   <LabFrame
     title="judge 没查的, DPO 学不到"
-    sub="上面一行是用户的 prompt, 点格子循环切换内容 (普通 / 电话 13 / 变体 14 / 脏话 15)。起点模型只求有用, 回复就是照抄。
+    sub="上面一行是用户的 prompt, 点格子循环切换内容 (普通 token / 电话 / 变体 / 脏话)。起点模型只求有用, 回复就是照抄。
       judge 按宪法批评并改写, 改写结果当 chosen, 原回复当 rejected。红框 = 两边不一样的位置。
       两边相同的前缀在 $\log\pi(\text{chosen}) - \log\pi(\text{rejected})$ 里正好抵消, 偏好信号来自红框。"
     module="llm_finetune/methods/rlaif.py"
     run="python -m llm_finetune.run_finetune.rlaif.train_rlaif"
     :challenge="{
-      ask: '在 prompt 里放一个 14, 看它在 chosen 和 rejected 里各是什么。再打开「不啰嗦」, 放两个相邻的 15: chosen 比 rejected 短几个 token? DPO 最容易学到的区分特征是什么?',
-      answer: '14 在两边原样保留, 没有红框。chosen 和 rejected 里都有它, 训练对它没有直接压力。\n宪法条文写了「变体 14 也算」, 但生效的是 judge 的规则。实测 14 只从 0.418 降到 0.320, 降的那点是 DPO 的副作用。\n打开「不啰嗦」后, 15 15 先被打码成 3 3, 再被去重成 3, chosen 总比 rejected 短。\n「更短」是每一对里都成立的区分特征, DPO 就学它。调参时:\n- 违规: 0.605 → 0.000\n- 理想回复: 0.395 → 0.000, 模型只说 1 个 token 就结束。\n所以最终版只保留不改长度的原则。',
+      ask: '在 prompt 里放一个「变体」(token 14), 看它在 chosen 和 rejected 里各是什么。再打开「不啰嗦」, 放两个相邻的「脏话」(token 15): chosen 比 rejected 短几个 token? DPO 最容易学到的区分特征是什么?',
+      answer: '变体 14 在两边原样保留, 没有红框。chosen 和 rejected 里都有它, 训练对它没有直接压力。\n宪法条文写了「变体 14 也算」, 但生效的是 judge 的规则。实测 14 只从 0.418 降到 0.320, 降的那点是 DPO 的副作用。\n打开「不啰嗦」后, 两个脏话 (15 15) 先被打码成 *** *** (3 3), 再被去重成一个, chosen 总比 rejected 短。\n「更短」是每一对里都成立的区分特征, DPO 就学它。调参时:\n- 违规: 0.605 → 0.000\n- 理想回复: 0.395 → 0.000, 模型只说 1 个 token 就结束。\n所以最终版只保留不改长度的原则。',
     }"
   >
     <template #controls>
@@ -28,13 +28,14 @@
     <div class="seqs">
       <div class="srow">
         <span class="sl">prompt</span>
-        <button v-for="(t, i) in x" :key="i" type="button" class="cell tk" :class="cls(t)" :aria-label="`第 ${i + 1} 个 token ${t}, 点击切换`" @click="cycle(i)">{{ t }}</button>
+        <button v-for="(t, i) in x" :key="i" type="button" class="cell tk" :class="cls(t)" :aria-label="`第 ${i + 1} 个 token ${t} ${NAME[t] || '普通'}, 点击切换`" @click="cycle(i)">{{ NAME[t] || t }}</button>
       </div>
       <div v-for="row in pair" :key="row.id" class="srow">
         <span class="sl">{{ row.name }}</span>
-        <span v-for="(t, i) in row.v" :key="i" class="cell tk" :class="[cls(t), { diff: row.diff[i] }]">{{ t === 3 ? '***' : t }}</span>
+        <span v-for="(t, i) in row.v" :key="i" class="cell tk" :class="[cls(t), { diff: row.diff[i] }]">{{ NAME[t] || t }}</span>
       </div>
     </div>
+    <p class="legend mono">电话 = token 13 · 变体 = token 14 · 脏话 = token 15 · *** = 打码后的 token 3 · 数字 = 普通 token</p>
     <p class="lab-note" style="margin-top: 8px;">
       <template v-if="!crit.length">judge 没发现问题: 这条回复没有 "更好的版本", 不成对, 直接丢掉。</template>
       <template v-else>judge: {{ crit.join('; ') }}</template>
@@ -44,6 +45,7 @@
       <div class="kv"><span>有信号的位置 (两边不同)</span><b :class="nDiff ? 'good' : 'bad'">{{ nDiff }}</b></div>
       <div class="kv"><span>回复里的 14 (judge 漏检)</span><b :class="n14 ? 'bad' : ''">{{ n14 }} 个{{ n14 ? ', 两边都在' : '' }}</b></div>
       <div class="kv"><span>chosen / rejected 长度</span><b :class="lens[0] < lens[1] ? 'bad' : ''">{{ lens[0] }} / {{ lens[1] }}</b></div>
+      <p class="tcap">留出集贪心, DPO 前 → 后 (实测; 只跟着「不啰嗦」开关换一组, 不随 prompt 变化)</p>
       <div v-for="k in M.rows" :key="k[0]" class="kv"><span>{{ k[0] }}</span><b :class="k[3]">{{ k[1] }} → {{ k[2] }}</b></div>
       <p class="lab-note">{{ M.note }}</p>
     </template>
@@ -57,6 +59,7 @@ import { range } from '@/utils/labmath.js'
 
 const SWEAR = 15, VARIANT = 14, PHONE = 13, MASK = 3
 const CYCLE = [7, PHONE, VARIANT, SWEAR]
+const NAME = { [PHONE]: '电话', [VARIANT]: '变体', [SWEAR]: '脏话', [MASK]: '***' }   // 格子里直接写含义
 // 关: train_rlaif.py 输出 (留出集贪心, DPO 前 → 后); 开: readme 调参记录 (lr=3e-4, 200 步, 1024 条采样)
 const MEASURED = {
   off: { rows: [['违反任一原则', '0.648', '0.031', 'good'], ['变体 14', '0.418', '0.320', 'bad'], ['照抄率', '1.000', '0.856', 'bad'], ['= 理想回复', '0.352', '0.488', 'good']],
@@ -99,4 +102,6 @@ const cls = (t) => (t === SWEAR ? 'bad' : t === PHONE ? 'hot' : t === VARIANT ? 
 button.tk { cursor: pointer; }
 .tk.v14 { border-color: var(--warn); border-style: dashed; color: var(--text); }
 .tk.diff { outline: 2px solid var(--danger); outline-offset: 1px; }
+.legend { margin-top: 6px; font-size: 10.5px; color: var(--text-dim); }
+.tcap { font-size: 11px; color: var(--text); margin-top: 4px; }
 </style>

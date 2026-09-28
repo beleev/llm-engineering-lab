@@ -7,7 +7,7 @@
   <LabFrame
     title="Aux-loss-free 均衡 — 偏置只管选人, 不管权重"
     sub="256 个 token、8 个专家、top-2 路由, 路由器天生偏爱前几个专家。
-      按播放看每一步负载柱怎么被拉平。点任意专家的柱子, 下方折线会叠加它的偏置轨迹。拖 $\gamma$ 感受 “太小追不上、太大来回震”。"
+      按播放看每一步负载柱怎么被拉平。点任意专家的柱子, 下方折线会叠加它的偏置轨迹。拖 $\gamma$ 感受「太小追不上、太大来回震」。"
     module="llm_models/models/moe/deepseekV3.py"
     run="python -m llm_models.run_models.moe.deepseek.train_deepseek"
     :challenge="{
@@ -37,14 +37,19 @@
     </div>
     <p class="cap">柱 = 本步每个专家接到的 token 数 · 底下的数 = {{ mode === 'aux' ? 'aux loss 累计把该专家 logit 改了多少' : '该专家的路由偏置 b' }}</p>
 
-    <svg viewBox="0 0 520 120" role="img" aria-label="不均衡度随训练步变化">
+    <!-- 两条线各用一根轴: 左轴读不均衡度, 右轴读偏置 (零线居中, 上下各到 ±最大值) -->
+    <svg viewBox="0 0 560 120" role="img" aria-label="不均衡度和所选专家的偏置随训练步变化">
       <line x1="30" x2="515" :y1="iy(1)" :y2="iy(1)" class="ideal" /><text x="26" :y="iy(1) + 3" class="yl">1.0</text>
       <text x="26" :y="iy(imbMax) + 8" class="yl">{{ imbMax.toFixed(1) }}</text>
+      <line x1="30" x2="515" :y1="ay(0)" :y2="ay(0)" class="zero" />
+      <text v-for="t in [1, 0, -1]" :key="t" x="519" :y="ay(t * adjMax) + 3" class="yr">{{ t ? (t * adjMax).toFixed(adjMax < 0.1 ? 3 : 2) : '0' }}</text>
       <polyline :points="imbLine" class="imb" />
       <polyline :points="adjLine" class="adj" />
       <line :x1="sx(stepper.step.value)" :x2="sx(stepper.step.value)" y1="4" y2="112" class="cursor" />
-      <text x="515" y="12" class="lg">紫 = 不均衡度 max/mean · 橙 = e{{ selE }} 的偏置轨迹</text>
     </svg>
+    <p class="cap">
+      <i class="ln imb-c" /> 不均衡度 max/mean (左轴, 粗线) · <i class="ln adj-c" /> e{{ selE }} 的{{ mode === 'aux' ? ' logit 改动量' : '偏置 b' }} (右轴, 细线)
+    </p>
 
     <template #stats>
       <div class="kv"><span>不均衡度 max/mean</span><b :class="now.imb < 1.3 ? 'good' : 'bad'">{{ now.imb.toFixed(2) }}</b></div>
@@ -116,10 +121,10 @@ const imbMax = computed(() => Math.max(1.5, ...frames.value.map((f) => f.imb)))
 const sx = (i) => 30 + (i / STEPS) * 485
 const iy = (v) => 110 - ((v - 0.9) / (imbMax.value - 0.9)) * 86
 const imbLine = computed(() => frames.value.map((f, i) => `${sx(i).toFixed(1)},${iy(f.imb).toFixed(1)}`).join(' '))
-const adjLine = computed(() => {
-  const a = frames.value.map((f) => f.adj[selE.value]), m = Math.max(0.01, ...a.map(Math.abs))
-  return a.map((v, i) => `${sx(i).toFixed(1)},${(60 - (v / m) * 48).toFixed(1)}`).join(' ')
-})
+// 右轴: 所选专家的偏置, 按它自己的最大绝对值归一, 零线在正中
+const adjMax = computed(() => Math.max(0.01, ...frames.value.map((f) => Math.abs(f.adj[selE.value]))))
+const ay = (v) => 60 - (v / adjMax.value) * 48
+const adjLine = computed(() => frames.value.map((f, i) => `${sx(i).toFixed(1)},${ay(f.adj[selE.value]).toFixed(1)}`).join(' '))
 </script>
 
 <style scoped>
@@ -134,7 +139,10 @@ const adjLine = computed(() => {
 .cap { font-size: 11px; color: var(--text-dim); margin: 6px 0 10px; }
 .ideal { stroke: var(--left); stroke-dasharray: 4 4; }
 .yl { text-anchor: end; font-size: 9px; fill: var(--text-dim); }
-.lg { text-anchor: end; font-size: 9px; fill: var(--text-dim); }
+.yr { text-anchor: start; font-size: 9px; fill: var(--eye); font-family: "SF Mono", Menlo, monospace; }
+.zero { stroke: var(--eye); stroke-dasharray: 2 4; opacity: 0.6; }
+.ln { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; }
+.ln.adj-c { border-top: 1px solid var(--eye); }
 .imb { fill: none; stroke: var(--accent); stroke-width: 2; }
 .adj { fill: none; stroke: var(--eye); stroke-width: 1.2; }
 .cursor { stroke: var(--text-muted); stroke-dasharray: 3 3; }

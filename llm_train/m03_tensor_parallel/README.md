@@ -6,17 +6,17 @@
 一层 MLP 的 `W1 [D,H]` 按列切、`W2 [H,O]` 按行切。每张卡只算隐藏层的 1/N 宽度; relu 是逐元素的, 夹在中间不需要通信。只有两处必须把各卡结果加起来: 前向的输出, 反向的 dX。
 
 ## 核心公式
-- 前向: `Y = Σ_r relu(X·W1_r)·W2_r + b2` —— **g 算子**: 前向 all-reduce, 反向恒等。
+- 前向: `Y = Σ_r relu(X·W1_r + b1_r)·W2_r + b2` —— **g 算子**: 前向 all-reduce, 反向恒等。`_r` 表示第 r 张卡持有的那一片; `b1` 跟着 `W1` 的列一起切, `b2` 不切。
 - 反向: `dX = Σ_r dZ_r · W1_rᵀ` —— **f 算子**: 前向恒等, 反向 all-reduce。
 
 ## 运行后应该看到什么
 ```
-max output diff            = 0.00e+00
-max grad W1/b1/W2/b2 diff  = 0.00e+00
-max grad x diff            = 1.86e-09
+输出 max|Δ|                = 0.00e+00
+梯度 W1/b1/W2/b2 max|Δ|    = 0.00e+00
+梯度 x max|Δ|              = 1.86e-09
 单 rank 的 dX 与真值差      = 1.83e-02  (未 all-reduce → 错)
 每 rank 权重               = 24 / 48 个参数
-通信量 (1 层 fwd+bwd)       = 72 B/rank  [all_reduce×2=72B]
+通信量 (1 个 MLP 块, 前向+反向) = 72 B/rank  [all_reduce×2=72B]
 ```
 
 ## 与真实系统的差距

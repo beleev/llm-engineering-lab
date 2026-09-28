@@ -8,6 +8,10 @@ LoRA — Low-Rank Adaptation (Hu et al., 2021)
            参数量 d_out·d_in → r·(d_in + d_out);  α/r 让改 r 时不必重调 lr。
 读代码时盯住: `delta()` —— 训练 / 合并 / DoRA / QLoRA 全都围着这一个 ΔW 转。
 省的是显存和存储, 不是步数: 同一任务上 LoRA 通常比全参收敛**慢** (实测见 run_finetune/lora/readme.md)。
+与论文的差异: 论文正文写 A 用随机高斯初始化, 本库用 Kaiming uniform (官方 loralib 的代码也是这样写的)。
+              论文的实验多数只注入 W_q / W_v, 本库默认注入注意力的四个投影。
+依赖 llm_models: 靠**属性名**找层。w_q / w_k / w_v / w_o 是注意力的四个投影, w_gate / w_up / w_down 是 SwiGLU 的三个矩阵。
+                 上游改了这些名字, 这里就一层也命中不了 (replace_linears 会抛 ValueError)。
 """
 
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -33,21 +37,23 @@ class LoRALinear(nn.Module):
         if r <= 0:
             raise ValueError(f"LoRA rank r 必须为正, 当前 r={r}")
         self.base = base
-        freeze_module(base)
-        self.scaling = alpha / r
+        freeze_module(base)                                          # 基座只读: 梯度只流进 lora_A / lora_B
+        self.scaling = alpha / r                                     # α/r: ΔW 前面的缩放系数
         self.lora_dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         # A: Kaiming uniform (nn.Linear 的默认初始化), 让 A x 的方差与输入同量级
-        self.lora_A = nn.Parameter(torch.empty(r, base.in_features))
-        nn.init.kaiming_uniform_(self.lora_A, a=5 ** 0.5)
+        self.lora_A = nn.Parameter(torch.empty(r, base.in_features))             # [r, d_in]
+        nn.init.kaiming_uniform_(self.lora_A, a=5 ** 0.5)            # a=√5: nn.Linear 默认初始化用的同一个值
         # B: 全零 ⇒ BA = 0 ⇒ 第 0 步输出与原模型逐位相同 ("无害启动")
-        self.lora_B = nn.Parameter(torch.zeros(base.out_features, r))
+        self.lora_B = nn.Parameter(torch.zeros(base.out_features, r))            # [d_out, r]
 
     def delta(self) -> torch.Tensor:
         """ΔW = (α/r)·B A   [d_out, d_in]"""
-        return self.scaling * (self.lora_B @ self.lora_A)
+        return self.scaling * (self.lora_B @ self.lora_A)            # [d_out, r] @ [r, d_in] → [d_out, d_in]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:              # [..., d_in] → [..., d_out]
         # 两次小 matmul (d_in→r→d_out), 不显式构造 d_out×d_in 的 ΔW
+        # dropout 只丢低秩支路的输入; 基座那一路 self.base(x) 吃的是原始 x
+        # 形状: [..., d_in] → [..., r] → [..., d_out]
         low_rank = F.linear(F.linear(self.lora_dropout(x), self.lora_A), self.lora_B)
         return self.base(x) + self.scaling * low_rank
 
@@ -105,6 +111,7 @@ def merge_lora_weights(model: nn.Module) -> nn.Module:
     (重新量化会把刚学到的 ΔW 再抹掉一部分, 所以业界合并后一般保持 16-bit)。
     """
     def to_linear(layer: nn.Module) -> nn.Linear:
+        # 新建一个同形状的 nn.Linear, 把合并后的 W' 和原 bias 抄进去
         bias = layer.base.bias
         lin = nn.Linear(layer.base.in_features, layer.base.out_features, bias=bias is not None)
         lin.weight.copy_(layer.merged_weight())
@@ -112,6 +119,7 @@ def merge_lora_weights(model: nn.Module) -> nn.Module:
             lin.bias.copy_(bias)
         return lin
 
+    # 收集所有适配器层的属性名 (DoRALinear 是 LoRALinear 的子类, 一并命中)
     names = {n for m in model.modules() for n, c in m.named_children() if isinstance(c, LoRALinear)}
     if not names:
         raise ValueError("merge_lora_weights: 模型里没有 LoRA 层 (已经合并过, 或从未 apply_lora)")

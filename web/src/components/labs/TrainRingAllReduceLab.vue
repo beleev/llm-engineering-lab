@@ -8,7 +8,7 @@
     sub="每一行是一张卡, 每一列是张量的一块 (chunk)。格子里的数字 = 这一块已经累加了几张卡的梯度。
       - 前 $N-1$ 步: 边传边加 (reduce-scatter)。
       - 后 $N-1$ 步: 把加好的块再传一圈 (all-gather)。
-      点列头追踪某一块的旅程, 悬停格子看它含哪些卡的贡献。"
+      点列头追踪某一块的旅程, 悬停或点击格子看它含哪些卡的贡献。"
     module="llm_train/core"
     run="python -m llm_train.m09_collectives.demo"
     :challenge="{
@@ -22,7 +22,10 @@
       <StepPlayer :stepper="stepper" :label="phaseLabel" />
     </template>
 
-    <div class="cells ring" :style="{ gridTemplateColumns: `52px repeat(${n}, minmax(34px, 1fr))` }">
+    <!-- 格子: 悬停临时看, 点击固定, 方向键移动固定的格子 -->
+    <div class="cells ring" :style="{ gridTemplateColumns: `52px repeat(${n}, minmax(34px, 1fr))` }"
+         tabindex="0" role="group" aria-label="卡 × 块 的累加进度表, 方向键移动选中的格子"
+         @keydown.left.prevent="move(0, -1)" @keydown.right.prevent="move(0, 1)" @keydown.up.prevent="move(-1, 0)" @keydown.down.prevent="move(1, 0)">
       <span />
       <button
         v-for="c in n" :key="'h' + c" type="button" class="col-head mono"
@@ -33,25 +36,24 @@
         <span
           v-for="(mask, c) in row" :key="c"
           class="cell"
-          :class="[cellClass(r, c, mask), { dim: trace >= 0 && trace !== c }]"
+          :class="[cellClass(r, c, mask), { dim: trace >= 0 && trace !== c, sel: cur && cur.r === r && cur.c === c }]"
           :style="{ background: heat(bits(mask) / n * 0.8, bits(mask) === n ? 'var(--left)' : 'var(--accent)') }"
           :title="`卡 ${r} 的块 ${c}: 含卡 {${members(mask).join(',')}} 的梯度`"
-          @mouseenter="hover = { r, c, mask }" @mouseleave="hover = null"
+          @mouseenter="hover = { r, c }" @mouseleave="hover = null" @click="pin = { r, c }"
         >{{ bits(mask) }}/{{ n }}</span>
       </template>
     </div>
-    <p class="lab-note msg">
+    <p class="lab-note msg" aria-live="polite">
       <template v-if="frame.msgs.length">本步: {{ frame.msgs.map((m) => `卡${m.src}→卡${m.dst} 发块${m.c}`).join(' · ') }}</template>
-      <template v-else>初始: 每张卡只有自己的梯度 (每块 1/{{ n }})。按播放或 ▶ 单步。</template>
+      <template v-else>初始: 每张卡只有自己的梯度 (每块 1/{{ n }})。按「▶ 播放」, 或点「下一步 ›」一步一步走。</template>
       <br />
-      <span v-if="hover">悬停: 卡 {{ hover.r }} 的块 {{ hover.c }} 已含卡 { {{ members(hover.mask).join(', ') }} } 的贡献。</span>
+      <span v-if="cur">卡 {{ cur.r }} 的块 {{ cur.c }} 已含卡 { {{ members(frame.state[cur.r][cur.c]).join(', ') }} } 的贡献。</span>
     </p>
 
     <template #stats>
       <div class="kv"><span>阶段</span><b>{{ frame.k <= n - 1 ? (frame.k === 0 ? '—' : 'reduce-scatter') : 'all-gather' }}</b></div>
       <div class="kv"><span>每卡已发送</span><b>{{ fmtMB(frame.k * sizeMB / n) }}</b></div>
-      <div class="kv"><span><Tex text="ring 每卡总量 $2(N-1)/N \cdot S$" /></span><b class="good">{{ fmtMB(2 * (n - 1) / n * sizeMB) }}</b></div>
-      <div class="kv"><span><Tex text="朴素: 0 号卡收发 $2(N-1) \cdot S$" /></span><b class="bad">{{ fmtMB(2 * (n - 1) * sizeMB) }}</b></div>
+      <div class="kv"><span><Tex text="总量: ring 每卡 $\frac{2(N-1)}{N} S$ / 朴素做法的 0 号卡 $2(N-1) S$" /></span><b class="pair">{{ fmtMB(2 * (n - 1) / n * sizeMB) }} / {{ fmtMB(2 * (n - 1) * sizeMB) }}</b></div>
       <div class="kv"><span>已拿到完整和的格子</span><b :class="{ good: doneCells === n * n }">{{ doneCells }} / {{ n * n }}</b></div>
       <div class="lab-note">
         <p><Tex text="★ 第 $t$ 步卡 $r$ 发的是块 $(r - t) \bmod N$: 每块沿环走一圈, 走到哪加到哪。" /></p>
@@ -73,7 +75,13 @@ import { heat, range } from '@/utils/labmath.js'
 const n = ref(4)
 const sizeMB = ref(512)
 const trace = ref(-1)
-const hover = ref(null)
+const hover = ref(null), pin = ref(null)     // 悬停的 / 点击固定的格子 { r, c }
+const cur = computed(() => hover.value || pin.value)
+const move = (dr, dc) => {
+  const p = cur.value || { r: 0, c: 0 }, hi = n.value - 1
+  pin.value = { r: Math.min(hi, Math.max(0, p.r + dr)), c: Math.min(hi, Math.max(0, p.c + dc)) }
+  hover.value = null
+}
 
 const bits = (m) => { let k = 0; for (; m; m >>= 1) k += m & 1; return k }
 const members = (m) => range(8).filter((i) => m & (1 << i))
@@ -102,7 +110,7 @@ const stepper = useStepper(() => frames.value.length, { interval: 800 })
 const frame = computed(() => frames.value[Math.min(stepper.step.value, frames.value.length - 1)])
 const doneCells = computed(() => frame.value.state.flat().filter((m) => bits(m) === n.value).length)
 const phaseLabel = computed(() => `第 ${frame.value.k} / ${2 * (n.value - 1)} 步`)
-watch(n, () => { stepper.reset(); trace.value = -1 })
+watch(n, () => { stepper.reset(); trace.value = -1; hover.value = null; pin.value = null })
 
 const cellClass = (r, c, mask) => {
   const m = frame.value.msgs
@@ -113,7 +121,9 @@ const cellClass = (r, c, mask) => {
 </script>
 
 <style scoped>
-.ring .cell { height: 30px; font-size: 11px; color: var(--text); }
+.ring .cell { height: 30px; font-size: 11px; color: var(--text); cursor: pointer; }
+.cell.sel { box-shadow: inset 0 0 0 2px var(--text); }
+.pair { font-size: 13px !important; }
 .row-label { font-size: 11px; color: var(--text-dim); align-self: center; }
 .col-head { font-size: 11px; min-height: 26px; padding: 2px 4px; }
 .cell.send { outline: 2px dashed var(--warn); outline-offset: 1px; }

@@ -16,7 +16,7 @@ beam search 折中: 每步在 `width × V` 个候选里只留累计 log 概率�
 - `beam.py:decode(lm, prompt, max_new, rng, eos_id)`: `rng=None` 为 greedy, 否则 T=1 采样 (m10 的 `sample`); 返回同样的累计 logp。
 - `beam.py:log_softmax`。模型是 core 的 `TinyLM` (与 m19 同配置: d=64, 4 层, V=128, 随机权重)。
 - `demo.py:EosBiased`: 给 EOS 的 logit 加 3.0 的包装。随机权重模型没学过何时结束 (P(EOS) ≈ 0.5%/步, 从不停)。
-  加偏置后 P(EOS) ≈ 5%/步, 模拟一个会停的模型, 用来演示长度偏差。
+  加偏置后 P(EOS) ≈ 8.3%/步 (沿 greedy 路径 24 步的均值), 模拟一个会停的模型, 用来演示长度偏差。
 
 ## 公式
 ```
@@ -43,16 +43,22 @@ python -m llm_infer.m24_beam_search.demo     # ~5 s (width=32 占一半)
   beam w=16        -2.298                 0            0.463
   beam w=32        -2.255                 0            0.563
 [2] 同一 prompt 的 8 条输出两两不同的位置数: beam w=8 = 3.5,  8 条采样 = 19.7  (满分 20)
-[3] EOS logit +3: greedy 11.4 token, 采样 13.1, beam w=8 α=0 → 1.3, α=0.5 → 1.3, α=1.0 → 15.7
+[3] 带 EOS: EOS logit +3.0, 每步 P(EOS) 均值 0.5% → 8.3% (greedy 路径 24 步); max_new=24, 看输出长度
+  greedy                           = 平均 11.4 token
+  采样 T=1                           = 平均 13.1 token
+  beam w=8, α=0.0                  = 平均 1.3 token
+  beam w=8, α=0.5                  = 平均 1.3 token
+  beam w=8, α=1.0                  = 平均 15.7 token
 ```
 断言:
 - width=1 与 greedy 逐 token 相同。
 - 每个 width 的平均序列 logP ≥ greedy; w=32 在每个 prompt 上都 ≥ greedy。
 - 至少一个窄 width 在某个 prompt 上输给 greedy (不是精确搜索)。
 - w=32 的 rep-2 比 greedy 高 0.05 以上; beam 候选的两两差异 < 采样的 1/3。
+- 加偏置前每步 P(EOS) < 1%, 加偏置后 > 1%。
 - α=0 的长度 < greedy 的 1/3; α=1 比 α=0 长 8 个 token 以上。
 
-## 与真实系统的差距 (诚实边界)
+## 与真实系统的差距
 - 随机权重模型本身就爱复读: greedy 的 rep-2 已经是 0.453。
   beam 越宽越重复的趋势在 w=32 (0.563) 才明显, 中间几档不单调 (w=4 是 0.447)。
   真实 LM 上"beam 越宽越退化"更强 (Holtzman et al. 2020: beam 输出越宽越重复, 越偏离人写的文本)。

@@ -2,7 +2,7 @@
 
 ## 直觉
 
-两个独立的省钱办法叠在一起:
+两个省钱办法, 加一个让 MoE 负载均衡的办法:
 
 - **MLA** 省 KV cache: 不缓存每个 head 的 K/V, 只缓存一个低秩 latent `c_kv` 和一份所有 head 共享的 `k_rope`,
   用的时候再现场升维成 K/V。
@@ -43,15 +43,26 @@ prefill 10 + 逐 token decode 20 步 vs 一次性 forward: logits 最大差 1.91
 ```
 train (router 被故意初始化得偏心: 专家 0/1 的权重 ×4; aux_loss_weight=0):
 ```
---- 不更新 bias ---           step 1: lm 6.9617, load CV 0.349, layer0 load [45, 53, 22, 17, 29, 29, 29, 32]
-                              step 100: lm 2.9793, load CV 0.269, layer0 load [37, 35, 33, 22, 27, 27, 40, 35]
---- bias 更新 (γ=1e-3) ---    step 100: lm 2.9816, load CV 0.097, layer0 load [31, 32, 36, 37, 27, 31, 29, 33]
+--- 不更新 bias ---              第 1 步: lm 6.9617, load CV 0.349, 第 0 层负载 [45, 53, 22, 17, 29, 29, 29, 32]
+                                 第 100 步: lm 2.9793, load CV 0.269, 第 0 层负载 [37, 35, 33, 22, 27, 27, 40, 35]
+--- bias 更新 (gamma=0.001) ---  第 100 步: lm 2.9816, load CV 0.097, 第 0 层负载 [31, 32, 36, 37, 27, 31, 29, 33]
 最后 20 步平均 load CV: 无 bias 0.273  vs  有 bias 0.124
-layer0 routing_bias: [-0.048, -0.015, -0.001, 0.036, 0.037, 0.027, -0.007, 0.008]
+第 0 层 routing_bias: [-0.048, -0.015, -0.001, 0.036, 0.037, 0.027, -0.007, 0.008]
 ```
 负载不均衡减半, LM loss 几乎不变 (2.979 vs 2.982) —— 这就是 "aux-loss-free" 的含义。
 如果 `routing_bias` 只是个永远为 0 的 buffer, 上面这张表里的负载一步都不会动 —— 偏置法的全部作用就在这一次次更新里。
 数据是固定的一个随机 batch: loss 下降只说明模型在背它。
+
+## 与真实系统的差距
+
+- **规模**: infer 是 2 层、d_model=512、8 个路由专家 + 1 个共享专家、每 token 选 2 个, 共 39,802,368 个参数。DeepSeek-V3 总参 671B, 每 token 激活约 37B。
+- **MLA 的 latent 更小**: 本例 r=64、rope=32, 每 token 每层缓存 96 个数。DeepSeek-V3 是 r=512、rope=64, 共 576 个。
+- **没有权重吸收**: 本库每步把 cache 里全部历史的 `c_kv` 重新升维成 K 和 V。生产推理把 W_UK 吸收进 Q 侧, 直接在 latent 上算。
+- **Q 不走低秩**: `q_lora_rank` 默认 None, demo 没有开。
+- **没实现的部分**: Multi-Token Prediction (本库单独放在 `../../language_models/mtp`)、FP8、专家并行、node-limited routing。
+- **不均衡是人造的**: train 把专家 0/1 的 router 权重乘 4, 模拟路由开始坍塌。专家是 Python 循环逐个算的, 负载不均不会变成吞吐差距。
+- **`attention_mask` 照常屏蔽 pad**: MLA 的位置只在 RoPE 段, 左 pad 不改真实位置的输出。pad token 仍会被路由, 训练时也计入专家负载。
+- **本库约定**: `lm_head` 与 embedding 共享权重, embedding 乘 √D, 不代表原模型的做法。固定一个随机 batch (4 条 × 32 token) 反复训也是本库约定。
 
 ## 常见误区
 

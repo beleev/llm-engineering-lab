@@ -24,12 +24,14 @@ def make_rng(seed: int = 0) -> np.random.RandomState:
 
 
 def banner(title: str, width: int = 72) -> None:
+    """打印每个 demo 开头的标题栏: 两行 = 夹一行居中的标题。"""
     pad = max(0, (width - len(title) - 2) // 2)
     line = "=" * width
     print(f"\n{line}\n{' ' * pad} {title}\n{line}")
 
 
 def kv(key: str, value, indent: int = 2) -> None:
+    """打印一行 "名称 = 值", 名称左对齐补到 34 列。"""
     print(f"{' ' * indent}{key:<34} = {value}")
 
 
@@ -40,6 +42,7 @@ def relu(x: np.ndarray) -> np.ndarray:
 
 
 def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
+    """沿 axis 归一成概率, 形状不变。"""
     z = x - x.max(axis=axis, keepdims=True)          # 减最大值防 exp 溢出
     e = np.exp(z)
     return e / e.sum(axis=axis, keepdims=True)
@@ -48,15 +51,18 @@ def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 # ---- 参数树 ------------------------------------------------------------ #
 
 def zeros_like(tree: ArrayDict) -> ArrayDict:
+    """同结构的全 0 参数树 (累积梯度的起点)。"""
     return {k: np.zeros_like(v) for k, v in tree.items()}
 
 
 def add_inplace(dst: ArrayDict, src: ArrayDict, scale: float = 1.0) -> None:
+    """原地做 dst += scale · src, 逐个 key。"""
     for k in dst:
         dst[k] += src[k] * scale
 
 
 def scaled(tree: ArrayDict, scale: float) -> ArrayDict:
+    """每个张量乘同一个 scale, 返回新树, 不改原树。"""
     return {k: v * scale for k, v in tree.items()}
 
 
@@ -66,9 +72,10 @@ def flatten_tree(tree: ArrayDict) -> np.ndarray:
 
 
 def unflatten_like(flat: np.ndarray, like: ArrayDict) -> ArrayDict:
-    out, i = {}, 0
+    """flatten_tree 的逆操作: 按 like 的 key 顺序和形状, 把一维向量切回参数树。"""
+    out, i = {}, 0                                   # i: 下一个张量在 flat 里的起点
     for k, v in like.items():
-        out[k] = flat[i : i + v.size].reshape(v.shape)
+        out[k] = flat[i : i + v.size].reshape(v.shape)   # [v.size] → v.shape
         i += v.size
     return out
 
@@ -89,6 +96,7 @@ def global_norm(tree: ArrayDict) -> float:
 def clip_by_global_norm(tree: ArrayDict, max_norm: float) -> tuple[ArrayDict, float, float]:
     """返回 (裁剪后的梯度, 裁剪前范数, 缩放系数)。方向不变, 只缩长度。"""
     norm = global_norm(tree)
+    # +1e-12: 梯度全 0 时 norm=0, 防除零。min(1.0, ·): 只缩小, 不放大
     scale = min(1.0, max_norm / (norm + 1e-12))
     return scaled(tree, scale), norm, scale
 
@@ -126,6 +134,6 @@ def save_checkpoint(path: Path, payload: dict) -> None:
 
 
 def load_checkpoint(path: Path) -> dict:
-    # ponytail: pickle 只能读自己写的可信文件; 真实系统用 safetensors / DCP。
+    # 简化: pickle 只能读自己写的可信文件; 真实系统用 safetensors / DCP。
     with Path(path).open("rb") as f:
         return pickle.load(f)

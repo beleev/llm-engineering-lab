@@ -6,7 +6,7 @@
 <template>
   <LabFrame
     title="Muon — Newton–Schulz 把奇异值谱拉平"
-    sub="一个 6×8 的梯度矩阵, 6 个奇异值相差悬殊。每条线是一个奇异值随 NS 迭代的变化 (对数纵轴), 绿带是目标区间 [0.7, 1.2]。
+    sub="一个 6×8 的梯度矩阵, 6 个奇异值相差悬殊。每条线是一个奇异值随 NS 迭代的变化 (对数纵轴), 浅色横带是目标区间 [0.7, 1.2]。
       上下拖动最左一列的圆点改梯度的奇异值, 拖迭代步数看它们多快被推到 1。"
     module="llm_train/m14"
     run="python -m llm_train.m14_muon_optimizer.demo"
@@ -21,7 +21,7 @@
       <div class="row"><button type="button" @click="seed++">换一组奇异向量</button></div>
     </template>
 
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="奇异值随 Newton-Schulz 迭代的变化">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="group" aria-label="奇异值随 Newton-Schulz 迭代的变化, 最左一列的圆点可拖">
       <rect :x="X0" :width="W - X0 - 8" :y="py(Math.log10(1.2))" :height="py(Math.log10(0.7)) - py(Math.log10(1.2))" class="target" />
       <g v-for="t in [-6, -4, -2, 0]" :key="t">
         <line :x1="X0" :x2="W - 8" :y1="py(t)" :y2="py(t)" class="grid" />
@@ -29,7 +29,7 @@
       </g>
       <text v-for="(lab, c) in colLabels" :key="c" :x="px(c)" :y="H - 6" class="tick" text-anchor="middle" :class="{ cur: c === steps + 1 }">{{ lab }}</text>
       <line :x1="px(steps + 1)" :x2="px(steps + 1)" y1="8" :y2="H - 20" class="curline" />
-      <g v-for="(tr, i) in ns.traj" :key="i" :class="['line', { hot: hover === i }]" @mouseenter="hover = i" @mouseleave="hover = -1">
+      <g v-for="(tr, i) in ns.traj" :key="i" :class="['line', { hot: lit === i }]" @mouseenter="hover = i" @mouseleave="hover = -1">
         <polyline :points="tr.map((s, c) => `${px(c)},${py(Math.log10(s))}`).join(' ')" />
         <circle v-for="(s, c) in tr.slice(1)" :key="c" :cx="px(c + 1)" :cy="py(Math.log10(s))" r="2.5" />
         <circle
@@ -37,6 +37,7 @@
           :aria-label="`第 ${i} 个奇异值`" :aria-valuenow="tr[0]"
           @pointerdown="start($event, { svg, onMove: ({ y }) => setSigma(i, 10 ** clamp(pyInv(y), -5, 0)) })"
           @keydown.up.prevent="setSigma(i, Math.min(1, sigma[i] * 2))" @keydown.down.prevent="setSigma(i, Math.max(1e-5, sigma[i] / 2))"
+          @focus="pin = i"
         />
       </g>
     </svg>
@@ -44,11 +45,12 @@
     <div class="dirs">
       <div v-for="row in ns.rows" :key="row.name" class="dir-row">
         <span class="dir-name">{{ row.name }}</span>
-        <span v-for="(v, i) in row.vals" :key="i" class="dir-bar" :class="{ hot: hover === i }" :title="`方向 ${i}: ${v.toFixed(3)}`" @mouseenter="hover = i" @mouseleave="hover = -1">
+        <span v-for="(v, i) in row.vals" :key="i" class="dir-bar" :class="{ hot: lit === i }" :title="`方向 ${i}: ${v.toFixed(3)}`"
+              @mouseenter="hover = i" @mouseleave="hover = -1" @click="pin = pin === i ? -1 : i">
           <i :style="{ height: Math.max(2, Math.min(1, v) * 100) + '%', background: row.color }" />
         </span>
       </div>
-      <p class="lab-note">三行柱子 = 同一个梯度下, 三种更新在 6 个奇异方向上各迈多大步 (各自按最大值归一)。悬停某个方向, 上图对应的线会高亮。</p>
+      <p class="lab-note">三行柱子 = 同一个梯度下, 三种更新在 6 个奇异方向上各迈多大步 (各自按最大值归一)。悬停或点击某个方向, 上图对应的线会高亮; 用 Tab 选中上图的圆点也一样。</p>
     </div>
 
     <template #stats>
@@ -73,7 +75,9 @@ import { useDrag } from '@/composables/useDrag.js'
 import { clamp, mulberry32, randn, range } from '@/utils/labmath.js'
 
 const R = 6, C = 8, KMAX = 10
-const steps = ref(5), cond = ref(4), seed = ref(1), hover = ref(-1), svg = ref(null)
+const steps = ref(5), cond = ref(4), seed = ref(1), svg = ref(null)
+const hover = ref(-1), pin = ref(-1)                     // 悬停的方向 / 点击或聚焦固定的方向
+const lit = computed(() => (hover.value >= 0 ? hover.value : pin.value))
 const { start } = useDrag()
 const logspace = (c) => range(R).map((i) => 10 ** (-c * i / (R - 1)))
 const sigma = ref(logspace(cond.value))
@@ -152,7 +156,7 @@ const sci = (v) => v.toExponential(1)
 .dirs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .dir-row { display: grid; grid-template-columns: 110px repeat(6, minmax(0, 1fr)); gap: 4px; align-items: end; }
 .dir-name { font-size: 11px; color: var(--text-muted); align-self: center; }
-.dir-bar { height: 34px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--border-strong); }
+.dir-bar { cursor: pointer; height: 34px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--border-strong); }
 .dir-bar.hot { background: var(--accent-soft); }
 .dir-bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; }
 </style>

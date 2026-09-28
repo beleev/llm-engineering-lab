@@ -1,16 +1,17 @@
 <!--
-  Muon vs AdamW (对应 llm_train/m14_muon_optimizer:run, 缩小到 16×16 在浏览器里真跑 150 步)。
+  Muon vs Adam (对应 llm_train/m14_muon_optimizer:run, 缩小到 16×16 在浏览器里真跑 150 步)。
   只讲一件事: Adam 的逐元素缩放只能修 "与坐标轴对齐" 的病态; 把同一个病态问题旋转一下, Adam 就修不动了, 而 Muon 的正交化与基无关。
+  10 × 150 步不放在 computed 里: 参数变了才在渲染之后算一次, 结果按 (旋转, 种子) 缓存。
 -->
 <template>
   <LabFrame
-    title="Muon vs AdamW — 把病态方向转一下会怎样?"
+    title="Muon vs Adam — 把病态方向转一下会怎样?"
     sub="病态的矩阵回归: 输入各主轴的尺度从 1 到 0.01 (条件数 1e4)。两种优化器各扫 5 个学习率、各跑 150 步, 真的在你的浏览器里跑。
-      切换「病态方向是否与坐标轴对齐」, 再点下面的学习率格子看每条 loss 曲线。"
+      图上默认画各自最好的那个学习率。切换「病态方向是否与坐标轴对齐」, 再点学习率格子看别的 loss 曲线。"
     module="llm_train/m14"
     run="python -m llm_train.m14_muon_optimizer.demo"
     :challenge="{
-      ask: '先看「轴对齐」: 谁赢? 再切到「随机旋转」: 问题的难度 (条件数) 一点没变, 为什么 AdamW 的最好成绩明显变差, Muon 几乎不受影响?',
+      ask: '先看「轴对齐」: 谁赢? 再切到「随机旋转」: 问题的难度 (条件数) 一点没变, 为什么 Adam 的最好成绩明显变差, Muon 几乎不受影响?',
       answer: '- 轴对齐: 每个输入坐标的梯度量级各不相同, Adam 的 $1/\\sqrt{v}$ 正好逐坐标把它们拉平。这是 Adam 的主场, 它赢 (换几组数据看, 从小胜到大胜都有)。\n- 旋转之后: 病态方向变成所有坐标的线性组合。每个坐标上的梯度都混着大小尺度, 逐元素的缩放无从下手。\nNewton–Schulz 作用在奇异值上: 旋转只改变奇异向量、不改变奇异值, 所以 Muon 的轨迹几乎不变。\n真实网络的权重没有理由与坐标轴对齐, 这就是 Muon 在 LLM 预训练上省算力的来源。\n(Python demo 用 32×32: 旋转时 Muon 好 9.2×, 轴对齐时 Adam 好 1.9×。)',
     }"
   >
@@ -20,7 +21,8 @@
         <button type="button" :class="{ active: rotate }" @click="rotate = true">随机旋转 (不对齐)</button>
         <button type="button" @click="seed++">换一组数据</button>
       </div>
-      <div v-for="o in OPTS" :key="o.key" class="row lr-row">
+      <p v-if="!sweep" class="lab-note">正在跑 10 × 150 步…</p>
+      <div v-for="o in sweep ? OPTS : []" :key="o.key" class="row lr-row">
         <span class="oname" :style="{ color: o.color }">{{ o.name }}</span>
         <button
           v-for="(lr, i) in LRS" :key="lr" type="button" class="chip mono" :class="{ active: pick[o.key] === i, best: sweep.best[o.key] === i }"
@@ -36,34 +38,39 @@
         <text :x="X0 - 5" :y="py(t) + 3" class="tick" text-anchor="end">1e{{ t }}</text>
       </g>
       <text :x="W - 8" :y="H - 4" class="tick" text-anchor="end">训练步数 → 150</text>
-      <polyline v-for="o in OPTS" :key="o.key" :points="curve(o.key)" fill="none" :stroke="o.color" stroke-width="2" />
-      <g v-for="o in OPTS" :key="'e' + o.key">
-        <circle :cx="px(STEPS - 1)" :cy="py(Math.log10(cur(o.key).final))" r="4" :fill="o.color" />
-        <text :x="px(STEPS - 1) - 8" :y="py(Math.log10(cur(o.key).final)) - 7" class="endl" text-anchor="end" :fill="o.color">{{ o.name }} {{ cur(o.key).final.toExponential(1) }}</text>
-      </g>
+      <template v-if="sweep">
+        <polyline v-for="o in OPTS" :key="o.key" :points="curve(o.key)" fill="none" :stroke="o.color" stroke-width="2" />
+        <g v-for="o in OPTS" :key="'e' + o.key">
+          <circle :cx="px(STEPS - 1)" :cy="py(lg(cur(o.key).final))" r="4" :fill="o.color" />
+          <text :x="px(STEPS - 1) - 8" :y="py(lg(cur(o.key).final)) - 7" class="endl" text-anchor="end" :fill="o.color">{{ o.name }} lr {{ LRS[pick[o.key]] }}: {{ cur(o.key).final.toExponential(1) }}</text>
+        </g>
+      </template>
     </svg>
 
     <template #stats>
-      <div class="kv"><span>AdamW 最好 (扫 5 个 lr)</span><b>{{ bestOf('adam').toExponential(2) }}</b></div>
-      <div class="kv"><span>Muon 最好 (扫 5 个 lr)</span><b>{{ bestOf('muon').toExponential(2) }}</b></div>
-      <div class="kv"><span>谁赢</span><b :class="ratio > 1 ? 'good' : 'bad'">{{ ratio > 1 ? `Muon 好 ${ratio.toFixed(1)}×` : `AdamW 好 ${(1 / ratio).toFixed(1)}×` }}</b></div>
-      <div class="kv"><span>优化器状态 (每个矩阵)</span><b>2 份 vs 1 份</b></div>
+      <template v-if="sweep">
+        <div class="kv"><span>Adam 最好 (lr {{ LRS[sweep.best.adam] }})</span><b>{{ bestOf('adam').toExponential(2) }}</b></div>
+        <div class="kv"><span>Muon 最好 (lr {{ LRS[sweep.best.muon] }})</span><b>{{ bestOf('muon').toExponential(2) }}</b></div>
+        <div class="kv"><span>各自最好的相比</span><b>{{ ratio > 1 ? `Muon 好 ${ratio.toFixed(1)}×` : `Adam 好 ${(1 / ratio).toFixed(1)}×` }}</b></div>
+        <div class="kv"><span>图上画的是不是各自最好</span><b :class="{ bad: !onBest }">{{ onBest ? '是' : '不是' }}</b></div>
+      </template>
       <div class="lab-note">
         <p>★ 公平比较 = 各自调到最好的学习率再比。格子里的小字是该学习率的最终 loss, 描边的是各自最好的那个。</p>
         <p>两边的 bias 都用 Adam (Muon 只管 2-D 矩阵)。学习率线性退火到 0, 与 Python demo 相同。</p>
+        <p>优化器状态: Adam 每个矩阵存 2 份 (一阶、二阶矩), Muon 存 1 份 (动量)。</p>
       </div>
     </template>
   </LabFrame>
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import LabFrame from '@/components/lab/LabFrame.vue'
 import { mulberry32, randn, range } from '@/utils/labmath.js'
 
 const D = 16, B = 32, STEPS = 150, LRS = [0.03, 0.1, 0.3, 1, 3]
-const OPTS = [{ key: 'adam', name: 'AdamW', color: 'var(--eye)' }, { key: 'muon', name: 'Muon', color: 'var(--left)' }]
-const rotate = ref(true), seed = ref(1), pick = reactive({ adam: 3, muon: 2 })
+const OPTS = [{ key: 'adam', name: 'Adam', color: 'var(--eye)' }, { key: 'muon', name: 'Muon', color: 'var(--left)' }]
+const rotate = ref(true), seed = ref(1), pick = reactive({ adam: 0, muon: 0 })
 
 // 扁平 Float64Array 上的矩阵乘: C[n×m] = A[n×k] · B[k×m] (tA/tB = 是否先转置)
 const mm = (A, Bm, n, k, m, tA = false, tB = false) => {
@@ -128,23 +135,38 @@ const runOne = (opt, lr, rot, sd) => {
   return { losses, final: losses[STEPS - 1] }
 }
 
-// 只在切换旋转 / 换数据时重算 (2 × 5 × 150 步)
-const sweep = computed(() => {
+// 2 × 5 × 150 步。发散成 NaN 的当作 +∞, 不参与「最好」的比较
+const fin = (x) => (Number.isFinite(x) ? x : Infinity)
+const runSweep = (rot, sd) => {
   const out = { best: {} }
   for (const o of OPTS) {
-    out[o.key] = LRS.map((lr) => runOne(o.key, lr, rotate.value, seed.value))
-    out.best[o.key] = out[o.key].reduce((bi, r, i, arr) => (r.final < arr[bi].final ? i : bi), 0)
+    out[o.key] = LRS.map((lr) => runOne(o.key, lr, rot, sd))
+    out.best[o.key] = out[o.key].reduce((bi, r, i, arr) => (fin(r.final) < fin(arr[bi].final) ? i : bi), 0)
   }
   return out
-})
+}
+// ★ 只在切换旋转 / 换数据时算一次, 放到下一个任务里跑, 不堵首屏。算完把图上的 lr 拨到各自最好的那个
+const sweep = shallowRef(null), cache = new Map()
+watch([rotate, seed], ([rot, sd]) => {
+  const key = `${rot}-${sd}`
+  const show = () => {
+    if (key !== `${rotate.value}-${seed.value}`) return   // 等的时候又切走了
+    sweep.value = cache.get(key)
+    Object.assign(pick, sweep.value.best)
+  }
+  if (cache.has(key)) show()
+  else setTimeout(() => { cache.set(key, runSweep(rot, sd)); show() }, 0)
+}, { immediate: true })
 const cur = (key) => sweep.value[key][pick[key]]
 const bestOf = (key) => sweep.value[key][sweep.value.best[key]].final
 const ratio = computed(() => bestOf('adam') / bestOf('muon'))
+const onBest = computed(() => OPTS.every((o) => pick[o.key] === sweep.value.best[o.key]))
 
 const W = 560, H = 250, X0 = 40, LO = -6, HI = 1.5
 const px = (s) => X0 + (s / (STEPS - 1)) * (W - X0 - 12)
 const py = (lg) => 10 + (1 - (Math.min(HI, Math.max(LO, lg)) - LO) / (HI - LO)) * (H - 30)
-const curve = (key) => cur(key).losses.map((l, s) => `${px(s)},${py(Math.log10(isFinite(l) ? l : 1e9))}`).join(' ')
+const lg = (l) => Math.log10(Number.isFinite(l) && l > 0 ? l : 1e9)   // 发散的点画到图顶
+const curve = (key) => cur(key).losses.map((l, s) => `${px(s)},${py(lg(l))}`).join(' ')
 </script>
 
 <style scoped>

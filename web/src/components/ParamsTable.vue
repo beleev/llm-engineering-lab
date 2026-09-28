@@ -9,9 +9,12 @@
         </tr>
       </thead>
       <tbody>
+        <!-- 悬停、Tab 聚焦、点一下 (触屏) 都会点亮这一行对应的计算步骤 -->
         <tr v-for="(p, i) in rows" :key="i"
-            :class="{ lit: active === p.name }"
-            @mouseenter="$emit('hover', p.name)" @mouseleave="$emit('hover', '')">
+            :class="{ lit: active === p.name }" tabindex="0"
+            @mouseenter="$emit('hover', p.name)" @mouseleave="$emit('hover', '')"
+            @focus="$emit('hover', p.name)" @blur="$emit('hover', '')"
+            @click="$emit('hover', p.name)">
           <td>
             <code class="inline">{{ p.name }}</code>
             <div v-if="p.note" class="note"><Tex :text="p.note" /></div>
@@ -137,5 +140,6 @@ const cacheNum = computed(() => {
 .breakdown .eq { color: var(--text-dim); margin: 0 6px; }
 .breakdown .accent-val { color: var(--accent); }
 tbody tr.lit { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 tbody tr { transition: none; }
 </style>

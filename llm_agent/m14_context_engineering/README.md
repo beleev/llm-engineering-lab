@@ -39,13 +39,18 @@ view = self.messages
          compaction == "truncate" → truncate_messages(view) 仅视图, 反例
 ```
 
-设计取舍:
+关键设计:
 
 - 第 1 档只改视图: 清理是可逆的、零模型开销的, 占位符 `[cleared: N chars]` 保留了配对结构; 原文仍在 transcript 里, 审计与摘要都还能看到。
-- 第 2 档必须替换历史并落盘边界: 否则每一轮都要重新压一次, 而且 resume 读回来的仍是完整历史。`load()` 回放到 boundary 时把视图重置为"摘要 + 最后 kept 条", `load_all()` 跳过 boundary 返回全部 —— 文件只增不减, 恢复出来的上下文却真的变小。
+- 第 2 档必须替换历史并落盘边界: 否则每一轮都要重新压一次, 而且 resume 读回来的仍是完整历史。
+  - `load()` 回放到 boundary 时把视图重置为"摘要 + 最后 kept 条"。
+  - `load_all()` 跳过 boundary 返回全部。
+  - 文件只增不减, 恢复出来的上下文却真的变小。
 - 切点选在"当前用户轮"之前: `tail` 以用户 prompt 开头, 本轮的 tool_use 与 tool_result 都在 tail 里, 配对永远不会被切断。
 - 摘要由模型写, 人通过 `pre_compact` hook 指定必留信息: 什么重要是任务相关的, harness 猜不出来。
-- `MemoryTool` 沿用 Claude API memory tool 的 `/memories` 目录约定: 路径必须是 `/memories` 或以 `/memories/` 开头, 围栏立在 `root/memories` 上 (`confine()` 先 `resolve()` 再判断), 所以 `/memories/../x` 也出不去。
+- `MemoryTool` 沿用 Claude API memory tool 的 `/memories` 目录约定:
+  - 路径必须是 `/memories` 或以 `/memories/` 开头。
+  - 围栏立在 `root/memories` 上 (`confine()` 先 `resolve()` 再判断), 所以 `/memories/../x` 也出不去。
 
 ## 运行后应该看到什么
 
@@ -60,8 +65,9 @@ cd <仓库根目录> && python3 -m llm_agent.m14_context_engineering.demo
   已完成: search_docs(检索 kv cache); search_docs(检索 lora); search_docs(检索 dpo); search_docs(检索 sampling)
   关键结果: search_docs: kv_cache: kv cache key fact: FACT-1. long backg; search_docs: lora: ...
   保留: 用户只关心 FACT 编号
-  compactions             : 3
-  peak context tokens     : 246
+  压缩次数                    : 3
+  输入 tokens (其中摘要请求)      : 2575 (977)
+  峰值上下文 tokens            : 375
 
 [2] 压缩真的缩小了'恢复出来的会话', 审计日志一条没少
   resume 视图               : 5 条 / 1026 字符
@@ -76,10 +82,15 @@ cd <仓库根目录> && python3 -m llm_agent.m14_context_engineering.demo
   即时检索: 峰值上下文 tokens      : 107
 ```
 
-`assert` 验证的内容:
+断言验证的内容:
 
 - [1] 模型实际看到的某个上下文里出现过 `[cleared:` (第 1 档生效); `compactions >= 1` 且 `pre_compact` hook 的触发次数等于压缩次数; `messages[0]` 是 `compact_summary`, 其中既有最早的目标"检索 kv cache", 也有 hook 要求保留的那句话。
-- [2] `load()` 的字符数小于 `load_all()` 的 60%; 审计全量恰好 20 条 (5 轮 × 4 条); 磁盘恢复出的视图与内存里压缩后的 `agent.messages` 逐条相同; 恢复视图通过 `validate_transcript` (没有孤儿 tool_result); 用它 resume 的新 agent 还能正常完成一次检索。
+- [1] 写摘要的请求正好 `compactions` 次, `usage["input_tokens"]` 等于模型实际收到的全部 token (干活的请求加摘要请求)。3 次摘要请求共 977 token, 占 2575 的三分之一以上。
+- [1] 峰值 375 来自摘要请求本身: 它要带上整段旧历史。干活的请求里最大的一次是 246 token。
+- [2] 压缩后的恢复:
+  - `load()` 的字符数小于 `load_all()` 的 60%; 审计全量恰好 20 条 (5 轮 × 4 条)。
+  - 磁盘恢复出的视图与内存里压缩后的 `agent.messages` 逐条相同。
+  - 恢复视图通过 `validate_transcript` (没有孤儿 tool_result); 用它 resume 的新 agent 还能正常完成一次检索。
 - [3] `truncate` 下 `compactions == 0`, 且 `load()`、`load_all()`、内存历史三者长度相同 —— 截断只影响单次视图, 不缩小持久化与恢复出来的历史; 并且断言 truncate 会话里出现了答非所问的轮次 (tool_result 被拍平成 user 文本), 而 summary 会话没有。
 - [4] 即时检索拿到了 FACT-2, 且峰值上下文小于预加载全文 token 数的一半。注意 331 是对"全文塞进 system prompt"的估算值, demo 没有真的跑一个预加载 agent。
 - [5] 会话 1 在磁盘上写出了 `memories/notes.md`; 全新的会话 2 (4 条消息, 无任何历史) 通过 `memory view` 读到了 "pytest"。
@@ -91,7 +102,8 @@ cd <仓库根目录> && python3 -m llm_agent.m14_context_engineering.demo
 - 没有 prompt caching。真实系统里改写前缀 (清理、压缩) 会让缓存失效, 清理的收益要和缓存损失一起算; 本仓库看不到这笔账。
 - toy LLM 的"摘要"是按结构抽取 (用户 prompt、工具调用名与参数、助手结论或工具结果的前 60 字符), 不是真的读懂后重写; 摘要质量问题 (丢关键细节、幻觉) 在这里观察不到。
 - 压缩会把 `session_start` 消息本身摘要掉, 但其文本会和 `pre_compact` hook 的要求一起作为"必须保留"交给摘要; 下次 resume 发现历史里没有 `session_start` 时会重新注入。Claude Code 是在 compact 之后立刻重跑 SessionStart hook, 这里没有这一步。
-- `MemoryTool` 只实现 view / create / str_replace / delete, 参数名也简化了 (`text` / `old`); 真实 memory tool 还有 insert、rename。没有记忆的过期、冲突与投毒防护。
+- `MemoryTool` 只实现 view / create / str_replace / delete, 参数名也简化了 (`text` / `old`); 真实 memory tool 还有 insert、rename, 所以它不能直接当真实 memory tool 的后端。
+- 没有记忆的过期、冲突与投毒防护。`memory` 是中风险工具, 污点规则不锁它 (m12): 读过不可信文档之后, 注入内容照样能被写进跨会话的记忆。
 - 即时检索只有"按路径读文件"一种; Claude Code 靠 glob / grep 先定位再读, 并对大文件分页。
 
 ## 常见误区

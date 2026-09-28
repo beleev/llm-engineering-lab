@@ -1,5 +1,5 @@
 // 真源码加载: 构建期用 Vite glob 把仓库里的 .py 以纯文本懒加载。
-// 页面展示的代码直接来自 Python 文件本身, 不再手抄, 所以不会和源码漂移。
+// 页面展示的代码直接来自 Python 文件本身, 不是手抄的, 所以不会和源码漂移。
 const files = import.meta.glob('../../../llm_*/**/*.py', { query: '?raw', import: 'default' })
 
 const keyOf = (path) => `../../../${path.replace(/^\/+/, '')}`
@@ -39,7 +39,9 @@ export async function loadSource(ref) {
   const { path, symbol } = parseRef(ref)
   const loader = files[keyOf(path)]
   if (!loader) return { path, symbol, error: `找不到源文件 ${path}` }
-  const text = await loader()
+  // 分包下载失败 (断网、部署换了版本) 时 loader 会抛错; 接住, 让页面能显示原因而不是一直转圈
+  let text
+  try { text = await loader() } catch (_) { return { path, symbol, error: '源码加载失败。刷新页面重试, 或者到 GitHub 上看这个文件。' } }
   const hit = extractSymbol(text, symbol)
   if (!hit) return { path, symbol, error: `${path} 里找不到 ${symbol}` }
   return { path, symbol, ...hit }

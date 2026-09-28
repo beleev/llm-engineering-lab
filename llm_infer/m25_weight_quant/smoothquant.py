@@ -21,8 +21,8 @@ import numpy as np
 
 def fake_quant_sym(x: np.ndarray, bits: int, axis) -> np.ndarray:
     """对称量化再反量化: 在 axis 上统计 max|x| (keepdims), scale = max|x| / (2^(b-1)−1)。"""
-    qmax = 2 ** (bits - 1) - 1
-    scale = np.maximum(np.max(np.abs(x), axis=axis, keepdims=True), 1e-8) / qmax
+    qmax = 2 ** (bits - 1) - 1                                            # 8 bit → 127
+    scale = np.maximum(np.max(np.abs(x), axis=axis, keepdims=True), 1e-8) / qmax   # 1e-8: 整组为 0 时防除零
     return np.clip(np.round(x / scale), -qmax, qmax) * scale
 
 
@@ -37,4 +37,4 @@ def smooth_scales(X_calib: np.ndarray, W: np.ndarray, alpha: float) -> np.ndarra
     """s (D_in,) = max|X_j|^α / max|W_j|^(1−α); 激活统计来自校准集, 部署时是常数。"""
     ax = np.max(np.abs(X_calib), axis=0)                                  # (D_in,) 每个输入通道的激活幅度
     aw = np.max(np.abs(W), axis=1)                                        # (D_in,) 对应权重行的幅度
-    return (ax ** alpha / np.maximum(aw, 1e-8) ** (1 - alpha)).astype(np.float32)
+    return (ax ** alpha / np.maximum(aw, 1e-8) ** (1 - alpha)).astype(np.float32)   # 1e-8: 权重行全 0 时防除零

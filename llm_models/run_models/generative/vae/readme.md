@@ -25,11 +25,20 @@ python -m llm_models.run_models.generative.vae.train_vae
 `train_vae` (固定 4 张低频色块图, **背 batch, 不代表泛化**): recon 0.3421 → 0.0457; KL 21.04 → 157.06。
 KL **上升** 是预期的: `kl_weight=1e-4` 时, 模型用更尖的后验 (更大的 KL) 换重建质量是划算的。
 
+## 与真实系统的差距
+
+- **loss 只有两项**: MSE 重建 + KL。SD 的 VAE 还用感知 loss 和对抗 loss。
+- **网络很浅**: 每级是 Conv → GroupNorm → SiLU 的直筒堆叠, 没有残差块, 瓶颈处没有注意力。
+- **规模**: train 是 `base_channels=16`、32×32 的图, 空间 ÷4。SD 是 512×512×3 压到 64×64×4, 空间 ÷8。
+- **kl_weight**: 本例 1e-4, SD 约 1e-6。
+- **没有 scaling factor**: latent 直接输出, 没有乘一个常数来调整尺度。接扩散模型时要自己补。
+- **数据是合成的**: 固定 4 张低频色块图训 80 步。固定 batch 是本库约定。
+
 ## 常见误区
 
 - "KL 越小越好": KL=0 意味着 z 与 x 无关 (posterior collapse), decoder 只能输出平均图。
 - "推理时也要采样 z": 给扩散模型做压缩时通常直接取 μ (或采样后乘 scaling factor)。
-- 数据用白噪声也能测: 白噪声不可压缩, recon 几乎不降 (旧脚本 1.06 → 0.97); 现在数据是低频色块且值域 [-1,1] 与 decoder 的 tanh 对齐。
+- "数据用白噪声也能测": 白噪声不可压缩, recon 几乎不降 (1.06 → 0.97)。本脚本的数据是低频色块, 值域 [-1,1] 与 decoder 的 tanh 对齐。
 
 ## 自测题
 

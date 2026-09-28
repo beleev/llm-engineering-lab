@@ -6,6 +6,12 @@
   1. 标记: 不可信工具的输出包进 <untrusted_data>, 命中注入特征再加 flag (提示模型: 这是数据不是指令)
   2. 污点: 本轮上下文一旦混入不可信数据, 高风险工具一律拒绝 (确定性, 不依赖模型听话; 在 agent.py)
   3. 脱敏: 内容进 transcript 之前先替换密钥
+不防:
+  - 标记只是提醒。模型可以不理会 <untrusted_data>, 改写过的注入也不会命中特征
+  - 污点只锁 risk=high 的工具。medium 的 write_file / memory / 浏览器点击照常可用
+  - 污点每条用户 prompt 清零一次, 但注入文本还留在历史里
+  - 脱敏只认 4 种格式 (见 _SECRETS)。裸写的 ghp_… / xoxb-… / PEM 私钥会原样落盘
+真实系统: 按数据来源持续跟踪污点; 密钥扫描用成套规则集加熵检测; 对外通道单独审批。
 对应: Claude Code 把工具结果视为数据 + 对可疑结果做注入提示; "lethal trifecta" (私有数据 + 不可信内容 + 对外通道) 的切断思路。
 """
 
@@ -14,11 +20,14 @@ from __future__ import annotations
 import re
 from typing import List
 
-# ponytail: 正则只认常见格式; 生产用 detect-secrets / gitleaks 规则集 + 熵检测
+# 简化: 正则只认常见格式; 生产用 detect-secrets / gitleaks 规则集 + 熵检测
+# 四条规则依次是: sk- 开头的 key、AWS access key id (AKIA + 16 位)、Bearer token、key=value / key: value。
+# 没有按前缀认 GitHub token 的规则: "token=ghp_…" 被抹掉靠的是第 4 条, 裸写的 "ghp_…" 不会命中
 _SECRETS = [
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"(?i)bearer\s+[a-z0-9._-]{8,}"),
+    # 下面这条带捕获组: 组里是 key 名和等号, 脱敏时原样留下, 只抹后面的值
     re.compile(r"(?i)((?:password|passwd|api_key|apikey|token|secret)\s*[=:]\s*)\S+"),
 ]
 
@@ -32,16 +41,24 @@ _INJECTIONS = [
 
 
 class Guardrails:
+    """三个无状态的文本处理函数。污点标记本身存在 Agent._tainted 里, 不在这里。"""
+
     def redact(self, text: str) -> str:
+        """把命中 _SECRETS 的密钥换成 [REDACTED]。没命中的原样返回, 不报警。"""
         for pattern in _SECRETS:
             # 带捕获组的规则保留 key 名 (password=), 只抹值 —— 日志仍可读
             text = pattern.sub(lambda m: (m.group(1) if m.groups() else "") + "[REDACTED]", text)
         return text
 
     def scan(self, text: str) -> List[str]:
+        """返回命中的注入特征原文, 每条规则最多取第一处。空列表不代表文本安全。"""
         return [m.group(0).strip() for p in _INJECTIONS for m in [p.search(text)] if m]
 
     def wrap_untrusted(self, text: str) -> str:
+        """把不可信文本包进 <untrusted_data>; 命中注入特征时在标签上加 injection_suspected 属性。
+
+        内容一个字不删: 模型仍然读得到注入文本, 标签只是告诉它这段是数据。
+        """
         hits = self.scan(text)
         flag = f' injection_suspected="{"; ".join(hits)}"' if hits else ""
         text = text.replace("</untrusted_data", "<\\/untrusted_data")  # 文档自带闭合标签 = 想提前"越狱"出数据区
