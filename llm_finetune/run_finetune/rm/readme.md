@@ -24,7 +24,7 @@ python -m llm_finetune.run_finetune.rm.train_rm        # ~9 s
 
 ## 常见误区
 - 右 pad 时读 `h[:, -1]`: 那是 pad 位置的隐状态。上表最后一行。
-- 手抄一遍主干前向来拿隐状态: 主干一改 (mask / RoPE / cache) 就悄悄不一致。这里把 `lm_head` 换成 `Identity`, 直接复用公开的 `forward`。注意这会原地改掉传入的 backbone。
+- 手抄一遍主干前向来拿隐状态: 主干一改 (mask / RoPE / cache) 就悄悄不一致。这里用 `LLaMA.forward(..., return_hidden=True)` 直接取 `ln_f` 之后的隐状态, 复用公开的 `forward`。
 - 把 RM 分数当绝对质量: Bradley-Terry 只约束分差, 整体平移不改变 loss。
 - chosen / rejected 的输入格式不对称 (比如只有一边带 EOS): RM 会学到这个捷径。
 

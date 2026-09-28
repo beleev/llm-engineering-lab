@@ -29,7 +29,7 @@ def main() -> None:
     task = SeqTask("sort")
     backbone = make_model(task)
     sft_warmup(backbone, task, SFT_STEPS)                     # 业界惯例: RM 从 SFT checkpoint 起步
-    rm = RewardModel(backbone)                                # 注意: backbone 的 lm_head 从此被摘掉
+    rm = RewardModel(backbone)                                # 取 backbone 的 return_hidden=True 隐状态接标量头
 
     heldout = PreferenceDataGenerator(task, 512, split="test", fixed=True).generate_batch()
     acc_before = heldout_accuracy(rm, heldout)

@@ -53,7 +53,7 @@ export const finetuneChapters = place([
   { route: 'finetune-dpo', label: 'DPO 偏好对齐', hint: 'chosen/rejected 与 reference policy' },
   { route: 'finetune-rlhf', label: 'RM · GRPO · 蒸馏', hint: '奖励模型、组内相对优势、软标签蒸馏' },
   ...(extraChapters.finetune || []),
-  { route: 'finetune-runs', label: '选型与落盘', hint: '11 种方法的代价结构: 前向次数、显存、产物' },  // 压轴章: 把前面的机制组合起来, 始终排最后
+  { route: 'finetune-runs', label: '选型与落盘', hint: '16 种方法的代价结构: 前向次数、显存、产物' },  // 压轴章: 把前面的机制组合起来, 始终排最后
 ])
 
 export const inferChapters = place([

@@ -286,8 +286,15 @@ for (const [stage, chapters] of Object.entries(extraChapters)) {
   }
 }
 
-export default createRouter({
+const router = createRouter({
   history: createWebHashHistory(),
   routes,
   scrollBehavior: () => ({ top: 0 }),
 })
+
+// 标签页标题跟着章节走, 开了一排标签页也分得清
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · LLM 全栈教程` : 'LLM 全栈教程 · LLM Engineering Lab'
+})
+
+export default router

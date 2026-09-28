@@ -1,12 +1,13 @@
 <!--
   微调方法选型计算器 (对应 llm_finetune/README.md 的 "各方法需要什么" 表)。
-  只讲一件事: 11 种方法的差别不在 loss 好不好看, 在代价结构 ——
+  只讲一件事: 16 种方法的差别不在 loss 好不好看, 在代价结构 ——
   要不要成对数据 / 要不要 verifier / 要不要在线采样 / 要不要常驻一份 ref 或 teacher / 落盘什么。
   所有字节数都是 llm_finetune 在 CPU 上实测的真实值 (基座 99,648 参数 = 389 KB), 不是估算。
+  模型合并不训练: 前向 0 次、常驻显存记 "—", 不参与 "最省显存" / "信号最密" 的比较。
 -->
 <template>
   <LabFrame
-    title="选型计算器 — 11 种方法, 各自要你付什么"
+    title="选型计算器 — 16 种方法, 各自要你付什么"
     sub="左边勾你手上真有的东西, 拖显存预算。右边每一行是一种方法:
       - 亮着: 现在就能用。
       - 暗掉: 缺东西或超预算 (行尾写了缺什么)。
@@ -33,7 +34,7 @@
         <button type="button" :class="{ active: !online }" @click="online = false">不能 / 太贵</button>
       </div>
       <LabSlider
-        v-model="budget" label="常驻显存预算" :min="200" :max="1800" :step="50"
+        v-model="budget" label="常驻显存预算" :min="200" :max="2800" :step="50"
         :format="(v) => fmtKB(v)"
       />
     </template>
@@ -60,12 +61,12 @@
               <div class="bar" :title="m.memText">
                 <i v-for="(s, i) in m.segs" :key="i" :class="s.cls" :style="{ width: (s.kb / MAXKB) * 100 + '%' }" />
               </div>
-              <span class="mono memv" :class="{ over: m.mem > budget }">{{ m.mem }} KB</span>
+              <span class="mono memv" :class="{ over: m.mem > budget }">{{ m.segs.length ? m.mem + ' KB' : '— 不训练' }}</span>
             </td>
             <td class="small">{{ m.save }}</td>
             <td class="num mono sig">
-              {{ m.signal }}
-              <i class="dens" :style="{ width: 4 + 30 * (Math.log2(m.signal) / Math.log2(112)) + 'px' }" />
+              {{ m.signal || '—' }}
+              <i v-if="m.signal" class="dens" :style="{ width: 4 + 30 * (Math.log2(m.signal) / Math.log2(112)) + 'px' }" />
             </td>
           </tr>
           <tr v-if="open === m.id" class="detail">
@@ -78,25 +79,33 @@
       </tbody>
     </table>
     <p class="legend">
-      常驻显存条: <i class="sw base" />基座 <i class="sw ref" />ref / teacher <i class="sw ad" />adapter <i class="sw adam" />Adam 状态
+      常驻显存条: <i class="sw base" />基座 <i class="sw ref" />ref / teacher <i class="sw ad" />adapter <i class="sw critic" />critic <i class="sw adam" />Adam 状态
     </p>
 
     <template #stats>
-      <div class="kv"><span>现在能用</span><b :class="okCount ? 'good' : 'bad'">{{ okCount }} / 11</b></div>
+      <div class="kv"><span>现在能用</span><b :class="okCount ? 'good' : 'bad'">{{ okCount }} / {{ METHODS.length }}</b></div>
       <div class="kv"><span>最省显存的可行方法</span><b>{{ cheapest }}</b></div>
       <div class="kv"><span>被显存卡掉</span><b :class="overCount ? 'bad' : 'good'">{{ overCount }}</b></div>
       <div class="kv"><span>信号最密的可行方法</span><b>{{ densest }}</b></div>
       <div class="lab-note">
         <p>
           字节数按本仓库的玩具基座算: 99,648 个参数 = 389 KB (fp32), NF4 基座 59 KB, LoRA adapter 76 KB,
-          全参 Adam 状态 778 KB。换成 7B 模型时每一栏同比放大, 相对关系不变。
+          全参 Adam 状态 778 KB。PPO 的 critic 是同尺寸主干 + 64 个参数的标量头 = 390 KB, 它的 Adam 状态 779 KB。
+          换成 7B 模型时每一栏同比放大, 相对关系不变。
+        </p>
+        <p>
+          模型合并不训练, 常驻显存记 "—": 输入是基座和两个微调模型共三份权重 (3 × 389 KB),
+          在 CPU 上逐张量加减即可, 没有梯度也没有 Adam 状态。它的代价在前面那两次微调里。
         </p>
         <p>"信号/样本" = 一条样本给出多少个监督数字:</p>
         <ul class="pts">
           <li>偏好对: 1 个 bit</li>
-          <li>GRPO: 一条回复 1 个标量</li>
+          <li>GRPO / PPO: 一条回复 1 个标量</li>
+          <li>KTO: 一条回复 1 个好 / 坏标签</li>
+          <li>PRM: 每一步 1 个对 / 错标签 (K=4)</li>
           <li>SFT: 每个回复 token 1 个标签 (R=7)</li>
           <li>蒸馏: 每个 token 一个 16 维分布 (7×16=112)</li>
+          <li>模型合并: 不看样本, 记 "—"</li>
         </ul>
       </div>
     </template>
@@ -114,8 +123,12 @@ const HAVE = [
   { id: 'pref', label: '成对偏好 (x, y_w, y_l)' },
   { id: 'verify', label: '可编程验证器' },
   { id: 'teacher', label: '更强的 teacher' },
+  { id: 'label', label: '单条 👍/👎 (x, y, 好/坏)' },
+  { id: 'step', label: '逐步对错标签' },
+  { id: 'judge', label: 'AI judge + 宪法' },
+  { id: 'models', label: '同基座的多个微调模型' },
 ]
-const have = reactive({ demo: true, pref: false, verify: false, teacher: false })
+const have = reactive({ demo: true, pref: false, verify: false, teacher: false, label: false, step: false, judge: false, models: false })
 const online = ref(true)
 const budget = ref(1250)
 const open = ref('')
@@ -126,9 +139,10 @@ const fmtKB = (kb) => Math.round(kb) + ' KB'
 // 实测字节 (llm_finetune, CPU): 基座 99,648 参数 fp32 = 389 KB; NF4 基座 59 KB;
 // LoRA adapter 19,456 参数 = 76 KB; DoRA 20,736 = 81 KB; student 26,256 = 103 KB。
 // Adam 状态 = 可训参数 × 8 B: 全参 778 KB, LoRA 152 KB, DoRA 162 KB, student 205 KB。
-const B = 389, NF4 = 59, LA = 76, DA = 81, STU = 103
-const ADAM_FULL = 778, ADAM_LORA = 152, ADAM_DORA = 162, ADAM_STU = 205
-const MAXKB = 1600
+// PPO critic = RewardModel(同尺寸主干) 99,712 参数 = 390 KB, Adam 779 KB (train_ppo: 常驻 299,008 / 要训 199,360)。
+const B = 389, NF4 = 59, LA = 76, DA = 81, STU = 103, CRITIC = 390
+const ADAM_FULL = 778, ADAM_LORA = 152, ADAM_DORA = 162, ADAM_STU = 205, ADAM_CRITIC = 779
+const MAXKB = 2800
 
 // need: 需要手上有哪几样; sample: 是否必须在线采样
 const METHODS = [
@@ -176,14 +190,36 @@ const METHODS = [
     segs: [{ kb: STU, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_STU, cls: 'adam' }], save: 'student 权重 103KB',
     when: '离线蒸馏出来的小模型一采样就串台。让学生自己写、老师逐 token 打分: 合格率 0.059 → 0.402。\n代价是老师的少数派答法被彻底放弃 ($\\log\\pi$ −17 → −33)。先热身再上。',
     run: 'python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill' },
+  { id: 'ppo', name: 'PPO (带 critic)', need: ['verify'], sample: true, fwd: '采样 + 3 + 2μ', signal: 1,
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: CRITIC, cls: 'critic' }, { kb: ADAM_FULL, cls: 'adam' }, { kb: ADAM_CRITIC, cls: 'adam' }],
+    save: 'policy 全量 389KB (critic 不留)',
+    when: '能判分 (verifier 或 RM), 想一题只采 1 条。critic 给每个 token 一个优势 $A_t$。\n- 代价: 要训的参数 ×2 (199,360), 常驻 ×3 (policy + ref + critic), 60 步 11.8 s, GRPO 6.1 s。\n- 实测: pass@1 0.186 → 0.381, GRPO 0.287; 但 critic 冻住也有 0.389。\n多出来的那截来自一题一采, 不是 critic。',
+    run: 'python -m llm_finetune.run_finetune.ppo.train_ppo' },
+  { id: 'prm', name: 'PRM (过程奖励)', need: ['step'], fwd: '1', signal: 4,
+    segs: [{ kb: B, cls: 'base' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 + value head',
+    when: '多步推理, 要给候选解重排 (best-of-N) 或给 RL 逐步奖励, 而且标得起每一步。结构和 RM 相同, 贵在标签: 每条解 K 个。\n4 步算术链, 同样 600 步: best-of-8 答对率 随机 0.473 / ORM 0.488 / PRM 0.648。PRM 还能指出第一个错步 (0.575, 常数猜法 0.341)。',
+    run: 'python -m llm_finetune.run_finetune.prm.train_prm' },
+  { id: 'kto', name: 'KTO', need: ['label'], fwd: '2 (2B 条)', signal: 1,
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    when: '只有单条 👍 / 👎, 同一个 prompt 凑不出一对 (成对偏好拆开也能喂给它)。代价结构同 DPO, 但每步有一半前向花在估 $z_0$ 的错配样本上。\n- 好坏 1:1: 偏好准确率 0.965 → 0.992, 贪心 EM 0.324 (同条件 DPO 0.121)。\n- 好坏 1:9: 要把 $\\lambda_U$ 调成 1/9 (EM 0.254); 不调 EM 掉到 0.000。',
+    run: 'python -m llm_finetune.run_finetune.kto.train_kto' },
+  { id: 'rlaif', name: 'RLAIF (AI 反馈 + DPO)', need: ['judge'], fwd: '采 1 轮 + 2', signal: 1,
+    segs: [{ kb: B, cls: 'base' }, { kb: B, cls: 'ref' }, { kb: ADAM_FULL, cls: 'adam' }], save: '全量权重 389KB',
+    when: '好坏标准能写成条文, 有一个 judge 按条文批评、改写。训前采 1 轮 (4096 条 → 2539 个偏好对), 之后就是 DPO 的代价结构; judge 是规则, 不占训练显存。\n违规率 0.648 → 0.031。规则没查的变体 14 只从 0.418 降到 0.320: 标签上限就是 judge 的上限。',
+    run: 'python -m llm_finetune.run_finetune.rlaif.train_rlaif' },
+  { id: 'merge', name: '模型合并 (Task Arithmetic 等)', need: ['models'], fwd: '0', signal: null,
+    segs: [], save: '合并后全量权重 389KB',
+    when: '同一基座上已有几个各会一件事的微调模型, 想要一个都会的, 又不想重训。合并本身零梯度、零数据, 本例几秒钟。\n代价在前面: 两个模型各全参微调 300 步。\n$\\theta_0 + 1\\cdot(\\tau_A+\\tau_B)$ 留出集 EM 1.000, 前提是两个任务改的地方不重叠。',
+    run: 'python -m llm_finetune.run_finetune.merge.train_merge' },
 ]
 
 const LABEL = Object.fromEntries(HAVE.map((h) => [h.id, h.label.replace(/ \(.*/, '')]))
-const SEG = { base: '基座', ref: 'ref/teacher', ad: 'adapter', adam: 'Adam 状态' }
+const SEG = { base: '基座', ref: 'ref/teacher', ad: 'adapter', critic: 'critic', adam: 'Adam 状态' }
 
 const rows = computed(() => METHODS.map((m) => {
   const mem = m.segs.reduce((a, s) => a + s.kb, 0)
-  const missing = m.need.filter((k) => !have[k])
+  // 成对偏好拆开就是一条好、一条坏, 所以有 pref 也算有单条标签 (KTO 能用)
+  const missing = m.need.filter((k) => !have[k] && !(k === 'label' && have.pref))
   // ★ 可行性三连判: 数据够不够 → 能不能在线采样 → 显存装不装得下
   let why = ''
   if (missing.length) why = '缺 ' + missing.map((k) => LABEL[k]).join(' / ')
@@ -192,7 +228,7 @@ const rows = computed(() => METHODS.map((m) => {
   return {
     ...m, mem, why, ok: !why,
     short: m.name.replace(/\s*\(.*/, ''),
-    memText: m.segs.map((s) => SEG[s.cls] + ' ' + s.kb + ' KB').join(' + ') + ' = ' + mem + ' KB',
+    memText: m.segs.length ? m.segs.map((s) => SEG[s.cls] + ' ' + s.kb + ' KB').join(' + ') + ' = ' + mem + ' KB' : '不训练, 没有训练态显存',
   }
 }))
 
@@ -200,8 +236,9 @@ const okRows = computed(() => rows.value.filter((r) => r.ok))
 const okCount = computed(() => okRows.value.length)
 const overCount = computed(() => rows.value.filter((r) => r.why.startsWith('超预算')).length)
 const pick = (list, cmp) => (list.length ? list.reduce(cmp).short : '—')
-const cheapest = computed(() => pick(okRows.value, (a, b) => (b.mem < a.mem ? b : a)))
-const densest = computed(() => pick(okRows.value, (a, b) => (b.signal > a.signal ? b : a)))
+// 模型合并不训练, 没有可比的显存和信号, 不参与这两项比较
+const cheapest = computed(() => pick(okRows.value.filter((r) => r.segs.length), (a, b) => (b.mem < a.mem ? b : a)))
+const densest = computed(() => pick(okRows.value.filter((r) => r.signal), (a, b) => (b.signal > a.signal ? b : a)))
 </script>
 
 <style scoped>
@@ -237,6 +274,7 @@ tr.open .name { color: var(--accent); }
 .bar i.base, .sw.base { background: var(--accent); }
 .bar i.ref, .sw.ref { background: var(--danger); }
 .bar i.ad, .sw.ad { background: var(--left); }
+.bar i.critic, .sw.critic { background: var(--eye); }
 .bar i.adam, .sw.adam { background: var(--border-strong); }
 .memv { font-size: 10.5px; color: var(--text-muted); }
 .memv.over { color: var(--danger); }

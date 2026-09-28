@@ -7,7 +7,7 @@
 关键数字: 第 1 步的 lr = 0 (线性 warmup 从 0 起) → 日志里第一条 loss 就是 "未训练模型" 的 loss,
           train 脚本据此断言 `|loss₁ − ln V| < 0.5`。
 注意: 默认数据是固定的一个 batch (见 data.py), 所以 "loss 下降" = 能背下这个 batch。
-读代码时盯住: `batch.pop("labels")` —— dict 里剩下的 key 必须正好是 model.forward 的形参名。
+读代码时盯住: `batch.pop("labels", None)` —— dict 里剩下的 key 必须正好是 model.forward 的形参名。
 """
 
 from typing import Dict, List, Union
@@ -45,8 +45,9 @@ class Trainer:
         self.loss_computer = loss_computer
 
         # AdamW: LLM 训练事实标准。weight_decay 解耦, 不被 Adam 的自适应缩放污染。
+        # 只放可训参数: LoRA 冻结的基座 / 蒸馏的 teacher / DPO 的 ref 不进 optimizer (须在构造 Trainer 前冻结)
         self.optimizer = torch.optim.AdamW(
-            model.parameters(),
+            [p for p in model.parameters() if p.requires_grad],
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
@@ -79,7 +80,8 @@ class Trainer:
 
         # ---- 2) 拆出 labels / extra_labels, 让 batch 中只剩 model.forward 入参 ----
         # 用 pop 而非 索引: 原地从 dict 移除, 保证后面 **batch 不会把 labels 误传给 forward
-        labels = batch.pop("labels")
+        # 没有 labels 键 (对比 / 偏好 / VAE 这类不需要标签的 loss) 时传 None, 由 LossComputer 自己决定用不用
+        labels = batch.pop("labels", None)
         extra_labels = {}
         if "audio_labels" in batch:
             extra_labels["audio_labels"] = batch.pop("audio_labels")

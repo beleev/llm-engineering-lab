@@ -75,7 +75,7 @@ class ArithChain:
 
 def token_scores(rm: RewardModel, seqs: torch.Tensor) -> torch.Tensor:
     """[N, T] → [N, T] 每个位置一个 logit (RewardModel 只取末位置; 这里要逐位置)。"""
-    return rm.value_head(rm.backbone(seqs)).squeeze(-1)
+    return rm.value_head(rm.backbone(seqs, return_hidden=True)).squeeze(-1)
 
 
 def prm_loss(rm: RewardModel, task: ArithChain, batch: Dict[str, torch.Tensor]) -> torch.Tensor:

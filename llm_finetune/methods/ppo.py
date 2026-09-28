@@ -44,7 +44,7 @@ class PPOConfig:
 
 def token_values(critic: RewardModel, seqs: torch.Tensor, prompt_len: int) -> torch.Tensor:
     """seqs [N, P+C] → V [N, C]: 复用 RewardModel 的主干 + 标量头, 但取**每个**位置的分, 不只是最后一个。"""
-    h = critic.backbone(seqs[:, :-1])                                 # [N, P+C-1, D]
+    h = critic.backbone(seqs[:, :-1], return_hidden=True)             # [N, P+C-1, D]
     return critic.value_head(h).squeeze(-1)[:, prompt_len - 1:]       # 位置 P−1+t 看到的是 prompt + o_<t
 
 
@@ -80,7 +80,7 @@ class PPOTrainer:
         cfg, P = self.cfg, prompts.size(1)
 
         # ---- 1) rollout: 每个 prompt 采 1 条 (不需要一题多采) ----
-        seqs = self.policy.generate(prompts, cfg.max_new, temperature=1.0).clone()   # [N, P+C]
+        seqs = self.policy.generate(prompts, cfg.max_new, temperature=1.0)           # [N, P+C]
         completions = seqs[:, P:]
         mask = completion_mask(completions).float()                                  # [N, C]
         score = self.reward_fn(prompts, completions).float()                         # [N]
