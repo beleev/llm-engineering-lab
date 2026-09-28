@@ -1,0 +1,394 @@
+<template>
+  <div class="app" :class="{ 'nav-open': navOpen }" :style="{ '--side-w': `${sideW}px` }">
+    <!-- 窄屏: 顶栏 + 抽屉式侧栏 -->
+    <header class="topbar">
+      <button type="button" class="hamburger" :aria-expanded="navOpen" aria-controls="sidebar" aria-label="打开章节导航" @click="navOpen = !navOpen">☰</button>
+      <span class="topbar-title">{{ route.meta.title || 'LLM 全栈教程' }}</span>
+    </header>
+    <div class="backdrop" @click="navOpen = false" />
+
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <div class="brand-row">
+          <h1>LLM 全栈教程</h1>
+          <button
+            class="theme-toggle"
+            type="button"
+            @click="toggleTheme"
+            :aria-label="theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+            :title="theme === 'dark' ? '切到浅色 ☀︎' : '切到深色 ☾'"
+          >
+            <span v-if="theme === 'dark'" aria-hidden="true">☀︎</span>
+            <span v-else aria-hidden="true">☾</span>
+          </button>
+        </div>
+        <p>原理、架构、训练、微调、推理、Agent 六段闭环</p>
+        <div class="progress" :title="`已读 ${readCount} / ${learningPath.length} 章`">
+          <div class="progress-bar"><span :style="{ width: `${(readCount / learningPath.length) * 100}%` }" /></div>
+          <span class="mono">{{ readCount }}/{{ learningPath.length }}</span>
+        </div>
+        <a class="repo-link" :href="repoUrl()" target="_blank" rel="noopener">
+          <span class="gh-icon" aria-hidden="true">↗</span>
+          GitHub · 仓库源码
+        </a>
+      </div>
+
+      <nav>
+        <!-- 阅读档位: 主干/冲刺时收起扩展章, 当前所在章始终可见 -->
+        <div class="level-bar" role="group" aria-label="阅读档位">
+          <button
+            v-for="l in LEVELS" :key="l.id" type="button"
+            :class="['level-btn', 'lv', `lv-${l.id}`, { active: level === l.id }]"
+            :title="l.hint" @click="progress.setLevel(l.id)"
+          >{{ l.label }}</button>
+        </div>
+        <router-link :to="{ name: 'fast-track' }" class="nav-link fast">
+          <span class="idx">→</span>
+          <span>速成路线</span>
+        </router-link>
+
+        <!-- 序章 -->
+        <div class="section-label">序章</div>
+        <router-link :to="{ name: 'home' }" class="nav-link">
+          <span class="idx">✦</span>
+          <span>主线总览</span>
+        </router-link>
+
+        <!-- 六阶段 -->
+        <template v-for="s in stages" :key="s.id">
+          <section class="nav-stage" :class="{ open: isStageOpen(s.id) }">
+            <button
+              class="stage-toggle"
+              type="button"
+              :aria-expanded="isStageOpen(s.id)"
+              :aria-controls="`stage-${s.id}-nav`"
+              @click="toggleStage(s.id)"
+            >
+              <span class="idx">{{ s.idx }}</span>
+              <span class="stage-toggle-title">阶段 {{ s.idx }} · {{ s.title }}</span>
+              <span v-if="s.status === 'planned'" class="planned-tag">待补</span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </button>
+
+            <div
+              v-show="isStageOpen(s.id)"
+              :id="`stage-${s.id}-nav`"
+              class="stage-links"
+            >
+              <!-- ready & 阶段总览 -->
+              <router-link
+                v-if="s.status === 'ready' && s.route"
+                :to="{ name: s.route }"
+                class="nav-link sub overview"
+              >
+                <span class="idx">{{ s.idx }}.0</span>
+                <span>阶段总览</span>
+              </router-link>
+
+              <!-- ready & 阶段内小标题 -->
+              <router-link
+                v-for="c in shown(s)"
+                :key="c.route"
+                :to="{ name: c.route }"
+                class="nav-link sub"
+              >
+                <span class="idx">{{ s.idx }}.{{ subIdx(s, c.route) }}</span>
+                <span class="chapter-label">
+                  <span class="tier-dot" :class="tierOf(c.route)" :title="TIER_META[tierOf(c.route)].desc">{{ isSprint(c.route) ? '★' : TIER_META[tierOf(c.route)].mark }}</span>
+                  {{ c.label }}
+                </span>
+                <span v-if="progress.isMastered(c.route)" class="mark done" title="自测全对">✓</span>
+                <span v-else-if="progress.isVisited(c.route)" class="mark" title="已读">•</span>
+              </router-link>
+
+              <p v-if="hiddenCount(s)" class="more-hint">
+                还有 {{ hiddenCount(s) }} 章扩展内容, 切到「全部」可见
+              </p>
+
+              <!-- planned: 灰显, 不可点击 -->
+              <div v-if="s.status === 'planned'" class="nav-link disabled sub">
+                <span class="idx">·</span>
+                <span>{{ s.title }}</span>
+              </div>
+            </div>
+          </section>
+        </template>
+
+        <!-- 终章 -->
+        <div class="section-label">终章</div>
+        <router-link :to="{ name: 'compare' }" class="nav-link">
+          <span class="idx">∎</span>
+          <span>总览对照表</span>
+        </router-link>
+        <router-link :to="{ name: 'glossary' }" class="nav-link">
+          <span class="idx">?</span>
+          <span>术语速查</span>
+        </router-link>
+
+        <div class="section-label">关于</div>
+        <div class="footer">
+          <p>六个目录已接入 Web 教程, 每章都对照原始代码阅读。</p>
+          <p>键盘 ← / → 翻章。进度只存在本机浏览器。</p>
+        </div>
+      </nav>
+    </aside>
+    <!-- 拖动调目录宽度; 双击恢复默认, 聚焦后左右方向键也能调 -->
+    <div class="side-resize" role="separator" aria-orientation="vertical" aria-label="拖动调整目录宽度"
+         :aria-valuenow="sideW" :aria-valuemin="SIDE_MIN" :aria-valuemax="SIDE_MAX" tabindex="0"
+         @pointerdown.prevent="startResize" @dblclick="sideW = SIDE_DEFAULT"
+         @keydown.left.prevent="sideW -= 16" @keydown.right.prevent="sideW += 16" />
+
+    <main class="main">
+      <router-view v-slot="{ Component, route }">
+        <div v-if="route.meta.chapter" class="breadcrumb">
+          {{ route.meta.chapter }} · {{ route.meta.title }}
+          <span class="crumb-tier" :class="tierOf(route.name)">
+            {{ isSprint(route.name) ? '★ 冲刺' : TIER_META[tierOf(route.name)].label }}
+          </span>
+          <span class="crumb-desc">{{ isSprint(route.name) ? '只有一天也要读的 12 章之一' : TIER_META[tierOf(route.name)].desc }}</span>
+        </div>
+        <transition name="page" mode="out-in">
+          <component :is="Component" :key="route.fullPath" />
+        </transition>
+      </router-view>
+    </main>
+  </div>
+</template>
+
+<script setup>
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { learningPath, stages } from '@/data/models.js'
+import { LEVELS, TIER_META, inLevel, isSprint, tierOf } from '@/data/tiers.js'
+import { repoUrl } from '@/utils/repo.js'
+import { useProgress } from '@/composables/useProgress.js'
+
+const router = useRouter()
+const route = useRoute()
+
+// ── 学习进度 + 窄屏抽屉 ─────────────────────────────────────────────
+const progress = useProgress()
+const navOpen = ref(false)
+const level = computed(() => progress.state.level)
+// 当前所在章即使不在档位里也要显示, 否则筛选会让人丢失位置
+const shown = (s) => (s.chapters || []).filter((c) => inLevel(c.route, level.value) || c.route === route.name)
+const hiddenCount = (s) => (s.chapters || []).length - shown(s).length
+
+// ── 目录宽度: 可拖, 存本机 ──────────────────────────────────────────
+const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 260, SIDE_KEY = 'llm-side-w'
+const clampW = (w) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, Math.round(w)))
+const sideW = ref(clampW(Number((() => { try { return localStorage.getItem(SIDE_KEY) } catch (_) { return null } })()) || SIDE_DEFAULT))
+watch(sideW, (w) => {
+  if (clampW(w) !== w) { sideW.value = clampW(w); return }
+  try { localStorage.setItem(SIDE_KEY, String(w)) } catch (_) { /* 隐私模式下不记 */ }
+})
+const startResize = () => {
+  const move = (e) => { sideW.value = clampW(e.clientX) }
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up)
+    document.body.classList.remove('side-resizing')
+  }
+  addEventListener('pointermove', move); addEventListener('pointerup', up)
+  document.body.classList.add('side-resizing')
+}
+
+const readCount = computed(() => learningPath.filter((p) => progress.isVisited(p.route)).length)
+watch(() => route.name, (name) => { progress.visit(name); navOpen.value = false }, { immediate: true })
+
+// ── 键盘 ← / → 翻章 (焦点在输入控件里时不抢键, 否则滑杆没法用方向键) ────
+const onKey = (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey) return
+  // 实验台里的拖拽手柄、目录拖宽把手自己处理方向键 (.prevent), 这里不再翻章
+  if (e.defaultPrevented || e.target.closest?.('[role="slider"], [role="separator"]')) return
+  if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return
+  const i = learningPath.findIndex((p) => p.route === route.name)
+  const to = e.key === 'ArrowRight' ? learningPath[i + 1] : e.key === 'ArrowLeft' ? learningPath[i - 1] : null
+  if (i >= 0 && to) router.push({ name: to.route })
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+const subIdx = (stage, route) =>
+  (stage.chapters || []).findIndex(c => c.route === route) + 1
+
+const openStages = ref(Object.fromEntries(stages.map(s => [s.id, true])))
+const isStageOpen = (id) => openStages.value[id] !== false
+const toggleStage = (id) => {
+  openStages.value = { ...openStages.value, [id]: !isStageOpen(id) }
+}
+
+watch(
+  () => route.meta.stage,
+  (stage) => {
+    if (stage) openStages.value = { ...openStages.value, [stage]: true }
+  },
+  { immediate: true },
+)
+
+// ── 主题切换 ──────────────────────────────────────────────────────
+const THEME_KEY = 'llm-theme'
+const initialTheme = (() => {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch (_) { /* localStorage 不可用时降级 */ }
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  }
+  return 'dark'
+})()
+const theme = ref(initialTheme)
+const applyTheme = (t) => { document.documentElement.dataset.theme = t }
+applyTheme(theme.value)
+onMounted(() => applyTheme(theme.value))
+watch(theme, (t) => {
+  applyTheme(t)
+  try { localStorage.setItem(THEME_KEY, t) } catch (_) { /* ignore */ }
+})
+const toggleTheme = () => { theme.value = theme.value === 'dark' ? 'light' : 'dark' }
+</script>
+
+<style scoped>
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.level-bar { display: flex; gap: 4px; padding: 0 24px 10px; }
+.level-btn { flex: 1; min-height: 28px; padding: 3px 0; font-size: 11px; border-radius: var(--radius-sm); }
+.nav-link.fast { color: var(--accent); font-size: 12.5px; }
+.chapter-label { min-width: 0; }
+.tier-dot { font-size: 9px; margin-right: 5px; vertical-align: 1px; }
+.tier-dot.core { color: var(--accent); }
+.tier-dot.ext { color: var(--text-dim); }
+.more-hint { padding: 4px 24px 6px 38px; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+.crumb-tier { margin-left: 8px; padding: 1px 6px; border-radius: 3px; font-size: 10px; border: 1px solid var(--border-strong); }
+.crumb-tier.core { color: var(--accent); border-color: var(--accent); }
+.crumb-tier.ext { color: var(--text-dim); }
+.crumb-desc { margin-left: 6px; font-size: 11px; color: var(--text-dim); }
+.progress { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 10px; color: var(--text-dim); }
+.progress-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: var(--left); transition: width 0.3s; }
+.mark { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+.mark.done { color: var(--left); }
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--border-strong);
+  padding-bottom: 1px;
+  width: max-content;
+}
+.repo-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+.gh-icon { font-size: 10px; color: var(--accent); }
+
+.footer {
+  padding: 8px 24px 24px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.footer p { margin-top: 4px; }
+
+.planned-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.nav-stage {
+  margin: 2px 0 4px;
+}
+.stage-toggle {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text);
+  text-align: left;
+}
+.stage-toggle:hover {
+  background: var(--bg-card);
+  border-left-color: var(--border-strong);
+}
+.stage-toggle .idx {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.stage-toggle-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.chevron {
+  color: var(--text-dim);
+  font-size: 12px;
+  transition: transform 0.15s;
+}
+.nav-stage.open .chevron { transform: rotate(180deg); }
+.stage-links {
+  padding: 1px 0 5px;
+}
+.nav-link.sub { padding-left: 38px; font-size: 12.5px; }
+.nav-link.sub .idx { width: 34px; }
+.nav-link.overview { color: var(--text); }
+.nav-link.disabled {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 24px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-left: 2px solid transparent;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.nav-link.disabled .idx { background: transparent; }
+
+.page-enter-active, .page-leave-active {
+  transition: opacity 0.18s, transform 0.18s;
+}
+.page-enter-from { opacity: 0; transform: translateY(4px); }
+.page-leave-to   { opacity: 0; transform: translateY(-4px); }
+</style>

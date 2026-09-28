@@ -1,0 +1,935 @@
+<template>
+  <div>
+    <h1 class="page-title">注意力的四代演进</h1>
+    <div class="page-subtitle lead-group">
+      <p>
+        每生成一个 token, 模型都要把整段 KV cache 读一遍。上下文拉到 128K 时, 这份 cache 比模型权重还占地方,
+        而且每一步都在重读。
+      </p>
+      <p>
+        MHA → MQA → GQA → MLA → DSA 这一路, 全都在回答同一个问题。
+        <strong>怎么在不掉点的前提下, 把每层每个 token 要缓存的东西再变小一点?</strong>
+      </p>
+      <p>真实模型上, 一个 token 在全部层上的 KV: LLaMA-2-7B 512 KiB → LLaMA-3-8B 128 KiB → DeepSeek-V3 68.6 KiB。</p>
+    </div>
+
+    <ChapterIntro
+      tldr="八年里 attention 的公式一个字没改 ($\mathrm{softmax}(QK^\top)\cdot V$), 换的只是 K/V 怎么存: 先砍头数, 再压低秩, 最后干脆只算一部分。"
+      question="自回归推理时, 每层每个 token 缓存的 K、V 还能不能再小?"
+      :goals="[
+        '说清 MHA / GQA / MLA / DSA 各自省的是哪一块',
+        '算出「头数 / KV 头数 / 压缩维 / 稀疏 top-k」变化时 cache 怎么变',
+        '对着源码认出每一种注意力的 forward 差在哪几行',
+      ]"
+      :codes="[{ path: 'llm_models/layers/core/attention.py' }]"
+      :prereq="{ name: 'home', label: '总览时间轴' }"
+      :next-step="{ name: 'position', label: '位置编码 — RoPE 是怎么注入到 Q/K 的' }"
+    />
+
+    <EvolutionChain
+      title="演进逻辑链 · 每一代都在补上一代的窟窿"
+      subtitle="顺着箭头读一遍: 上一代哪里疼 → 这一代怎么止疼 → 止完又露出什么新疼。四步都是同一个形状。"
+      :steps="evoSteps"
+    />
+
+    <!-- 先建立实验任务，再让读者替换内部机制。 -->
+    <section class="concept-workbench card" aria-labelledby="attention-workbench-title">
+      <div class="workbench-heading">
+        <span class="eyebrow">INTERACTIVE MENTAL MODEL</span>
+        <div>
+          <h2 id="attention-workbench-title">先把任务钉死，再换「KV 怎么存」</h2>
+          <p>
+            下面是一次对照实验：上下文长度和模型宽度都不动，只换 Attention 方案。
+            这样柱图的差别就只可能来自存储机制本身，而不是你顺手改了参数口径。
+          </p>
+        </div>
+      </div>
+
+      <ol class="learning-steps" aria-label="交互阅读顺序">
+        <li><span>1</span><strong>选上下文</strong><small>要记住多少个 token</small></li>
+        <li><span>2</span><strong>换 Attention</strong><small>看 K/V 换了种存法</small></li>
+        <li><span>3</span><strong>读结果</strong><small>说出显存和算力各差多少</small></li>
+      </ol>
+
+      <fieldset class="context-presets">
+        <legend>第一步 · 挑一个真实的阅读场景</legend>
+        <div class="preset-grid">
+          <button
+            v-for="preset in contextPresets"
+            :key="preset.id"
+            type="button"
+            :class="{ active: activePresetId === preset.id }"
+            :aria-pressed="activePresetId === preset.id"
+            @click="applyContextPreset(preset)"
+          >
+            <span>{{ preset.label }}</span>
+            <small>{{ preset.hint }}</small>
+          </button>
+        </div>
+      </fieldset>
+
+      <div class="preset-readout" aria-live="polite" aria-atomic="true">
+        <span class="readout-kicker">当前实验</span>
+        <strong>{{ activePresetLabel }}</strong>
+        <span>
+          {{ formatT(p.T) }} tokens × d_model {{ p.d_model }}。
+          接下来只动 Attention 这一项，看存法换了之后数字怎么走。
+        </span>
+      </div>
+    </section>
+
+    <!-- 顶部 variant 切换 + paper cite -->
+    <div class="variant-tabs" role="group" aria-label="第二步 · 选择 Attention 方案">
+      <button
+        v-for="(v, index) in variants"
+        :key="v.id"
+        type="button"
+        :class="{ active: current.id === v.id }"
+        :aria-pressed="current.id === v.id"
+        @click="current = v"
+      >
+        <span class="variant-index" aria-hidden="true">{{ index + 1 }}</span>
+        <span class="variant-name">{{ v.name }}</span>
+        <span class="yr">{{ v.year }}</span>
+      </button>
+    </div>
+
+    <section
+      class="concept-bridge"
+      :style="{ '--variant-color': current.color }"
+      aria-labelledby="current-concept-title"
+    >
+      <div class="bridge-heading">
+        <span class="eyebrow">第二步 · 现在用的是哪种</span>
+        <h2 id="current-concept-title">{{ current.fullName }}</h2>
+        <Prose :text="current.description" />
+      </div>
+      <div class="causal-flow" aria-live="polite" aria-atomic="true">
+        <article>
+          <span class="causal-label">输入</span>
+          <strong>{{ conceptStory.input }}</strong>
+          <p>{{ conceptStory.inputNote }}</p>
+        </article>
+        <span class="causal-arrow" aria-hidden="true">→</span>
+        <article class="mechanism">
+          <span class="causal-label">内部机制</span>
+          <strong>{{ conceptStory.mechanism }}</strong>
+          <p>{{ conceptStory.mechanismNote }}</p>
+        </article>
+        <span class="causal-arrow" aria-hidden="true">→</span>
+        <article class="outcome">
+          <span class="causal-label">可观察结果</span>
+          <strong>{{ conceptStory.outcome }}</strong>
+          <p>{{ conceptStory.outcomeNote }}</p>
+        </article>
+      </div>
+      <div class="concept-takeaway">
+        <span>一句话带走</span>
+        <strong>{{ conceptStory.takeaway }}</strong>
+      </div>
+    </section>
+
+    <!-- 主布局: 左参数, 中公式/数据, 右可视化 -->
+    <div class="grid grid-2" style="gap: 20px;">
+      <!-- 左: 参数 + 公式 -->
+      <div class="card">
+        <h3>参数调节 <span class="tag">interactive</span></h3>
+        <Prose class="desc" style="margin-bottom: 12px;" :text="current.description" />
+        <div class="form-row">
+          <label for="attention-seq-length">序列长度 T</label>
+          <input id="attention-seq-length" type="range" min="128" max="131072" step="128" v-model.number="p.T" />
+          <span class="val">{{ formatT(p.T) }}</span>
+        </div>
+        <div class="form-row">
+          <label for="attention-model-width">模型宽度 d_model</label>
+          <input id="attention-model-width" type="range" min="512" max="8192" step="128" v-model.number="p.d_model" />
+          <span class="val">{{ p.d_model }}</span>
+        </div>
+        <div class="form-row">
+          <label for="attention-query-heads">查询头数 n_heads</label>
+          <input id="attention-query-heads" type="range" min="4" max="64" step="2" v-model.number="p.n_heads" />
+          <span class="val">{{ p.n_heads }}</span>
+        </div>
+        <div v-if="current.id === 'gqa'" class="form-row">
+          <label for="attention-kv-heads">KV 头数 num_kv_heads</label>
+          <input id="attention-kv-heads" type="range" :min="1" :max="p.n_heads" step="1" v-model.number="p.num_kv_heads" />
+          <span class="val">{{ p.num_kv_heads }}</span>
+        </div>
+        <div v-if="current.id === 'mla' || current.id === 'dsa'" class="form-row">
+          <label for="attention-kv-rank">KV 压缩维 kv_lora_rank</label>
+          <input id="attention-kv-rank" type="range" min="64" max="1024" step="32" v-model.number="p.kv_lora_rank" />
+          <span class="val">{{ p.kv_lora_rank }}</span>
+        </div>
+        <div v-if="current.id === 'mla' || current.id === 'dsa'" class="form-row">
+          <label for="attention-rope-dim">位置维 qk_rope_head_dim</label>
+          <input id="attention-rope-dim" type="range" min="16" max="128" step="8" v-model.number="p.qk_rope_head_dim" />
+          <span class="val">{{ p.qk_rope_head_dim }}</span>
+        </div>
+        <div v-if="current.id === 'dsa'" class="form-row">
+          <label for="attention-sparse-top-k">稀疏候选 sparse_top_k</label>
+          <input id="attention-sparse-top-k" type="range" :min="32" :max="Math.min(2048, p.T)" step="32" v-model.number="p.sparse_top_k" />
+          <span class="val">{{ p.sparse_top_k }}</span>
+        </div>
+
+        <div class="formula-box">
+          <Tex :text="current.formula" />
+        </div>
+
+        <p class="parameter-feedback" aria-live="polite" aria-atomic="true">
+          每来一个新 token，本层往 cache 里再写
+          <strong class="mono">{{ formatBytes(cacheBytesPerToken(current)) }}</strong>；
+          当前整段上下文已经占了
+          <strong class="mono">{{ formatBytes(cacheBytes(current)) }}</strong>。
+        </p>
+
+        <div class="trade" style="margin-top: 16px;">
+          <div class="tr-item">
+            <span class="ok">✓</span>
+            <span>{{ current.pros }}</span>
+          </div>
+          <div class="tr-item">
+            <span class="no">✗</span>
+            <span>{{ current.cons }}</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px; font-size: 11px; color: var(--text-dim);">
+          <span class="mono">{{ current.paper }}</span>
+          · 使用模型: <span class="mono">{{ current.usedIn.join(', ') }}</span>
+        </div>
+      </div>
+
+      <!-- 右: KV cache 横向对比柱图 -->
+      <div class="card">
+        <h3>整段 KV cache 对比 <span class="tag">单层 · B=1 · fp16</span></h3>
+        <p class="desc" style="margin-bottom: 16px;">
+          在 <span class="mono">T={{ formatT(p.T) }}</span>、<span class="mono">d_model={{ p.d_model }}</span>、
+          <span class="mono">n_heads={{ p.n_heads }}</span> 下，一层要存下<strong>整段上下文</strong>需要多少 KV cache。
+          柱越短，解码时每一步要重读的字节就越少。
+        </p>
+        <div class="bars" aria-label="四种 Attention 的单层 KV cache 对比">
+          <div v-for="v in variants" :key="v.id" class="bar-row" :class="{ current: v.id === current.id }">
+            <div class="bar-label">
+              <span class="bar-name">{{ v.name }}</span>
+              <span class="bar-sub mono">{{ formatBytes(cacheBytes(v)) }}</span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill"
+                   :style="{ width: barPct(v) + '%', background: v.color }"></div>
+            </div>
+            <div class="bar-rel mono">{{ relToMHA(v) }}</div>
+          </div>
+        </div>
+
+        <div class="hero-stat">
+          <div class="stat">
+            <div class="k">新增 1 token / 层</div>
+            <div class="v accent">{{ formatBytes(cacheBytesPerToken(current)) }}</div>
+            <div class="hint">每解码一步往 cache 里追加这么多</div>
+          </div>
+          <div class="stat">
+            <div class="k">当前上下文 / 层</div>
+            <div class="v">{{ formatBytes(cacheBytes(current) * 1) }}</div>
+            <div class="hint">相对 MHA: {{ relToMHA(current) }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">128 层合计</div>
+            <div class="v">{{ formatBytes(cacheBytes(current) * 128) }}</div>
+            <div class="hint">只算 KV, 没算 batch 和其他激活</div>
+          </div>
+          <div class="stat">
+            <div class="k">整段要算多少对 (q, k)</div>
+            <div class="v">{{ formatFlops(flopsPerQuery) }}</div>
+            <div class="hint"><Tex text="拉长 $T$ 看它是按 $T^2$ 还是按 $T\cdot k$ 涨" /></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Attention 矩阵可视化 -->
+    <section class="section">
+      <h2>Attention 矩阵可视化</h2>
+      <div class="lead-group">
+        <p>一行是一个 query, 一列是一个 key。格子颜色越深, 这个 query 越在看那个 key。</p>
+        <p>
+          右上三角被因果 mask 屏蔽, 谁也看不见未来。
+          <span v-if="current.id === 'dsa'">DSA 只在 top-k 个位置上有权重, 所以左下三角也大片是空的。</span>
+        </p>
+      </div>
+      <div class="card">
+        <div class="matrix-grid">
+          <svg
+            :viewBox="`0 0 ${matrixSize} ${matrixSize}`"
+            width="100%"
+            :height="matrixSize"
+            style="max-width: 480px; border: 1px solid var(--border);"
+            role="img"
+            :aria-label="matrixAriaLabel"
+          >
+            <rect v-for="cell in matrixCells" :key="cell.i + ':' + cell.j"
+                  :x="cell.j * cellSize" :y="cell.i * cellSize"
+                  :width="cellSize - 0.5" :height="cellSize - 0.5"
+                  :fill="cell.color" />
+          </svg>
+          <div class="legend-attn">
+            <div class="legend-strip">
+              <span v-for="i in 10" :key="i"
+                    :style="{ background: colorFor(i / 10) }"></span>
+            </div>
+            <div class="legend-labels mono">
+              <span>0</span><span>权重</span><span>1</span>
+            </div>
+            <p class="desc" style="margin-top: 16px; max-width: 280px;">
+              N = <span class="mono">{{ N }}</span> 个 token 的因果注意力矩阵。
+              <span v-if="current.id === 'dsa'">sparse_top_k = <span class="mono">{{ Math.min(p.sparse_top_k, N) }}</span>, 每行仅亮 top-k 列。</span>
+            </p>
+            <p class="matrix-reading">{{ matrixReading }}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- mask 一族: 投影压缩之外的另一条降本路线 -->
+    <section class="section">
+      <h2>另外两条路线: 改 mask, 或者干脆不存 KV</h2>
+      <div class="lead-group">
+        <ul class="pts">
+          <li><b>压 KV 投影 (MHA→GQA→MLA):</b> 存的东西变小。</li>
+          <li><b>改 mask (Mistral / StreamingLLM / DSA):</b> 谁能看见谁。</li>
+          <li>
+            <b>线性注意力</b> (Gated DeltaNet, <RepoLink path="llm_models/layers/sparse/linear_attention.py" label="linear_attention.py" tiny />):
+            最狠, 用一个固定大小的状态矩阵把整个 KV cache 顶掉。Qwen3-Next 拿它换掉了 75% 的层, 剩下 25% 留全注意力兜底精确召回。
+          </li>
+        </ul>
+        <p>三条路线互不冲突, 可以叠着用。细节在「SWA · MTP · 混合线性」那一章。</p>
+      </div>
+      <AttnMaskLab />
+    </section>
+
+    <!-- 源码速览 -->
+    <section class="section">
+      <h2>核心代码</h2>
+      <p class="lead">你现在选中的这一档，在 <RepoLink path="llm_models/layers/core/attention.py" label="llm_models/layers/core/attention.py" tiny /> 里就是 <span class="mono">{{ classFor(current.id) }}</span> 这个类。四个类住在同一个文件里，可以直接对着看差在哪几行。</p>
+      <pre class="code" v-html="highlight(codeSnippet)"></pre>
+    </section>
+
+    <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 没配置时不渲染 -->
+
+    <LabMount />
+
+    <QuizCard />
+
+
+    <ChapterNav
+      :prev="{ name: 'home', label: '时间轴总览', hint: '回到 2017–2025 全景图' }"
+      :next="{ name: 'position', label: '位置编码 & RoPE', hint: '看完 attention 后, 再看 RoPE 是怎么注入 Q/K 的' }"
+    />
+  </div>
+</template>
+
+<script setup>
+import Tex from '@/components/Tex.vue'
+import LabMount from '@/components/LabMount.vue'
+import QuizCard from '@/components/QuizCard.vue'
+import Prose from '@/components/Prose.vue'
+import { ref, reactive, computed, watch } from 'vue'
+import { variants } from '@/data/attention.js'
+import ChapterIntro from '@/components/ChapterIntro.vue'
+import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
+import RepoLink from '@/components/RepoLink.vue'
+import AttnMaskLab from '@/components/labs/AttnMaskLab.vue'
+
+const evoSteps = [
+  { name: 'MHA', year: 2017, color: '#9ca3af',
+    pain: '(原点) 每个头一对独立的 K/V', fix: '表达力拉满, 起点就是上限, 代价留给了八年后的推理' },
+  { name: 'MQA / GQA', year: '2019 / 2023', color: '#60a5fa',
+    pain: 'KV cache $= 2\\cdot T\\cdot d_{\\text{model}}$, 上下文翻倍显存就翻倍', fix: '多个 Q 头共用一对 K/V: cache ÷ groups, 几乎不掉点 (教学配置 1024 → 256 个数)' },
+  { name: 'MLA', year: 2024, color: '#34d399',
+    pain: '头数已经砍到底了, cache 还是和 d_model 成正比', fix: 'K/V 一次低秩压成 c_kv, 外加一小段共享的 RoPE key; 只存这两样, 用时现场升维 (256 → 96 个数)' },
+  { name: 'DSA', year: 2025, color: '#f472b6',
+    pain: 'cache 压下去了, 但 128K 上下文的 $O(T^2)$ 算力还在', fix: '便宜的 Lightning Indexer 先粗选 top-k, 昂贵的注意力只算这 k 个: $O(T^2) \\to O(T\\cdot k)$' },
+]
+
+const contextPresets = [
+  { id: 'chat', label: '日常对话 · 4K', hint: '约 10–20 页文本', T: 4096 },
+  { id: 'document', label: '长文档 · 32K', hint: '整篇论文或代码库片段', T: 32768 },
+  { id: 'long-context', label: '超长上下文 · 128K', hint: '显存与计算差异被放大', T: 131072 },
+]
+
+const current = ref(variants[0])
+
+const p = reactive({
+  T: 4096,
+  d_model: 4096,
+  n_heads: 32,
+  num_kv_heads: 8,
+  kv_lora_rank: 512,
+  qk_rope_head_dim: 64,
+  sparse_top_k: 512,
+})
+
+const applyContextPreset = (preset) => {
+  p.T = preset.T
+}
+
+const activePresetId = computed(() =>
+  contextPresets.find((preset) => preset.T === p.T)?.id || 'custom'
+)
+const activePresetLabel = computed(() =>
+  contextPresets.find((preset) => preset.id === activePresetId.value)?.label || '自定义上下文'
+)
+
+// 保证 num_kv_heads ≤ n_heads 且可整除
+watch(() => p.n_heads, () => {
+  if (p.num_kv_heads > p.n_heads) p.num_kv_heads = p.n_heads
+  // 简单兼容: 找到最近的约数
+  while (p.n_heads % p.num_kv_heads !== 0 && p.num_kv_heads > 1) p.num_kv_heads--
+})
+
+const cacheBytes = (v) => v.cache({
+  T: p.T,
+  d_model: p.d_model,
+  n_heads: p.n_heads,
+  num_kv_heads: v.id === 'gqa' ? p.num_kv_heads : v.id === 'mha' ? p.n_heads : 1,
+  kv_lora_rank: p.kv_lora_rank,
+  qk_rope_head_dim: p.qk_rope_head_dim,
+}) * 2  // fp16
+
+const cacheBytesPerToken = (v) => v.cache({
+  T: 1,
+  d_model: p.d_model,
+  n_heads: p.n_heads,
+  num_kv_heads: v.id === 'gqa' ? p.num_kv_heads : v.id === 'mha' ? p.n_heads : 1,
+  kv_lora_rank: p.kv_lora_rank,
+  qk_rope_head_dim: p.qk_rope_head_dim,
+}) * 2
+
+const mhaBytes = computed(() => variants[0].cache({ T: p.T, d_model: p.d_model, n_heads: p.n_heads }) * 2)
+const maxBytes = computed(() => Math.max(...variants.map(cacheBytes)))
+const barPct = (v) => (cacheBytes(v) / maxBytes.value) * 100
+const relToMHA = (v) => {
+  const ratio = cacheBytes(v) / mhaBytes.value
+  if (ratio < 0.001) return (ratio * 1000).toFixed(2) + '‰'
+  return (ratio * 100).toFixed(1) + '%'
+}
+
+const flopsPerQuery = computed(() => {
+  if (current.value.id === 'dsa') return p.T * Math.min(p.sparse_top_k, p.T)
+  return p.T * p.T
+})
+
+const conceptStory = computed(() => {
+  const shared = {
+    input: `${formatT(p.T)} tokens × ${p.d_model} 维`,
+    inputNote: `每层 ${p.n_heads} 个 Q 头；换方案时上下文和模型宽度都不动。`,
+    outcome: `${formatBytes(cacheBytes(current.value))} / 层`,
+    outcomeNote: `每多 1 个 token 就再写入 ${formatBytes(cacheBytesPerToken(current.value))}；相对 MHA 是 ${relToMHA(current.value)}。`,
+  }
+
+  const stories = {
+    mha: {
+      mechanism: `${p.n_heads} 个 Q 头各存一组 K/V`,
+      mechanismNote: '不共享也不压缩，是后面三种方案的比较基线。',
+      takeaway: 'MHA 表达力最满，但上下文翻一倍，KV cache 就跟着翻一倍。',
+    },
+    gqa: {
+      mechanism: `${p.n_heads} 个 Q 头共用 ${p.num_kv_heads} 组 K/V`,
+      mechanismNote: `每 ${Math.max(1, p.n_heads / p.num_kv_heads).toFixed(0)} 个 Q 头复用一组 K/V；Q 的数量一个没减。`,
+      takeaway: 'GQA 砍掉的是“重复存了好多份的 K/V 头”，上下文没变短，注意力公式也一行没改。',
+    },
+    mla: {
+      mechanism: `K/V 先压成 ${p.kv_lora_rank} 维的 latent`,
+      mechanismNote: `只缓存 c_kv 加一段 ${p.qk_rope_head_dim} 维的共享位置向量，要用时现场升维还原 K/V。`,
+      takeaway: 'MLA 把“存完整 K/V”换成“存一个能还原出 K/V 的压缩件”，多算一点，换 cache 小一截。',
+    },
+    dsa: {
+      mechanism: `MLA 的压缩照旧 + 每个 query 只挑 ${Math.min(p.sparse_top_k, p.T)} 个位置算`,
+      mechanismNote: 'K/V 还是全存着（每个旧位置都可能被未来某个 query 选中），省的是 softmax 要处理多少个位置。',
+      takeaway: 'DSA 分两刀砍：MLA 那一刀砍显存，top-k 这一刀砍超长上下文的算力, 不省 cache。',
+    },
+  }
+
+  return { ...shared, ...stories[current.value.id] }
+})
+
+const formatT = (t) => t >= 1024 ? (t / 1024).toFixed(t % 1024 === 0 ? 0 : 1) + 'K' : String(t)
+const formatBytes = (b) => {
+  if (b < 1024) return b.toFixed(0) + ' B'
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB'
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+}
+const formatFlops = (f) => {
+  if (f < 1e6) return f.toFixed(0)
+  if (f < 1e9) return (f / 1e6).toFixed(1) + 'M'
+  return (f / 1e9).toFixed(2) + 'G'
+}
+
+// --- Attention 矩阵可视化 ---
+const N = 24  // 显示用的小矩阵
+const matrixSize = 320
+const cellSize = matrixSize / N
+
+const matrixCells = computed(() => {
+  const cells = []
+  for (let i = 0; i < N; i++) {
+    // 每行的分数: 近距离 + 一些随机热点, 因果 mask 使 j > i 为 0
+    const scores = new Array(N).fill(0)
+    for (let j = 0; j <= i; j++) {
+      const dist = i - j
+      // 模拟真实 attention: 相邻衰减 + 几个高分
+      scores[j] = Math.exp(-dist * 0.12) + 0.25 * Math.sin(j * 0.7 + i * 0.3) + 0.2
+      scores[j] = Math.max(0, scores[j])
+    }
+    // 对当前 variant 做处理
+    if (current.value.id === 'dsa') {
+      const k = Math.min(p.sparse_top_k >> 5, Math.min(8, i + 1))  // 缩放到小矩阵
+      // 保留 top-k 最大的
+      const top = [...scores.map((s, idx) => ({ s, idx }))].sort((a, b) => b.s - a.s).slice(0, k)
+      const keep = new Set(top.map(x => x.idx))
+      for (let j = 0; j < N; j++) if (!keep.has(j)) scores[j] = 0
+    }
+    // 归一化 (softmax 简化)
+    const sum = scores.reduce((a, b) => a + b, 0) || 1
+    for (let j = 0; j < N; j++) {
+      const w = scores[j] / sum
+      cells.push({ i, j, color: colorFor(w * 2.5) })  // 放大可视度
+    }
+  }
+  return cells
+})
+
+const matrixReading = computed(() => current.value.id === 'dsa'
+  ? '怎么读：右上角空着，是因为看不到未来；左下三角里只剩零星几个色块，那就是 indexer 挑出来的 top-k 个位置。'
+  : '怎么读：右上角空着，是因为看不到未来；左下三角某格颜色越深，说明这个 token 越依赖那个历史位置。'
+)
+
+const matrixAriaLabel = computed(() =>
+  `${current.value.name} 的 ${N}×${N} 因果注意力矩阵。${matrixReading.value}`
+)
+
+function colorFor(w) {
+  w = Math.min(1, Math.max(0, w))
+  // 白 → 靛蓝, 亮度单调变暗: 权重 0 (含被 mask 的格子) 是白色, 越大越深
+  const stops = [
+    { t: 0,    c: [255, 255, 255] },
+    { t: 0.25, c: [199, 210, 254] },
+    { t: 0.5,  c: [129, 140, 248] },
+    { t: 0.75, c: [79, 70, 229] },
+    { t: 1,    c: [49, 46, 129] },
+  ]
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (w <= stops[i + 1].t) {
+      const t = (w - stops[i].t) / (stops[i + 1].t - stops[i].t)
+      const c = stops[i].c.map((a, k) => Math.round(a + (stops[i + 1].c[k] - a) * t))
+      return `rgb(${c[0]},${c[1]},${c[2]})`
+    }
+  }
+  return `rgb(${stops.at(-1).c.join(',')})`
+}
+
+// --- 代码片段 ---
+const classFor = (id) => ({
+  mha: 'MultiHeadAttention', gqa: 'GroupedQueryAttention',
+  mla: 'MultiHeadLatentAttention', dsa: 'MultiHeadLatentSparseAttention',
+}[id])
+
+const codeSnippet = computed(() => {
+  const snippets = {
+    mha: `class MultiHeadAttention(nn.Module):
+    """原始 MHA (Vaswani et al., 2017)"""
+    def __init__(self, d_model, num_heads):
+        super().__init__()
+        self.d_head = d_model // num_heads
+        self.heads = nn.ModuleList([
+            SingleHeadSelfAttention(d_model, self.d_head)
+            for _ in range(num_heads)
+        ])
+        self.w_o = nn.Linear(d_model, d_model)
+
+    def forward(self, q, k=None, v=None, mask=None):
+        # KV cache: num_heads · d_head = d_model (满)
+        outs = [h(q, k, v, mask) for h in self.heads]
+        return self.w_o(torch.cat(outs, dim=-1))`,
+    gqa: `class GroupedQueryAttention(nn.Module):
+    """GQA — Ainslie et al., 2023 (LLaMA-2 70B)"""
+    def __init__(self, d_model, num_heads, num_kv_heads=None):
+        super().__init__()
+        self.num_groups = num_heads // num_kv_heads  # 每组 Q 共享 1 对 KV
+        self.w_q = nn.Linear(d_model, num_heads    * head_dim)
+        self.w_k = nn.Linear(d_model, num_kv_heads * head_dim)  # ← 更小
+        self.w_v = nn.Linear(d_model, num_kv_heads * head_dim)
+
+    def forward(self, q, k=None, v=None, mask=None, rope=None):
+        Q = self.w_q(q).view(B, T, num_heads,    head_dim)
+        K = self.w_k(k).view(B, T, num_kv_heads, head_dim)
+        # 复制 num_groups 份, 对齐 Q
+        K = K.repeat_interleave(self.num_groups, dim=1)
+        # ... 标准 QK^T · V`,
+    mla: `class MultiHeadLatentAttention(nn.Module):
+    """MLA — DeepSeek-V2/V3, KV 低秩 + 解耦 RoPE"""
+    def __init__(self, d_model, num_heads, kv_lora_rank=512,
+                 qk_nope_head_dim=64, qk_rope_head_dim=32):
+        # KV 一次压成低秩 c_kv + 共享 k_rope
+        self.kv_down = nn.Linear(d_model, kv_lora_rank + qk_rope_head_dim)
+        self.k_up = nn.Linear(kv_lora_rank, num_heads * qk_nope_head_dim)
+        self.v_up = nn.Linear(kv_lora_rank, num_heads * v_head_dim)
+        # Q 也可低秩 (DeepSeek-V3 省训练显存)
+
+    def forward(self, x, rope=None):
+        kv_mix = self.kv_down(x)                    # [B, T, lora + rope]
+        c_kv, k_rope = torch.split(kv_mix, [lora, rope], dim=-1)
+        # nope 段走 latent, rope 段独立旋转
+        # 推理: 只缓存 c_kv + k_rope, 约 MHA 的 7%`,
+    dsa: `class MultiHeadLatentSparseAttention(nn.Module):
+    """DSA — DeepSeek-V3.2 (2025), MLA + Lightning Indexer"""
+    def __init__(self, d_model, num_heads, kv_lora_rank=512,
+                 indexer_heads=4, sparse_top_k=128):
+        self.mla = MultiHeadLatentAttention(...)
+        self.indexer = LightningIndexer(d_model, indexer_heads)
+        self.sparse_top_k = sparse_top_k
+
+    def forward(self, q, mask=None, rope=None):
+        # 1) 廉价 indexer 打分
+        idx_scores = self.indexer(q, mask=mask)       # [B, T, S]
+        # 2) 先按 mask 屏蔽不可见, 再取 top-k (否则可能泄漏未来)
+        sparse_mask = top_k_mask(idx_scores, mask, self.sparse_top_k)
+        # 3) MLA 只在 top-k 位置算 softmax
+        return self.mla(q, mask=sparse_mask, rope=rope)`
+  }
+  return snippets[current.value.id]
+})
+
+// 简易语法高亮
+function highlight(s) {
+  return s
+    .replace(/#.*$/gm, m => `<span class="cm">${m}</span>`)
+    .replace(/"""[\s\S]*?"""/g, m => `<span class="cm">${m}</span>`)
+    .replace(/\b(class|def|return|for|in|None|if|else|super|self|import|from)\b/g, '<span class="kw">$1</span>')
+    .replace(/\b(nn\.\w+|torch\.\w+|F\.\w+)\b/g, '<span class="fn">$1</span>')
+    .replace(/\b\d+\b/g, m => `<span class="num">${m}</span>`)
+}
+</script>
+
+<style scoped>
+.concept-workbench {
+  margin-bottom: 18px;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 11%, transparent), transparent 48%),
+    var(--bg-card);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.workbench-heading {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.eyebrow {
+  color: var(--accent);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+}
+.workbench-heading h2,
+.bridge-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.workbench-heading p,
+.bridge-heading p,
+.bridge-heading .prose {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.learning-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+  list-style: none;
+}
+.learning-steps li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 0 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+}
+.learning-steps li > span {
+  grid-row: 1 / 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+.learning-steps strong { font-size: 12.5px; }
+.learning-steps small { color: var(--text-muted); font-size: 10.5px; }
+.context-presets { border: 0; }
+.context-presets legend {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.preset-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 58px;
+  padding: 9px 12px;
+  text-align: left;
+}
+.preset-grid button span { font-size: 12.5px; font-weight: 600; }
+.preset-grid button small { margin-top: 2px; color: var(--text-muted); font-size: 10.5px; }
+.preset-grid button.active small { color: rgba(255, 255, 255, 0.76); }
+.preset-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--code-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.preset-readout strong { color: var(--text); }
+.readout-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.variant-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+}
+.variant-tabs button {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.variant-index {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+.variant-name { font-weight: 650; }
+.variant-tabs button .yr {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.variant-tabs button.active .yr { color: rgba(255,255,255,0.75); }
+.variant-tabs button.active .variant-index { background: rgba(255, 255, 255, 0.18); color: #fff; }
+
+.concept-bridge {
+  --variant-color: var(--accent);
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--variant-color) 44%, var(--border));
+  border-top: 3px solid var(--variant-color);
+  border-radius: var(--radius);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--variant-color) 8%, var(--bg-card)),
+    var(--bg-card) 55%
+  );
+}
+.bridge-heading {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 4px 18px;
+}
+.bridge-heading .eyebrow { grid-row: 1 / 3; color: var(--variant-color); }
+.causal-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+.causal-flow article {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+.causal-flow article.mechanism { border-color: color-mix(in srgb, var(--variant-color) 52%, var(--border)); }
+.causal-flow article.outcome { background: color-mix(in srgb, var(--variant-color) 7%, var(--bg-elev)); }
+.causal-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+.causal-flow strong { display: block; font-size: 13px; text-wrap: balance; }
+.causal-flow p { margin-top: 5px; color: var(--text-muted); font-size: 11.5px; line-height: 1.6; text-wrap: pretty; }
+.causal-arrow { align-self: center; color: var(--variant-color); font-size: 18px; }
+.concept-takeaway {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.concept-takeaway span { color: var(--variant-color); font-size: 10px; font-weight: 700; letter-spacing: 0.7px; }
+.concept-takeaway strong { font-size: 12.5px; line-height: 1.7; text-wrap: pretty; }
+
+.formula-box {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+.parameter-feedback {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+.parameter-feedback strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.trade { font-size: 13px; color: var(--text-muted); }
+.tr-item { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
+.tr-item .ok { color: var(--left); }
+.tr-item .no { color: var(--danger); }
+
+.bars { display: flex; flex-direction: column; gap: 12px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 70px;
+  gap: 12px;
+  align-items: center;
+  transition-property: margin, padding, background-color;
+  transition-duration: 200ms;
+  transition-timing-function: ease-out;
+}
+.bar-row.current { background: var(--bg-elev); margin: -6px -10px; padding: 6px 10px; border-radius: 6px; }
+.bar-label { display: flex; flex-direction: column; gap: 2px; }
+.bar-label .bar-name { font-size: 13px; font-weight: 500; }
+.bar-label .bar-sub { font-size: 11px; color: var(--text-muted); }
+.bar-track {
+  height: 22px;
+  background: var(--bg-elev);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+.bar-rel { font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+.hero-stat {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.matrix-grid {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.legend-attn { max-width: 320px; }
+.legend-strip {
+  display: flex;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.legend-strip span { flex: 1; }
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.matrix-reading {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+@media (max-width: 960px) {
+  .workbench-heading,
+  .bridge-heading { grid-template-columns: 1fr; }
+  .bridge-heading .eyebrow { grid-row: auto; }
+  .learning-steps,
+  .preset-grid { grid-template-columns: 1fr; }
+  .causal-flow {
+    grid-template-columns: 1fr;
+  }
+  .causal-arrow { justify-self: center; transform: rotate(90deg); }
+}
+
+@media (max-width: 720px) {
+  .variant-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .concept-workbench,
+  .concept-bridge { padding: 16px; }
+  .concept-takeaway { grid-template-columns: 1fr; gap: 4px; }
+  .bar-row { grid-template-columns: 88px minmax(90px, 1fr) 58px; gap: 8px; }
+  .hero-stat { grid-template-columns: 1fr; }
+}
+</style>

@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-engineering-lab"
+version = "0.5.0"
+description = "LLM 全栈教具库: 手写反向传播 → 模型架构 → 规模化训练 → 微调对齐 → 推理优化 → Agent"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "LLM Team", email = "llm@example.com"}
+]
+keywords = [
+    "llm",
+    "transformer",
+    "gpt",
+    "deepseek",
+    "attention",
+    "deep-learning",
+    "pytorch",
+    "nlp"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.20.0",
+    "torch>=1.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/beleev/llm-engineering-lab"
+Documentation = "https://beleev.github.io/llm-engineering-lab/"
+Repository = "https://github.com/beleev/llm-engineering-lab.git"
+Issues = "https://github.com/beleev/llm-engineering-lab/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_models*", "llm_finetune*", "llm_infer*", "llm_train*", "llm_agent*"]
+
+[tool.setuptools.package-data]
+# 教学用的非 .py 文件也要随包安装: SKILL.md (llm_agent/m05 的渐进式披露演示)、各模块 README
+"*" = ["*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312', 'py313']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --tb=short -m 'not slow'"
+markers = ["slow: 训练脚本, 每个几秒到几十秒 (pytest -m slow)"]
