@@ -9,6 +9,20 @@ export default {
       subtitle: '读完你能说清: 1,115,394 个字符怎么变成 train.bin 里的 1,003,854 个 token, 以及每个 batch 是从哪儿切出来的。',
       tldr: 'prepare.py 跑一次, 把 input.txt 固化成 train.bin / val.bin / meta.npz。\n之后训练只 memmap 读二进制, 词表再也不会变。',
       question: '既然 BPE 更省 token, 为什么这里训练用的是最笨的字符级 tokenizer?',
+      evolution: {
+        title: '词表大小和序列长度之间来回拉扯',
+        subtitle: '根问题: 网络只认整数 id, 而文本是开放的: 词表切太粗会缺词, 切太细序列太长。',
+        steps: [
+          { name: '按词切', pain: '(原点) 网络只会对数字做运算, 文本得先切块, 每块编一个整数 id',
+            fix: '按空格切, 一个词一个 id; 语料里没出现过的词、拼错的词都没有 id' },
+          { name: '字符级', pain: '词表跟着语料一直涨, 新词编不出来',
+            fix: '一个字符一个 id: Tiny Shakespeare 只要 65 个, 不缺词; 一个单词要 5~10 个 token' },
+          { name: 'BPE', year: 2016, pain: '序列拉长, 注意力是 $O(T^2)$; 模型还得自己学拼写',
+            fix: '反复把最高频的相邻对合并成新 token: 同一句话 60 个字符 → 24 个 token' },
+          { name: 'Byte-level BPE', year: 2019, pain: '合并从字符表起步, 训练时没见过的字符还是编不出来',
+            fix: '从 256 个字节起步再合并: 任何 UTF-8 文本都能编, 解码无损。bpe.py 写的就是这种' },
+        ],
+      },
       code: 'llm_basic/{prepare.py,tokenizer.py,bpe.py,input.txt,train.bin,val.bin,meta.npz}',
       points: [
         {
@@ -55,6 +69,20 @@ y:     [e, l, l, o]
       subtitle: '读完你能报出每一步的形状, 并说出每个 forward 往 cache 里塞了什么、为什么非塞不可。',
       tldr: 'ids [B,T] 一路走成 logits [B,T,V]。\n路径: embedding → n_layer 个 Pre-LN block → final norm → lm_head。\n每一步顺手把反向要用的中间量装进 cache 带回来。',
       question: '为什么 forward 不能只返回 logits, 还要拖着一长串 cache?',
+      evolution: {
+        title: '让每个位置都看得见全部前文',
+        subtitle: '根问题: 前文有长有短, 模型却要把它变成一个固定长度 V 的分布。',
+        steps: [
+          { name: 'Bigram 计数表', pain: '(原点) 猜下一个字要看前文, 前文的组合数随长度指数增长',
+            fix: '只看前 1 个字, 查一张 [V,V] 计数表; 再往前的上下文全丢了' },
+          { name: '窗口 MLP', year: 2003, pain: '看前 n 个字, 计数表就要 $V^n$ 格, 大多数格从没出现过',
+            fix: 'embedding 把 id 变成 D 维向量, 拼起窗口过 MLP, 相近的字共享统计; 窗口长度写死' },
+          { name: 'RNN', pain: '窗口外的字看不见, 窗口每加长一格参数就跟着涨',
+            fix: '隐状态逐字往后传, 能装下全部前文; 代价: T 个位置只能排队一个个算' },
+          { name: 'Causal Transformer', year: 2017, pain: 'RNN 要排队算 T 步, 远处的字要被转手 T 次才到',
+            fix: 'causal attention 让每个位置直接读全部前文, T 个位置一次算完; 顺序靠 pos_emb 补' },
+        ],
+      },
       code: 'llm_basic/model.py:{embedding_forward,rmsnorm_forward,attention_forward,block_forward,transformer_forward}',
       points: [
         {
@@ -104,6 +132,20 @@ y:     [e, l, l, o]
       subtitle: '读完你能指着任意一个 *_backward, 说出它从 cache 里取了什么、为什么必须取。写错了怎么被抓出来, 你也能说清。',
       tldr: '反向就是把 forward 倒着走一遍。\n从 dlogits = (p − onehot)/N 出发, 每个 backward 从 cache 取中间量, 算出 dx 往前递。\n写错不会报错, 所以 gradcheck 必须跑。',
       question: '把 np.add.at 写成 +=, loss 照样往下掉, 那我怎么知道反向写错了?',
+      evolution: {
+        title: '先算出梯度, 再证明它没算错',
+        subtitle: '根问题: 每一步都要 loss 对 45,568 个参数各自的导数, 而这里没有 autograd。',
+        steps: [
+          { name: '数值差分', pain: '(原点) 想知道每个参数动一点点, loss 会变多少',
+            fix: '逐个参数加减 $\\varepsilon$ 各跑一次前向; 一步训练就要 2 × 45,568 次前向' },
+          { name: '反向传播', year: 1986, pain: '差分要为每个参数单独跑前向, 参数越多越算不动',
+            fix: '链式法则从 loss 往回乘: 1 次前向 + 1 次反向拿到全部梯度; 前向中间量得存下来' },
+          { name: 'forward / backward 成对', pain: '整个 GPT 的导数写成一个式子太长, 手推不出来',
+            fix: '每个算子写一对函数, cache 存中间量; 整模型的反向就是把前向倒着走一遍' },
+          { name: 'gradcheck', pain: '手写反向漏一项、转置写反都不报错, loss 照样下降',
+            fix: '请回第一步的差分当裁判: 它慢但不会错, 逐算子逐元素对答案' },
+        ],
+      },
       code: 'llm_basic/model.py:*_backward · llm_basic/gradcheck.py',
       points: [
         {
@@ -154,6 +196,20 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
       subtitle: '读完你能说清 Adam 每步到底走多远, 以及生成为什么只能一个 token 一个 token 往外挤。',
       tldr: '- Adam: 一阶矩定方向, 二阶矩按坐标归一化步长。每步位移大约就是 lr。\n- 采样: 不再算 loss, 只取最后一个位置的 logits, 抽一个 token 接上去再来一遍。',
       question: '训练时 64 个位置一次算完, 生成时为什么只能一个一个来?',
+      evolution: {
+        title: '先把参数挪到位, 再把分布变成字',
+        subtitle: '根问题: 梯度只给方向不给步长; 训好的模型也只给分布, 不给字。',
+        steps: [
+          { name: 'SGD', pain: '(原点) 梯度指向 loss 上升最快的方向, 参数该往反方向挪多远?',
+            fix: '所有参数共用一个 lr: $W \\leftarrow W - \\text{lr}\\cdot g$; 可各层梯度尺度差几个数量级' },
+          { name: 'Adam', year: 2014, pain: '一个 lr 被最陡的方向卡死, 平缓的方向几乎不动',
+            fix: '每个坐标除以自己的 $\\sqrt{\\hat v}$, 每步约走 lr; 2000 步 loss 从 4.17 降到 2.0 左右' },
+          { name: '贪心解码', pain: '训完只拿到下一个字的分布 [V], 一个字还没写出来',
+            fix: '取 argmax 接上再前向; 自带 ckpt 实测几十个字后只剩 “the the the”' },
+          { name: 'temperature + top-k', pain: 'argmax 每步都挑最稳的字, 一旦进入循环就出不来',
+            fix: '按概率抽样: temperature 调分布尖平, top-k 砍掉长尾里离谱的字' },
+        ],
+      },
       code: 'llm_basic/{optim.py,sample.py,train.py}',
       points: [
         {

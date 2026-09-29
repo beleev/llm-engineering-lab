@@ -27,6 +27,16 @@ export default {
       subtitle: '读完你能算出一张卡同时放得下多少条序列, 并说清分页到底买到了什么。',
       tldr: '- KV cache: 因果 mask 下旧 token 的 K/V 不会因新 token 到来而改变, 存下来就别再算。累计过一遍模型的 token 数从 688 掉到 37 (18.6×)。\n- 分页: 省下的算力换成了显存压力, 于是把 KV 切成定长 block 用页表管。分页不让 attention 变快, 它买的是显存利用率。',
       question: '有了 KV cache 之后, decode 每步是不是就 O(1) 了?',
+      evolution: {
+        title: '从整块预留到按页记账',
+        subtitle: '根问题: KV cache 省掉了重算, 代价是按 token 线性吃显存, 而每条请求会写多长事先不知道。',
+        steps: [
+          { name: '按 max_len 连续预留', pain: '(原点) LLaMA-7B fp16 每 token 0.5 MiB, 4K 上下文一条 2 GiB', fix: '每条序列先占满 max_len 的连续显存; 只写 100 token 也占着 4096 个位置' },
+          { name: '按需拼接', pain: '预留的位置大多空着, vLLM 论文测得只有 20~40% 装着真数据', fix: '用多少长多少, 每步 concat 追加 (m01 的写法); 每次整块拷贝 O(T), 还留下大小不一的空洞' },
+          { name: '分页 + 页表', year: 2023, pain: '拷贝随长度变贵, 序列结束后留下的空洞大小不一, 填不上', fix: '切成定长 block, 每条序列一张页表把位置映射到物理块; 每条最多空 bs−1 个槽' },
+          { name: '引用计数 + 惰性回收', pain: '多条请求带同一段 system prompt, 各存一份一模一样的 KV', fix: 'ref_count > 1 就共享物理 block; free 只把它放回队列, 内容留到被覆盖, 前缀复用靠这一点' },
+        ],
+      },
       code: 'llm_infer/m01_kv_cache · llm_infer/m02_paged_attention (前缀复用另见「前缀复用 · hash 与 radix」)',
       points: [
         {
@@ -71,6 +81,16 @@ for _ in range(max_new - 1):
       subtitle: '读完你能说清"每步 token 预算"这一个旋钮, 怎么同时拧动 TBT 和 TTFT。',
       tldr: '- 静态 batch: 要等最长的那条。\n- 连续批: 调度粒度从 "一个请求" 缩到 "一步前向", 每步重问一遍谁进谁出。\n一条长 prompt 会把所有正在 decode 的用户卡住, 所以再加两道:\n- chunked prefill: 长 prompt 切块混进 decode 的 batch, 最大卡顿 297 → 52 ms。\n- P/D 分离: 干脆把两类负载放到不同节点。',
       question: '队首请求因为 block 不够而进不来, 这一步调度器该干什么?',
+      evolution: {
+        title: '调度粒度从请求缩到一步',
+        subtitle: '根问题: GPU 要攒一批一起算才划算, 请求却长短不一、随时到达, prefill 和 decode 还抢同一份算力。',
+        steps: [
+          { name: '静态 batch', pain: '(原点) 一次前向只算一条太亏, GPU 要一批一起算', fix: '凑齐一批, 跑到最长那条结束才散; 短请求陪跑, 新请求在门外干等' },
+          { name: '连续批 (Orca)', year: 2022, pain: '短请求结束后槽位空转, 新请求要等整批结束', fix: '每步重问谁进谁出; block 不够就抢占最年轻的, 队首进不来就先跑 decode' },
+          { name: '分块 prefill (Sarathi)', year: 2023, pain: '一条 1024-token 的 prompt 一步算完, decode 用户卡 297 ms', fix: '每步 token 预算封顶, 长 prompt 切块混批: 卡顿 52 ms, 它的 TTFT 276 → 445 ms' },
+          { name: 'P/D 分离 (DistServe)', year: 2024, pain: '分块只是在时间上错开, prefill 和 decode 仍在同一张卡上抢算力', fix: 'P、D 分到两组节点, KV 走网络: 7B 模型 4K 上下文 2 GiB, 400 Gbps 传 42.9 ms' },
+        ],
+      },
       code: 'llm_infer/m03_continuous_batching · m06_chunked_prefill · m15_pd_disaggregation',
       points: [
         {
@@ -117,6 +137,16 @@ for _ in range(max_new - 1):
       subtitle: '读完你能解释"小模型先猜"为什么不让输出变差, 以及采样参数顺序为什么会改结果。',
       tldr: 'decode 每步只出 1 个 token, 却要把整份权重读一遍, 算力大量闲着。\n投机解码: 便宜的 draft 连猜 $K$ 个, target 一次 forward 验 $K+1$ 个槽位, 输出分布一点不变。\n- greedy: 逐位比 argmax。\n- 采样: 用 rejection sampling。\n采样这一侧是 logits 上的一串后处理, 顺序会改结果。',
       question: '为什么投机解码在采样模式下仍然"无损": 输出分布和只用 target 采样完全一样?',
+      evolution: {
+        title: '读一遍权重, 多收几个 token',
+        subtitle: '根问题: decode 每步只出 1 个 token, 却要把整份权重从显存读一遍, 算力大半闲着。',
+        steps: [
+          { name: '逐 token decode', pain: '(原点) decode 受带宽限制: 读一遍权重只算出 1 个 token', fix: '一步一个 token; 延迟 = 生成长度 × 读一遍权重的时间' },
+          { name: '分块并行解码', year: 2018, pain: '一次 forward 本可以并行验很多位置, 却只产出 1 个 token', fix: '给模型加几个头一次猜后面 K 个, 再并行验证; 要改模型结构, 还要训练这些头' },
+          { name: '独立 draft + greedy 验证', year: 2022, pain: '改 target 结构、重训额外的头, 部署成本高', fix: '小模型连猜 K 个, target 一次验 K+1 个; 加速 1.12× 到 4.36×, 取决于 draft' },
+          { name: 'rejection sampling', pain: '逐位比 argmax 只适用 greedy; 采样时全收 draft, 分布就成了 draft 的', fix: '以 $\\min(1, p/q)$ 接受, 拒绝就从 $\\max(0, p-q)$ 重采样: 输出分布严格等于 target 的' },
+        ],
+      },
       code: 'llm_infer/m07_speculative_decoding · m10_sampling (EAGLE / 树形投机、语法约束、attention sinks 各有独立章节)',
       points: [
         {
@@ -172,6 +202,16 @@ for _ in range(max_new - 1):
       subtitle: '读完你能说清 FlashAttention 快在哪一步, 以及 CUDA Graph 省的是谁的时间。',
       tldr: '三件事都不改数学:\n- FlashAttention: Q 和 K/V 都切块, 用 online softmax 增量维护最大值、分母和输出, 从不把 $T \\times T$ 的分数矩阵写进显存。\n- CUDA Graph: 一步几百次 kernel 提交压成 1 次。\n- 推理 TP: 每层权重切给多张卡, 一层 (一个 Transformer block) 只需 2 次 all-reduce。',
       question: 'FlashAttention 的 FLOPs 一点没少, 凭什么还能快?',
+      evolution: {
+        title: '一层层拆掉等待',
+        subtitle: '根问题: GPU 算得快、搬得慢, 还要等 host 一个个提交 kernel; 耗时常卡在搬运和提交上, 不在乘法上。',
+        steps: [
+          { name: '朴素 attention', pain: '(原点) HBM 大而慢, SRAM 小而快, 耗时看搬了多少字节', fix: '分数和概率两张 $T \\times T$ 矩阵写回 HBM 再读; $T=4096$ 时每头 16M 个元素' },
+          { name: 'FlashAttention', year: 2022, pain: '慢在反复搬 $T \\times T$ 的中间矩阵, 不在乘法', fix: 'Q、K/V 分块进 SRAM, online softmax 增量维护最大值和分母, 不物化 $T \\times T$' },
+          { name: 'Flash-Decoding', year: 2023, pain: 'decode 只 1 个 query: B=1、H=32 只有 32 个线程块, SM 用上 30%', fix: '沿 KV 长度切 S 段并行算, 再按 LSE 合并; 代价模型下 S=64 快 3.30×' },
+          { name: 'CUDA Graph', pain: 'kernel 够快了, host 每提交一个还要约 10 µs, 一步几百个', fix: '整步 kernel 连同显存地址录一次, 每步 replay 1 次; 形状须固定, 大 prefill 走 eager' },
+        ],
+      },
       code: 'llm_infer/m09_tensor_parallel · m11_flash_attention · m12_cuda_graph (量化见「INT4 · AWQ · KIVI」)',
       points: [
         {
@@ -237,6 +277,16 @@ m = m_new
       subtitle: '读完你能在 vLLM 的 step() 里认出每一行对应前面哪一章。',
       tldr: 'Engine.step 永远是同四件事: 调度 → 前向 → 采样 → 后处理。\nKV 不挂在序列上, 而是写进全局分页 pool, 所以前缀命中的 block 真的跳过前向。demo 实测:\n- 首轮: 305 个待算 token = 233 实算 + 72 命中。\n- 同一批 prompt 再来一遍: 只实算 105。\n- 9 个 block 的小池: 逼出 4 次抢占, 输出仍与朴素 greedy 逐 token 相同。',
       question: '为什么说推理引擎首先是调度器和资源管理器, 其次才是 model.forward 的包装?',
+      evolution: {
+        title: '省下的算力要对得上账',
+        subtitle: '根问题: 请求随时来随时走, 长度和采样参数各不相同; 引擎要在一张卡上同时推进它们, 还不能重复算。',
+        steps: [
+          { name: '逐请求 generate', pain: '(原点) 请求随时到、长度不一, 每条还带自己的采样参数', fix: '每条请求一个 for 循环跑到底; 同一时刻只服务一条, GPU 大半闲着' },
+          { name: '批调度 + 私有 KV', pain: '读一遍权重只喂一条序列', fix: '调度器每步组 batch; 但 KV 挂在各自序列上, 前缀命中了也拿不到别人算好的 KV' },
+          { name: '全局分页 pool', pain: '命中只省了记账, 公共前缀照样整段 prefill', fix: 'KV 写进全局 pool, 只算 start_pos 之后的 Q/K/V: 首轮 305 个待算只实算 233' },
+          { name: '资源对账', pain: '命中了却照样重算的引擎, 输出完全正确, 从结果上看不出来', fix: 'assert 命中 + 实算 = 全部要 KV 的 token, 抢占重算也计入; 30 组 fuzz 全对上' },
+        ],
+      },
       code: 'llm_infer/full_engine/engine.py · llm_infer/full_engine/model_runner.py · llm_infer/m13_lora_serving/lora.py',
       points: [
         {
@@ -287,6 +337,16 @@ m = m_new
       subtitle: '多轮对话、few-shot、共享 system prompt: 请求之间的公共前缀只该算一次。',
       tldr: 'KV 只依赖它之前的 token, 所以相同前缀的 KV 可以跨请求复用。\n- m04 链式 block hash: 只能命中整块。\n- m05 radix tree: 能命中任意长度, 代价是要处理边分裂。\n容量满了从叶子按 LRU 驱逐。',
       question: '驱逐时为什么只能从叶子开始, 不能直接扔掉最久没用的中间节点?',
+      evolution: {
+        title: '命中要准, 还要细',
+        subtitle: '根问题: 很多请求共用一段前缀 (system prompt、多轮历史), 它的 KV 只取决于前缀本身, 却被每条请求各算一遍。',
+        steps: [
+          { name: '各自 prefill', pain: '(原点) 同一段 system prompt, 每来一条请求就重算一遍 KV', fix: '不复用, 实现最简单; 公共前缀有 N 条请求就算 N 遍' },
+          { name: '按块内容查表', pain: '公共前缀的 KV 被一遍遍重算', fix: '写满的 block 按自身 token 算 hash 建索引; 同一段 token 接在不同前缀后面会误命中' },
+          { name: '链式 block hash', pain: '位置 $i$ 的 KV 取决于它前面全部 token, 只 hash 块本身会拿错 KV', fix: '父 hash 参与计算, 一个 hash 管一整段前缀; 只能整块命中: 100 个相同 token 命中 96' },
+          { name: 'radix tree (SGLang)', year: 2023, pain: '不满一块的尾巴永远命不中, 只能重算', fix: '边上存一段 token 和等长槽位, 走到最长公共前缀, 100 个全中; 分叉落在边中间就 split' },
+        ],
+      },
       code: 'llm_infer/m04_prefix_cache/prefix_cache.py · llm_infer/m05_radix_cache/radix_tree.py',
       points: [
         {
@@ -335,6 +395,16 @@ m = m_new
       subtitle: '读完你能解释为什么"合法字符"和"合法 token"是两回事。',
       tldr: '字符级 FSM 能保证语法合法, 但模型吐的是多字符 token (如 「":」、「true」)。\n- 离线: 对每个 (状态, token) 试走一遍。整段字符都走得通才算合法, 同时记下落点状态。\n- 在线: 每步只查一行表, 把非法 token 的 logit 置 −inf。',
       question: '为什么不能每步在线对 V 个 token 逐字符试走一遍 FSM?',
+      evolution: {
+        title: '从请模型守规矩到管住 logits',
+        subtitle: '根问题: 下游程序要的是一定能解析的 JSON, 模型的每个 token 却是采样出来的。',
+        steps: [
+          { name: '在 prompt 里要求格式', pain: '(原点) 每个 token 都是采样的, 写错的概率从来不是 0', fix: '给格式说明和示例; 只能抬高合法输出的概率, 输出一长迟早错一次' },
+          { name: '字符级 FSM mask', pain: '概率不为 0, 解析失败只能整段重采', fix: '按状态机把非法字符的 logit 置 −inf, 概率严格为 0; 可模型吐的是多字符 token' },
+          { name: 'token 级在线试走', pain: '「":」一个 token 连跨两个状态, 字符级的合法集合对不上 token', fix: '每步对 V 个 token 逐字符试走 FSM; 这是 O(V·len) 的 CPU 活, 夹在两次 GPU 前向之间' },
+          { name: '离线编译 mask 表', year: 2023, pain: '词表十几万时, 在线试走吃掉 decode 延迟', fix: 'FSM 状态有限, 离线把每个 (状态, token) 试走一遍存成表; 在线每步只查一行' },
+        ],
+      },
       code: 'llm_infer/m14_structured_output/grammar.py',
       points: [
         {
@@ -386,6 +456,17 @@ state = next_state[state, tok]`,
       subtitle: 'decode 是带宽受限的: 权重和 KV 越小, 每步要搬的字节越少。',
       tldr: '- group-wise INT4: 每 $g$ 个权重共用一组 scale/zero, 离群值只污染自己那一组。\n- AWQ: 输出误差 $= \\sum_i x_i \\cdot \\Delta W_i$。量化前把激活大的输入通道放大 $s_i$、激活同步缩小, 数学等价, 误差从 0.0759 降到 0.0273。\n- KV 量化: K 有固定的离群通道, 按通道分组; V 没有, 按 token 分组。',
       question: '量化要最小化的为什么是 $\\|XW - X\\hat{W}\\|$ 而不是 $\\|W - \\hat{W}\\|$?',
+      evolution: {
+        title: '从权重误差走到输出误差',
+        subtitle: '根问题: decode 每步要把权重和 KV 从显存读一遍, 耗时跟着字节数走。',
+        steps: [
+          { name: 'FP16 权重', pain: '(原点) decode 受带宽限制, 每步搬多少字节就花多少时间', fix: '每个权重 16 bit; 7B 模型光权重就 14 GB, 每出一个 token 读一遍' },
+          { name: 'per-channel INT8', pain: '16 bit 太胖, 带宽全花在读权重上', fix: '每个输出通道一套 scale, 舍入到最近的格点 (RTN); 字节减半' },
+          { name: 'group-wise INT4', pain: '压到 4 bit 只剩 16 个格点, 一个离群值就撑大整个通道的格距', fix: '每 $g$ 个权重一组 scale/zero, 离群值只拖累本组; $g=128$ 时 4.25 bit/权重' },
+          { name: 'AWQ', year: 2023, pain: 'RTN 只盯权重误差, 可它乘上大激活才是输出误差', fix: '激活大的输入通道先放大 $s$ 倍再量化, $1/s$ 折进上一层; 输出误差 0.0759 → 0.0273' },
+          { name: 'KIVI', year: 2024, pain: '权重压完, 长上下文下 KV 成了大头, 而 K 有固定的离群通道', fix: 'K 按通道分组把离群通道关起来, V 按 token 分组; K 的误差 0.18 → 0.026' },
+        ],
+      },
       code: 'llm_infer/m08_quantization/{int8_weight.py,int4_awq.py,kv_quant.py}',
       points: [
         {
@@ -450,6 +531,17 @@ best = argmin(err)`,
       subtitle: '同一套 attention 数学, 四种"cache 里存什么", 直接决定一张卡能同时服务多少条序列。',
       tldr: '每 token 的 KV 字节由 "cache 里存几组头" 决定:\n- LLaMA-2-7B (MHA): 512 KiB\n- LLaMA-3-8B (GQA-8): 128 KiB\n- DeepSeek-V3 (MLA): 68.6 KiB\nMLA 只缓存 latent, 比同尺寸 MHA 省 56.9×。',
       question: 'MLA 的 latent 为什么不能带 RoPE, 而要另外留一份解耦的 RoPE key?',
+      evolution: {
+        title: 'cache 里存得越来越少',
+        subtitle: '根问题: 一张卡能同时服务几条序列 = KV 显存 ÷ 每 token 字节 ÷ 上下文长度。',
+        steps: [
+          { name: 'MHA 全存', pain: '(原点) 并发上限由每 token 的 KV 字节数决定', fix: '每个头各存一对 K/V; LLaMA-2-7B 每 token 512 KiB' },
+          { name: 'GQA', pain: '512 KiB/token, 4K 上下文一条序列就 2 GiB', fix: '8 组 query 头各共用一对 KV 头: LLaMA-3-8B 128 KiB; 砍到 1 组就是 MQA' },
+          { name: 'MLA 存 latent', year: 2024, pain: 'KV 头数砍到底, cache 仍与 $n_{kv} \\cdot d_{\\text{head}}$ 成正比', fix: '只存低秩 latent $C$, 用时乘 $W_{UK}$、$W_{UV}$ 现场还原每个头的 K/V; 代价是每步还原 T 行' },
+          { name: 'absorb', pain: '每步把 T 行 latent 升维成每头 K/V, 计算随上下文涨', fix: '把 $W_{UK}$ 乘到 q 上, cache 本身就是 K: decode 等价于一个大 head_dim 的 MQA' },
+          { name: '解耦 RoPE key', pain: 'latent 一带 RoPE, 旋转夹在 $W_{UK}$ 前面, 吸收做不成', fix: 'latent 不旋转, 另存一份各头共享的 RoPE key: DeepSeek-V3 每 token 68.6 KiB' },
+        ],
+      },
       code: 'llm_infer/m18_kv_attention_variants/attention_variants.py',
       points: [
         {
@@ -497,6 +589,16 @@ max_seqs = kv_budget_bytes // (bytes_per_token * context_len)`,
       subtitle: '纯滑动窗口一旦把开头几个 token 挤出去, 模型立刻崩, 因为 softmax 必须把那个 1 分给某个人。',
       tldr: 'softmax 的权重和恒为 1。当前 token 没什么可看时, 多余的注意力倒在开头几个 token 上, 它们被训练成了垃圾桶 (sink)。\nStreamingLLM 的做法:\n- 永远保留开头 n_sink 个 + 最近 window 个。\n- 位置按 cache 槽位重新编号, 所以 K 必须存未旋转的版本。',
       question: 'SinkCache 里的 K 为什么要存 pre-RoPE 的, 和普通 KV cache 正好相反?',
+      evolution: {
+        title: '有界, 还不能崩',
+        subtitle: '根问题: 流式对话没有尽头, KV 和位置编号都随 token 一直涨。',
+        steps: [
+          { name: '全量 KV cache', pain: '(原点) 对话不停, KV 线性增长, 位置迟早超过训练长度', fix: '全存; 显存迟早爆, 超出训练长度的位置模型从没见过' },
+          { name: '滑动窗口', pain: '显存和位置都没有上界', fix: '只留最近 window 个 token; 开头几个一被挤出, 输出立刻漂掉' },
+          { name: 'sink + 窗口 (StreamingLLM)', year: 2023, pain: 'softmax 权重和恒为 1, 开头 token 被训成倒注意力的地方, 逐出后分母骤变', fix: '开头 n_sink 个永不逐出, 其余走滑动窗口; cache 恒 ≤ n_sink + window' },
+          { name: '按槽位重编号', pain: '绝对位置还在涨; K 存的是旋转后的, 位置已烙死改不了', fix: '位置取 cache 槽位 0..L−1, K 存旋转前的, 每步整体重转一遍, 代价 O(L·D)' },
+        ],
+      },
       code: 'llm_infer/m16_attention_sinks/sink_cache.py',
       points: [
         {
@@ -544,6 +646,15 @@ q = apply_rope(q, positions=pos[-1:])`,
       subtitle: '链式 draft 第一个猜错, 后面 $K-1$ 个全废。两条改进路线: 猜得更准, 或者一次验更多分支。',
       tldr: '- EAGLE: draft 吃 target 白送的 hidden state、共享 target 的 lm_head, 接受率更高。\n- 树形投机: 每个节点留下 draft 的 top-k 候选, 长成一棵树。target 用 tree attention mask 一次验完, 接受与 target greedy 一致的最长路径。\n同样的验证预算: 链 $K=15$ 每次 1.86 token, 树 [3,2,1] 2.58。',
       question: '同一深度的兄弟节点为什么共享同一个 RoPE 位置?',
+      evolution: {
+        title: '让一次验证多收几个 token',
+        subtitle: '根问题: target 一次 forward 能并行验很多槽位, 产出却取决于从头连续猜对几个。',
+        steps: [
+          { name: '链式独立 draft', pain: '(原点) 一次 target forward 的产出 = 连续猜对的个数 + 1', fix: '小模型连猜 K 个一次验; 它只看 token id, 猜不准, 第一个错后面全废' },
+          { name: 'EAGLE', year: 2024, pain: 'target 验证时算出的 hidden state 被扔掉, draft 只能看 token id', fix: 'draft 吃 target 的 hidden state, 在特征空间自回归, 共用 target 的 lm_head' },
+          { name: '树形验证', pain: '猜得再准也是一条链, 一步错后面全废; 第 2、3 候选常常是对的', fix: '每个节点留 top-k 孩子, tree mask 一次验完: 链 K=15 每次 1.86 token, 树 2.58' },
+        ],
+      },
       code: 'llm_infer/m17_eagle_speculative/eagle.py · llm_infer/m19_tree_speculation/tree_spec.py',
       points: [
         {
@@ -594,6 +705,15 @@ while True:
       subtitle: '多轮对话每一轮的 prompt 都是整段历史, GPU 装不下所有用户的历史。被挤出去的 KV 别扔, 降级存起来。',
       tldr: '1 个 token 的 KV (128 KiB):\n- 走 PCIe 25 GB/s 搬: 约 5 µs\n- 重算: 约 125 µs\n搬比算便宜 25 倍。但每次加载还有一笔固定延迟, 链路一慢, 命中反而比重算更贵。\n所以每一层都要单独判断 "加载还是重算"。\n以下时间全部来自代价模型, 不是实测。',
       question: '为什么"多加一层缓存"有时反而让 TTFT 变差?',
+      evolution: {
+        title: '装不下就降级, 降级还要算账',
+        subtitle: '根问题: 多轮对话每一轮的 prompt 都带着整段历史, 重算它费算力, 存着它占显存。',
+        steps: [
+          { name: 'GPU 前缀缓存', pain: '(原点) 历史不复用, 每轮都要把整段历史重新 prefill', fix: '历史 KV 留在 GPU 上复用; 用户一多, LRU 把别人的历史挤掉, 下一轮从头 prefill' },
+          { name: '降级到 CPU / 磁盘', pain: '被挤掉的历史直接丢, 下一轮整段重算', fix: '溢出的 block 降到更大更慢的一层, 命中再搬回; 1 token 搬约 5 µs, 重算约 125 µs' },
+          { name: '逐层取小', pain: '每次加载还有固定延迟, 链路慢、命中少时比重算还贵', fix: '每层各算加载和重算, 取小; 接一条 0.5 GB/s 慢远端时 TTFT 68.9 → 34.8 ms (代价模型)' },
+        ],
+      },
       code: 'llm_infer/m20_kv_offload/tiered_cache.py',
       points: [
         {
@@ -638,6 +758,16 @@ self.store(prompt)                            # 命中的提升回 GPU 层, 溢�
       subtitle: '专家分布在多张卡上, 每层都要同步, 所以一步的耗时等于最忙那张卡的耗时。',
       tldr: '- dispatch: token 经 all-to-all 发到专家所在的 rank。\n- combine: 算完再发回, 按 gate 加权。\n路由一倾斜, 热专家所在 rank 的负载能到均值的 2.95×, 平均利用率只剩 34%。\nEPLB 给热专家加冗余副本、把它的 token 拆开: max/mean 压到 1.02×, 输出逐位不变。',
       question: '为什么只靠"重新摆放专家"不够, 必须复制热专家?',
+      evolution: {
+        title: '从摆放到复制',
+        subtitle: '根问题: 专家分在多张卡上, 每层都要等所有卡算完, 一步的耗时等于最忙那张卡。',
+        steps: [
+          { name: '按编号均分专家', pain: '(原点) 专家太多一张卡放不下, 每 token 只用其中 k 个', fix: '专家分到各 rank, token 经 all-to-all 去找; 路由一斜, 最忙 rank 达均值 2.95×' },
+          { name: '训练时加均衡 loss', pain: '热 rank 在算, 其余在等, 平均利用率只剩 34%', fix: '训练时用辅助 loss 压倾斜; 推理时路由已经定死, 服务侧只能改放置' },
+          { name: '按负载贪心摆放', pain: '推理侧改不了路由, 只能改专家放在哪张卡', fix: '重专家依次放到最轻的 rank: 2.95× → 1.48×; 最热专家一个就是平均 rank 负载的 1.42 倍' },
+          { name: 'EPLB 冗余专家', pain: '单个专家不可分, 它一个就超过一张卡该分的量', fix: '给热专家加副本、把它的 token 拆开再摆: 加 4 个副本到 1.02×, 输出逐位不变' },
+        ],
+      },
       code: 'llm_infer/m21_moe_serving/moe.py',
       points: [
         {
@@ -685,6 +815,16 @@ for s in argsort(-slot_load):                   # ② 从重到轻
       subtitle: '长上下文 decode 是访存瓶颈: 每步要把全部 KV 读一遍, 而注意力质量集中在很少的 token 上。',
       tldr: 'KV 切成 block, 每块常驻一份很小的摘要:\n- Quest: 逐维 min/max\n- NSA/DSA: 压缩 key 或低维 indexer\n用 q 给摘要打分选 top-k 块, 只对它们做 attention。\n- needle 负载: 读 3.1% 的 KV, 误差就降到 0.023。\n- 随机权重模型: 注意力弥散, 这个前提根本不成立。',
       question: 'Quest 为什么用"上界"打分, 而不是直接用 block 的均值?',
+      evolution: {
+        title: '少读 KV, 别漏掉针',
+        subtitle: '根问题: 长上下文 decode 每步要把全部 KV 读一遍, 而注意力质量集中在很少的 token 上。',
+        steps: [
+          { name: '全量读 KV', pain: '(原点) decode 受带宽限制, 每步读的 KV 字节随上下文线性涨', fix: '每步读全部 KV, 结果精确; 大部分字节读来只分到很小的注意力' },
+          { name: '固定位置 (sink + 窗口)', pain: '全读太贵, 大部分 KV 读了也几乎不起作用', fix: '只读开头几个和最近一段, 不看 query; 远处的关键 token (针) 落在窗口外就丢' },
+          { name: '精确 top-k token', pain: '重要 token 可能在任何位置, 得看 query 才知道', fix: '先算全部 $q \\cdot k$ 再只读 top-k 的 V; 选得准, 但打分本身就读了全部 K' },
+          { name: 'Quest 块摘要', year: 2024, pain: '打分要读全部 K, 省下的只有 V', fix: '每块常驻 min/max 摘要, q 算上界选 top-k 块: 读 3.1% 的 KV, 误差 0.023' },
+        ],
+      },
       code: 'llm_infer/m22_sparse_attention/sparse_attention.py',
       points: [
         {
@@ -732,6 +872,16 @@ out = softmax(q @ K[idx].T / sqrt(d)) @ V[idx]`,
       subtitle: '读完你能说清 best-of-N、多数投票、PRM beam、budget forcing 各靠什么挑答案, 以及哪一种错它们都消不掉。',
       tldr: '模型不换, 推理时多花 token 也能涨正确率: 多采几条再挑, 按步搜索, 或者写完再自查。\n多采样只能消掉随机错。模型的众数本身就错时, 要越过它得靠外部判分器。',
       question: '多采几条再投票, 为什么有的题反而越投越错?',
+      evolution: {
+        title: '挑答案的人越来越懂行',
+        subtitle: '根问题: 多步推理一步错整条错, 换更大的模型又很贵。',
+        steps: [
+          { name: '单条生成', pain: '(原点) 每步对 $p$, 整条只对 $p^K$: $p=0.75$、$K=4$ 时 0.316', fix: '写一条就交; 玩具任务上 T=1 单条正确率 0.275' },
+          { name: '多数投票', year: 2022, pain: '一步粗心整条错, 换个样本就可能对', fix: '采 N 条取最终答案的众数; 在 0.71 饱和, 陷阱题上 N 越大越稳定地错' },
+          { name: 'best-of-N + ORM', pain: '众数本身错时投票只会更稳地错: 陷阱题 0.254 → 0.108', fix: '外部判分器看终点, 从 N 条里挑: N=64 到 0.970; 错链的 K 步 token 照付' },
+          { name: 'PRM beam', pain: 'best-of-N 到终点才判, 错链的每一步都白花 token', fix: 'PRM 逐步打分, 错步当场剪掉: 28 token 时 0.865, 同预算 best-of-7 只有 0.747' },
+        ],
+      },
       code: 'llm_infer/m23_test_time_compute/{tts.py,demo.py} (每一步的采样复用 m10 的 sample)',
       points: [
         {
@@ -798,6 +948,15 @@ answer = beams[0][1][-1]`,
       subtitle: '读完你能解释命中率最高的路由为什么 TTFT 反而最差, 以及负载阈值怎么取舍两者。',
       tldr: '8 个引擎副本各有自己的前缀缓存, 副本之间不共享 KV。\n把请求送到缓存里前缀最长的副本, 命中率 59.3% → 93.9%。但热门 system prompt 会把流量全吸到一个副本上。\n治法: 最佳副本比最闲副本多积压超过阈值, 就让位给最闲的。',
       question: '多个副本各有前缀缓存, 请求该发给谁?',
+      evolution: {
+        title: '先看内容, 再看负载',
+        subtitle: '根问题: 一个副本扛不住流量要起多个, 各副本的前缀缓存彼此不共享。',
+        steps: [
+          { name: '轮询 / 最少负载', pain: '(原点) 8 个副本各有前缀缓存, 彼此不共享 KV', fix: '不看内容分发; 下一轮多半换副本, 40.7% 的 prompt token 要重新 prefill' },
+          { name: '前缀感知路由', pain: '历史 KV 在上一个副本上, 换副本就得整段重算', fix: '问每个副本能命中多长前缀, 送给最长的: 命中率 59.3% → 93.9%' },
+          { name: '前缀优先 + 负载阈值', pain: '热门 system prompt 把新对话全吸到一个副本, max/mean 4.18', fix: '最佳比最闲多积压超过阈值就让位; 阈值 0.5 s 时 TTFT 0.284 s, 热点前缀自然复制开' },
+        ],
+      },
       code: 'llm_infer/m27_multi_replica_routing/{router.py,demo.py} (每个副本复用 m05 的 RadixCache)',
       points: [
         {

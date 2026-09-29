@@ -24,6 +24,12 @@
       :next-step="nextChapter"
     />
 
+    <EvolutionChain
+      title="演进逻辑链 · 骨架先稳住, 再只换零件"
+      subtitle="根问题: 几十层堆起来, 梯度得能回到底部; 骨架稳住之后, 各家的差别只落在零件上"
+      :steps="evoSteps"
+    />
+
     <div class="grid assembler">
       <!-- 零件选择 -->
       <div class="card">
@@ -177,6 +183,7 @@ import { tracks, learningPath } from '@/data/models.js'
 import InspectorPanel from '@/components/InspectorPanel.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
 import Tex from '@/components/Tex.vue'
@@ -185,6 +192,22 @@ import Tex from '@/components/Tex.vue'
 const at = learningPath.findIndex((x) => x.route === 'blocks')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
+const evoSteps = [
+  { name: 'Post-LN', year: 2017, color: 'var(--text-muted)',
+    pain: '(原点) 几十层堆起来, 梯度要穿过每一个子层才回到底部',
+    fix: '子层输出加残差后再 LayerNorm: norm 压在主干上, 梯度每层被缩放一次, 得靠精细 warmup 开训' },
+  { name: 'Pre-LN', color: 'var(--accent)',
+    pain: 'Post-LN 离了精细 warmup 就容易发散, 层越多越难调',
+    fix: 'norm 挪进分支, 只归一化送进 attn / FFN 的副本; 主干只剩加法, 梯度有条恒等通路直达底部' },
+  { name: 'LLaMA 换零件', year: 2023, color: 'var(--left)',
+    pain: '骨架定型后, 再想变强只能往零件里找',
+    fix: 'LayerNorm 换成不减均值的 RMSNorm, FFN 换成带门控的 SwiGLU, 骨架一行不改' },
+  { name: 'PreLNBlock', color: 'var(--right)',
+    pain: '每换一个零件就复制一整套模型代码, 看不出哪几行真变了',
+    fix: '骨架只写一份, attn / ffn / norm / pos 当构造参数传进去: 新模型就是一张零件配置表' },
+]
 
 const inspectorTab = ref('attn')
 

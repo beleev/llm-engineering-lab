@@ -23,6 +23,16 @@ export default {
       subtitle: '读完你能说清: 一次工具调用在 loop 里要经过哪几站, 以及工具报错为什么不该把 loop 炸掉。',
       tldr: '拼上下文 → 问模型 → 过 hook → 过权限门 → 执行 → 结果回灌, 一直转到模型说"完事了"或者撞上 max_turns。',
       question: '工具报错了, 为什么不抛异常终止 loop, 而要包成一条 is_error 的 tool_result 再喂回去?',
+      evolution: {
+        title: '从一次补全到一个闭环',
+        subtitle: '根问题: 模型只会输出文本, 外界的结果得有人去执行、再送回它的下一次推理。',
+        steps: [
+          { name: '一次补全', pain: '(原点) 模型只能续写文本: 算式心算不准, 外部数据看不见', fix: '一问一答, 全凭模型记忆和心算; 答错了没人纠正, 也没法再查一次' },
+          { name: 'ReAct 文本协议', year: 2022, pain: '答案依赖外部信息, 模型却没法自己去取', fix: '约定 Thought / Action / Observation 格式, 程序从文本解析动作去执行, 结果拼回' },
+          { name: 'function calling', year: 2023, pain: '靠解析自由文本, 格式一漂移就抠不出动作, 参数名也得猜', fix: '请求里带上工具的 JSON Schema, 模型直接返回结构化的调用对象' },
+          { name: 'id 配对的 content block', pain: '一轮发多个调用、有的失败, 结果得对回请求, loop 还得能停', fix: '结果按 tool_use_id 回填同一条 user 消息, 出错也回填; max_turns 兜底停机' },
+        ],
+      },
       code: 'llm_agent/core/{agent.py,schema.py,llm.py} · m01_agent_loop · m15_claude_api',
       points: [
         {
@@ -76,6 +86,16 @@ return "stopped: max_turns reached"`,
       subtitle: '读完你能照着 deny → ask → allow → 模式的顺序手推一次裁决, 也能说出字符串黑名单为什么注定漏。',
       tldr: '- 工具: name + description + JSON Schema。模型填的参数是不可信输入, 执行前先 validate_args。\n- 权限门: 按 deny → ask → allow → 模式兜底裁决。评的是 hook 改写之后, 那个实际要执行的调用。',
       question: '`rm -fr /`、`RM  -r -f /` 能绕过 deny "*rm -rf*" 吗? 归一化之后还剩哪些绕法, 这说明黑名单的什么本质?',
+      evolution: {
+        title: '从人肉审批到规则裁决',
+        subtitle: '根问题: 模型填的参数是不可信输入, 执行权一交出去, 破坏面就是工具能做的全部事。',
+        steps: [
+          { name: '模型要什么跑什么', pain: '(原点) 参数由模型生成, 一次幻觉或一段注入就能变成 rm -rf', fix: '不校验、不拦截: 坏参数在工具深处崩, 危险命令直接落地' },
+          { name: '每步问人', pain: '危险命令直接落地, 事后才知道', fix: '每次调用都弹窗确认; 安全了, 可人被问烦了就开始无脑点同意' },
+          { name: 'deny / ask / allow 规则', pain: '问得太多等于没问, 显然安全和显然危险的该自动判掉', fix: '按 deny > ask > allow 匹配 glob 规则, 都没命中再按模式兜底, 没人可问就拒' },
+          { name: '归一化 + 逐段评估', pain: '规则按字符串匹配: rm -fr、echo hi && rm -rf / 换个写法就漏', fix: '规则和命令走同一个归一化, 复合命令按引号切段逐段判; /bin/rm 这类绕法只有沙箱能堵' },
+        ],
+      },
       code: 'llm_agent/core/{tools.py,permissions.py} · m02_tool_use · m03_permissions',
       points: [
         {
@@ -134,6 +154,16 @@ def matches(rule, call):
       subtitle: '读完你能说清一条记忆从 .md 文件走到模型眼前的完整路径。也能解释中文查询为什么会得 0 分。',
       tldr: 'FileMemory 就是一堆 Markdown 文件; 每轮按当前 prompt 现查现拼, 作为独立的 system 消息进上下文, 不写进 transcript。',
       question: '分词器只认 [a-z0-9]+ 时, 一句中文查询的检索得分是多少?\n为什么关键词计数会让一篇凑满常见词的 FAQ 挤掉正确答案?',
+      evolution: {
+        title: '从全量常驻到按需检索',
+        subtitle: '根问题: 模型不跨会话记事, 偏好和资料只能每轮重发, 而窗口有限、每个 token 都计费。',
+        steps: [
+          { name: '写进 system prompt', pain: '(原点) 模型不记得上次会话, 偏好和约定只能每轮重发', fix: '全部常驻 system prompt; 条目一多, 每轮都为用不到的内容付费' },
+          { name: '文件记忆 + 现查现拼', pain: '每轮都为用不到的条目付费, 窗口也越挤越满', fix: '记忆落成 .md 文件, 每轮按当前 prompt 的命中词数挑几条, 拼成独立 system 消息' },
+          { name: 'TF-IDF', pain: '只数命中词, 一篇凑满 how / the / model 的 FAQ 就能排第一', fix: 'm08 的文档检索换成 TF-IDF: idf 把处处都有的词压到接近 0, 罕见词决定排序' },
+          { name: '中文 bigram', pain: '分词器只认 [a-z0-9]+, 中文查询切不出一个词, 得分恒为 0', fix: '中文连续段切成相邻两字, 不用词典; 记忆和文档检索共用这一个分词器' },
+        ],
+      },
       code: 'llm_agent/core/{memory.py,retrieval.py,utils.py} · m04_context_memory · m08_retrieval',
       points: [
         {
@@ -187,6 +217,16 @@ def tokenize(text):                            # 英文按词, 中文 bigram
       subtitle: '读完你能判断一条团队规范该写成 hook 还是 skill, 也能说清为什么 skill 正文能当指令、网页不能。',
       tldr: '- hook: 能用确定性代码办的事写成 hook, 零 token、100% 执行。\n- skill: 需要模型自己判断要不要用的写成 skill。常驻只有一行描述, 正文用到才加载。',
       question: '如果顺序写成"权限门 → PreToolUse hook → 执行", 一个把 calculator 改写成 shell rm -rf / 的 hook 会让 deny 规则发生什么?',
+      evolution: {
+        title: '把规范从 prompt 里搬出去',
+        subtitle: '根问题: 团队规范要 agent 遵守, 写进 prompt 既每轮付 token, 又不保证模型照做。',
+        steps: [
+          { name: '全写进 system prompt', pain: '(原点) 规范和流程手册要让模型照做, 最直接的地方是 prompt', fix: '所有手册常驻上下文: 用不到的每轮也付 token, 写了模型也未必照做' },
+          { name: 'Hook', pain: '"禁止读密钥文件" 这类规则, 写进 prompt 等于赌模型听话', fix: '能用代码判定的规则写成 hook, 挂在 loop 上必然执行, 零 token; 它还能改写调用' },
+          { name: 'hook 排在权限门前', pain: '改写若发生在权限检查之后, hook 就成了绕过 deny 的提权通道', fix: '顺序固定为 hook → 权限门 → 执行, 门评估的是改写后的那个调用' },
+          { name: 'Skill 渐进披露', year: 2025, pain: '要模型自己判断何时用的流程写不成 hook, 仍得常驻 prompt', fix: '常驻只留一行 description, 模型调 skill 工具时正文才加载: 目录 69 token, 正文 419' },
+        ],
+      },
       code: 'llm_agent/core/{hooks.py,skills.py} · llm_agent/m05_extensibility',
       points: [
         {
@@ -244,6 +284,16 @@ system += "## Skills\\n" + "\\n".join(f"- {n}: {d}" for n, d in descriptions.ite
       subtitle: '读完你能说出 resume 带回了什么、没带回什么。也能解释子 agent 读的 20 篇文档为什么挤不进父级上下文。',
       tldr: '会话的全部状态就是 messages, 所以每产生一条就往 JSONL 尾部追加一行。\nresume 就是把这些行读回来, 但只读回消息。权限得由新会话自己重新建立。',
       question: '为什么恢复 transcript 不应该等于恢复上次的 bypass 权限?',
+      evolution: {
+        title: '状态落盘, 细节外包',
+        subtitle: '根问题: 会话的全部状态只是内存里的 messages, 进程一退就没; 长任务的中间产物又一直占着窗口。',
+        steps: [
+          { name: '只活在内存', pain: '(原点) 会话状态全在内存的 messages 里, 进程一退全丢', fix: '什么都不存: 崩了从头来, 事后也查不到模型要了什么、放行了什么' },
+          { name: 'append-only JSONL', pain: '会话没法恢复, 事故没法复盘', fix: '每条消息追加一行, tool_use 在执行前先落盘; 坏行跳过, 悬空调用补占位结果' },
+          { name: 'resume 只恢复消息', pain: '文件能原样恢复会话; 要是 bypass 权限也跟着恢复, 磁盘文件就能给自己提权', fix: '权限门不进 JSONL, 新会话自己重新建立信任' },
+          { name: '子 agent 隔离', pain: '历史只增不减: 调研读过的 20 篇原文永久占住主上下文', fix: 'delegate 给全新的子 agent, 原文留在它自己的 transcript, 父级只收截到 200 字符的摘要' },
+        ],
+      },
       code: 'llm_agent/core/{persistence.py,subagents.py} · m06_persistence_resume · m07_subagents',
       points: [
         {
@@ -299,6 +349,16 @@ parent = Agent(llm, ToolRegistry([delegate]))`,
       subtitle: '读完你能指着一个失败场景说出"这一层原本该挡住它"。也能看出哪些复杂度根本不在模型里。',
       tldr: 'loop 本身只有十几行, 而且从 m01 到 m14 基本没改过。变的是它周围挂的几个确定性零件, 可靠性全在这些零件上。',
       question: '一个 Agent 产品的工程复杂度, 到底有多少在模型之外?',
+      evolution: {
+        title: '从各走各路到同一条执行面',
+        subtitle: '根问题: 模型只提议下一步, 能不能做、做完怎么记全靠周围的确定性代码, 而这些零件接在一起会互相踩脚。',
+        steps: [
+          { name: '各走各的通道', pain: '(原点) 内置工具、MCP、子 agent 来源不同, 各有各的执行入口', fix: '每条通道各写一套校验、权限和审计; 策略要写对 N 遍, 漏一处就是后门' },
+          { name: '同一条执行面', pain: '同一条安全策略维护 N 份, 总有一份漏掉', fix: '一切动作都以 Tool 接进同一个 ToolRegistry, 共用校验、权限门、hook 和日志' },
+          { name: '纵深防御', pain: '执行面只有一道 deny 字符串规则, 换个写法就过去', fix: 'deny 规则、auto 分类、污点锁、脱敏、只模拟的 shell 叠起来, 每层查不同的东西' },
+          { name: '跨零件断言', pain: '零件各自测过, 接起来仍会踩脚: 比如脱敏只做了上下文, 没做落盘', fix: '同一个 Agent 连跑五个场景, 断言 JSONL 里没有 sk-live、tool_use 配对完好' },
+        ],
+      },
       code: 'llm_agent/full_loop/demo.py · llm_agent/core/',
       points: [
         {
@@ -352,6 +412,16 @@ agent = Agent(
       subtitle: '读完你能读懂一次 MCP 调用的全部报文, 也能说出协议管什么、不管什么。',
       tldr: 'MCP 的 stdio transport 就是子进程 stdin/stdout 上逐行的 JSON-RPC 2.0。\n- 三步: initialize → tools/list → tools/call。\n- 命名: 工具名加前缀 mcp__<server>__<tool>。',
       question: '协议解决了"怎么接进来", 那"能不能信"由谁负责? 一个 MCP server 自报 readOnlyHint=true, harness 应该信吗?',
+      evolution: {
+        title: '从 N×M 份适配到一个协议',
+        subtitle: '根问题: N 个 agent 要接 M 个外部系统, 每一对都写一份适配, 工作量是 N×M。',
+        steps: [
+          { name: '进程内工具类', pain: '(原点) 想接天气、数据库、工单系统, 每个都得在 agent 里写一个类', fix: '工具写成 agent 进程里的 Tool 子类; 换个 agent、换种语言就得重写' },
+          { name: 'MCP', year: 2024, pain: 'N 个 agent × M 个系统, 每对一份适配代码', fix: '工具方做成独立 server, 经 JSON-RPC 列出和执行工具; agent 只写一个通用 client' },
+          { name: 'mcp__server__tool 命名', pain: '接上几个 server, 工具名会撞车, 规则也没法按 server 写', fix: '工具名加前缀 mcp__<server>__, 发给 server 时剥掉; 一条 glob 管住一个 server' },
+          { name: '同一个权限门', pain: 'server 是第三方代码: 工具描述、readOnlyHint、返回内容都可能是假的', fix: 'MCP 工具 risk 固定 high, 自报注解一律不信, 输出按不可信数据包装' },
+        ],
+      },
       code: 'llm_agent/core/mcp.py · llm_agent/m09_mcp/{server.py,demo.py}',
       points: [
         {
@@ -409,6 +479,16 @@ text, is_error = result["content"][0]["text"], result.get("isError")`,
       subtitle: '读完你能说清"批准之前零写入"是怎么被强制的, 以及哪些调用值得放进同一个 turn。',
       tldr: '模型边想边做, 做到第三步常常忘了还剩什么。用户也只能事后发现它改了不该改的东西。\n- todo_write: 把计划变成显式状态。\n- plan 模式: 把否决权还给人。',
       question: '如果 plan 模式只是 system prompt 里的一句"请先不要修改文件", 它和现在的实现差在哪?',
+      evolution: {
+        title: '从边想边做到先批后动',
+        subtitle: '根问题: 写操作一落地就撤不回, 可模型的打算要做到一半才看得出来。',
+        steps: [
+          { name: '边想边做', pain: '(原点) 写操作一落地就撤不回, 人却看不到模型接下来要干什么', fix: '想到哪做到哪: 第三步常忘了还剩什么, 改错了事后才发现' },
+          { name: 'todo_write', pain: '做到一半忘了还剩什么, 用户也看不到进度', fix: '计划整表写进上下文, 每次整表覆写; 只改自身状态, 所以算只读工具' },
+          { name: 'prompt 里说"先别改"', pain: '计划看得见了, 可动手之前没人批准', fix: 'system prompt 写"计划批准前不要修改文件"; 模型不听时没有任何东西拦它' },
+          { name: 'plan 模式', pain: '"先别改"只是一句话, 模型照样能调写工具', fix: '门进 plan 模式, 非只读一律 DENY, allow 规则也不看; 人批准 exit_plan_mode 才切模式' },
+        ],
+      },
       code: 'llm_agent/core/tools.py (TodoWriteTool · ExitPlanModeTool) · llm_agent/m10_planning',
       points: [
         {
@@ -462,6 +542,16 @@ tools = [search_docs, write_note, TodoWriteTool(),
       subtitle: '读完你能判断一个任务值不值得拆给多个 worker, 也能说清多智能体到底买到了什么。',
       tldr: '多智能体不省钱。m11 demo 里两本账方向相反:\n- 峰值上下文: lead 247, 单 agent 375。\n- 总输入: 770, 单 agent 413。\n花更多 token 买到的是一个没被原文淹没的主上下文。并行要到子任务多时才省墙钟。',
       question: '什么样的任务值得用多智能体?\n如果子任务之间强依赖、需要共享同一份上下文, 会发生什么?',
+      evolution: {
+        title: '拆给 worker 读, 账要分开记',
+        subtitle: '根问题: 调研要读的原文远超一个上下文, 串行读又慢, 读过的每一篇之后每轮都要重发。',
+        steps: [
+          { name: '单 agent 串行读', pain: '(原点) 一个 agent 读完所有原文, 全堆在同一个上下文里, 每轮重发', fix: '按顺序一篇篇读: 越读越慢、越读越贵, 主线被原文淹没' },
+          { name: '委托给 worker', pain: '原文淹没主上下文, 每轮都为它们重付 token', fix: 'lead 把子任务 delegate 出去, 原文留在 worker 的隔离上下文里, 只回一段摘要' },
+          { name: '一轮扇出', pain: 'worker 一个接一个跑, 墙钟时间是各子任务之和', fix: 'lead 在一轮里发多个 delegate, loop 的线程池并行执行, 不用任务队列' },
+          { name: '两本 token 账', pain: '看起来又快又省, 可每个 worker 都要从零重建上下文', fix: '峰值上下文和总输入分开记: 买到的是干净的主上下文, 付出的是更多总 token' },
+        ],
+      },
       code: 'llm_agent/core/subagents.py · llm_agent/m11_orchestrator',
       points: [
         {
@@ -514,6 +604,16 @@ total = lead.usage["input_tokens"] + sum(c["usage"]["input_tokens"] for c in del
       subtitle: '读完你能分清哪几层只是在"劝"模型、哪几层跟模型信不信没关系。还能保证系统里至少有一层是后者。',
       tldr: '工具取回来的东西是数据, 不是指令。\n- 标记和特征检测: 只降低模型上当的概率。\n- 兜底: 三条不看模型脸色的规则, 污点、路径围栏、脱敏。',
       question: '注入检测的正则挡得住换个说法的攻击吗?\n如果假设模型一定会上当, 你的系统还剩哪几道防线?',
+      evolution: {
+        title: '别把安全押在模型听话上',
+        subtitle: '根问题: 模型分不清用户的指令, 和它读到的数据里长得像指令的一句话。',
+        steps: [
+          { name: '相信模型', pain: '(原点) 网页和文档进了上下文, 模型分不清哪句是用户指令、哪句只是数据', fix: '不设防, 相信模型能分清; 一句 ignore previous instructions 它就可能照办' },
+          { name: '标记 + 特征检测', pain: '读到的任何文字都能对 agent 下命令', fix: '不可信输出包进 untrusted_data, 命中注入特征再加标记; 换个说法就绕过, 模型也可能不听' },
+          { name: '污点规则', pain: '标记只降概率; 假设模型一定上当, 得有东西拦住后果', fix: '本轮读过不可信数据, 高风险工具一律拒, allow 规则也不例外, 切断 lethal trifecta' },
+          { name: '路径围栏 + 脱敏', pain: '污点只锁高风险工具: ../ 能让文件工具逃出目录, 密钥会原样进日志', fix: 'confine 先 resolve 再判断是否在根内; 密钥在进 transcript 之前抹掉' },
+        ],
+      },
       code: 'llm_agent/core/{guardrails.py,sandbox.py,agent.py} · llm_agent/m12_guardrails',
       points: [
         {
@@ -568,6 +668,16 @@ def confine(root, user_path):
       subtitle: '读完你能给自己的 agent 设计一个任务集, 并知道该盯 pass@k 还是 pass^k。',
       tldr: '"跑一下看着还行"不是评测。agent 有随机性, 单次成功什么也说明不了: 同一个 0.65 的单次通过率, pass@3 是 0.97, pass^3 只有 0.25。',
       question: '单次成功率 90% 的 agent, 连续 8 次都做对的概率是多少? 哪类产品应该盯 pass@k, 哪类必须盯 pass^k?',
+      evolution: {
+        title: '从看着还行到 k 次全对',
+        subtitle: '根问题: agent 有随机性, 而改 prompt、工具、权限中任何一项, 都可能让某个任务悄悄变坏。',
+        steps: [
+          { name: '手工试跑', pain: '(原点) 同一个 agent 每次跑结果不同, 改一处配置就可能让别的任务变坏', fix: '改完手动跑一次, 看着还行就上线; 单次成功几乎不带信息' },
+          { name: '匹配回答文本', pain: '跑一次、凭感觉, 改前改后没法比', fix: '固定任务集, 看最终回答里有没有预期字样; 模型说"写好了"也算过' },
+          { name: '终态 + 轨迹', pain: '说写好了不等于真写了; 结果对了, 过程也可能越权', fix: '每次试验一个全新环境, grader 看环境终态, 再查调用次数和禁用工具' },
+          { name: 'pass@k / pass^k', year: '2021 / 2024', pain: '一个单次通过率, 分不出"能做到"和"每次都做到"', fix: 'pass@k 量至少成一次的上限, τ-bench 的 pass^k 量 k 次全成; 都用无偏估计' },
+        ],
+      },
       code: 'llm_agent/m13_evals/demo.py',
       points: [
         {
@@ -618,6 +728,16 @@ pass_hat_k = comb(c, k) / comb(n, k)             # k 次全部成功`,
       subtitle: '读完你能按成本从低到高排出四种省上下文的办法。也知道哪种丢掉的东西还能找回来。',
       tldr: '上下文是预算: 便宜的先清, 贵的再压, 能现取的不预存, 要跨会话的写文件。',
       question: '被"清掉"的工具结果和被"截断"丢掉的对话, 哪个还能找回来? 为什么?',
+      evolution: {
+        title: '从一刀截断到分档降级',
+        subtitle: '根问题: 每轮都重发整个上下文, 它却只增不减, 费用和注意力都被旧内容吃掉, 最后撑爆窗口。',
+        steps: [
+          { name: '爆了再截断', pain: '(原点) 每轮重发整个上下文, 它只增不减, 迟早撑爆窗口', fix: '超了就留头尾、裁中间; 最早的用户目标和 tool_use 配对一起被切坏' },
+          { name: '清旧工具结果', pain: '截断不分贵贱, 目标和配对结构一起丢', fix: '先清最胖、最旧的工具结果正文, 留下 tool_use 当指针; 不花一次模型调用' },
+          { name: '摘要压缩', pain: '清完还超预算, 对话本身也在变长', fix: '让模型写摘要替换旧轮次, 追加 compact_boundary 让 resume 也变小; 摘要有损' },
+          { name: '不进窗口', pain: '清了要再取, 压了会丢; 最省的是一开始就不放进来', fix: '上下文只放索引, 用到才读; 跨会话的知识写进 /memories 文件' },
+        ],
+      },
       code: 'llm_agent/core/{memory.py,agent.py,persistence.py,sandbox.py} · llm_agent/m14_context_engineering',
       points: [
         {
@@ -679,6 +799,15 @@ def compact():
       subtitle: '读完你能说清什么时候该把对方包成 MCP 工具、什么时候该按 A2A 交一个任务。也能读懂一次多轮任务的全部报文。',
       tldr: 'MCP 是 agent 调工具, A2A 是 agent 找 agent。\n- MCP: 无状态, 参数一次给齐, 调用即返回。\n- A2A: 以 Task 为单位, 有状态, 对方能反问, 内部不透明。',
       question: '为什么不把别的 agent 包成一个 MCP 工具? 它缺信息想反问你的时候, 工具调用能表达吗?',
+      evolution: {
+        title: '当被调用的一方会反问',
+        subtitle: '根问题: 被调用的一方也是 agent: 它会缺信息反问、会跑一阵子, 内部怎么做也不该外露。',
+        steps: [
+          { name: '包成 MCP 工具', pain: '(原点) 报销 agent 缺日期会反问, 要跑一阵子, 内部用了什么不该外露', fix: '一次调用拿结果: 所有可能追问的字段只能事先列成必填, 列不全就报错' },
+          { name: 'A2A Task', year: 2025, pain: '工具调用无状态: 对方一缺信息就只能失败, 前面的进度全丢', fix: '交一个带 id 的 Task: 对方停在 input-required 反问, 调用方用同一个 taskId 续上' },
+          { name: '写死的状态机', pain: '有了状态就会有乱序请求: 已完成的任务又被续上、被取消', fix: '转移表写死, 终态没有出边; 非法请求回 JSON-RPC 错误码, 任务状态不动' },
+        ],
+      },
       code: 'llm_agent/m18_a2a/demo.py',
       points: [
         {
@@ -735,6 +864,16 @@ while task["status"]["state"] == "input-required":
       subtitle: '读完你能说清按 ref 点和按坐标点的差别, 也知道网页里夹带的指令该由哪一层拦住。',
       tldr: 'ref 点的是元素, 坐标点的是位置; 网页文字是数据, 敏感动作只认用户原话。',
       question: '看完页面、点下去之前, 布局挪了 80px。agent 会点错吗? 点错了它自己知道吗?',
+      evolution: {
+        title: '从坐标到元素, 从轻信到拦截',
+        subtitle: '根问题: 很多系统只有网页没有 API, agent 得像人一样看了再点, 而点下去的动作往往不可逆。',
+        steps: [
+          { name: '专用接口 / 脚本', pain: '(原点) 订单后台、报销系统只有网页, 没有 API 给 agent 调', fix: '给每个系统单写接口, 或录死一套点击脚本; 页面一改就失效' },
+          { name: '截图 + 坐标', year: 2024, pain: '每个系统都要单独适配, 页面一改就得重写', fix: '模型看截图, 输出坐标去点、去输入; 通用, 但按钮要从像素里认' },
+          { name: '无障碍树 + ref', pain: '坐标只是那一刻的位置: 看完后布局一挪, 就点到别的元素上, 且不报错', fix: '快照读无障碍树, 每个元素一个 ref; 按 ref 点, 布局怎么挪都命中同一个元素' },
+          { name: 'scope_guard hook', pain: '网页谁都能写: 卖家留言让它点 Delete account, 轻信的模型就照做', fix: '点击目标是敏感动作、又不在用户原话里, PreToolUse hook 直接拦下' },
+        ],
+      },
       code: 'llm_agent/m17_computer_use/demo.py',
       points: [
         {
@@ -792,6 +931,16 @@ messages.append(tool_result(wrap_untrusted(new_snap)))   # 网页内容是数据
       subtitle: '读完你能排出一个能命中缓存的请求, 并算出缓存什么时候反而更贵。',
       tldr: '缓存按前缀字节匹配: 稳定的放前面, 易变的放后面, 别让 TTL 在两轮之间过期。',
       question: '开了缓存, 账单为什么反而涨了 25%?',
+      evolution: {
+        title: '从次次全价到前缀命中',
+        subtitle: '根问题: loop 每次调用都重发整个前缀, 一模一样的 system 和工具定义被反复计费、反复 prefill。',
+        steps: [
+          { name: '每次全价重发', pain: '(原点) 每次调用都重发几千 token 的 system 和工具定义', fix: '什么都不做: 前缀次次全价、次次重新 prefill, 调用越多越亏' },
+          { name: '服务端前缀缓存', year: 2024, pain: '前缀一字不差, 算好的 KV 却每次重算', fix: '请求里标断点, 服务端缓存到断点为止的前缀: 写 ×1.25, 读 ×0.1, 5 分钟 TTL' },
+          { name: '稳定的放前面', pain: '差一个字节就是新前缀: 时间戳放 system 开头, 次次按写入价付', fix: '工具和 system 放前面, 序列化 sort_keys、工具排序; 易变内容放最后' },
+          { name: '两个断点', pain: '只缓存静态部分, 越来越长的对话历史仍是每轮全价', fix: 'system 末尾一个断点保底, 最后一个 block 再打一个, 让对话增量接着命中' },
+        ],
+      },
       code: 'llm_agent/m19_prompt_caching/demo.py',
       points: [
         {
@@ -846,6 +995,16 @@ write = tokens(blocks[hit:])                             # ×1.25, 并写入新�
       subtitle: '读完你能搭一条检索管线: 切块 → 两路召回 → 融合 → 重排。还能用一套标注问答说清每一步有没有变好。',
       tldr: '切块定上限, 两路召回补盲区, rerank 定名次, 评测集说了算。',
       question: '上了向量检索, 还要 BM25 吗?',
+      evolution: {
+        title: '每一路检索都有盲区',
+        subtitle: '根问题: 知识库远大于上下文窗口, 每次只能取回一小块, 取错了后面的推理全建在错证据上。',
+        steps: [
+          { name: '整篇塞回', pain: '(原点) 知识库装不进窗口, 每次只能取回一小部分', fix: '以整篇文档为单位检索、塞回; 几千字一篇, 又贵又稀释注意力' },
+          { name: '按小节切块', pain: '整篇太大; 定长切又会切断句子, 把标题和正文分开', fix: '按 ## 切, 每块前加 "文档 > 小节", 只出现在标题里的词也能命中' },
+          { name: 'BM25 + dense 两路', pain: '块切对了, 单路召回仍有盲区: BM25 对不上 resumable, 向量抹平 E413', fix: '词面和向量各召回一份; 但 BM25 没有上界、余弦在 $[-1, 1]$, 分数没法直接相加' },
+          { name: 'RRF + rerank', pain: '分数尺度不同没法加; 按名次融合, 又把单路召回的答案压到后面', fix: 'RRF 只看名次融合, 再用贵的打分器重排前 10 名, 由 20 道标注题验收' },
+        ],
+      },
       code: 'llm_agent/m16_rag/demo.py',
       points: [
         {

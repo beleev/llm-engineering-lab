@@ -47,5 +47,8 @@ jobs:
       - name: 自测题不能靠选项长度蒙对
         run: npm run check:quiz
         working-directory: web
+      - name: 每章都有演进逻辑链, 而且够短
+        run: npm run check:evolution
+        working-directory: web
       - run: npm run build
         working-directory: web

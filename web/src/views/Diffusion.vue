@@ -26,6 +26,12 @@
       :next-step="nextChapter"
     />
 
+    <EvolutionChain
+      title="演进逻辑链 · 一步太难, 就拆成很多小步"
+      subtitle="根问题: 从纯噪声直接变出一张图, 一个网络要学的映射太陡"
+      :steps="evoSteps"
+    />
+
     <!-- 控制 -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="controls-grid">
@@ -188,6 +194,7 @@ import QuizCard from '@/components/QuizCard.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
 import { learningPath } from '@/data/models.js'
@@ -197,6 +204,22 @@ import { mulberry32, randn } from '@/utils/labmath.js'
 const at = learningPath.findIndex((x) => x.route === 'diffusion')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
+const evoSteps = [
+  { name: '一步生成', color: 'var(--text-muted)',
+    pain: '(原点) 从纯噪声一步变出整张图, 网络要学的映射又陡又复杂',
+    fix: 'GAN 一步出图, 靠判别器对抗训练: 容易训崩, 也容易只会画少数几种' },
+  { name: 'DDPM', year: 2020, color: 'var(--accent)',
+    pain: '一步跨得太远, 对抗训练又不稳',
+    fix: '拆成 T=1000 级小去噪, 网络只回归加进去的噪声 $\\varepsilon$, loss 就是 MSE; 采样也得一级级走回去' },
+  { name: 'Latent + DiT', year: 2023, color: 'var(--left)',
+    pain: '采样要走几十步, 每步都在整张像素图上跑一遍去噪网络',
+    fix: 'VAE 压成 latent (元素 ÷48), 切 patch 过 Transformer; 条件经 adaLN 注入' },
+  { name: 'Flow Matching', year: 2023, color: 'var(--right)',
+    pain: '$\\varepsilon$-pred 的去噪轨迹是弯的, 步子一大就偏, DDIM 仍要 50 步',
+    fix: '噪声和数据之间走直线, 网络回归速度 $v=\\varepsilon-x_0$: 欧拉法几步就到, SD3 推荐 28 步' },
+]
 
 const t = ref(0.5)
 const scheduler = ref('ddpm')

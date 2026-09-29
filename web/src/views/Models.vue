@@ -32,6 +32,12 @@
       :next-step="nextChapter"
     />
 
+    <EvolutionChain
+      title="演进逻辑链 · 每次换架构, 都是被一种成本逼的"
+      subtitle="根问题: 算力、显存和数据都有限, 模型却要吃更多文本、读更长上下文、生成得更快"
+      :steps="evoSteps"
+    />
+
     <ModelArchitectureLab />
 
     <section class="section">
@@ -132,6 +138,7 @@ import QuizCard from '@/components/QuizCard.vue'
 import { computed } from 'vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import { modelChapters, timeline, learningPath } from '@/data/models.js'
@@ -140,6 +147,25 @@ import { modelChapters, timeline, learningPath } from '@/data/models.js'
 const at = learningPath.findIndex((x) => x.route === 'models')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
+const evoSteps = [
+  { name: 'Transformer', year: 2017, color: 'var(--text-muted)',
+    pain: '(原点) RNN 逐 token 串行, 训练没法并行, 远处信息要一步步传过来',
+    fix: '全靠注意力: 整段并行训练, 任意两个位置一步直达; Encoder-Decoder 只吃成对的翻译数据' },
+  { name: 'GPT', year: 2018, color: 'var(--accent)',
+    pain: '成对数据有限, 海量无标注文本用不上',
+    fix: '只留 Decoder + 因果 mask, 预测下一个 token: 任何文本都是训练数据, 能力随参数量涨' },
+  { name: 'MoE', year: 2024, color: 'var(--left)',
+    pain: '稠密模型每个 token 都过全部参数, 容量翻倍, 算力也翻倍',
+    fix: 'Mixtral、DeepSeek-V3 把 FFN 拆成 E 个专家, 每 token 只过 k 个: 算力按 k 算' },
+  { name: 'SSM / 混合线性', year: '2023 / 2025', color: 'var(--right)',
+    pain: '注意力仍随上下文长度 T 变贵: cache 线性涨, 算力 $O(T^2)$',
+    fix: 'Mamba、Qwen3-Next 用定长状态代替 KV cache, 解码每步 $O(1)$; 压缩有损, 留几层全注意力兜底' },
+  { name: '非自回归', year: '2024 / 2025', color: 'var(--eye)',
+    pain: 'cache 再小, 自回归也一次只出 1 个 token, N 个要串行 N 步',
+    fix: 'VAR 一步出一整级分辨率, LLaDA 从全 [MASK] 逐步去噪: 一次前向定一批 token' },
+]
 
 const sourceRows = [
   { slot: 'Attention', problem: '每个 token 要缓存多少东西: MHA → GQA → MLA → DSA 一路在砍这个数', file: 'llm_models/layers/core/attention.py' },

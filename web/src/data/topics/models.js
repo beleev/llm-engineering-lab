@@ -22,6 +22,16 @@ export default {
       subtitle: '读完这章, 你看一个新模型时能马上分辨它动了哪一处:\n- 把 mask 裁窄了 (Mistral)?\n- 让每个位置多预测几步 (MTP)?\n- 还是把装历史的容器换掉了 (Qwen3-Next)?',
       tldr: '- SWA: 不新增任何类, 只换一张 mask。KV cache 从 $O(T)$ 封顶到 $O(W)$。\n- MTP: 用共享 lm_head 的级联模块, 每个位置的监督从 1 份变成 K+1 份。推理时还白送一份投机解码草稿。\n- 混合线性 (Qwen3-Next): 用固定大小的状态矩阵代替 KV cache。每 4 层留 1 层全注意力兜底。',
       question: '每层只看最近 W 个 token, 远处的信息怎么过来? 一次预测好几个 token, 为什么不算偷看未来?',
+      evolution: {
+        title: '读的账和写的账分开省',
+        subtitle: '根问题: 读得越长, 每层要存的 K/V 越多; 写的时候一次只出 1 个 token',
+        steps: [
+          { name: '全因果注意力', pain: '(原点) 当前 token 可能用到任意远的历史, 所以历史全得留着', fix: 'LLaMA 每层看全部历史: 召回最准, 每层 KV cache 随上下文长度 T 一直涨' },
+          { name: 'SWA', year: 2023, pain: '上下文一长, 每一层的 cache 都跟着 T 涨', fix: 'Mistral 每层只看最近 W 个, cache 封顶 W; 更远的信息靠逐层接力传过来' },
+          { name: '混合线性', year: 2025, pain: '窗口外的 token 被直接丢掉, 只剩层间接力这条间接通路', fix: 'Qwen3-Next 用定长状态矩阵把全部历史压进去, 每 4 层留 1 层全注意力兜底' },
+          { name: 'MTP', year: 2024, pain: '读的账省下了, 写仍一次只出 1 个 token; 训练时每个位置也只学下一个', fix: '位置 i 级联地多预测 i+2、i+3…: 训练信号更密, 对 t+2 的预测还能当投机解码草稿' },
+        ],
+      },
       code: 'llm_models/models/language_models/{mistral.py,mtp.py,qwen3_next.py} · llm_models/layers/sparse/linear_attention.py',
       points: [
         { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层的理论感受野 $\\approx L\\cdot W$ (Mistral 32 层 × 4096 ≈ 131K)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
@@ -63,6 +73,15 @@ loss = ce_main + lam * mean(ce_mtp_k)            # 联合训练`,
       subtitle: '看完这章, 你能对着 generate() 的三个分支说出每一支在干什么。你也能解释 MLA 为什么只缓存 latent 而不缓存 K/V。',
       tldr: '每生成一个 token, 序列只长 1, 旧 token 的 K/V 一个字节都不变。\n存下来之后, 生成 N 个 token 的 token 前向次数从 $O(N^2)$ 降到 $O(N)$。\n- MHA/GQA: 存 K、V 本体。\n- MLA: 只存低秩 latent c_kv 和共享的 k_rope, 每步现场升维。',
       question: '为什么只缓存 K/V, 不缓存 Q? 上下文窗口一满, 整个 cache 为什么就作废了?',
+      evolution: {
+        title: '把重复计算一刀刀剔掉',
+        subtitle: '根问题: 自回归是串行的, 每出 1 个 token 都要跑一次前向, 前缀越长这一次越贵',
+        steps: [
+          { name: '每步重算', pain: '(原点) 第 t 个 token 要等前 t−1 个都生成完, 只能一步步来', fix: '每步把整段前缀重新前向一遍: 生成 N 个 token 共前向 $O(N^2)$ 个 token' },
+          { name: 'KV cache', pain: '因果 mask 下旧 token 的 K/V 每步算出来都一样, 全是重复劳动', fix: '把每层的 K/V 存起来, 新 token 只算自己那一份再去查: $O(N^2) \\to O(N)$' },
+          { name: 'prefill + decode', pain: 'cache 起初是空的; prompt 也逐个喂的话, 又退回串行', fix: 'prefill 整段并行填满 cache, decode 每步只喂 1 个; 窗口一满就整段重新 prefill' },
+        ],
+      },
       code: 'llm_models/utils/generation.py · llm_models/layers/core/attention.py',
       points: [
         { title: '只有 K/V 值得存', body: '第 t 步要算的只有最后一个 token 的输出: 拿最新 token 的 Q, 查所有历史 token 的 K/V。\n- 旧 token 的 Q: 再也用不上。\n- 旧 token 的 K/V: 因果 mask 下永远不会变。\n所以缓存 K/V, 每步只前向 1 个 token。', key: true },
@@ -107,6 +126,16 @@ c_kv = cat([cache["c_kv"], c_new]); k, v = k_up(c_kv), v_up(c_kv)  # MLA`,
       subtitle: '- 管数值: logit 不许随 q/k 范数一起长大。\n- 管位置: RoPE 超出训练长度时, 不许看到没见过的角度。\n读完你能说出两者各改了哪一行, 以及为什么顺序不能调。',
       tldr: '- QK-Norm: q、k 在 RoPE 之前各过一次 head_dim 上的 RMSNorm, logit 上界锁死在 $g^2\\sqrt{d}$。\n- YaRN: 按 “训练期转了几圈” 给每个 RoPE 频率分段缩放。高频不动, 低频 $\\div s$, 中间线性过渡, 再乘 mscale 补回注意力温度。',
       question: '都已经除以 $\\sqrt{d}$ 了, logit 为什么还会炸? 长度外推时, 为什么先出问题的是低频维度而不是高频?',
+      evolution: {
+        title: '先管住范数, 再管住角度',
+        subtitle: '根问题: 注意力 logit 由 q、k 的范数和夹角决定, 两者一旦超出训练时见过的范围, softmax 就失控',
+        steps: [
+          { name: '缩放点积', year: 2017, pain: '(原点) 点积的方差随维度 d 线性涨, softmax 一开训就饱和', fix: '除以 $\\sqrt{d}$ 抵消维度; 但训练中 q、k 的范数自己会涨, 这一项没人管' },
+          { name: 'QK-Norm', pain: 'q、k 范数变大, logit 按平方涨, softmax 塌成 one-hot 收不到梯度', fix: 'RoPE 之前对 q、k 各做一次 RMSNorm: logit 只剩夹角 $\\cos\\theta$ 和一个可学增益' },
+          { name: 'PI', year: 2023, pain: 'logit 只看角度了; 位置超过训练长度, 低频维度转到没见过的角度', fix: '所有 RoPE 频率一律 $\\div s$, 角度全拉回训练范围; 高频也被压扁, 相邻 token 分不开' },
+          { name: 'YaRN', year: 2023, pain: '高频维度训练时早已转遍所有角度, 陪着一起压扁是白亏', fix: '按训练期转过的圈数分段: 高频不动, 低频 $\\div s$, 中间过渡, 再乘 mscale 补回温度' },
+        ],
+      },
       code: `${A} · llm_models/layers/core/position_encoding.py`,
       points: [
         { title: 'logit 随范数二次增长', body: '$q\\cdot k/\\sqrt{d}$ 里的 $\\sqrt{d}$ 只抵消维度带来的方差, 不抵消范数。训练中 q、k 范数一起涨 2 倍, logit 就涨 4 倍。\ndemo 把权重 ×10: 最大 logit 从 1.20 冲到 120.31。\n- softmax 塌成 one-hot, 雅可比 $\\mathrm{diag}(p) - pp^\\top \\to 0$, 这个 head 收不到梯度。\n- 低精度下还会直接溢出。', key: true },
@@ -147,6 +176,16 @@ mscale = 0.1 * ln(s) + 1`,
       subtitle: '- 注意力: 所有历史都留着, 用的时候再挑。\n- SSM: 只有一个固定大小的状态, 写入那一刻就得决定留什么。\n读完你能说清 Mamba 的答案 (让步长 $\\Delta$ 由输入自己决定), 以及它为此放弃了什么。',
       tldr: '$h_t = \\exp(\\Delta_t\\cdot A)\\cdot h_{t-1} + \\Delta_t\\cdot B_t\\cdot x_t$, $y_t = C_t\\cdot h_t$。\n$\\Delta_t$、$B_t$、$C_t$ 全由 $x_t$ 线性投影得到, 这就是 “选择性”:\n- Δ 大: 清掉旧状态, 写入当前 token。\n- Δ≈0: 当前 token 被跳过。\n解码只需 $O(1)$ 状态。训练在生产实现里靠并行 scan, 教学版是顺序循环。',
       question: '线性时不变的 SSM (S4) 可以写成卷积、训练飞快, Mamba 为什么宁可把这个性质扔了?',
+      evolution: {
+        title: '在定长状态里学会挑着记',
+        subtitle: '根问题: 要把任意长的历史带到当前 token, 内存和算力却不能跟着长度一直涨',
+        steps: [
+          { name: 'RNN', pain: '(原点) 历史可以任意长, 能留给它的内存却是固定的', fix: '压进一个定长隐状态: 解码每步 $O(1)$, 但训练只能逐 token 串行, 远处梯度会消失' },
+          { name: '注意力', year: 2017, pain: '逐 token 串行训不快, 远处的信息要一步步传过来', fix: '历史全留着, 整段并行训练; 代价是 KV cache 随长度线性涨, 算力 $O(T^2)$' },
+          { name: 'S4 (LTI SSM)', year: 2021, pain: 'cache 和算力都随长度涨, 超长序列撑不住', fix: '回到定长状态; 参数不随时间变, 能写成卷积整段并行训练; 但只能按距离加权' },
+          { name: 'Mamba', year: 2023, pain: 'token 的分量只看离结尾多远, 关键词和废话分不开', fix: 'Δ、B、C 由当前输入投影得到, 记谁忘谁由 token 自己定; 写不成卷积, 训练改用 scan' },
+        ],
+      },
       code: 'llm_models/layers/sparse/ssm.py · llm_models/models/language_models/mamba.py',
       points: [
         { title: '一个 Δ 同时当写入门和遗忘门', body: 'SSM 原本是连续时间的方程 $h^\\prime(t) = A h(t) + B x(t)$。按步长 $\\Delta$ 走一步, 得到离散的递推:\n- 旧状态的保留率: $\\bar A = \\exp(\\Delta\\cdot A) \\in (0,1)$。\n- 新输入的写入强度: $\\bar B \\approx \\Delta\\cdot B$。\n$\\Delta$ 取两头时:\n- Δ 大: 保留率 → 0、写入变强。“忘掉过去, 记住这个”。\n- Δ → 0: 保留率 → 1、写入 → 0。“这个 token 当没看见”。\n一个标量控制两扇门。', key: true },
@@ -186,6 +225,16 @@ return y + D_skip * x`,
       subtitle: 'MoE 必须均衡负载, 但传统 aux loss 往语言建模目标里掺了一股不相干的梯度。\n读完你能说清 DeepSeek-V3 怎么把 “均衡” 从 loss 里搬出来, 变成一个不收梯度的控制器。',
       tldr: '每个专家配一个偏置 $b_e$:\n- 选 top-k 时: 用 $s+b$。\n- 算门控权重时: 只用 $s$。\n每个训练 step 之后, $b_e \\mathrel{+}= \\gamma\\cdot\\mathrm{sign}(\\text{平均负载} - \\text{专家 } e \\text{ 的负载})$。',
       question: '同样是把热门专家压一压, 为什么改偏置比加 aux loss 对模型质量更友好?',
+      evolution: {
+        title: '均衡从 loss 里搬出来',
+        subtitle: '根问题: top-k 路由有正反馈, 放着不管就会坍缩到少数专家, 专家并行时一张卡拖慢整步',
+        steps: [
+          { name: '放任路由', pain: '(原点) 被选得多的专家学得更好, 于是更常被选', fix: '什么都不做: 少数专家包揽 token, 其余白占显存; 专家并行时热门那张卡收到的 token 爆容量' },
+          { name: '容量上限', year: 2020, pain: '热门专家收到的 token 超出它那张卡能装下的量', fix: '每个专家设容量上限, 超出的 token 跳过 FFN 只走残差; 只处理了溢出, 路由照样偏' },
+          { name: 'Aux loss', year: 2021, pain: '丢 token 治标, router 还是往热门专家挤', fix: '加 $E\\cdot\\sum f_e P_e$, 梯度直接压热门专家的路由 logit; 这股梯度和 LM loss 抢方向' },
+          { name: '路由偏置', year: 2024, pain: 'aux 权重 α 大了干扰语言建模, 小了又均衡不住', fix: '每个专家一个不收梯度的 bias, 只进 top-k 排序, 每步按负载的符号 ±γ: CV 0.273 → 0.124' },
+        ],
+      },
       code: 'llm_models/models/moe/deepseekV3.py · llm_models/training/loss.py',
       points: [
         { title: '选人和加权解耦', body: 'top-k 的排序用 $\\mathrm{sigmoid}(\\text{logit}) + b$, 但乘到专家输出上的权重取自不带 b 的 sigmoid 分数再归一化。b 只改变 “谁上场”, 不改变 “上场后信多少”。', key: true },
@@ -224,6 +273,16 @@ with no_grad():
       subtitle: 'DeepSeek-V3.2 的稀疏注意力不规定 mask 形状, 让模型自己学。每个 query 只在 indexer 选出的 top-k 个 key 上做 MLA。\n读完你能说清 indexer 怎么被训出来, 以及为什么不能一上来就稀疏。',
       tldr: 'LightningIndexer 用几个小 head 算 $I[t,s] = \\sum_h \\mathrm{ReLU}(q_h\\cdot k_h/\\sqrt{d})$, 每行只留 top-k, 主注意力只看这 k 个。\ntop-k 不可导, 所以:\n- indexer 靠 $\\mathrm{KL}(\\text{主注意力分布} \\,\\|\\, \\mathrm{softmax}(I))$ 单独训练。\n- 训练分三步: 稠密预训练 → indexer 预热 → 切稀疏。',
       question: 'indexer 自己也要给所有 (t, s) 打分, 还是 $O(T^2)$, 那到底省在哪?',
+      evolution: {
+        title: '稀疏的形状从人定到学出来',
+        subtitle: '根问题: 128K 上下文里每个 query 都和全部 key 算注意力, 算力 $O(T^2)$, 真正有用的 key 只占一小部分',
+        steps: [
+          { name: '稠密注意力', pain: '(原点) 每个 query 都要和全部 T 个 key 算分数、做 softmax、乘 V', fix: 'MLA 也照样全算: cache 压小了, 算力仍是 $O(T^2)$' },
+          { name: '固定稀疏 mask', year: 2019, pain: '真正有用的 key 只占一小部分, 却每个都要算', fix: '人定 mask 形状 (滑窗、跨步), 每个 query 只算少数 key; 关键 token 落在形状外就永远看不到' },
+          { name: '按内容选 top-k', pain: '该看哪些 key 取决于内容, 固定形状猜不中', fix: '便宜的 indexer 按内容打分, 只把 top-k 交给 MLA; top-k 不可导, indexer 收不到梯度' },
+          { name: 'DSA', year: 2025, pain: 'LM 梯度到不了 indexer, 随机初始化时等于随机丢 key', fix: '主注意力当 teacher, 用 KL 训 indexer; 预热后再稀疏: top-8 召回 0.45 → 0.92' },
+        ],
+      },
       code: A,
       points: [
         { title: '省的是贵的那部分', body: '- indexer: head 少、维度小、没有 value、不做 softmax, 可以用低精度算。\n- 主注意力 (MLA 升维 + softmax + 乘 V): 从 $O(T^2)$ 降到 $O(T\\cdot k)$。\n长上下文下 k (比如 2048) 远小于 T (比如 128K), 主注意力计算量只剩约 1.6%。总成本由 indexer 这个小常数的 $T^2$ 主导。', key: true },
@@ -264,6 +323,17 @@ index_loss = (p * (log(p) - log_softmax(I))).sum(-1).mean()`,
       subtitle: 'OpenAI 2025 年的开放权重模型没发明新零件, 只是把三个已知零件拼得很讲究。\n读完你能说清交替排布省在哪, 以及为什么滑窗把开头 token 挤出去之后它不会崩。',
       tldr: '- 偶数层: 滑窗, KV 封顶在窗口 W。\n- 奇数层: 全注意力, 兜住长程。\n- sink logit: 拼进 softmax 分母, 算完就丢。head 可以 “谁都不看”, 滑窗也不再依赖开头那几个 token。',
       question: '滑窗会把开头 token 挤出 cache, StreamingLLM 发现这会让模型崩溃, GPT-OSS 为什么不怕?',
+      evolution: {
+        title: '省 cache, 又不丢远处和开头',
+        subtitle: '根问题: 长上下文下每层都存全部 K/V, cache 随长度涨; 裁掉一部分, 远处的信息和开头的 token 又不能丢',
+        steps: [
+          { name: '全注意力', pain: '(原点) 每层都要看全部历史, 每层 cache 都随上下文长度 T 涨', fix: 'LLaMA 每层全因果: 任何位置一步可达, cache 也最大' },
+          { name: '全滑窗', year: 2023, pain: '长上下文下每一层的 cache 都是 T', fix: 'Mistral 每层只看最近 W 个, cache 封顶 W; 远处信息逐层接力, 每接力一次压缩一次' },
+          { name: '交替排布', pain: '远处的信息接力几次后被压糊, 精确召回变难', fix: '滑窗层和全注意力层交替 (Gemma 2、GPT-OSS): 一半层 cache 封顶 W, 另一半保留一步直达的通路' },
+          { name: '保留首 token', year: 2023, pain: '模型把多余注意力倒在开头几个 token 上, 滑窗一挤掉它们就崩', fix: 'StreamingLLM 永远保留开头 4 个 token 的 K/V; 窗口里得一直给它们留位置' },
+          { name: '可学 sink', year: 2025, pain: '垃圾桶绑在具体 token 上, 这些 token 必须一直占着 cache', fix: 'GPT-OSS 给每个 head 一个可学 logit, 只进 softmax 分母: 行和可以 < 1, 不占 KV' },
+        ],
+      },
       code: `llm_models/models/moe/gpt_oss.py · ${A} · llm_models/utils/masks.py`,
       points: [
         { title: '交替排布: 用一半的 KV 买全部感受野', body: '纯滑窗的 L 层模型感受野只有 $L\\cdot(W-1)+1$, 远处信息每接力一次就被压缩一遍。\n隔一层插一层全注意力, 任何位置一步就能够到全部历史。\n滑窗层的 KV 是滚动缓冲 (上限 W, 与上下文长度无关), 长上下文下 cache 几乎只由全注意力层决定。gpt-oss-20b (24 层, W=128) 在 T=131072 时约省 50%。\ndemo 的 4 层 mini 模型 (W=8) 读完 40 个 token:\n- 各层 cache 长度: [8, 40, 8, 40], 比全是全注意力的 160 省 40%。\n- 贪心生成 100 个 token: 有 cache 比无 cache 快 3.1×, 输出逐 token 一致。', key: true },
@@ -306,6 +376,16 @@ kv_entries = W if layer % 2 == 0 else T`,
       subtitle: '把扩散搬到离散 token 上: 加噪就是随机把 token 换成 [MASK], 去噪就是双向 Transformer 一次预测所有 [MASK]。读完你能说清它和 BERT 差在哪, 以及为什么它用不了 KV cache。',
       tldr: '- 训练: 每条序列抽一个遮盖率 $t$, 每个 token 以概率 $t$ 被遮。只在被遮位置算 CE, 再乘 $1/t$。乘完之后 loss 是 $-\\log p(x)$ 的上界 (ELBO), 压低它就是在抬高似然。\n- 采样: 从全 [MASK] 出发, 每步预测全部 → 留下最有把握的 → 其余重新遮住。剩余 [MASK] 数按线性日程递减。',
       question: 'BERT 也是遮盖再预测, 为什么 BERT 不能拿来生成而 LLaDA 能?',
+      evolution: {
+        title: '从左到右之外的另一条生成路',
+        subtitle: '根问题: 自回归一次只出 1 个 token, 顺序写死从左到右, 只会续写',
+        steps: [
+          { name: '自回归 LM', pain: '(原点) 生成 N 个 token 要串行前向 N 次, 每个 token 只能看左边', fix: '因果 mask + 预测下一个: 训练简单; 但只会续写, 学了 A→B 不会 B→A' },
+          { name: 'BERT (MLM)', year: 2018, pain: '自回归只看左边, 生成顺序写死', fix: '双向注意力, 遮 15% 再还原; 从没见过几乎全遮的输入, 没法从零生成' },
+          { name: '掩码扩散', year: 2025, pain: '固定遮 15% 只学会补少量空, 从零生成那一段没练过', fix: 'LLaDA 让遮盖率 t 铺满 (0,1), loss 乘 $1/t$ 成为似然上界; 采样从全 [MASK] 逐步去噪' },
+          { name: '低置信度重遮', pain: '同一步定下的 token 互相看不见, 一步定得越多越容易打架', fix: '每步只留最有把握的, 其余遮回去下一步再定: 15 步填空准确率 1.000, 1 步并行 0.887' },
+        ],
+      },
       code: 'llm_models/models/language_models/llada.py',
       points: [
         { title: '随机遮盖比例 = 一整族去噪任务', body: '- BERT: 固定遮 15%, 只学会了 “补少量空”, 从没见过几乎全是 [MASK] 的输入。\n- LLaDA: $t$ 均匀铺满 $(0,1)$。$t\\approx 1$ 时几乎从零生成, $t\\approx 0$ 时只补一两个词。\n采样正是从 $t=1$ 走到 $t=0$, 每一步遇到的遮盖比例训练时都见过。', key: true },
@@ -348,6 +428,16 @@ for s in range(1, steps + 1):
       subtitle: '图像按光栅顺序展平再做 next-token: 既慢 (步数 = token 数), 又把二维结构拆了。\nVAR 让模型先画 1×1 的总体印象, 再画 2×2、4×4。读完你能说清级内并行为什么不会把画面搞乱。',
       tldr: '- 多尺度 VQ: 把图像编码成一座 token 金字塔。每一级量化的是 “前面所有级还没解释掉的残差”。\n- Transformer: 用块状因果 mask 逐级预测。同级互相可见, 另外只能看更粗的级。\nscales=(1,2,4) 时生成整张图只要 3 次前向; 光栅序 4×4 要 16 次。',
       question: '同一尺度内的 token 是一次并行采样出来的。它们看不到彼此的采样结果, 画面为什么不会乱?',
+      evolution: {
+        title: '自回归的一步从一个 token 变成一整级',
+        subtitle: '根问题: 自回归要一维序列, 图像却是二维的; 逐 token 生成, 步数随边长的平方涨',
+        steps: [
+          { name: '光栅序 next-token', pain: '(原点) 自回归要一维序列, 图像却是二维网格', fix: '按行展平, 逐 token 生成: 步数 = token 数, 上下相邻的 token 在序列里隔了一整行' },
+          { name: '同尺度并行', year: 2022, pain: '边长翻倍, 串行步数翻 4 倍', fix: 'MaskGIT 一次前向并行定一批 token; 同批 token 彼此看不见, 不确定性大时细节容易打架' },
+          { name: 'next-scale', year: 2024, pain: '同一分辨率上每个 token 都还很不确定, 独立采样就乱', fix: 'VAR 按分辨率由粗到细: 粗级先定构图, 细级只补细节, 级内并行也不乱' },
+          { name: '多尺度残差 VQ', pain: '逐级生成要每一级各有一套 token, 普通 VQ 只给一张单尺度 token map', fix: '每一级只量化前面还没解释掉的残差, 各级共用码本; token 总数变多 (8×8 时 85 对 64)' },
+        ],
+      },
       code: 'llm_models/models/generative/var.py · llm_models/layers/diffusion/vq.py',
       points: [
         { title: '由粗到细符合图像的统计结构', body: '- 低分辨率: 决定构图和明暗。\n- 高分辨率: 只补细节。\n粗的先定死之后, 细的那一级每个 token 的不确定性已经很小。\n并行独立采样带来的不一致也就很小。', key: true },

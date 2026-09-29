@@ -16,7 +16,7 @@
       tldr="现代 LLM 的训练循环就 5 行: get_batch → forward → loss → backward → adam_step。用 numpy 摊开这 5 行, Transformer 里就没有黑盒了。"
       question="不许用 autograd, 你能只凭链式法则把 RMSNorm / softmax / 残差的反向写对吗?"
       :goals="[
-        '不用 PyTorch, 27 秒把一个 45,568 参数的 GPT 训到 val_loss 1.98',
+        '不用 PyTorch, 约 20 秒把一个 45,568 参数的 GPT 训到 val_loss 1.99',
         '报得出 ids [B,T] 到 logits [B,T,V] 每一步的形状和 cache',
         '一个反向算错时, 知道 gradcheck 是怎么把它揪出来的',
       ]"
@@ -29,6 +29,12 @@
       ]"
       :prereq="prevChapter"
       :next-step="nextChapter"
+    />
+
+    <EvolutionChain
+      title="演进逻辑链 · 从计数表到能训练的 GPT"
+      subtitle="根问题: 给定前文, 算出下一个字的概率分布, 而且这个本事要能从语料里学出来。"
+      :steps="evoSteps"
     />
 
     <!-- ── 1. 整体闭环 ─────────────────────────────────────────── -->
@@ -51,7 +57,7 @@
               </tr>
               <tr>
                 <td class="pp-name mono"><RepoLink path="llm_basic/train.py" label="train.py" tiny /></td>
-                <td class="pp-desc">5 行循环: get_batch → forward → loss → backward → adam_step (2000 步 27 秒, val_loss 4.15 → 1.98)</td>
+                <td class="pp-desc">5 行循环: get_batch → forward → loss → backward → adam_step (2000 步约 20 秒, val_loss 4.15 → 1.99)</td>
               </tr>
               <tr>
                 <td class="pp-name mono"><RepoLink path="llm_basic/sample.py" label="sample.py" tiny /></td>
@@ -247,6 +253,7 @@ import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
 import { learningPath, stages } from '@/data/models.js'
@@ -265,6 +272,24 @@ const chapterNo = (route) => {
   }
   return ''
 }
+
+const evoSteps = [
+  { name: '计数表', color: 'var(--text-muted)',
+    pain: '(原点) 要猜下一个字, 最直接的办法是数语料里 “a 后面跟 b” 出现了几次',
+    fix: '[V,V] 计数表按行归一就是分布; 只看得见前 1 个字' },
+  { name: '神经网络 LM', color: 'var(--accent)',
+    pain: '想看更长的前文, 表格就按 $V^n$ 膨胀, 大多数格子从没出现过',
+    fix: 'Transformer 把前文压成向量再出 logits; 参数没法数出来, 只能沿梯度学' },
+  { name: '手写 backward', color: 'var(--left)',
+    pain: '45,568 个参数每步都要梯度, 这里又不用 autograd',
+    fix: 'forward 存 cache, backward 倒着走链式法则; 写错不报错, 所以用 gradcheck 对答案' },
+  { name: 'Adam', color: 'var(--right)',
+    pain: '有了梯度, 各层尺度却差几个数量级, 一个 lr 走不动',
+    fix: '按坐标归一化步长: 2000 步把 loss 从 ln 65 ≈ 4.17 降到 2.0 左右' },
+  { name: '自回归采样', color: 'var(--eye)',
+    pain: '训完只得到下一个字的分布, 还没写出一个字',
+    fix: '取最后位置的 logits, 按 temperature / top-k 抽一个字接上, 再算一遍' },
+]
 
 const pairs = [
   { name: 'embedding',   role: 'token / pos 查表',             key: '重复 id 要 np.add.at 累加' },

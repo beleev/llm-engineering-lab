@@ -9,6 +9,14 @@
       :code="page.code"
     />
 
+    <!-- 这门技术从哪来: 根问题 → 每一步补上一步的窟窿 → 本章实现的那一步 -->
+    <EvolutionChain
+      v-if="evolution"
+      :title="evolution.title"
+      :subtitle="evolution.subtitle"
+      :steps="evolution.steps"
+    />
+
     <section v-if="hasLabs" class="section">
       <h2>先动手</h2>
       <p class="lead">
@@ -116,6 +124,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import ChapterIntro from '@/components/ChapterIntro.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import Prose from '@/components/Prose.vue'
 import Tex from '@/components/Tex.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
@@ -131,6 +140,14 @@ import { looksLikeRepoRef, normalizeRepoRef, splitRefs } from '@/utils/repo.js'
 
 const route = useRoute()
 const page = computed(() => topicPages[route.name])
+// 数据里不写颜色: 按步序取色, 和 Attention / Position 两章手写的演进链同一套顺序
+const EVO_COLORS = ['var(--text-muted)', 'var(--accent)', 'var(--left)', 'var(--right)', 'var(--eye)']
+const evolution = computed(() => {
+  const e = page.value?.evolution
+  if (!e) return null
+  const steps = e.steps.map((s, i) => ({ color: EVO_COLORS[i % EVO_COLORS.length], ...s }))
+  return { ...e, title: e.title ? `演进逻辑链 · ${e.title}` : '', steps }
+})
 const hasLabs = computed(() =>
   (page.value?.widgets?.length || 0) + (labMap[route.name]?.length || 0) > 0
 )

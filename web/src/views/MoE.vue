@@ -29,6 +29,12 @@
       :next-step="nextChapter"
     />
 
+    <EvolutionChain
+      title="演进逻辑链 · 容量和算力拆开记账"
+      subtitle="根问题: 稠密 FFN 里每个参数对每个 token 都要算一遍, 想多装知识, 每 token 算力就同比上涨"
+      :steps="evoSteps"
+    />
+
     <!-- 控制条 -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="controls">
@@ -256,12 +262,29 @@ import { learningPath } from '@/data/models.js'
 import { mulberry32 } from '@/utils/labmath.js'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 
 // 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
 const at = learningPath.findIndex((x) => x.route === 'moe')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
+
+// 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
+const evoSteps = [
+  { name: '稠密 FFN', color: 'var(--text-muted)',
+    pain: '(原点) 想让模型多记知识就加宽 FFN, 每个 token 的算力跟着涨',
+    fix: '每个参数对每个 token 都算一遍: 容量翻倍, 每 token 算力也翻倍' },
+  { name: 'Top-k MoE', year: 2017, color: 'var(--accent)',
+    pain: '容量和算力绑死, 模型想变大就得同比多花算力',
+    fix: 'E 个小 FFN, router 每 token 挑 k 个: 参数按 E 算, 算力按 k 算; 路由会滚雪球' },
+  { name: 'Mixtral', year: 2024, color: 'var(--left)',
+    pain: '被选多的专家学得更好、更常被选, 最后少数专家包揽 token',
+    fix: 'softmax top-2 加外挂 aux loss 压热门专家; 8 个大专家各自都得重学一遍通用能力' },
+  { name: 'DeepSeekMoE', year: 2024, color: 'var(--right)',
+    pain: '专家少而大, 通用能力重复学了好几份, 腾不出容量分工',
+    fix: '切成 64–256 个细粒度专家, 加每个 token 必过的共享专家; 均衡交给不收梯度的 bias' },
+]
 
 // 两根滑杆的上限, 底分表按这个尺寸一次生成
 const MAX_EXPERTS = 32

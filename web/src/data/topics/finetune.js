@@ -23,6 +23,16 @@ export default {
       subtitle: '全章围着一行 mask 转: 哪一格该盖 -100, 哪一格盖了就等于从没教模型怎么开口。',
       tldr: 'labels 在数据侧已经左移一格, 所以 prompt 长 $P$ 时只能盖前 $P-1$ 格。盖成 $P$ 格会把第一个回复 token 一起盖掉。\n同配置实测: 正确写法留出集 exact-match 1.000, 多盖一位 0.000。',
       question: 'labels 已经错位之后, mask 的边界到底是 $P$ 还是 $P-1$? 多盖一格为什么从 loss 曲线上看不出来?',
+      evolution: {
+        title: '从接龙到只答不问',
+        subtitle: '根问题: 预训练只学 "下一个 token 是什么", 分不清哪段是用户写的、哪段该模型自己说',
+        steps: [
+          { name: '整条序列接着训', pain: '(原点) 预训练模型只会接龙, 给它一个问题, 它可能接着编下一个问题', fix: '把 (问, 答) 拼成一条照常做 next-token CE: 格式学得会, 但问题上也在算 loss' },
+          { name: 'prompt 置 -100', pain: '问题上的 loss 在教模型生成用户的提问, 回复分到的梯度被稀释', fix: 'prompt 位置的 labels 写 -100, CE 既不算它的 loss, 也不计入分母' },
+          { name: '回复带上 EOS', pain: '只监督回复内容, 模型不知道什么时候该停', fix: 'EOS 算回复的一部分一起监督: 回复长 R (含 EOS), 就有 R 个位置算 loss' },
+          { name: '边界 P-1 + 断言', pain: 'labels 已左移一格, 盖满 P 格会连第一个回复 token 一起盖掉, loss 曲线看不出', fix: 'make_labels 只盖前 $P-1$ 格, 再断言被监督的位置数 = 回复长度' },
+        ],
+      },
       code: 'llm_finetune/data/tasks.py · llm_finetune/data/instruction_data.py · llm_finetune/methods/sft.py',
       points: [
         { title: 'SFT 没有新 loss', body: '还是那个带 ignore_index=-100 的交叉熵, SFTLoss 就是 StandardLMLoss 的别名。\n- 预训练: 学接龙。\n- SFT: 学 "看到问题就回答"。\n全部差别只在 labels: 哪些位置算数。' },
@@ -65,6 +75,16 @@ loss = cross_entropy(logits.reshape(-1, V), labels.reshape(-1),
       subtitle: 'LoRA 换来了什么、又赔上了什么。这一章不照抄那句"LoRA 收敛更快"。',
       tldr: '把 $y = Wx$ 换成 $y = Wx + (\\alpha/r)\\cdot BAx$: $W$ 冻结, 只训 $A$、$B$。\n- 省下的: 梯度、Adam 状态, 和 "每个任务一整份权重"。\n- 不省的: 训练步数。同样 300 步, 全参留出集 EM 0.809, LoRA(r=8) 只有 0.352。',
       question: 'LoRA 到底买到了什么? 为什么 B 必须初始化成 0, 而 A 不行?',
+      evolution: {
+        title: '从改整张矩阵到挂一条旁路',
+        subtitle: '根问题: 全参微调要给每个参数配梯度和两份 Adam 状态, 每个任务还要存一整份权重',
+        steps: [
+          { name: '全参微调', pain: '(原点) 适配新任务, 最直接的是让所有参数都动', fix: '每个参数配梯度 + 2 份 Adam 状态 (本仓库 778 KiB), N 个任务落盘 N 份整模型' },
+          { name: 'Adapter', year: 2019, pain: '显存和存储都随参数量涨, 想省就只能训一小撮参数', fix: '每层串进一个小瓶颈 MLP, 只训它; 但它串在前向里, 推理时每层多算一段, 拿不掉' },
+          { name: 'Prefix Tuning', year: 2021, pain: 'adapter 拿不掉, 小 batch 推理的延迟跟着涨', fix: '不改层结构, 只学一段拼在输入前的前缀向量: 难优化, 还占掉一截上下文' },
+          { name: 'LoRA', year: 2021, pain: '前缀挤占上下文又难训, adapter 又加推理延迟', fix: '和 W 并联一条低秩旁路 $BA$, 只训 A/B; 训完加回 W, 推理零开销' },
+        ],
+      },
       code: 'llm_finetune/methods/lora.py · llm_finetune/methods/qlora.py · llm_finetune/utils/param_utils.py',
       points: [
         { title: '低秩的是 ΔW, 不是 W', body: '微调带来的权重变化内在维度很低, 所以拿 $B\\,(d_{\\text{out}}\\times r)\\cdot A\\,(r\\times d_{\\text{in}})$ 去装它。\n参数从 $d_{\\text{in}}\\cdot d_{\\text{out}}$ 降到 $r\\cdot(d_{\\text{in}}+d_{\\text{out}})$: $d=4096$、$r=8$ 时一层从 16M 降到 65K, 占 0.39%。\n任务离预训练分布越远, $\\Delta W$ 越不低秩, LoRA 越吃亏。' },
@@ -105,6 +125,16 @@ W <- W + (alpha / r) * (B @ A)`,
       subtitle: '学会算一个模型量化之后到底占多少字节, 顺带搞清楚为什么 embedding 和 lm_head 要放过。',
       tldr: 'LoRA 省掉了梯度和优化器状态, 但冻结的基座还整份躺在显存里。\nQLoRA 把基座存成 NF4, 前向时现场反量化。本仓库整模型 389 KiB → 59 KiB, 压了 6.57×, 基座原任务留出集 EM 仍是 1.000。',
       question: '同样 16 个码点, 为什么按分位数摆比等间距好? block 为什么不能太大也不能太小?',
+      evolution: {
+        title: '显存大头一块块往下挪',
+        subtitle: '根问题: 微调显存 = 权重 + 梯度 + 优化器状态 + 激活, 砍掉一块, 下一块就成了大头',
+        steps: [
+          { name: 'LoRA + fp32 基座', pain: '(原点) LoRA 砍掉了基座的梯度和 Adam 状态', fix: '冻结的基座仍按 fp32 整份常驻: 只读不写, 却成了显存大头 (本仓库 389 KiB)' },
+          { name: '整层 INT4', pain: '基座只读, 每个数用 32 bit 存是浪费', fix: '整层除以 absmax, 映射到 16 个等间距码: 一个离群值就把量程撑大' },
+          { name: '分 block 缩放', pain: '量程被离群值撑大, 大部分权重挤进中间几个码', fix: '每 64 个权重一个 absmax: 离群值只影响本 block, 多花 0.0625 字节/参数' },
+          { name: 'NF4 + LoRA', year: 2023, pain: '权重近似正态, 等间距码点在两端几乎用不上', fix: '码点取正态分位数; 前向现场反量化, 梯度只进高精度 A/B: 389 → 59 KiB' },
+        ],
+      },
       code: 'llm_finetune/methods/qlora.py · llm_finetune/run_finetune/qlora/train_qlora.py',
       points: [
         { title: '码点跟着密度走', body: '权重大多挤在 0 附近。\n- NF4: 16 个码点取标准正态的等概率分位数, 中间密两端疏, 每个码被用到的概率都接近 1/16。\n- 等间距 INT4: 好几个码浪费在几乎没有权重的两端。' },
@@ -149,12 +179,22 @@ y = x @ w_hat.T + (alpha / r) * (x @ A.T) @ B.T     # base 冻结, 只训 A/B`,
       subtitle: '把 LoRA 与全参微调的差距定位到具体一步, 再用一个 $d_{\\text{out}}$ 维向量补上一截。',
       tldr: '把每一行权重看成 "长度 × 方向": $W^\\prime = m \\odot (W_0 + BA) / \\|W_0 + BA\\|_{\\text{row}}$。\n- 低秩更新: 只管转方向。\n- m: 单独学长度。\n每层只多 $d_{\\text{out}}$ 个参数。同 r=8、3 个种子平均: LoRA 留出集 EM 0.382 → DoRA 0.522。',
       question: '同样的秩 r, 为什么多加一组"每行一个标量"就能更接近全参微调?',
+      evolution: {
+        title: '把一个增量拆成长度和方向',
+        subtitle: '根问题: 秩 r 不变, 怎样让低秩更新改权重的方式更像全参微调',
+        steps: [
+          { name: '全参微调', pain: '(原点) 每行权重有长度也有方向, 微调时两样都可能要改', fix: '两样能独立调 (DoRA 论文测得二者变化负相关), 但每个参数都要梯度和 Adam 状态' },
+          { name: 'LoRA', year: 2021, pain: '全参太贵, 只能用一个低秩增量去改', fix: '$W_0 + BA$ 省下大半参数; 但增量一加, 长度和方向同向一起变 (论文测得正相关)' },
+          { name: 'DoRA', year: 2024, pain: '想只转方向不改长度, $BA$ 得恰好保持行范数, 低秩很难凑到', fix: '照 weight norm 写成 $m\\cdot V/\\|V\\|$: 方向交给 BA, 长度交给每行一个 m' },
+          { name: '范数 detach', pain: '范数对整行求导, 反传要多存一份 [d_out, d_in] 的梯度', fix: '按论文 §4.3 把分母当常数: 省下这份显存, 效果几乎不变' },
+        ],
+      },
       code: 'llm_finetune/methods/dora.py · llm_finetune/methods/lora.py',
       points: [
         {
           title: '两个量在 LoRA 里被绑住了',
           key: true,
-          body: '- 全参微调: 一行权重的长度变化和方向变化基本各走各的。\n- LoRA: $\\Delta W = BA$ 是加性的, 一加上去, 这一行的长度和方向一起变。想 "只转方向不改长度", $BA$ 得恰好满足 $\\|W_0 + BA\\| = \\|W_0\\|$, 低秩更新很难凑到。\n- DoRA: 把两件事拆开。归一化之后 $BA$ 只剩方向, 长度交给 $m$。',
+          body: '- 全参微调: 论文逐层测了长度变化和方向变化, 两者负相关 (−0.62): 长度改得多的层, 方向改得少, 反之亦然。LoRA 测出来是正相关 (+0.83)。\n- LoRA: $\\Delta W = BA$ 是加性的, 一加上去, 这一行的长度和方向一起变。想 "只转方向不改长度", $BA$ 得恰好满足 $\\|W_0 + BA\\| = \\|W_0\\|$, 低秩更新很难凑到。\n- DoRA: 把两件事拆开。归一化之后 $BA$ 只剩方向, 长度交给 $m$。',
         },
         { title: '长度不进前向, 低秩只管方向', body: '$V = W_0 + (\\alpha/r)BA$ 被除以自己的行范数: $V$ 的长度怎么变, 前向的 $W^\\prime$ 都不变, 起作用的只有方向。\n反传时范数有两种处理:\n- 梯度流过范数 (论文原式): $V$ 的梯度里沿 $V$ 方向的那一份被投影掉, 低秩容量全花在转方向上。\n- 分母 .detach() (本仓库, 按论文 §4.3): 省一整份 [d_out, d_in] 的梯度显存, 效果几乎不变。代价是这个投影不再发生。' },
         { title: '参数几乎白送, 时间不白送', body: '- 参数: 比 LoRA 每层多 $d_{\\text{out}}$ 个 (本仓库 19,456 → 20,736, 多 1,280 个)。\n- 训练: 归一化作用在整行上, 每步都要显式构造 [d_out, d_in] 的 $W^\\prime$, 拆不成两次小 matmul。\n- 推理: merge 完就是普通 Linear, 零开销。' },
@@ -189,6 +229,16 @@ y = x @ W.T                                # 归一化作用于整行, 每步都
       subtitle: '这一章会让你多盯一个指标: reward margin 之外的 $\\log\\pi(\\text{chosen})$。它掉下去的时候, 模型正在变差。',
       tldr: 'RLHF 要先训一个给回复打分的奖励模型 (RM), 再用 PPO 在线采样去优化策略, 两步都贵。\nDPO 把两步并成一个二分类: 让 policy 相对 ref (冻结的 SFT 起点) 更偏向 chosen、更远离 rejected。\npolicy 刚从 ref 复制时 $\\Delta = 0$, 第 1 步 loss 恰好是 $\\ln 2 = 0.6931$。',
       question: 'reward margin 一路拉大, 为什么生成质量反而掉了?',
+      evolution: {
+        title: '用上 rejected, 又别把模型压坏',
+        subtitle: '根问题: 偏好数据里有 "哪条更差" 的信息, 但把概率往下压没有天然的下限',
+        steps: [
+          { name: '只拿 chosen 做 SFT', pain: '(原点) 手里是 (x, chosen, rejected), 最省事是只用 chosen', fix: 'chosen 学得会, 但 rejected 里 "错在哪" 的信号整个扔掉了' },
+          { name: '同时压 rejected', pain: '只用了一半数据, 模型不知道哪种写法是错的', fix: '再加一项把 rejected 的 log p 往下压: 没有下限, 两条共享的 token 也被一起压低' },
+          { name: 'DPO', year: 2023, pain: '往下压没有停手线, 也没有 "别离起点太远" 的约束', fix: '比相对冻结 ref 的 log 比之差, 过 $-\\log\\sigma$: 拉开就饱和, β 管离 ref 多远' },
+          { name: 'KTO', year: 2024, pain: '只看差值, 两边一起降也算赢; 还必须同一题凑成对', fix: '单条样本各对参考点 $z_0$ 比高低, 好样本自己往上推: log π(chosen) −4.03 → −3.73' },
+        ],
+      },
       code: 'llm_finetune/methods/dpo.py · llm_finetune/data/preference_data.py',
       points: [
         { title: '两步是怎么并成一步的', body: 'RLHF 的目标是 "奖励尽量高, 同时别离 ref 太远", 后一半用 KL 惩罚, 系数 $\\beta$。\n- 最优策略: 这个目标的解满足 $r(x,y) = \\beta\\cdot\\log\\pi/\\pi_{\\text{ref}} + \\text{const}$。奖励可以直接从 policy 和 ref 的概率比里读出来, 不用另训 RM。\n- Bradley-Terry: 把 "A 比 B 好" 的概率写成 $\\sigma(r_A - r_B)$ 的偏好模型, 训 RM 用的就是它 (见 RM 一章)。\n把上面的 $r$ 代进 Bradley-Terry, const 相减消掉, RM 和 PPO 两步就塌缩成一个对偏好对的二分类。' },
@@ -246,6 +296,16 @@ loss = -F.logsigmoid(logits).mean()`,
       subtitle: '搞清 ref 在替你挡什么, 以及拿掉它之后得请谁来接班。',
       tldr: 'ref 要多占一份显存、每步多一次前向。\n实测 DPO 每步 2 次 LM 前向 (policy、ref 各 1 次) / 778 KiB / 5.4 s, SimPO 与 ORPO 1 次 / 389 KiB / 4.0 s。\n- SimPO: 用长度归一化的平均 log p 当奖励, 再减目标间隔 $\\gamma$。\n- ORPO: 直接在 SFT 的 NLL 上加一项 odds ratio 惩罚, 一个阶段搞定。',
       question: 'DPO 里的 ref 除了"别离 SFT 太远", 还顺手解决了什么? 拿掉它谁来接手?',
+      evolution: {
+        title: 'ref 拿掉之后, 它的两份活谁来接',
+        subtitle: '根问题: ref 多占一份显存、每步多一次前向, 但它同时在抵消长度红利和防止漂移',
+        steps: [
+          { name: 'DPO 的 ref', pain: '(原点) 偏好优化要一个锚, 否则 policy 想漂多远漂多远', fix: '冻结一份 SFT 副本当 ref: 常驻权重 ×2 (778 KiB), 每步多一次前向' },
+          { name: '直接去掉 ref', pain: '一份权重、一次前向, 只为当锚', fix: '只用 policy 的 $\\sum\\log p$ 做差: 省下来了, 但 rejected 更长就白得 margin' },
+          { name: 'SimPO', year: 2024, pain: '$\\sum\\log p$ 越长越负, 长度成了免费捷径', fix: '改用平均 log p 再减间隔 γ: 长度约掉, 但没有锚, log π(chosen) 掉到 −5.69' },
+          { name: 'ORPO', year: 2024, pain: '没有锚, chosen 自己被一起压低, EM 只剩 0.023', fix: '拿 SFT 的 NLL 当锚, 再加 odds ratio 项: 一个阶段训完, EM 0.543' },
+        ],
+      },
       code: 'llm_finetune/methods/simpo.py · llm_finetune/methods/orpo.py · llm_finetune/methods/dpo.py',
       points: [
         { title: 'Σlog p 有长度红利', body: '序列越长, $\\sum\\log p$ 越负。不做校正的话, rejected 更长就等于白送 margin: 模型什么偏好都没学, loss 已经到 0。\nDPO 靠 ref 抵消这一项: ref 对同一条长回复也给出同样低的分。' },
@@ -295,6 +355,16 @@ loss = -logsigmoid(z).mean()      # DPO / SimPO 共用的外壳`,
       subtitle: '三件事: 标注有噪声时 RM 最多学到多大分差、GRPO 的 baseline 从哪来、蒸馏的 KL 项为什么要乘 $T^2$。',
       tldr: '- RM: 把 "A 比 B 好" 学成一个能随时调用的标量分, 留出集偏好准确率 0.549 → 0.930。\n- GRPO: PPO 要另训一个 critic 网络来估 "这道题平均能得几分", 当 baseline 用。GRPO 用同题 G 条回复的组内均值顶替它, 把 critic 整个省掉。\n- 蒸馏: 用温度软化的 teacher 分布, 给 student 比硬标签密得多的监督。',
       question: 'GRPO 砍掉 critic 之后 baseline 从哪来? 标注有 20% 概率标反时, RM 学到的分差会停在哪?',
+      evolution: {
+        title: '奖励从哪来, baseline 从哪来',
+        subtitle: '根问题: 在线 RL 每采一条回复都要一个标量分, 还得知道这道题 "平均能得几分"',
+        steps: [
+          { name: '人打绝对分', pain: '(原点) RL 每采一条都要一个分, 最直接是请人打', fix: '人给每条回复打分: 各人尺度不同, 分数彼此对不上, 还跟不上采样速度' },
+          { name: '排序 + RM', pain: '绝对分不稳, RL 每采一条又不能停下来等人', fix: '人只给回复排序 (InstructGPT 一次 4–9 条), Bradley-Terry 学成随时可调的分' },
+          { name: 'critic 当 baseline', pain: '拿 RM 分直接当权重, 题目难易不同, 梯度方差大', fix: 'PPO 另训一个 critic 估 "这题平均几分" 并减掉: 又多一个同尺寸网络' },
+          { name: 'GRPO', year: 2024, pain: 'critic 与 policy 同尺寸, 要训要存, 还不一定学得准', fix: '同题采 G 条, 组内均值当 baseline, 省掉 critic; 全对或全错的组没有梯度' },
+        ],
+      },
       code: 'llm_finetune/methods/reward_model.py · llm_finetune/methods/grpo.py · llm_finetune/methods/distill.py',
       points: [
         {
@@ -341,6 +411,17 @@ loss.backward(); opt.step()                # 5. 一次更新`,
       subtitle: '把三个变体各自在修的那一处偏置指出来。也别把四条噪声之内的最终分数读成"谁更强"。',
       tldr: '一批采样只更新一次的话, $\\rho\\equiv 1$, clip 是死代码。\n想让昂贵的 rollout 多用几轮, 就得引入 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}}$ 和裁剪。三个变体分别修这个目标里的三处偏置: 熵塌缩、长度偏置、比率噪声。',
       question: '同一条"又长又错"的回答, 在 GRPO / Dr.GRPO / DAPO 下每个 token 分到的惩罚分别是多少?\n为什么上界 clip 只卡得住低概率 token?',
+      evolution: {
+        title: '一批 rollout 多用几遍, 偏置一处处修',
+        subtitle: '根问题: 采样是 RL 最贵的一步, 想让同一批 rollout 多更新几次, 就得处理新旧策略不一致',
+        steps: [
+          { name: '一批更新一次', pain: '(原点) 策略梯度只对采样时的那个策略成立', fix: '采一批只更新一次就扔: $\\rho\\equiv 1$, 干净, 但每步都要等一轮采样' },
+          { name: 'PPO 的 ratio + clip', year: 2017, pain: '同一批多更新几轮, 策略已经变了, 梯度有偏', fix: '乘 $\\rho=\\pi_{\\text{new}}/\\pi_{\\text{old}}$ 纠偏, 越出 $[1-\\epsilon, 1+\\epsilon]$ 就停手' },
+          { name: 'DAPO', year: 2025, pain: '上界只卡得住低概率 token, 想翻身的探索 token 被压住, 熵塌缩', fix: '只放宽上界 0.2 → 0.28, 丢掉全对全错的组, loss 改按 token 平均' },
+          { name: 'Dr.GRPO', year: 2025, pain: 'loss 按 token 平均了, 优势里的 ÷σ 还在: σ 小的题权重被放大', fix: '去掉 ÷σ, 长度分母换常数: 难题相对中等题的权重 0.66 → 0.44' },
+          { name: 'GSPO', year: 2025, pain: '分母修完了, token 级 $\\rho_t$ 仍是单样本噪声, 奖励却给整条', fix: '整条回复共用几何平均的 ρ 一起裁剪: std log ρ 0.067 → 0.027, 区间收到 0.05' },
+        ],
+      },
       code: 'llm_finetune/methods/grpo.py · llm_finetune/run_finetune/grpo/train_grpo.py',
       points: [
         { title: 'clip 是停手线, 不是刹车', body: '$\\min(\\rho\\hat{A}, \\mathrm{clip}(\\rho)\\hat{A})$ 在越界那一侧是平的, 梯度为 0。\n$\\rho$ 最大只能到 $1/\\pi_{\\text{old}}$: $\\pi_{\\text{old}}=0.9$ 的 token 顶天涨到 1.11, 碰不到 1.2 的上界。被卡住的全是想翻身的低概率探索 token → 熵塌缩。\n所以 DAPO 的 clip-higher 只放宽上界 (0.2 / 0.28)。' },
@@ -396,6 +477,16 @@ for _ in range(K):                                    # 同一批样本更新 K 
       subtitle: '用 KL 写在哪一侧解释两种蒸馏的性格差异, 再挑出容量不够的学生该用哪一种。',
       tldr: '- 离线蒸馏: 在老师写的前缀上教学生。forward KL, 摊开盖住所有峰。\n- on-policy: 学生先自己生成, 再在自己走到的每个位置上对齐老师。reverse KL, 钻进一个峰。\n实测样本合格率 0.059 → 0.402。',
       question: '容量不够的学生, 该摊开盖住老师的所有答法, 还是挑一种答到位?\n这跟 KL 写在哪一侧有什么关系?',
+      evolution: {
+        title: '从抄老师的卷子到老师批自己的卷子',
+        subtitle: '根问题: 小模型装不下老师的全部答法, 又只在老师的前缀上学过, 自己一走偏就没人教过',
+        steps: [
+          { name: '硬标签', pain: '(原点) 小模型学大模型, 最简单是抄它写出的答案', fix: '在老师的输出上做 CE: 每个位置只学到一个 token, "别的答案多合理" 全丢了' },
+          { name: '软标签 KD', year: 2015, pain: '硬标签只给一个 token, 相似答案的相对排序没交出去', fix: '用 T 软化的老师分布做 forward KL, 乘 $T^2$: 数据少时 KL 2.293 → 1.860' },
+          { name: '学生自己采样', year: 2023, pain: '只在老师的前缀上学过, 推理时走进自己的前缀, 错误一步步累积', fix: '学生先写, 老师在它走到的每个位置给分布; 采样不回传梯度 (GKD 的做法)' },
+          { name: '逐 token reverse KL', pain: '容量不够时, forward KL 逼学生摊开盖住所有答法, 采样半路串台', fix: '改用 reverse KL, 钻进一个峰: 合格率 0.402 (离线 0.059), 少数派答法被丢' },
+        ],
+      },
       code: 'llm_finetune/methods/on_policy_distill.py · llm_finetune/methods/distill.py',
       points: [
         {
@@ -442,6 +533,16 @@ loss.backward(); opt.step()`,
       subtitle: '跑 RL 之前先算一个数: 常数基线。它决定那条漂亮的 reward 曲线值不值钱。',
       tldr: '奖励必须是 (prompt, completion) 的函数。\n- 区域奖励 (如 "输出落在词表后半区就给分"): 最优策略是无视 prompt 的常数输出。reward 能涨到 1.0, 却什么都没证明。\n- "答案 = f(prompt)": 常数策略的上限掉回 1/类别数。',
       question: '一条一路涨到 1.0 的 reward 曲线, 怎么分辨"学会按题作答"和"学会了一个 unigram 偏好"?',
+      evolution: {
+        title: '奖励先过常数基线这一关',
+        subtitle: '根问题: RL 会沿奖励最省力的方向走; 奖励不依赖题目时, 最省力的就是不看题',
+        steps: [
+          { name: 'RM 打分', pain: '(原点) RL 要奖励, 最通用的是训一个 RM 给回复打分', fix: 'RM 什么都能打分, 但它是学出来的, 策略会钻它的盲区拿高分' },
+          { name: 'RLVR', year: 2024, pain: 'RM 的高分不等于答对, 策略在优化 RM 的漏洞', fix: '把 RM 换成程序判分 (Tülu 3 起的名): 数学比答案、代码跑单测' },
+          { name: '只看输出的规则', pain: '程序判分不会被讨好, 但没人保证它看了题', fix: '区域奖励 "落在后半区就给分": 常数输出就能拿满分, 曲线涨到 1.0 却什么都没学' },
+          { name: '看题的 verify', pain: '奖励与 prompt 无关时, 常数策略就是最优解', fix: '奖励写成 f(prompt, completion), 训前先算常数基线: 看题任务只有 1/类别数' },
+        ],
+      },
       code: 'llm_finetune/data/tasks.py · llm_finetune/data/prompt_data.py · llm_finetune/methods/grpo.py',
       points: [
         {
@@ -486,6 +587,16 @@ best_const = max(sum_reward(prompts, full_like(c)).mean() for c in range(10))
       subtitle: '不重训、不要数据, 几秒钟把两个微调模型拼成一个。读完你能判断两个任务能不能合, 以及 λ 为什么必须调。',
       tldr: '把 "微调改了什么" 当向量 $\\tau = \\theta_{\\text{ft}} - \\theta_0$, 直接加回基座: $\\theta_0 + 1\\cdot(\\tau_A + \\tau_B)$。\n前提是两个任务在函数上不重叠: A 只改低段输出, B 只改高段。\n两个单任务模型都做不了 "两段一起改写" (EM ≤ 0.027), 相加后留出集 EM 1.000。',
       question: '不重训, 能把两个微调模型合成一个吗? TIES、DARE 这些 "更聪明" 的合并, 真的比直接相加强吗?',
+      evolution: {
+        title: '不训练, 在权重空间里做加法',
+        subtitle: '根问题: 同一基座微调出的几个模型各会一样, 想要全会, 又没有数据和算力重训',
+        steps: [
+          { name: '合数据重训', pain: '(原点) 两个模型各会一样, 想要一个全会的', fix: '两份数据合起来再训: 最稳, 但要数据、要算力, 别人的数据常常拿不到' },
+          { name: '权重平均', pain: '手里常常只有权重, 没有数据', fix: '两份权重直接取平均: 零训练, 但每个任务的改动只剩一半, 两段全对 EM 0.039' },
+          { name: 'Task Arithmetic', year: 2022, pain: '平均就是 λ=1/T, 任务越多, 每个改动被稀释得越狠', fix: '取 $\\tau=\\theta_{\\text{ft}}-\\theta_0$, 按验证集挑的 λ 加回基座: λ=1 时 EM 1.000' },
+          { name: 'TIES / DARE', year: 2023, pain: '大模型的 τ 里大量小幅冗余坐标互相冲突, 相加会抵消', fix: '先修剪或随机丢弃再相加; 本例 τ 只有约 10 万参数, 反而不如直接相加' },
+        ],
+      },
       code: 'llm_finetune/methods/merge.py · llm_finetune/run_finetune/merge/train_merge.py',
       points: [
         { title: '为什么要合并', body: '两个团队从同一个基座各微调了一个模型, 一个会 A, 一个会 B。想要两样都会:\n- 重训: 两份数据合起来再训, 要数据、要算力。\n- 部署两份: 两份权重都上线。\n- 合并: 只要权重, 不训练, 几秒钟。\n本仓库的 A 把低段 token 3–8 各 +1, B 把高段 10–15 各 −1。单任务模型做两段一起改写, EM 只有 0.004 / 0.027。' },
@@ -541,6 +652,15 @@ tau = [x * (rand_like(x) >= p) / (1 - p) for x in tau]`,
       subtitle: '不找人标注也能造偏好对。读完你能说清它省掉了什么, 又把什么原封不动交给了 judge。',
       tldr: '不找人标注: AI 裁判 (judge) 按成文规则批评并改写模型的回复, "改写后 ≻ 改写前" 就是一个偏好对, 之后照旧 DPO。\n标签质量的上限就是 judge 的质量: 它查的违规 0.648 → 0.031, 它漏查的只从 0.418 降到 0.320。',
       question: '不找人标注, 能对齐吗? 条文写了但规则没查, 会怎样?',
+      evolution: {
+        title: '标注员从人换成一份宪法',
+        subtitle: '根问题: 偏好标签要人一条条标, 贵、慢、标注员之间不一致, 有害内容还得有人看',
+        steps: [
+          { name: '人工排序', pain: '(原点) 对齐要大量偏好标签, 只能找人标', fix: '人给几条回复排序 (InstructGPT 一次 4–9 条): 质量有保证, 成本随数据量涨' },
+          { name: 'Constitutional AI', year: 2022, pain: '人标又贵又慢, 有害样本还得有人一条条看', fix: '好坏写成条文; AI 按条文批评改写后 SFT, 再比较回复出偏好标签, 训 RM 做 RL' },
+          { name: '改写前后直接成对', pain: '两段各训一次, 还要另让 AI 比较、训 RM、做 RL', fix: '"改写后 ≻ 改写前" 直接当偏好对交给现成 DPO: 标签上限就是 judge 查了什么' },
+        ],
+      },
       code: 'llm_finetune/methods/rlaif.py · llm_finetune/run_finetune/rlaif/train_rlaif.py',
       points: [
         { title: '人是瓶颈', body: 'RLHF 的偏好标签来自人: 贵、慢, 标注员之间还不一致。有害内容也得有人一条条看。\nConstitutional AI 的做法:\n- 写条文: 先把 "什么是好回答" 写成条文。\n- AI 反馈: AI 反馈者按条文批评、改写。\n- 成对: 改写前后两个版本天然就是一对, 改写后 ≻ 改写前。\n- 训练: 之后照旧用 DPO。' },
@@ -593,6 +713,15 @@ fit(PairwiseForward.with_frozen_copy(policy),         # 4. 现成的 DPO
       subtitle: '同样的解、同样的训练步数, 只把标签从 "答案对不对" 换成 "每一步对不对"。看它能多挑对几道题, 能不能指出错在哪一步。',
       tldr: 'ORM (outcome reward model) 只给整条解打一个分: 最终答案对不对。PRM (process reward model) 给解的每一步各打一个分。\n同样的解、同样的训练步数, 逐步标签好学得多, 还能指出第一个错步。best-of-8 挑解: ORM 0.488, PRM 0.648。',
       question: '只看最终答案的奖励模型差在哪? 过程错、答案蒙对的解, 谁会被骗?',
+      evolution: {
+        title: '奖励从终点挪到每一步',
+        subtitle: '根问题: 多步推理只在终点判对错, 模型得从一个 0/1 里自己猜是哪一步坏的',
+        steps: [
+          { name: 'ORM', pain: '(原点) 多步解最容易判的只有最终答案', fix: '只在终点打一个分: 标签便宜, 但错在哪要自己猜, 蒙对的错过程也算 "好"' },
+          { name: 'PRM', year: 2023, pain: '一个 0/1 摊到 K 步上, 信号稀疏; 过程错、答案蒙对照样高分', fix: '每一步各标对错 (PRM800K 由人逐步标): 标签多 K 倍, 能指出第一个错步' },
+          { name: '解分取 min', pain: 'best-of-N 要给整条解一个分, 各步取平均会被对的步稀释', fix: '取各步概率的最小值 (论文主方案连乘, min 是备选): 一步错整条错' },
+        ],
+      },
       code: 'llm_finetune/methods/prm.py · llm_finetune/run_finetune/prm/train_prm.py',
       points: [
         { title: 'ORM 得自己猜错在哪', body: '一条 4 步的解, ORM 只拿到 1 个 "最终答案对不对"。答案错了, 它得自己从这一个 0/1 里推出是哪一步坏的。信号稀疏, 学得慢。\n4 步模 10 算术链上训练 600 步, 看 BCE:\n- ORM: 停在 0.682 ($\\ln 2 = 0.693$, 几乎没学)。\n- PRM: 降到 0.359。\n过程错、答案蒙对的解 (候选里占 4.5%), 在 ORM 的训练数据里就是 "好"。' },
@@ -642,6 +771,16 @@ best = score.view(n, 8).argmax(1)              # best-of-8`,
       subtitle: '把 critic 装回去, 同样的采样预算比一比。读完你能手算 GAE, 也能说清在什么规模下 critic 值不值它的显存。',
       tldr: 'critic 是另外训练的一个网络, 在每个 token 位置估 "从这里往后还能拿多少分", 当 baseline 用。学不好时, 它就是个昂贵的常数。\n玩具规模实测: PPO 的留出集 pass@1 高于 GRPO (0.381 对 0.287), 但把 critic 冻住照样有 0.389。\n高出的那截来自 "一题一采", 不是 critic。',
       question: 'GRPO 省掉的 critic, 到底买到了什么?',
+      evolution: {
+        title: '末尾一个分, 怎样分给每个 token',
+        subtitle: '根问题: 奖励只落在最后一个 token, 要把功劳分给前面每一步, 又不能让梯度方差爆掉',
+        steps: [
+          { name: 'REINFORCE', year: 1992, pain: '(原点) 整条回复只在末尾拿一个分, 要推出哪些 token 该加概率', fix: '每个 token 都拿整条回报乘 $\\nabla\\log\\pi$: 无偏, 但方差大, 好坏 token 一起奖' },
+          { name: '减去 V(s_t)', pain: '回报全为正时每个 token 都被加概率, 方差大', fix: 'critic 学 $V(s_t)$ 估 "从这往后能拿多少" 并减掉: 逐 token 优势, 多养一个网络' },
+          { name: 'TD(0)', pain: '回报要等到结尾, 后面每一步的随机性都累加进来', fix: '只看一步: $\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t)$; 方差小, 但 V 不准就有偏' },
+          { name: 'GAE', year: 2015, pain: 'MC 无偏但方差大, TD(0) 方差小但有偏, 只能二选一', fix: '把 δ 按 $(\\gamma\\lambda)^k$ 折扣累加, λ 在两端之间调; 本章取 λ=0.95' },
+        ],
+      },
       code: 'llm_finetune/methods/ppo.py · llm_finetune/run_finetune/ppo/train_ppo.py',
       points: [
         { title: '为什么要 baseline', body: '策略梯度拿回报当权重, 方差很大。减一个 baseline $b$ 不改期望梯度, 只降方差。\n- GRPO: $b$ = 同题 G 条的均值。免费, 但必须一题多采, 整条回复共用一个 $A$。\n- PPO: $b$ = critic 学出来的 $V(s_t)$。一题采 1 条就够, 每个 token 各有一个 $A_t$。代价是多养一个和 policy 同尺寸的网络。' },
@@ -699,6 +838,17 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
       subtitle: '在"有什么数据 / 有多少显存 / 能不能在线采样"之后, 直接点名方法。还要说出它每步几次前向、常驻几份权重、最后落盘什么。',
       tldr: '方法之间的区别不在 loss 写得好不好看, 在代价结构:\n- 要不要常驻 reference model\n- 要不要在线采样\n- 落盘是全量权重还是 adapter\n实测 DPO 每步 2 次 LM 前向 (policy、ref 各 1 次) / 常驻 778 KiB / 5.4 s; SimPO 与 ORPO 1 次 / 389 KiB / 4.0 s。',
       question: '手上只有 (问, 答) 且显存紧张, 该用哪个? 换成成对偏好呢? 换成"答案能被程序判对错"呢?',
+      evolution: {
+        title: '数据、显存、采样, 一道道筛',
+        subtitle: '根问题: 方法的差别主要在代价结构; 手上有什么数据、多少显存、能否在线采样, 先筛掉一大半',
+        steps: [
+          { name: '全参 SFT', pain: '(原点) 只有 (问, 答), 最直接是全参 SFT', fix: '1 份权重、每步 1 次前向; 但梯度和 2 份 Adam 都要装, 每个任务落盘一整份' },
+          { name: 'LoRA / QLoRA', pain: '显存装不下梯度和 Adam, 每个任务一整份权重太占地方', fix: '只训 adapter: 落盘 76 KiB (整模型 389 KiB); 基座再压成 NF4 只剩 59 KiB' },
+          { name: 'DPO', pain: '(问, 答) 只教 "该说什么", 教不了 "哪个更好"', fix: '吃成对偏好: 常驻 policy + ref = 778 KiB, 每步 2 次前向' },
+          { name: 'SimPO / ORPO', pain: 'ref 多占一份权重、多跑一次前向', fix: '去掉 ref: 389 KiB、1 次前向, 每步快约 25%; 防漂移得另找锚' },
+          { name: 'GRPO / PPO', pain: '偏好对是离线的; 答案能被程序判对时, 这个信号没用上', fix: 'GRPO 在线采 G 条交 verifier 打分; PPO 再养一个 critic: 常驻 ×3, 耗时约 ×2' },
+        ],
+      },
       code: 'llm_finetune/run_finetune/{sft,lora,dora,qlora,merge,rm,prm,dpo,kto,simpo_orpo,rlaif,ppo,grpo,distill,on_policy_distill}/train_*.py',
       points: [
         { title: '两个维度可以自由组合', body: '- SFT / DPO / GRPO: 决定 "优化什么目标"。\n- LoRA / QLoRA / DoRA: 决定 "更新哪些参数"。\n两者互相正交, LoRA-SFT、LoRA-DPO 都很常见。\n代码上: methods/ 放可复用算法, run_finetune/ 放一次实验的编排。' },

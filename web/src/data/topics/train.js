@@ -20,6 +20,16 @@ export default {
       subtitle: '读完你能说清 DDP 为什么"就是一个更大的 batch", 以及这句话在什么条件下会悄悄失效。',
       tldr: '同一个全局梯度有三种算法:\n- 单卡: 一次算完。\n- 梯度累积: 用 $K$ 倍串行时间, 换 $1/K$ 的激活。\n- DDP (分布式数据并行, 每卡算一片 batch): 用每步 $2(P-1)/P$ 份梯度的通信, 换 $1/P$ 的时间。\n三者相等的前提: 每一份的样本数相同。',
       question: 'micro-batch 和 DDP 的 rank 都在切 batch, 为什么一个不用通信、另一个每步都要 all-reduce?',
+      evolution: {
+        title: '怎么切 batch 都得是同一个梯度',
+        subtitle: '根问题: 梯度要平均足够多的样本, 一张卡的显存和算力都撑不住',
+        steps: [
+          { name: '单卡整 batch', pain: '(原点) 梯度要平均很多样本才稳, 激活显存随 batch 线性涨', fix: '一张卡一次算完; batch 一大就 OOM, 算力也封顶在一张卡' },
+          { name: '梯度累积', pain: '整 batch 的激活一张卡放不下', fix: '拆成 micro-batch 串行算再累加; 各份已取过均值, 要乘 $n_k/N$ 才等于整 batch' },
+          { name: '异步参数服务器', year: 2012, pain: '串行算 K 份太慢, 想让多张卡同时算', fix: '各卡算完就把梯度推给服务器、拉回新参数, 谁也不等谁; 梯度常基于过时的参数' },
+          { name: '同步 DDP', pain: '过时梯度让一步更新对不上任何一个 batch, 结果难复现', fix: '每步 all-reduce(mean), 全体用同一个梯度更新; 每卡样本数相同就等于整 batch' },
+        ],
+      },
       code: 'llm_train/m01_gradient_accumulation/demo.py · llm_train/m02_data_parallel/demo.py',
       points: [
         {
@@ -75,6 +85,16 @@ for rep in replicas:
       subtitle: '读完你能判断一个放不进单卡的模型该切矩阵还是切层, 以及各自要在哪里付通信。',
       tldr: '- 单层太宽: 切矩阵, 叫 TP (张量并行)。W1 列切、W2 行切, 前向 1 次 + 反向 1 次 all-reduce。\n- 层数太多: 切层, 叫 PP (流水线并行)。用 micro-batch 把气泡 (卡空等的时间占比) 填小。',
       question: 'TP 的通信为什么在层内、PP 的只在 stage 边界? 前向已经 all-reduce 过了, 反向为什么还要再来一次?',
+      evolution: {
+        title: '先切层, 再切矩阵',
+        subtitle: '根问题: 模型本身超过一张卡的显存, 每卡存整份的 DDP 帮不上',
+        steps: [
+          { name: '按层切', pain: '(原点) 模型一张卡放不下, DDP 每卡还要存整份', fix: '连续几层放一张卡, 激活顺着往下传; 同一时刻只有一张卡在算' },
+          { name: 'GPipe', year: 2018, pain: '流水线上其余 PP−1 张卡都在空等', fix: 'batch 拆成 M 个 micro-batch 灌进去, 空等只剩首尾的气泡, M 越大越小' },
+          { name: '朴素切矩阵', pain: '一层就比一张卡还宽, 按层切切不下去', fix: '把一层的矩阵分到多卡; W1 先行切的话, 激活函数前就得同步一次部分和' },
+          { name: 'Megatron TP', year: 2019, pain: '每个非线性前都要同步, 通信次数翻倍', fix: 'W1 列切让激活函数各卡本地算, W2 行切出部分和, 到块尾才 all-reduce' },
+        ],
+      },
       code: 'llm_train/m03_tensor_parallel/demo.py · llm_train/m04_pipeline_parallel/demo.py',
       points: [
         {
@@ -121,6 +141,17 @@ tp_dx = all_reduce_sum(dx_partial)[0]             # 反向唯一一次通信`,
       subtitle: '读完你能自己算: 一个 7B 模型开某个 ZeRO stage 之后, 每卡还剩多少显存留给激活。',
       tldr: '- 混合精度 Adam: 每参数 16 字节 = 2 (fp16 参数) + 2 (fp16 梯度) + 12 (fp32 master + m + v)。\n- ZeRO-1/2/3: 依次把 12 / 14 / 16 除以卡数。\n- 激活: 不在这 16 字节里。用 +33% 的重算, 从 $O(L)$ 压到 $O(\\sqrt{L})$。',
       question: '7B 模型在 64 张卡上开 ZeRO-1, 每卡还要多少 GB? 为什么再加卡也降不下去?',
+      evolution: {
+        title: '把 16 字节一份份切走',
+        subtitle: '根问题: 一张卡的显存是定数, 参数、梯度、优化器状态和激活都在抢它',
+        steps: [
+          { name: 'DDP 全复制', pain: '(原点) 混合精度 Adam 每参数 16 字节, 其中 12 字节是优化器状态', fix: '每卡存一整份, 实现最简单; 加多少卡, 每卡都还是 $16\\Psi$' },
+          { name: 'ZeRO-1/2', year: 2019, pain: 'N 张卡存着 N 份一模一样的优化器状态和梯度', fix: '按卡切成 N 片, 每卡只更新自己那片; ZeRO-2 的通信和 DDP 持平' },
+          { name: 'ZeRO-3 / FSDP', pain: '参数仍是每卡整份, $2\\Psi$ 加卡也除不掉', fix: '参数也切片, 算到哪层临时 all-gather 哪层, 用完就丢; 通信约 1.5×' },
+          { name: '激活重算', year: 2016, pain: '状态切完了, 激活不在 16 字节里, 随层数 $L$ 线性涨', fix: '只存段边界, 反向前重跑段内前向: 峰值 $O(\\sqrt{L})$, 计算多约 1/3' },
+          { name: '可恢复 checkpoint', pain: '省出显存就能堆更多卡、训更久, 中途断掉成了常态', fix: '参数、优化器状态、数据游标、RNG 四样一起存; 缺一样不报错, 轨迹却偏了' },
+        ],
+      },
       code: 'llm_train/m05_zero_fsdp/demo.py · llm_train/m07_activation_checkpointing/demo.py · llm_train/m08_checkpoint_resume/demo.py',
       points: [
         {
@@ -174,6 +205,16 @@ p16_shard = master_shard.astype(float16)            # 下一步再按需 gather`
       subtitle: '读完你能解释现代训练为什么默认 BF16、fp32 master 为什么删不得, 以及一个 Inf 冒出来时框架在做什么。',
       tldr: '低精度只负责算, 更新永远发生在 fp32 master 上。\n- FP16: 要配动态 loss scaling。溢出就跳过这一步, 并把 scale 减半。\n- BF16: 用精度换范围, 省掉 scaling。\n- FP8: 位宽再砍一半, scale 变成必选项。',
       question: '为什么 FP16 训练不是把所有数组 astype(np.float16) 就完事? BF16 和 FP8 又各改了什么?',
+      evolution: {
+        title: '位宽每砍一刀, 就补一道保险',
+        subtitle: '根问题: 每个数用的位越少, 显存、带宽、算力越省, 能表示的范围和精度也越窄',
+        steps: [
+          { name: '全程 FP32', pain: '(原点) 每个数 4 字节, 显存、带宽、算力都按位宽付钱', fix: '最稳; 代价是每次搬运、每次乘法都付 32 位的价钱' },
+          { name: 'FP16 混合精度', year: 2017, pain: '直接换 FP16: 1e-8 的梯度变 0, 70000 的激活变 Inf', fix: 'loss 先放大再除回, 更新落在 FP32 master 上; 溢出就跳步、scale 减半' },
+          { name: 'BF16', pain: 'scale 要一路动态调, 溢出还得白白跳步', fix: '指数位和 FP32 一样宽 (8 位), 两头都不炸, 不用 scaling; 尾数只剩 7 位' },
+          { name: 'FP8', year: 2022, pain: '位宽再砍一半, 格式自带的范围装不下训练里的数', fix: 'E4M3 / E5M2 必须配 scale; 更新仍靠 FP32 master, 去掉它 loss 差 584×' },
+        ],
+      },
       code: 'llm_train/m06_mixed_precision/demo.py · llm_train/m10_training_stability/demo.py · llm_train/m13_fp8_training/demo.py · llm_train/core/numerics.py',
       points: [
         {
@@ -230,6 +271,17 @@ scaler.update(overflow)                          # 溢出减半, 连续好 step 
       subtitle: '读完你能说清 MoE 的通信量为什么随数据变。也能说清一条放不进单卡的序列, 怎么切给多卡还能算出精确的注意力。',
       tldr: '- EP (专家并行, MoE 的专家分给多张卡): 通信量由 gating 结果决定, 模型结构定不了它。token 出门找专家, 再回家, 来回各一趟 all-to-all。\n- Ring Attention: 通信量固定。但因果 mask 下必须 zigzag 切, 否则计算量省了一半, 墙钟几乎没省。',
       question: 'all-to-all 的通信量为什么由数据决定、不由模型结构决定? Ring Attention 凭什么和完整注意力精确相等?',
+      evolution: {
+        title: '参数和算力脱钩之后',
+        subtitle: '根问题: 参数越多模型越强, 可稠密模型每加一份参数, 每个 token 就多一份计算',
+        steps: [
+          { name: '稠密 FFN', pain: '(原点) 每个 token 都要乘过全部参数', fix: '参数量和每 token 计算量绑死: 参数翻倍, 算力也翻倍' },
+          { name: '稀疏门控 MoE', year: 2017, pain: '想加参数, 又付不起同比例的算力', fix: 'FFN 换成一组专家, 路由器给每个 token 只挑一个或几个; 参数涨, 每 token 计算不涨' },
+          { name: 'GShard 专家并行', year: 2020, pain: '专家多到一张卡放不下', fix: '专家分到各卡, token 用 all-to-all 发去专家所在卡再寄回; 流量看路由结果' },
+          { name: 'Switch aux loss', year: 2021, pain: '路由扎堆: 最热那张卡多干 50%, 装不下的 token 被丢掉', fix: 'loss 里加 $E\\sum f_e P_e$ 推平路由概率: max/mean 1.62× → 1.12×' },
+          { name: '无辅助损失 bias', year: 2024, pain: '惩罚项掺进 loss, 推平路由的同时也在拉偏语言建模', fix: '每个专家一个 bias, 热的调低、冷的调高, 不进计算图: max/mean 1.00×' },
+        ],
+      },
       code: 'llm_train/m11_expert_parallel/demo.py · llm_train/m12_sequence_parallel/demo.py',
       points: [
         {
@@ -289,6 +341,16 @@ for step in range(D):
       subtitle: '读完你拿到任何一个训练框架, 都能先把它的通信路径还原成四条原语。然后再去看它的封装。',
       tldr: '所有并行策略最后都落到四个通信原语: all-reduce、reduce-scatter、all-gather、all-to-all。\nring 实现的 all-reduce, 每卡每步只发 $2(N-1)/N\\cdot S$ 字节 ($S$ 是张量大小), 与卡数几乎无关。',
       question: '拿到一个陌生的训练框架, 从哪里开始读才最快看懂它的并行方式?',
+      evolution: {
+        title: '从一个中心到一个环',
+        subtitle: '根问题: 每张卡的网口带宽是定数, 多卡训练每一步都要把梯度汇总一遍',
+        steps: [
+          { name: '汇总到 0 号卡', pain: '(原点) 每张卡都要拿到所有卡梯度的和', fix: '全发给 0 号卡求和再广播; 0 号卡收发 $2(N-1)\\cdot S$, 随卡数线性涨' },
+          { name: 'ring all-reduce', pain: '0 号卡的网口堵死, 其余卡的带宽闲着', fix: '张量切 N 块沿环接力, 每卡收发一样多, 封顶 $2S$ (N=4 时 0 号卡省 4 倍)' },
+          { name: 'reduce-scatter + all-gather', pain: 'ZeRO 每卡只更新自己那片, all-reduce 却把整份和发给每张卡', fix: 'all-reduce 拆成两半, 中间插一步分片更新; 总字节和 all-reduce 一样' },
+          { name: 'full_loop', pain: '梯度切成片后, 全局范数和该不该跳步, 没有哪张卡能单独判', fix: '一次标量 all-reduce 求全局范数; 任一卡溢出, 全体一起跳步 (40 步跳 4 步)' },
+        ],
+      },
       code: 'llm_train/core/collectives.py · llm_train/m09_collectives/demo.py · llm_train/full_loop/demo.py',
       points: [
         {
@@ -346,6 +408,16 @@ for rk, g in zip(ranks, shards):                       # ⑥ 分片 Adam, 只碰
       subtitle: '读完你能分清流水线的两笔成本: 卡在空等, 和已前向未反向的激活。也能说出三种调度各自动了哪一笔。',
       tldr: '- 气泡 (卡空等的时间占比): GPipe 和 1F1B 完全一样, 都是 $(\\mathrm{PP}-1)/(M+\\mathrm{PP}-1)$。\n- 在途激活 (已前向、还没反向的激活): 1F1B 省的是这一笔。\n- 要真的减气泡只有两条路: 把 M 开大, 或者交错。',
       question: '1F1B 明明不减少气泡, 为什么大家都说它"更快"?',
+      evolution: {
+        title: '气泡和在途激活的拉锯',
+        subtitle: '根问题: 按层切开后, 每个 stage 都要等上游的激活和下游的梯度',
+        steps: [
+          { name: 'GPipe', year: 2018, pain: '(原点) 按层切后, 同一时刻只有一个 stage 在算', fix: '拆 M 个 micro-batch, 全部前向完再全部反向; 每个 stage 攥着 M 份激活' },
+          { name: '1F1B', pain: '想压气泡就得加大 M, 在途激活跟着 M 一起涨', fix: '热身后一前一反交替, stage $s$ 最多攥 $\\mathrm{PP}-s$ 份: [8,8,8,8] → [4,3,2,1]' },
+          { name: '1F1B + 大 M', pain: '只改了顺序, 气泡公式没变: PP=4、M=8 仍是 27.3%', fix: '省下的激活显存拿去加大 M: PP=8、M=64 时气泡只剩 9.9%' },
+          { name: '交错 1F1B', year: 2021, pain: 'M 加到显存上限, 气泡还剩一截', fix: '每卡拿 v 个不相邻的小 stage, 公式里 M 变成 vM (v=2: 27.3% → 15.8%); 跨卡传输变多' },
+        ],
+      },
       code: 'llm_train/m04_pipeline_parallel/demo.py',
       points: [
         {
@@ -399,6 +471,16 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
       subtitle: '读完你能解释为什么一条 WSD 主干可以随时分叉出成品模型, 而 cosine 训练做不到。',
       tldr: '- cosine: 每一步 lr 都写成 $f(\\text{step}/\\text{total})$, 总步数一改整条曲线都变。\n- WSD (warmup → stable → decay 三段): 稳定段里没有 total。任何一个稳定段 checkpoint 都能接着训, 或分叉出一段短退火。',
       question: '训到 100% 发现 loss 还在降, 想加训: cosine 和 WSD 各要付出什么?',
+      evolution: {
+        title: '从一个常数到三段式',
+        subtitle: '根问题: 步子大走得快却落不进谷底, 步子小稳却慢, 一个 lr 管不了全程',
+        steps: [
+          { name: '常数 lr', pain: '(原点) lr 大走得快但落不进谷底, 小了稳却慢', fix: '全程一个值, 只能在快和稳之间挑一头' },
+          { name: 'warmup', pain: '一上来就用大 lr, Adam 的二阶矩还没估准, 容易一步走飞', fix: '前几百步从小 lr 线性爬到峰值; 之后停在峰值, 末段在谷底来回震' },
+          { name: 'cosine 衰减', year: 2016, pain: 'lr 一直停在峰值, 落不进谷底', fix: 'lr 按 step/total 余弦降到 0; total 写进了每一步, 改总步数整条曲线都变' },
+          { name: 'WSD', year: 2024, pain: '训完想加训: 要么 re-warmup 让 loss 反弹, 要么按新 total 重来', fix: '稳定段恒定峰值、不含 total; 任一 checkpoint 接一段短退火 (m10 占 10%) 就是成品' },
+        ],
+      },
       code: 'llm_train/m10_training_stability/demo.py',
       points: [
         {
@@ -444,6 +526,16 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
       subtitle: '读完你能解释 4 bit 为什么必须配 block scale, 以及 MXFP4 和 NVFP4 的差距全部来自哪一处。',
       tldr: '位宽砍到 4 bit 后, 单个元素的动态范围只剩 12 倍。\n只能靠每 16~32 个元素共享一个 scale 撑回来。\nMXFP4 和 NVFP4 的差距来自 scale 自己的精度。',
       question: '同样是 4 bit + block scale, 为什么 NVFP4 的误差明显低于 MXFP4? INT4 什么时候反而更好?',
+      evolution: {
+        title: 'scale 越切越细, 位宽越砍越少',
+        subtitle: '根问题: 位宽越少, 一张网格能覆盖的范围越窄, 张量里大小悬殊的数挤不进去',
+        steps: [
+          { name: 'FP8 per-tensor', year: 2022, pain: '(原点) FP8 范围有限, 张量得先缩放进格式能表示的区间', fix: '整个张量按 amax 共用一个 scale; 一个 outlier 就把其余元素挤向 0' },
+          { name: 'block scale', year: 2024, pain: 'outlier 到 1e5 倍时, 其余 token 的相对误差从 0.026 涨到 0.126', fix: '每 128 个元素一个 scale, outlier 只连累同块邻居: 误差留在 0.026' },
+          { name: 'MXFP4', year: 2023, pain: '再砍到 4 bit, 单个元素的动态范围只剩 12 倍', fix: '每 32 个元素共用一个 E8M0 scale; scale 只能取 2 的幂, 42% 的 block 最大值被截断' },
+          { name: 'NVFP4', pain: 'scale 只能是 2 的幂, amax 贴不准网格顶端的 6', fix: 'scale 换成带 3 位尾数的 E4M3, block 缩到 16: 误差 0.113 → 0.095' },
+        ],
+      },
       code: 'llm_train/m13_fp8_training/demo.py · llm_train/m15_fp4_microscaling/demo.py · llm_train/core/numerics.py',
       points: [
         {
@@ -493,6 +585,16 @@ def nvfp4(x, block=16):
       subtitle: '读完你能说清 Muon 赢在哪、输在哪, 以及为什么它只用在 2-D 权重上。',
       tldr: '- Adam: 逐元素看梯度。\n- Muon: 把 2-D 权重的动量当成矩阵正交化后再更新, 让每个奇异方向迈同样大的步子。\n病态方向不与坐标轴对齐时 Muon 赢, 对齐时 Adam 赢。',
       question: 'Adam 已经逐元素自适应了, 为什么还会被"病态方向"拖住? Muon 什么时候反而不如 Adam?',
+      evolution: {
+        title: '从逐元素缩放到逐奇异方向缩放',
+        subtitle: '根问题: 损失面在不同方向上弯曲程度差几个数量级, 同一个步长管不住所有方向',
+        steps: [
+          { name: 'SGD', pain: '(原点) 各方向曲率差几个数量级, 一个 lr 管不住所有方向', fix: '所有方向同一步长: 陡的方向来回震, 平的方向走不动' },
+          { name: 'Adam', year: 2014, pain: '陡的方向和平的方向需要不同步长', fix: '按每个元素梯度的二阶矩缩放步长; 只修得了沿坐标轴的病态' },
+          { name: 'Muon', year: 2024, pain: '病态方向是几个坐标的线性组合时, 逐元素缩放够不着', fix: '动量矩阵用 5 步 Newton–Schulz 正交化, 各奇异方向同步长: 旋转问题上 loss 低 9.2×' },
+          { name: 'MuonClip', year: 2025, pain: '满秩更新让 attention logit 越涨越大, softmax 成了 one-hot', fix: 'max logit 超过 $\\tau$ 就把 $W_q$、$W_k$ 各乘 $\\sqrt{\\tau/S_{\\max}}$ (752.1 → 100.0)' },
+        ],
+      },
       code: 'llm_train/m14_muon_optimizer/demo.py',
       points: [
         {
@@ -545,6 +647,16 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
       subtitle: '读完你能算出 Ulysses 和 Ring 各自的每卡通信量, 并说清为什么实战里两者要叠着用。',
       tldr: 'Ulysses 在注意力前后各做一次 all-to-all, 换一种切法:\n- 换之前: 每卡一段序列、全部头。\n- 换之后: 每卡完整序列、一部分头。\n注意力核一行都不用改。',
       question: 'Ulysses 的通信量随 P 增大反而下降, 为什么大家没有全部换成它?',
+      evolution: {
+        title: '长序列从切段到切头',
+        subtitle: '根问题: 激活随序列长度涨, 长上下文的一条序列一张卡就放不下',
+        steps: [
+          { name: '整条序列放一卡', pain: '(原点) 激活随序列长度 T 涨, 长上下文一张卡放不下', fix: '整条序列一卡算; T 一长就 OOM, DP/TP/PP 都切不到序列这一维' },
+          { name: 'Ring Attention', year: 2023, pain: '序列要分到多卡, 可每个 query 都要看全部 key', fix: '序列切 P 段, KV 块沿环传, online softmax 逐块合并, 结果精确相等' },
+          { name: 'zigzag', pain: '因果 mask 下连续切, 末卡最忙: 墙钟 256 只降到 228', fix: '切 2P 段一头一尾配对, 每卡每轮活一样多: 墙钟 228 → 132' },
+          { name: 'Ulysses', year: 2023, pain: 'Ring 每卡通信随 P 涨, P=8 时 28672 B/rank', fix: 'all-to-all 把切序列换成切头, 注意力核不改; 通信随 P 降 (P=8 时 7168 B)' },
+        ],
+      },
       code: 'llm_train/m16_ulysses_sequence_parallel/demo.py · llm_train/m12_sequence_parallel/demo.py',
       points: [
         {
@@ -591,6 +703,16 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
       subtitle: '读完你能说清近似去重为什么要 MinHash-LSH, 以及 packing 之后要补哪三样才和逐篇训练等价。',
       tldr: '- 去重: 精确哈希只抓逐字副本, MinHash-LSH 连改过几个字的转载也抓得到。\n- 配比: 数据源温度配比 $p_i \\propto n_i^{1/T}$ 把小语料抬上来, 代价是它被重复很多遍。这里的温度管各来源的占比, 和解码时的采样温度不是一回事。\n- packing: 把多篇文档拼进一行, 省掉 padding。必须加文档 mask, 否则同一行的文档互相看见。',
       question: '转载时改了几个字, 去重还抓得到吗? 把几篇文档拼进同一行训练, 它们会互相看见吗?',
+      evolution: {
+        title: '把 pad 一点点挤出去',
+        subtitle: '根问题: GPU 吃定长矩阵, 文档却长短不一, 补进去的 pad 照样花算力',
+        steps: [
+          { name: '每篇一行补 pad', pain: '(原点) 文档中位数 28 token, 一行 128, 短的要补齐', fix: '每篇占一行补 pad 到 L; 真 token 只占 0.285, 其余算力花在 pad 上' },
+          { name: '动态 padding', pain: '大半位置是 pad, 算了白算', fix: 'batch 内只补到最长那篇: 0.406; 一篇长文档还是拖着整批' },
+          { name: '直接拼接', pain: '只要一篇占一行, pad 就去不掉', fix: '文档首尾相接切成定长行, 没有 pad (GPT-2/3 风格); 同一行的文档互相看得见' },
+          { name: 'FFD + 文档 mask', pain: '只有因果 mask 时后一篇看得见前一篇: 输出差 3.0', fix: 'FFD 整篇装箱 (0.990), 文档 mask 只许看同篇, 再重置位置、屏蔽跨篇 label' },
+        ],
+      },
       code: 'llm_train/m17_data_pipeline/demo.py · llm_train/m18_sequence_packing/demo.py',
       points: [
         {
@@ -659,6 +781,16 @@ valid = doc[1:] == doc[:-1]                      # 3. 不跨篇预测`,
       subtitle: '读完你能用 $L(N,D)$ 算出固定算力下的最优模型大小。也能说清在 SP (标准参数化) 下, 小模型调好的 lr 为什么搬不到大模型。',
       tldr: '- scaling law: $L(N,D)=E+A/N^\\alpha+B/D^\\beta$。算力 $C \\approx 6ND$ 定死时, 模型大小有一个最优值, 两头都亏。\n- μP: 按宽度改初始化和每层 lr, 小模型上扫出的 lr 直接搬到大模型。\n本章的指数是玩具任务拟合的, 与 Chinchilla 论文的完全不同, 不能拿来推 LLM。',
       question: '钱一定, 模型做大还是数据加多? 小模型上调好的学习率, 为什么搬到大模型就不灵了?',
+      evolution: {
+        title: '只训得起一次, 所以先在小模型上算',
+        subtitle: '根问题: 大模型只训得起一次, 模型多大、数据多少、lr 多少都得开训前定',
+        steps: [
+          { name: '照经验放大', pain: '(原点) 大模型只训得起一次, 大小、数据量、lr 都得开训前定', fix: '照上一代配置放大; 算力给模型还是给数据、lr 取多大, 全凭感觉' },
+          { name: 'Kaplan scaling law', year: 2020, pain: '不知道多出来的算力该加在模型还是数据上', fix: '小模型上拟合 loss 随 N、D 的幂律再外推; 给出的配方偏向加大模型' },
+          { name: 'Chinchilla IsoFLOP', year: 2022, pain: '模型偏大、数据偏少, 同样的算力 loss 没压到底', fix: '固定 $C\\approx 6ND$ 扫 N 找 U 形谷底, 拟合 $E+A/N^\\alpha+B/D^\\beta$ 推最优 N' },
+          { name: 'μP', year: 2022, pain: '大小定了, lr 却扫不起; SP 下宽 16 倍, 最优 lr 移 64 倍', fix: '输出层初始化和隐藏/输出层 lr 按宽度多除 m: 宽 32 到 512 最优 lr 都是 $2^{-5}$' },
+        ],
+      },
       code: 'llm_train/m19_scaling_laws/demo.py · llm_train/m20_mup/demo.py',
       points: [
         {
@@ -723,6 +855,16 @@ lrs = [lr, lr / m, lr / m]                    # ★ 输入层不缩, 隐藏层�
       subtitle: '读完你能看出评测数字的口径问题: 分词器、测试集污染、pass@k 估计法、裁判位置偏差。',
       tldr: '每个评测数字都有口径:\n- PPL 跟着分词器变, 跨模型要比 bits-per-byte。\n- n-gram 查得到原题, 查不到改写过的题。\n- 朴素 pass@k 系统性偏低, 要用无偏估计。\n- LLM 裁判偏爱先出现的回答, 要交换 A/B 各判一次。',
       question: '分数高是模型真会, 还是背过题、换了分词器、或者裁判偏心?',
+      evolution: {
+        title: '题越开放, 判分越难',
+        subtitle: '根问题: 分数要说明模型真会什么, 可每种打分只量得到它能量的那一部分',
+        steps: [
+          { name: 'perplexity', pain: '(原点) 训练只看得到 loss, 要一个数说模型多好', fix: '留出集上算 $e^{\\mathrm{CE}}$; 分词器一换就变 (5.501 → 30.265), 也量不出会不会做题' },
+          { name: '题库 + 去污染', pain: '想知道会不会做题, 光看 PPL 答不了', fix: '固定题库按答对比例打分; 原题混进训练语料会抬分, n-gram 只查得到没改写的' },
+          { name: 'pass@k', year: 2021, pain: '代码题写法千万种, 和标准答案逐字比会把对的判错', fix: '跑单元测试判对错, 每题采 n 个用无偏式估 pass@k; 朴素公式 k=10 时偏低 0.039' },
+          { name: 'LLM 裁判 + 交换', year: 2023, pain: '写作、对话没有测试可跑, 只能请裁判; LLM 裁判偏爱先出现的那份', fix: 'A/B 交换各判一次、两次一致才算: 好的在 B 位时准确率 0.593 → 0.991, 调用翻倍' },
+        ],
+      },
       code: 'llm_train/m21_llm_eval/demo.py',
       points: [
         {
