@@ -1,5 +1,15 @@
 # LLM Engineering Lab
 
+A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments and 108 interactive labs. The tutorial text is primarily in Chinese.
+
+[在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.0.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.0.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
+
+| 训练：拖动参数，看流水线气泡 | 推理：KV cache 少算了多少 | Agent：单步看工具调用 |
+| --- | --- | --- |
+| [![流水线并行实验台](docs/screenshots/train-model-parallel-1.png)](https://beleev.github.io/llm-engineering-lab/#/train/model-parallel) | [![KV cache 实验台](docs/screenshots/infer-kv-memory-2.png)](https://beleev.github.io/llm-engineering-lab/#/infer/kv-memory) | [![Agent 循环实验台](docs/screenshots/agent-loop-1.png)](https://beleev.github.io/llm-engineering-lab/#/agent/loop) |
+
+点击截图进入实验。更多配图见[章节预览](docs/screenshots/README.md)。
+
 把"训出一个能用、能部署、能行动的大模型系统"拆成**六个递进阶段**，每个阶段都能单独跑。
 
 numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调对齐 → 推理优化 → Agent 应用层。
@@ -31,9 +41,9 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 推荐节奏：**先在网页上拖实验台建立直觉 → 做章末自测 → 再跑对应的 Python demo 读源码**。模块目录下的 README 大体按这个顺序写：
 
-> 直觉 → 核心公式 → 运行后应该看到什么（真实数字）→ 与真实系统的差距 → 常见误区 → 3 道自测题
+> 直觉 → 核心原理 → 运行 → 运行后应该看到什么（真实数字）→ 与真实系统的差距 → 常见误区 → 自测题
 
-各包的小标题略有出入：公式一节在有的包里叫「核心数据结构或公式」或「核心数据结构与控制流」。
+各包首页统一为「概览 → 运行 → 模块与阅读顺序 → 实现说明 → 边界」。
 
 ## 安装与运行
 

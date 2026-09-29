@@ -1,12 +1,20 @@
 # M11 — FlashAttention: 分块 + online softmax, 永不落地 (T,T) 矩阵
 
+[![FlashAttention — 分块 + online softmax llm_infer/m11](../../docs/screenshots/infer-compute-1.png)](https://beleev.github.io#/infer/compute)
+
+[打开相关交互实验：FlashAttention — 分块 + online softmax llm_infer/m11](https://beleev.github.io#/infer/compute)
+
 ## 直觉
+
 朴素 attention 要把 `S = QKᵀ` 和 `P = softmax(S)` 两张 (T,T) 矩阵写进 HBM (GPU 显存, 大但读写慢) 再读回来;
 T=4096 就是 16M 元素/头, 慢的不是算, 是搬。FlashAttention 把 Q、K/V **都**切成小块,
 每次只在 SRAM (GPU 片上缓存, 小但快) 里算一块 (b_q, b_k), 用 logsumexp 把各块结果精确地"接"起来。
 softmax 看似需要整行的全局分母, 但分母可以增量维护 —— 这就是全部技巧。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 每个 query 行只维护两个量: 已归一化的输出 `O` 和分母的 log `lse = log Σ_j exp(S_j)`。
 来了一块新分数 `S_b` (b_q, b_k):
 ```
@@ -22,7 +30,16 @@ softmax 看似需要整行的全局分母, 但分母可以增量维护 —— �
   内层循环本身就是反复做这个 merge。**lse 必须返回**: ring attention / chunked prefill 靠它跨设备、跨 chunk 合并;
   反向传播靠它重算 `P = exp(S - lse)`, 不用存 (T,T)。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m11_flash_attention.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m11_flash_attention.demo
 ```
@@ -38,18 +55,21 @@ python -m llm_infer.m11_flash_attention.demo
 基线是 `core.dense_attention`; 跳过块数 assert 为 n(n-1)/2 (n = T/64), 峰值 assert 恒为 64×64。
 
 ## 与真实系统的差距
+
 - 真实收益主要是**延迟/吞吐** (少读写 HBM, 2~4× 提速), 不只是显存; numpy 里块循环反而更慢, 这里只验证算法。
 - 真 kernel 是 fused CUDA/Triton: 块大小按 SRAM 容量选, 多头/batch 维并行, 支持 GQA、sliding window、ALiBi、varlen。
 - 反向传播 (用 lse 重算 P)、dropout、FP8 (FA-3) 没有实现。
 - decode (Tq=1) 时 attention 本就是 O(T), 真实系统另有 paged/decode 专用 kernel (FlashInfer, FlashDecoding)。
 
 ## 常见误区
+
 - "FlashAttention 是近似算法" —— 不是, 它与朴素 attention 数学上严格相等 (只差浮点舍入 ~1e-6)。
 - "显存是 O(b²) 所以总显存与 T 无关" —— 工作集与 T 无关, 但 O、lse、KV 本身仍是 O(T)。
 - "两段 attention 输出取平均就能合并" —— 两段的 softmax 质量 (e^lse) 不等, 必须按 lse 加权 (demo [4] 的反例)。
 - "causal 省一半计算是靠 mask" —— mask 只是把结果置 -inf, 省计算靠的是整块跳过。
 
 ## 自测题
+
 1. 为什么只切 K/V 不切 Q 时工作集不是 O(b²)?
    **答**: 每块分数矩阵是 (Tq, b_k), Tq 仍随序列增长; 必须 Q 也切块才得到 (b_q, b_k)。
 2. T=4096, b=64, causal: 总共多少块? 跳过多少? 需要逐元素 mask 的有多少?

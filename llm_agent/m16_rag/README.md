@@ -1,11 +1,8 @@
 # M16 — RAG: 切块、BM25、稠密向量、RRF 混合、rerank
 
-在 m08 (TF-IDF, 一句话一篇) 的基础上做完整的检索管线:
-- 结构化切块 → BM25 与稠密向量两路召回 → RRF 融合 → 只对 top-10 做 rerank。
-- 用 20 道带标注的问答量 recall@k 和 MRR。
-- 最后以同名工具 `search_docs` 接进 agent loop。
+[![RAG — 20 道题, 四条检索路线 llm_agent/m16](../../docs/screenshots/agent-rag-1.png)](https://beleev.github.io#/agent/rag)
 
-全部纯 stdlib。
+[打开相关交互实验：RAG — 20 道题, 四条检索路线 llm_agent/m16](https://beleev.github.io#/agent/rag)
 
 ## 直觉
 
@@ -23,7 +20,9 @@ m08 的文档一篇就是一句话。真实文档有几千字, 整篇塞回上�
 
 最后, 没有评测集, 以上每一步"升级"都只是感觉。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 全部在 `m16_rag/demo.py`:
 
@@ -43,7 +42,7 @@ query ─┬─ BM25.rank ──────┐
        └─ DenseIndex.rank ─┴─ rrf ─ 前 10 ─ rerank_score 稳定排序 ─ 前 k ─ search_docs 输出 "[chunk_id] 文档 > 小节\n正文"
 ```
 
-## 公式
+### 公式
 
 ```
 BM25(q, d) = Σ_{w∈q} idf(w) · tf(w,d)·(k1+1) / (tf(w,d) + k1·(1 - b + b·|d|/avgdl))      k1=1.5, b=0.75
@@ -62,6 +61,15 @@ recall@k   = 相关块进了前 k 的题数 / 总题数;   MRR = mean(1 / 第一
 - **crc32 而不是 `hash()`**: Python 的字符串哈希每个进程随机加盐, 用它结果不可复现。
 - **RRF 的 k=60**: 原论文的常用值; k 越大, 名次差异被压得越平。
 - **rerank 只看 top-10**: 它是 O(|q|·|块|) 的逐对比较。真实的 cross-encoder 每对要跑一次模型前向, 所以只能用在少数候选上。
+
+## 运行
+
+在 m08 (TF-IDF, 一句话一篇) 的基础上做完整的检索管线:
+- 结构化切块 → BM25 与稠密向量两路召回 → RRF 融合 → 只对 top-10 做 rerank。
+- 用 20 道带标注的问答量 recall@k 和 MRR。
+- 最后以同名工具 `search_docs` 接进 agent loop。
+
+全部纯 stdlib。
 
 ## 运行后应该看到什么
 

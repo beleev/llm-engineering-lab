@@ -1,11 +1,19 @@
 # M01 — KV Cache: 一切推理优化的起点
 
+[![KV cache — 每一步到底重算了多少 token llm_infer/m01](../../docs/screenshots/infer-kv-memory-2.png)](https://beleev.github.io#/infer/kv-memory)
+
+[打开相关交互实验：KV cache — 每一步到底重算了多少 token llm_infer/m01](https://beleev.github.io#/infer/kv-memory)
+
 ## 直觉
+
 自回归生成第 t 步只新增 1 个 token, 但 attention 要用到全部历史 token 的 K/V。
 因果 mask 下历史 token 的 K/V **不会因为后面来了新 token 而改变**, 所以没必要每步重算:
 存下来, 每步只算新 token 的 q/k/v, 把 k/v 追加到尾部。用显存换计算。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 kv_cache = [(K, V)] × n_layer          K, V: (T, D), K 存的是 RoPE 之后的值
 decode:  q,k,v = x_new·W   (1, D)
@@ -16,7 +24,16 @@ decode:  q,k,v = x_new·W   (1, D)
 - 显存: `KV bytes = 2 · n_layer · T · D · sizeof(dtype)` (多头时 D = n_kv_head · head_dim)。
   LLaMA-7B fp16: 2·32·4096·2 B = 0.5 MiB/token, T=4096 → 2 GiB/请求。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m01_kv_cache.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m01_kv_cache.demo      # ~0.2 s
 ```
@@ -31,6 +48,7 @@ python -m llm_infer.m01_kv_cache.demo      # ~0.2 s
 [4] 的毫秒数每台机器不同, 只看趋势 (一条线性上升, 一条水平)。
 
 ## 与真实系统的差距
+
 - 这里每步 `np.concatenate` 会**整块拷贝** KV (O(T) 拷贝); 真实系统预分配显存, 原地写入 —
   vLLM / SGLang 用分页 block pool (m02), TensorRT-LLM 也是 paged KV。
 - TinyLM 单头、无 batch、float32 (所以 demo 里 sizeof=4); 真实模型是 fp16/bf16 + GQA
@@ -39,6 +57,7 @@ python -m llm_infer.m01_kv_cache.demo      # ~0.2 s
   这才引出 continuous batching (m03)、投机解码 (m07)。
 
 ## 常见误区
+
 - "有 cache 后 decode 是 O(1)": 不是。q 仍要和 T 个 key 做点积, 单步 O(T·d); 省掉的是对历史 token 重跑所有层。
 - "cache 存 Q 也有用": 没用。历史 token 的 q 只用于它自己那一步的输出, 之后再也不会被读。
 - "K 存 RoPE 之前还是之后无所谓": 本库存 RoPE 之后的 K, 所以**截断 / 重排 cache 时位置就烙死了**
@@ -46,6 +65,7 @@ python -m llm_infer.m01_kv_cache.demo      # ~0.2 s
 - 实测只快 ~1.9× 而 token 数差 18.6×: T=38 时每次 numpy 调用的固定开销占主导, 不是 cache 没用。
 
 ## 自测题
+
 1. **为什么历史 token 的 K/V 可以复用, 双向 (BERT 式) attention 行不行?**
    因果 mask 保证第 i 个 token 的各层 hidden 只依赖 ≤ i 的 token, 新 token 不会改变它; 双向 attention 下每个 token 的 hidden 依赖全序列, 新 token 一来全部失效, 不能缓存。
 2. **LLaMA-7B fp16, 80 GB 卡上权重占 14 GB, 余下显存全给 KV, 最多同时放多少个 T=4096 的请求?**

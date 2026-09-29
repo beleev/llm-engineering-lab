@@ -1,6 +1,8 @@
 # M14 — Context Engineering
 
-把"每次调用到底放什么进上下文"当成工程问题: 便宜的先清, 贵的再压, 能现取的不预存, 要跨会话的写文件。
+[![上下文预算 — 塞不下的时候, 丢什么? llm_agent/m14](../../docs/screenshots/agent-context-engineering-1.png)](https://beleev.github.io#/agent/context-engineering)
+
+[打开相关交互实验：上下文预算 — 塞不下的时候, 丢什么? llm_agent/m14](https://beleev.github.io#/agent/context-engineering)
 
 ## 直觉
 
@@ -9,7 +11,9 @@ Agent loop 每一轮都要把整个上下文重发给模型, 所以上下文只�
 更好的做法是分档降级: 先零成本地清掉旧工具结果的正文, 还不够再花一次模型调用写摘要, 并且真的用摘要替换历史。
 另外两条腿是"不放进来": 上下文里只放文件索引、内容用到才读 (just-in-time); 跨会话的知识写进文件, 不占任何一轮的上下文。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 | 机制 | 位置 |
 |------|------|
@@ -51,6 +55,10 @@ view = self.messages
 - `MemoryTool` 沿用 Claude API memory tool 的 `/memories` 目录约定:
   - 路径必须是 `/memories` 或以 `/memories/` 开头。
   - 围栏立在 `root/memories` 上 (`confine()` 先 `resolve()` 再判断), 所以 `/memories/../x` 也出不去。
+
+## 运行
+
+把"每次调用到底放什么进上下文"当成工程问题: 便宜的先清, 贵的再压, 能现取的不预存, 要跨会话的写文件。
 
 ## 运行后应该看到什么
 

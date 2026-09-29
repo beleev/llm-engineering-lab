@@ -1,0 +1,62 @@
+# Qwen3-Next — 混合线性注意力
+
+[![固定大小的状态 vs 越长越大的 KV llm_models/layers/sparse/linear_attention.py](../../../../docs/screenshots/models-mtp-3.png)](https://beleev.github.io#/models/swa-mtp)
+
+[打开相关交互实验：固定大小的状态 vs 越长越大的 KV llm_models/layers/sparse/linear_attention.py](https://beleev.github.io#/models/swa-mtp)
+
+## 直觉
+
+不是每一层都需要完整注意力。75% 的层用 Gated DeltaNet: 一个固定大小的状态矩阵 S 当 "记忆", 每来一个 token 就
+"先擦掉 k 方向的旧值, 再写入新值"; 25% 的层保留全注意力兜底精准检索。层排布 `[Δ Δ Δ A Δ Δ Δ A …]`。
+
+## 核心原理
+
+### 核心公式
+
+- delta rule: `S ← α·(S − β·k·(kᵀS)) + β·k·vᵀ`, 读出 `o = Sᵀq`; α 是遗忘门, β 是写入强度, q/k 做 L2 归一化保证收缩。
+- 缓存: attn 层 `T × 2·Hkv·Dh` (随 T 增长); delta 层 `H × Dh × Dh` (与 T 无关)。
+- 同一个 cache dict 协议: attn 层往里放 `k/v`, delta 层往里放 `state`, 主干循环不区分层类型。
+
+## 运行
+
+```bash
+python -m llm_models.run_models.language_models.qwen3_next.train_qwen3_next
+python -m llm_models.run_models.language_models.qwen3_next.infer_qwen3_next
+```
+
+## 运行后应该看到什么
+
+### (实测, CPU)
+
+- train (4 层 = 3Δ + 1A): `初始 loss 7.058 vs ln V = 6.908 | 最终 loss 0.049`。
+- infer (8 层 = 6Δ + 2A, 参数量 1,905,840):
+  - `[2]` 因果性: `|logits(全长)[:8] − logits(截断到 8)| = 4.8e-07`。
+  - `[3]` 缓存元素数 T=8 → T=32: attn 层 4096 → 16384 (×4), delta 层 49152 → 49152 (不变)。
+  - `[4]` 生成 60 token 有/无 cache 一致, 加速约 7.9x。
+  - `[5]` 左 padding 5 位: 真实位置 logits 最大偏差 7.2e-07; 左 pad 批量生成 == 单独生成。
+
+## 与真实系统的差距
+
+- **DeltaNet 是逐 token 的 Python 循环**: 训练很慢。真实实现用 chunk 并行 kernel。
+- **只保留了 "混合层"**: 真实模型还有超稀疏 MoE、MTP、zero-centered RMSNorm, 本库都没有。
+- **规模**: infer 是 8 层 (6Δ + 2A)、d_model=128, 共 1,905,840 个参数; train 是 4 层、d_model=256。
+- **位置编码**: 注意力层用完整的 RoPE。DeltaNet 层收到 `rope` 但不使用, 位置只靠遗忘门 α 隐式编码。
+- **本库约定**: `lm_head` 与 embedding 共享权重, embedding 乘 √D, 不代表原模型的做法。
+- **数据是合成的**: 固定一个随机 batch (2 条 × 32 token) 反复训 60 步, loss 下降仍然只是背诵。固定 batch 是本库约定。
+
+## 常见误区
+
+- "线性注意力的缓存一定更小": 看 T。本例 T=32 时 delta 状态 (49152) 反而比 attn cache (16384) 大; 优势在 T 很大时才出现 —— O(1) vs O(T)。
+- "DeltaNet 没有 mask 所以会偷看未来": 递推只从过去流向未来, 天然因果 (脚本第 2 项断言)。
+- "DeltaNet 不需要 padding mask": 需要。因果 mask 用不上, 但 pad token 会被写进状态, 后面的真 token 都读到它。
+  本模型把 `attention_mask` 的本次 T 列交给 DeltaNet 层, pad 位置取 β=0 (不写)、α=1 (不衰减)。
+  delta 层不收这个 mask 时, 同样左 pad 5 位, 真实位置 logits 差 8.1e-03; 收了之后 7.2e-07 (脚本第 5 项断言)。
+- "init_weights 可以无脑套": 它会把 α 门的 bias 清零; 本模型在其后把 bias 重新设回 +2 (sigmoid ≈ 0.88, 初期偏向记住)。
+
+## 自测题
+
+1. T 多大时本例 attn 层总缓存超过 delta 层? —— 两种口径:
+   - 按 infer 脚本 `[3]` 的加总口径 (batch 2, 2 层 attn 对 6 层 delta): attn = 2 层 × 2 条 × T × 2·2·32 = 512T (T=8 时 4096, T=32 时 16384); delta = 6 层 × 2 条 × 4·32·32 = 49152。T > 96。
+   - 拆到单层、单条序列: attn 每个 token 128 个数, delta 固定 4096 个数。T > 32。
+2. 为什么无 cache 时本模型的生成比纯注意力模型更吃亏? —— DeltaNet 每步都要从 token 0 重新递推整个前缀 (Python 循环 O(T)), cache 后每步只推 1 步。
+3. 为什么 q/k 要 L2 归一化? —— `I − β·k·kᵀ` 在 |k|=1、β∈(0,1) 时是收缩映射, 状态不会数值爆炸。

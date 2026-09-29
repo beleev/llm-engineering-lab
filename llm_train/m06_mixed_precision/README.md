@@ -1,18 +1,29 @@
 # M06 — 混合精度: FP16 / BF16 + loss scaling + master weights
 
-运行: `python -m llm_train.m06_mixed_precision.demo`
+[![浮点数轴 — 梯度落在哪个格式的范围里? llm_train/m06](../../docs/screenshots/train-precision-stability-1.png)](https://beleev.github.io#/train/precision-stability)
+
+[打开相关交互实验：浮点数轴 — 梯度落在哪个格式的范围里? llm_train/m06](https://beleev.github.io#/train/precision-stability)
 
 ## 直觉
+
 16 位浮点只有 16 个 bit 可分: 给指数多一点就 "装得下", 给尾数多一点就 "分得清"。
 - FP16 = 5 指数 + 10 尾数: 分得清但装不下 → 小梯度变 0、大值变 Inf → 需要 loss scaling。
 - BF16 = 8 指数 + 7 尾数: 范围与 FP32 相同 → 不需要 scaling; 但 1.0 附近步长 2⁻⁷ (FP16 是 2⁻¹⁰)。
 
 无论哪种, 参数更新 `w -= lr·g` 里 `lr·g` 远小于 w 的步长, 必须在 FP32 master 上累加。
 
-## 核心公式
+## 核心原理
+
+### 核心公式
+
 `g16 = backward(loss · S)`; 若 `g16` 含 Inf/NaN → 跳过本步, `S ← S/2`; 否则 `master -= lr · g16/S`, 连续 `growth_interval` 个好 step 后 `S ← 2S`。
 
+## 运行
+
+运行: `python -m llm_train.m06_mixed_precision.demo`
+
 ## 运行后应该看到什么
+
 ```
 1e-8 (小梯度)     fp16 → 0            bf16 → 1.0012e-08
 70000 (大激活)    fp16 → inf          bf16 → 70144
@@ -27,17 +38,20 @@ log2(scale): 20! 19! 18! 17! 16 16 16 16 16 17 17 17 17 17 18 18 18 18 18 19! 18
 每一步走完 if/else 后, demo 都拿本步开始前的 master 副本比一次: 溢出步 master 一位都不动, 有效步 master 必须被更新。两个方向都断言。
 
 ## 与真实系统的差距
+
 - BF16 是用 "尾数截到 7 位" 模拟的 (numpy 无 bfloat16), 只模拟舍入, 不模拟存储。
 - `growth_interval=5` 是玩具值; PyTorch 默认 2000, init_scale 2¹⁶。
 - 真实 autocast 是逐算子白名单 (matmul 用低精度, softmax/norm/loss 留 FP32); 这里只有一层线性。
 - 现代 LLM 预训练几乎都用 BF16, 不用 loss scaling; FP16 + scaler 主要见于老卡 (V100/T4)。
 
 ## 常见误区
+
 - "BF16 精度比 FP16 高" —— 反了, BF16 精度更低, 赢在范围。
 - "scale 回退说明训练出问题了" —— 在上限附近振荡是设计行为。
 - "有 BF16 就不用 master weights" —— 仍需要 (或用 Kahan 补偿 / 随机舍入), 因为小更新照样被吃掉。
 
 ## 自测题
+
 1. FP16 能表示的最小正数和最大数? **答: ≈6e-8 (subnormal) 和 65504。**
 2. scale=2¹⁶, 真实梯度 2.0, 会怎样? **答: 131072 > 65504 → Inf → 跳过并把 scale 减半。**
 3. lr·g = 1e-5, w = 1.0 (fp16), 直接更新 100 步后 w = ? **答: 仍是 1.0, 每次都被舍回去。**

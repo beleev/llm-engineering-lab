@@ -1,6 +1,11 @@
 # M27 — 多副本路由: 把请求送到"缓存里已有它前缀"的副本, 但别把一个副本压垮
 
+[![多副本路由 — 命中率 vs 负载均衡 llm_infer/m27](../../docs/screenshots/infer-multi-replica-routing-1.png)](https://beleev.github.io#/infer/multi-replica-routing)
+
+[打开相关交互实验：多副本路由 — 命中率 vs 负载均衡 llm_infer/m27](https://beleev.github.io#/infer/multi-replica-routing)
+
 ## 直觉
+
 一个模型起 8 个引擎副本, 每个副本有自己的前缀缓存 (m04 / m05), **副本之间不共享 KV**。
 
 多轮对话第 k 轮的 prompt = system prompt + 前 k−1 轮全部历史。轮询和最少负载不看内容, 下一轮多半落到别的副本。
@@ -14,7 +19,10 @@
 - 最佳副本比最闲副本积压多出阈值, 就放弃缓存, 走最少负载。
 - 被分流过去的副本随后也缓存了热点前缀, 热点自然复制开。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 - `router.py:Replica` — 一个副本: `cache` (直接复用 `m05_radix_cache.radix_tree.RadixCache`)、`backlog_s` (未做完的活, 路由器眼里的负载)。
 - `router.py:prefix_len` — **只读**的最长前缀匹配。路由要探测 8 个副本, 不能像 `RadixCache.match` 那样 split 树、刷新 LRU。
   探测 ≠ 使用, 否则没被选中的副本的 LRU 也被搅乱。
@@ -34,7 +42,16 @@ TTFT   = 到达时积压 + (len(prompt) − h) / prefill_tok_s          ← 估�
 ```
 - `router.py:chat_stream` — 200 段对话 × 3~8 轮, 4 个 512-token system prompt, 流行度 ∝ 1/rank (头部 48%), 轮间思考 Exp(15 s)。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m27_multi_replica_routing.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m27_multi_replica_routing.demo     # ≈ 2.5 s
 ```
@@ -59,6 +76,7 @@ python -m llm_infer.m27_multi_replica_routing.demo     # ≈ 2.5 s
 - 阈值越紧命中率越低、越均衡; TTFT 最优阈值落在扫描范围中间。
 
 ## 与真实系统的差距
+
 - **TTFT 和负载都来自代价模型**: 每个副本是一条 FIFO 工作队列, prefill 与 decode 按固定速度串行消化。
   - 真实引擎做 continuous batching, decode 不会整段挡住后来请求的 prefill。
   - 真实引擎过载表现为 batch 变大、TPOT 变差、KV 显存打满后排队。
@@ -75,12 +93,14 @@ python -m llm_infer.m27_multi_replica_routing.demo     # ≈ 2.5 s
 - 没有跨副本的 KV 迁移。Mooncake 那种共享 KV 池能让"缓存在哪"与"在哪算"解耦。
 
 ## 常见误区
+
 - "前缀缓存命中率越高, TTFT 就越低" —— 纯前缀感知命中率最高 (93.9%), TTFT 最差。命中省下的 prefill 抵不过排队。
 - "最少负载 = 最均衡 = 最快" —— 均衡 (1.02) 但 41% 的 prompt token 在重算, TTFT 比 thr=1s 高 49%。
 - "阈值越紧越好" —— thr=0.05s 已经在往最少负载退化 (命中率 72.9%, TTFT 回升到 0.308)。
 - "路由时顺手用 cache.match 探测就行" —— match 会 split 树、刷新 LRU。探测 8 个副本, 就把 8 棵树的 LRU 全搅了。用只读的 `prefix_len`。
 
 ## 自测题
+
 1. 为什么纯前缀感知下, 4 个 system prompt 最多只让 4 个副本干活?
    **答**: 新对话在已缓存它 system prompt 的副本上命中 512 token, 在其它副本命中 0, 永远选前者。后续轮次的历史也只在那里。
    每个 system prompt 只在它第一次出现时 (全体平手) 选过一次副本。两个 prompt 还可能落到同一个副本 (本例 3/8)。

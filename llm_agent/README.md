@@ -1,10 +1,18 @@
 # llm_agent — LLM 应用层 / Agent 教学章节
 
+[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+
+[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/agent)
+
+## 概览
+
 > 用纯 Python stdlib 写一个可运行、可断言的 agent harness, 讲清楚生产级 agent 的关键机制:
 > 循环、工具、权限、上下文、扩展、持久化、子智能体、MCP、规划、护栏、评测。
 > 设计刻意对齐 Claude Code (权限模式名、hook 事件名、`mcp__server__tool` 命名) 和 Claude Messages API (content block 格式)。
 
-## 设计目标
+### 设计目标
 
 - **原理优先**: 默认"模型"是 `RuleBasedLLM` (关键词规则), 行为完全确定 —— 所以每个 demo 都能用 `assert` 证明自己声称的行为, 而不是无条件打印 OK。
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
@@ -12,7 +20,21 @@
 - **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 唯一的子进程是 m09 用 `sys.executable` 拉起本包自己的 MCP server。
 - **零依赖**: 默认路径只用 stdlib。CI 在 Python 3.10 和 3.13 上跑。
 
-## 学习路径
+## 运行
+
+```bash
+# 在仓库根目录
+python -m llm_agent.run_all                 # 全部默认 demo, 任何断言失败即非零退出
+python -m llm_agent.m03_permissions.demo    # 单模块
+python -m llm_agent.full_loop.demo          # 组合闭环
+
+# 可选: 真实模型 (需要 pip install anthropic + ANTHROPIC_API_KEY; 否则只跑离线检查后礼貌退出)
+python -m llm_agent.m15_claude_api.demo
+```
+
+## 模块与阅读顺序
+
+### 学习路径
 
 ```
 m01 Agent Loop ─ m02 Tool Use ─ m03 Permissions ─ m04 Context & Memory      基础: 一个能行动、受约束的 loop
@@ -28,7 +50,7 @@ m16 RAG ─ m17 Computer Use ─ m18 A2A ─ m19 Prompt Caching                 
 full_loop  把以上全部拼在一起, 逐场景断言
 ```
 
-## 模块清单
+### 模块清单
 
 | # | 模块 | 讲什么 | 机制所在 |
 |---|------|--------|----------|
@@ -53,19 +75,9 @@ full_loop  把以上全部拼在一起, 逐场景断言
 | 19 | [Prompt Caching](m19_prompt_caching/) | cache_control 断点、前缀字节匹配、写贵读便宜、TTL、时间戳反例 | `m19_prompt_caching/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-## 运行
+## 实现说明
 
-```bash
-# 在仓库根目录
-python -m llm_agent.run_all                 # 全部默认 demo, 任何断言失败即非零退出
-python -m llm_agent.m03_permissions.demo    # 单模块
-python -m llm_agent.full_loop.demo          # 组合闭环
-
-# 可选: 真实模型 (需要 pip install anthropic + ANTHROPIC_API_KEY; 否则只跑离线检查后礼貌退出)
-python -m llm_agent.m15_claude_api.demo
-```
-
-## 一次工具调用在 loop 里的完整路径
+### 一次工具调用在 loop 里的完整路径
 
 ```
 模型 → assistant[tool_use...]  ──先写入 transcript──►  JSONL
@@ -81,7 +93,9 @@ python -m llm_agent.m15_claude_api.demo
    user[tool_result...] (全部结果同一条消息) → 超预算? 清旧结果 → 摘要压缩 → 再问模型
 ```
 
-## 业界覆盖度自评
+## 边界
+
+### 业界覆盖度自评
 
 | 技术 | 状态 | 说明 |
 |---|:---:|---|

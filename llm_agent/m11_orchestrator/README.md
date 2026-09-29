@@ -1,6 +1,8 @@
 # M11 — Orchestrator–Workers: lead 扇出并行子 agent 再综合
 
-一个 lead agent 在同一个 turn 里委托三个子 agent 并行干活, 只收回摘要; 再用 token 账本说明多智能体到底买到了什么。
+[![Orchestrator–workers — 三本账: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](../../docs/screenshots/agent-orchestrator-1.png)](https://beleev.github.io#/agent/orchestrator)
+
+[打开相关交互实验：Orchestrator–workers — 三本账: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](https://beleev.github.io#/agent/orchestrator)
 
 ## 直觉
 
@@ -9,7 +11,9 @@ orchestrator-workers 的做法是: lead 只负责拆任务和综合, 每个 work
 它不需要新的调度机制 —— m07 的 `delegate` 工具加上 m10 的并行工具调用, 合起来就是扇出。
 要看清的是代价: 每个 worker 都要重建自己的上下文, 总 token 通常更高。多智能体买的是并行度和干净的主上下文, 不是省钱。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 | 位置 | 作用 |
 | --- | --- |
@@ -40,6 +44,10 @@ lead turn 2   一条 user 消息里 3 个 tool_result -> 综合成最终回答
 - **`max_summary_chars = 200` 是硬上限**: 子级再啰嗦也淹不了父上下文。这是 lead 峰值上下文小的直接原因。
 - **锁只包住"分配序号 + 登记 children"**: `execute` 会被多个线程同时调用; 但 `child.run` 在锁外, 否则并行就退化成串行了。
 - **usage 分开记**: lead 的账和每个 worker 的账分开, 才能同时回答"总共花了多少"和"主上下文被占了多少"这两个不同的问题。
+
+## 运行
+
+一个 lead agent 在同一个 turn 里委托三个子 agent 并行干活, 只收回摘要; 再用 token 账本说明多智能体到底买到了什么。
 
 ## 运行后应该看到什么
 

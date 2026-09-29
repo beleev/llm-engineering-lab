@@ -1,6 +1,8 @@
 # M07 — Subagents: 把脏活关进隔离的上下文, 只拿回摘要
 
-`delegate` 工具会新建一个有独立 messages、工具集和权限门的子 agent 去完成子任务, 父级只收到一段有长度上限的摘要。
+[![Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](../../docs/screenshots/agent-state-subagents-1.png)](https://beleev.github.io#/agent/state-subagents)
+
+[打开相关交互实验：Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](https://beleev.github.io#/agent/state-subagents)
 
 ## 直觉
 
@@ -9,7 +11,9 @@
 隔离是双向的: 子级看不到父级的对话, 也拿不到父级的工具 —— 所以它同时是一种最小权限机制。
 代价是总 token 通常更多 (子级要从零重建上下文), 而且父级只能看到摘要, 摘要丢了什么它不会知道。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/subagents.py: DelegateTool(agent_types, hooks, transcript_dir, llm_factory, max_summary_chars=200)` — 一个普通 `Tool`。
   - `agent_types` 是 `{类型名: 返回 ToolRegistry 的工厂}`。
@@ -44,6 +48,10 @@ parent.run(prompt)
 - **工具集用工厂而非实例**。每次委托都新建, 避免子级之间通过有状态的工具互相影响。
 - **delegate 是高风险工具**。`risk="high"`: auto 模式下父级要有一条 allow `delegate` 规则; 父级读过不可信数据之后, 污点锁拦下委托, 读过注入的父级不能把"去执行 shell"写进 task, 交给一个干净的子级。它还标了 `untrusted_output`: 子级读到的不可信数据会写进摘要, 摘要回到父级时照样包装、置污点。
 - **没做完就报失败**。子级跑满 `max_turns` 还没给出最终回答, 交回的是 `ok=False` 的结果, 父级从 `is_error` 就能看出委托失败, 不用读文本。
+
+## 运行
+
+`delegate` 工具会新建一个有独立 messages、工具集和权限门的子 agent 去完成子任务, 父级只收到一段有长度上限的摘要。
 
 ## 运行后应该看到什么
 

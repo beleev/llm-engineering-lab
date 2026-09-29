@@ -1,6 +1,8 @@
 # M04 — Context & Memory
 
-上下文窗口是稀缺资源: 本模块演示文件记忆的检索, 以及上下文瘦身由便宜到贵的三个档位 (清工具结果 / 模型写摘要 / 硬截断反例)。
+[![上下文预算 — 塞不下的时候, 丢什么? llm_agent/m14](../../docs/screenshots/agent-context-engineering-1.png)](https://beleev.github.io#/agent/context-engineering)
+
+[打开相关交互实验：上下文预算 — 塞不下的时候, 丢什么? llm_agent/m14](https://beleev.github.io#/agent/context-engineering)
 
 ## 直觉
 
@@ -9,7 +11,9 @@ Agent 每次调用模型都要重发整个上下文, 长会话既贵又迟早撑
 所以瘦身要分档: 先做便宜且不伤结构的 (旧工具结果是上下文里最胖、最快过时的部分), 不够再花一次模型调用写摘要, 硬截断只作最后手段。
 记忆解决的是另一半问题: 跨会话的稳定信息 (偏好、约定) 不该靠对话历史携带, 而是放在文件里, 用到时检索进来。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/memory.py: FileMemory` — 记忆就是目录下的 markdown 文件 (可读、可改、可进版本库)。`add(title, body)` 写文件; `search(query, limit=3)` 按 query 与全文的 token 集合交集大小打分。
 - `core/utils.py: tokenize` — 英文按 `[a-z0-9]+` 取词, 中文按字符 bigram (`风格回答` -> `风格 / 格回 / 回答`)。中文没有空格, 只认英文词会让中文查询得分恒为 0。
@@ -38,6 +42,10 @@ Agent 每次调用模型都要重发整个上下文, 长会话既贵又迟早撑
 - `keep` 参数来自 pre_compact hook: 由人指定"摘要里必须留下什么", 不把关键约束的去留交给摘要模型自行决定。
 - 摘要只替换"当前用户轮之前"的历史 (`core/agent.py: Agent._compact` 在最后一条 `is_user_prompt` 处切开), 所以不会把一对 `tool_use / tool_result` 切成两半。
 - 本模块只在函数层面对比三者。它们如何接进 loop (`Agent._assemble_context`)、如何让持久化的会话真的变小, 见 m14。
+
+## 运行
+
+上下文窗口是稀缺资源: 本模块演示文件记忆的检索, 以及上下文瘦身由便宜到贵的三个档位 (清工具结果 / 模型写摘要 / 硬截断反例)。
 
 ## 运行后应该看到什么
 

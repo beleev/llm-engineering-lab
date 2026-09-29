@@ -2,7 +2,7 @@
 // 章节正文不在这里, 在 data/topics/<stage>.js。
 // 时间轴的三条主线: left (语言), eye (多模态理解), right (图像视频生成)
 
-import { extraChapters, extraPages } from './topics/index.js'
+import { extraChapters } from 'virtual:course-catalog'
 
 // topics/*.js 追加的章节默认接在本阶段末尾 (压轴章之前); 写了 after: '某章 route' 的挪到那一章后面
 function place(list) {
@@ -794,4 +794,4 @@ export function findModel(id) {
 
 // 章节正文全部住在 data/topics/<stage>.js, 这里只汇总。
 // 这个文件只留结构性数据: 阶段、章节目录、模块表、模型时间轴。
-export const topicPages = { ...extraPages }
+export { topicPages } from './topics/index.js'

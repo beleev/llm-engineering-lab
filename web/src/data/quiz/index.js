@@ -1,8 +1,19 @@
-// 自测题库: 本目录下每个阶段一个文件, 形如
-//   export default { 'route-name': [{ q, options: [..], answer: 0, why: '...' }] }
-// 这里用 glob 自动合并, 新增文件不需要改任何注册表。
-const files = import.meta.glob('./*.js', { eager: true, import: 'default' })
-export const quizBank = Object.assign(
-  {},
-  ...Object.entries(files).filter(([f]) => !f.endsWith('/index.js')).map(([, m]) => m || {}),
-)
+// 路由守卫加载当前章节所在的题库, 不在首页下载全部题目。
+import { shallowReactive } from 'vue'
+import { quizStages } from 'virtual:course-catalog'
+
+const loaders = import.meta.glob(['./*.js', '!./index.js'], { import: 'default' })
+const loaded = new Map()
+export const quizBank = shallowReactive({})
+
+export async function loadQuiz(route) {
+  const stage = quizStages[route]
+  if (!stage) return
+  if (!loaded.has(stage)) {
+    loaded.set(stage, loaders[`./${stage}.js`]().then((items) => Object.assign(quizBank, items)).catch((error) => {
+      loaded.delete(stage)
+      throw error
+    }))
+  }
+  await loaded.get(stage)
+}

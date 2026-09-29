@@ -1,12 +1,20 @@
 # M07 — Speculative Decoding: 一次 target forward 出多个 token
 
+[![投机解码 — draft 猜 K 个, target 一次验 K+1 个 llm_infer/m07](../../docs/screenshots/infer-decode-control-2.png)](https://beleev.github.io#/infer/decode-control)
+
+[打开相关交互实验：投机解码 — draft 猜 K 个, target 一次验 K+1 个 llm_infer/m07](https://beleev.github.io#/infer/decode-control)
+
 ## 直觉
+
 decode 每步只产 1 个 token, 却要把整份权重读一遍 (带宽受限), 算力大量闲置。
 让便宜的 **draft** 连猜 K 个 token, **target** 一次 forward 并行检查 K+1 个槽位:
 猜对的前缀全收, 第一个猜错的位置由 target 纠正, 全对再白送 1 个 bonus。
 每次 target 调用至少产出 1 个 token (不会比 baseline 差), 最多 K+1 个。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 - 不变量: target 的 `kv` 恰好覆盖 `out[:-1]`; `out[-1]` 已确定但还没喂进去。
 - 验证: `target.forward([out[-1], d_0..d_{K-1}], kv)` → logits (K+1, V), 因果 mask 让第 i 行只看到 `d_{<i}`。
 - 回滚: `truncate_kv(kv, n_ctx + 1 + n)`, 被拒 draft 的 KV 直接截掉, **从不重新 prefill**。
@@ -16,7 +24,16 @@ decode 每步只产 1 个 token, 却要把整份权重读一遍 (带宽受限), 
   无损性: P(输出 x) = p_d(x)·min(1, p_t/p_d) + P(拒绝)·残差(x) = min(p_t, p_d) + max(0, p_t − p_d) = p_t(x)。
 - 期望产出: 每 token 接受率 α → 每次 target 调用 (1 − α^(K+1)) / (1 − α) 个 token。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m07_speculative_decoding.demo
+```
+
 ## 运行后应该看到什么
+
 `python -m llm_infer.m07_speculative_decoding.demo` (约 8 s)
 ```
 [1][2] greedy, K=4, 生成 48 token (baseline target 调用 = 48)
@@ -35,6 +52,7 @@ assert: 四种 draft 的输出都与 `target.generate_greedy` 逐 token 相同; 
 (第 1 个 token 来自 prefill、第 4 个多为 bonus, 都直接采自 target, 所以错误规则只在第 2、3 位露馅。)
 
 ## 与真实系统的差距
+
 - 加速只按 target 调用数算, **没计 draft 开销**; 真实加速 ≈ 产出 / (1 + K·c), c = draft/target 单步耗时比。
 - 无 batch: vLLM 里每条序列接受数不同, 需要 ragged 的 KV 回滚与 slot 回收。
 - "权重加噪"的 draft 并不更便宜, 只用来模拟"蒸馏得不错"的接受率; 真 draft 是蒸馏小模型 / EAGLE 头 (m17)。
@@ -42,12 +60,14 @@ assert: 四种 draft 的输出都与 `target.generate_greedy` 逐 token 相同; 
 - 树形 draft 见 m19。
 
 ## 常见误区
+
 - "draft 差会让输出变差" —— 不会。输出 (greedy) 或输出分布 (sampling) 只由 target 决定, draft 只影响速度。
 - "greedy 比对在采样时也能用" —— 不能。采样必须用 min(1, p_t/p_d) + 残差, 否则分布被 draft 污染 (demo [3] 的错误规则)。
 - "拒绝后要重新 prefill" —— 不用, 截断 KV 即可; 前缀的 KV 与后面的 token 无关 (因果)。
 - "每轮接受 0.88/4 = 接受率 22%" —— 链式接受一断全断, 0.88 对应的每 token 接受率 α≈0.5。
 
 ## 自测题
+
 1. 为什么残差分布是 max(0, p_t − p_d) 而不是直接从 p_t 重采样?
    答: 直接采 p_t 会让 p_d 偏高的 token 被重复计入 (接受一次 + 重采一次), 总分布 ≠ p_t; 残差恰好补上 p_d 低估的那部分质量。
 2. K=4、draft 完全猜不中时, target 调用数与 baseline 相比如何?

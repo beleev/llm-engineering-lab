@@ -7,7 +7,7 @@ Selective SSM (S6) — Mamba 的核心, 不用 attention 的序列建模
 公式:  h_t = Ā_t ⊙ h_{t-1} + B̄_t · x_t,   y_t = C_t · h_t + D · x_t
        Ā_t = exp(Δ_t · A),  B̄_t = Δ_t · B_t,  A = -exp(A_log) < 0,  Δ_t = softplus(·) > 0
 数值稳定的全部秘密: A<0 且 Δ>0 ⇒ Ā ∈ (0,1), 状态只会衰减不会爆炸。
-       (把 A 的负号去掉, T≈70 步就溢出成 inf/NaN — 见 run_models/.../mamba/readme.md)
+       (把 A 的负号去掉, T≈70 步就溢出成 inf/NaN — 见 run_models/.../mamba/README.md)
 读代码时盯住: h (唯一的"记忆", 形状 [B, D, N], 与序列长度无关)。
 """
 

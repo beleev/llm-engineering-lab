@@ -52,3 +52,6 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+      - name: 阶段正文和题库保持按需加载
+        run: npm run check:bundle
+        working-directory: web

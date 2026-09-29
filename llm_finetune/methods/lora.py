@@ -7,7 +7,7 @@ LoRA — Low-Rank Adaptation (Hu et al., 2021)
            B = 0 ⇒ 训练起点严格等于原模型; 训完 W' = W + (α/r)BA 可合并, 推理零开销。
            参数量 d_out·d_in → r·(d_in + d_out);  α/r 让改 r 时不必重调 lr。
 读代码时盯住: `delta()` —— 训练 / 合并 / DoRA / QLoRA 全都围着这一个 ΔW 转。
-省的是显存和存储, 不是步数: 同一任务上 LoRA 通常比全参收敛**慢** (实测见 run_finetune/lora/readme.md)。
+省的是显存和存储, 不是步数: 同一任务上 LoRA 通常比全参收敛**慢** (实测见 run_finetune/lora/README.md)。
 与论文的差异: 论文正文写 A 用随机高斯初始化, 本库用 Kaiming uniform (官方 loralib 的代码也是这样写的)。
               论文的实验多数只注入 W_q / W_v, 本库默认注入注意力的四个投影。
 依赖 llm_models: 靠**属性名**找层。w_q / w_k / w_v / w_o 是注意力的四个投影, w_gate / w_up / w_down 是 SwiGLU 的三个矩阵。

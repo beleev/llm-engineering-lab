@@ -1,6 +1,8 @@
 # M10 — Planning: todo、plan 模式、并行工具调用
 
-三件和"先想后做"有关的机制: 把计划变成显式状态, 让用户在动手前有否决权, 让互不依赖的调用同时跑。
+[![Plan 模式 — 只读是门强制的, 不是模型自觉的 llm_agent/m10](../../docs/screenshots/agent-planning-1.png)](https://beleev.github.io#/agent/planning)
+
+[打开相关交互实验：Plan 模式 — 只读是门强制的, 不是模型自觉的 llm_agent/m10](https://beleev.github.io#/agent/planning)
 
 ## 直觉
 
@@ -10,7 +12,9 @@ plan 模式把"只许看、不许动"做成权限门的一个模式: 模型必�
 关键在于这是 harness 强制的 —— 模型不交计划直接写, 门照样不开 (demo [3])。
 并行工具调用解决的是另一个问题: 三个互不依赖、各 0.2s 的查询, 串行要 0.6s, 同一个 turn 发出去只要约 0.2s。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 | 位置 | 作用 |
 | --- | --- |
@@ -49,6 +53,10 @@ pool.map(tools.execute, approved)           # 并行; 只有 1 个获批时直�
 - **plan 模式下 allow 规则也失效**: `_evaluate_one` 在 plan 模式只看 deny 规则就跳出规则循环。否则一条早先配好的 `allow write_note` 就能让 plan 模式形同虚设。
 - **模式是门的状态, 由工具翻转**: `ExitPlanModeTool` 持有 `gate` 的引用; 审批由注入的 `approve` 回调代表"人" (demo 不能 `input()`)。批准发生在工具执行里, 所以模型无法绕过审批自己改模式。
 - **授权串行、执行并行**: 审批弹窗不能并发, 顺序也要确定; 真正耗时的是执行。`pool.map` 保序, 结果始终挂回模型发出的那个 `tool_use_id`。
+
+## 运行
+
+三件和"先想后做"有关的机制: 把计划变成显式状态, 让用户在动手前有否决权, 让互不依赖的调用同时跑。
 
 ## 运行后应该看到什么
 

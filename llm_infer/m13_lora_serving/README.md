@@ -1,12 +1,20 @@
 # M13 — Multi-LoRA Serving: 一份底模, N 个 adapter 同 batch
 
+[![LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](../../docs/screenshots/finetune-lora-1.png)](https://beleev.github.io#/finetune/lora)
+
+[打开相关交互实验：LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](https://beleev.github.io#/finetune/lora)
+
 ## 直觉
+
 一个底模要同时服务很多客户, 每个客户有自己的 LoRA 微调。两条朴素路线都不行:
 **合并权重** (W' = W + ΔW) → 每个客户一份完整 W', 显存 ×N, 且不同客户的请求没法同 batch;
 **逐客户串行** → batch 小, GPU 吃不饱。解法: **不合并**。底模部分全 batch 共享一次 gemm (通用矩阵乘),
 LoRA 部分是两个很瘦的矩阵, 按每个 token 的 adapter id 去取各自的 A/B 来算。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 命名遵循 LoRA 论文 / HF PEFT (W 按 `nn.Linear` 布局 `(d_out, d_in)`, 行向量前向 `x @ W.T`):
 ```
 A: (r, d_in)    down-projection (降维), 随机初始化
@@ -19,7 +27,16 @@ y  = x·Wᵀ + (alpha/r) · (x·Aᵀ)·Bᵀ       (N,d_in) → (N,r) → (N,d_ou
 - **SGMV**: 同 adapter 的 token 归为一段, 每段一次 gemm。适合 prefill (每请求很多 token)。
 - 参数量: adapter `r·(d_in+d_out)` vs 底模 `d_in·d_out`。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m13_lora_serving.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m13_lora_serving.demo      # ~0.2 s
 ```
@@ -36,6 +53,7 @@ python -m llm_infer.m13_lora_serving.demo      # ~0.2 s
 adapter 字节数 == `r·(d_in+d_out)·4`; SGMV 比逐请求循环快。[4] 的毫秒数是 numpy/CPU, 只看方向。
 
 ## 与真实系统的差距
+
 - 这里的 BGMV 用 numpy fancy-index, 会真的拷贝出 `(N_tok, r, d_in)`; Punica 的 CUDA kernel 不拷贝,
   每个线程直接用 adapter id 去显存里寻址。SGMV 在这里是 Python 循环, 真实是一次 grouped-GEMM launch。
 - 只演示了一个线性层、所有 adapter 同 rank。真实系统对 q/k/v/o/gate/up/down 每层都加, rank 各不相同
@@ -44,6 +62,7 @@ adapter 字节数 == `r·(d_in+d_out)·4`; SGMV 比逐请求循环快。[4] 的�
 - 与前缀缓存的交互: 不同 adapter 的 KV 不同, 前缀缓存的 key 必须带上 adapter id。
 
 ## 常见误区
+
 - **A/B 记反**: A 是降维 `(r, d_in)` 且随机, B 是升维 `(d_out, r)` 且为零。很容易写反 (A 当升维、
   两个都随机); d_in == d_out 时形状恰好对得上, 错误不会报出来 — 所以 demo 特意用 d_in=64 ≠ d_out=96。
 - "两个都随机初始化也行": 那样 ΔW ≠ 0, 微调一开始就把底模行为改掉了; 反过来两个都为 0 则梯度恒为 0, 学不动。
@@ -52,6 +71,7 @@ adapter 字节数 == `r·(d_in+d_out)·4`; SGMV 比逐请求循环快。[4] 的�
   decode 时延迟开销并不小 — 这正是 Punica 要写专用 kernel 的原因。
 
 ## 自测题
+
 1. **d_in=d_out=4096, r=16, 一个线性层的 adapter 占底模该层参数的多少?**
    16·(4096+4096) / 4096² = 0.78%。
 2. **为什么 B 零初始化而 A 随机, 不能反过来都为零?**

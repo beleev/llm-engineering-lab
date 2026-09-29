@@ -1,6 +1,11 @@
 # M24 — Beam Search: 找"最可能"的序列, 以及为什么对话里不用它
 
+[![Beam search — 更可能, 不等于更好 llm_infer/m24](../../docs/screenshots/infer-decode-control-4.png)](https://beleev.github.io#/infer/decode-control)
+
+[打开相关交互实验：Beam search — 更可能, 不等于更好 llm_infer/m24](https://beleev.github.io#/infer/decode-control)
+
 ## 直觉
+
 greedy 每步只看眼前: 第一步选了次优 token, 后面再也回不来。可精确求 `argmax_y log P(y|x)` 要搜 V^T 条序列。
 
 beam search 折中: 每步在 `width × V` 个候选里只留累计 log 概率最高的 `width` 条前缀。代价约 `width` 倍的 decode。
@@ -8,7 +13,10 @@ beam search 折中: 每步在 `width × V` 个候选里只留累计 log 概率�
 它在翻译、摘要、语音识别这类"答案基本唯一"的任务上好用。但"最可能"不等于"最好": 最可能的序列往往**短、重复、千篇一律**。
 所以开放式对话默认用采样 (m10), 不用 beam。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
+
 - `beam.py:beam_search(lm, prompt, width, max_new, alpha, eos_id)`: 每条活 beam = `(累计 logp, tokens, KV, 下一步 logp)`。
   每步每条 beam 取 top-(width+1) 个 token → 全体排序 → 以 EOS 结尾且排进前 width 的收进 `finished`,
   其余依次补满 width 条活 beam, 各自 `decode_step`。结束时活 beam 也并入 `finished`,
@@ -18,7 +26,8 @@ beam search 折中: 每步在 `width × V` 个候选里只留累计 log 概率�
 - `demo.py:EosBiased`: 给 EOS 的 logit 加 3.0 的包装。随机权重模型没学过何时结束 (P(EOS) ≈ 0.5%/步, 从不停)。
   加偏置后 P(EOS) ≈ 8.3%/步 (沿 greedy 路径 24 步的均值), 模拟一个会停的模型, 用来演示长度偏差。
 
-## 公式
+### 公式
+
 ```
 序列分数          log P(y|x) = Σ_t log p(y_t | x, y_<t)          每多一个 token 分数只会更低 (负数累加)
 beam 每步         候选 = {前缀 + token}, 保留累计分 top-width
@@ -27,7 +36,16 @@ beam 每步         候选 = {前缀 + token}, 保留累计分 top-width
 ```
 width=1 ≡ greedy。width 增大**不保证**单调变好: 某一步 greedy 那条前缀可能排不进前 width, 被剪掉后就回不来。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m24_beam_search.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m24_beam_search.demo     # ~5 s (width=32 占一半)
 ```
@@ -59,6 +77,7 @@ python -m llm_infer.m24_beam_search.demo     # ~5 s (width=32 占一半)
 - α=0 的长度 < greedy 的 1/3; α=1 比 α=0 长 8 个 token 以上。
 
 ## 与真实系统的差距
+
 - 随机权重模型本身就爱复读: greedy 的 rep-2 已经是 0.453。
   beam 越宽越重复的趋势在 w=32 (0.563) 才明显, 中间几档不单调 (w=4 是 0.447)。
   真实 LM 上"beam 越宽越退化"更强 (Holtzman et al. 2020: beam 输出越宽越重复, 越偏离人写的文本)。
@@ -71,12 +90,14 @@ python -m llm_infer.m24_beam_search.demo     # ~5 s (width=32 占一半)
   这些都是给 beam 打补丁, 对话场景一般直接用采样。
 
 ## 常见误区
+
 - "beam 一定 ≥ greedy" —— 这不是定理。w=2 在 2/10 个 prompt 上输给 greedy。平均意义上 ≥; 宽到 32 时, 这 10 个 prompt 全部 ≥。
 - "beam 给了 width 条不同的回答" —— 它们共享大段前缀, 平均只差 3.5/20 个位置。要多样性得采样。
 - "log 概率越高文本越好" —— 这里最高 logP 的序列恰好最重复。对开放式生成, 似然和质量不是一回事。
 - "length penalty 是在搜索时惩罚长序列" —— HF 的 `length_penalty` 是除以 len^α, α>0 反而**鼓励**长序列。它只影响 finished 候选之间怎么比。
 
 ## 自测题
+
 1. 为什么不加长度惩罚时, beam 在有 EOS 的模型上会给出近乎空的回复?
    **答**: 分数是负的 log 概率累加, 每多一个 token 只会更低。第 1 步就收尾的候选 (logP ≈ −3) 比任何 15 个 token 的候选 (≈ −35) 都高。
 2. width=2 为什么会输给 greedy (width=1)?

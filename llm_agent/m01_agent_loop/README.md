@@ -1,6 +1,8 @@
 # M01 — Agent Loop
 
-让模型能"行动 - 观察 - 再行动"的那个循环: 问模型, 有 `tool_use` 就执行并回填 `tool_result`, 没有就结束。
+[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+
+[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
 
 ## 直觉
 
@@ -10,7 +12,9 @@ Agent loop 把"模型的决定"和"确定性代码的执行"接成闭环: 模型
 循环本身非常薄 (`Agent.run` 约 40 行), 真正的复杂度在它周围: 工具校验、权限、上下文管理、持久化。
 本模块只用一个计算器, 目的是把 transcript 的形状看清楚。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/schema.py: Message` — `content` 要么是 `str`, 要么是 content block 列表 (Claude Messages API 同款):
   - assistant: `{"type":"tool_use","id","name","input"}`
@@ -41,6 +45,10 @@ run(prompt)
 - LLM 无状态, 状态全在 `messages` 里。`RuleBasedLLM.next` 每次从"最后一条真正的用户 prompt"(`Message.is_user_prompt`, 携带 `tool_result` 的 user 消息不算) 往后统计已用工具, 所以旧轮次的调用不算数。
 - `max_turns` 是硬上限: 模型永远可能一直要求调用工具, loop 必须自己能停。
 - system prompt 不进 `agent.messages`, 每次在 `_assemble_context` 里现拼, 所以 demo 的 transcript 只有 4 条消息。
+
+## 运行
+
+让模型能"行动 - 观察 - 再行动"的那个循环: 问模型, 有 `tool_use` 就执行并回填 `tool_result`, 没有就结束。
 
 ## 运行后应该看到什么
 

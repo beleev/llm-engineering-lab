@@ -2,9 +2,12 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+import courseCatalog from './plugins/course-catalog.js'
+
 export default defineConfig({
   base: '/llm-engineering-lab/',
-  plugins: [vue()],
+  plugins: [vue(), courseCatalog()],
+  build: { manifest: true },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

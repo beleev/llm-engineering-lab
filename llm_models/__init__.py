@@ -41,7 +41,7 @@ MoE, 4 个
     >>> from llm_models import Trainer, TrainingConfig, DDPMScheduler, DiffusionLoss
 """
 
-__version__ = "0.5.0"
+__version__ = "1.0.0"
 __author__ = "LLM Team"
 
 # --- Layers (底层零件) ---

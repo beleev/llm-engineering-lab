@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-engineering-lab"
-version = "0.5.0"
+version = "1.0.0"
 description = "LLM 全栈教具库: 手写反向传播 → 模型架构 → 规模化训练 → 微调对齐 → 推理优化 → Agent"
 readme = "README.md"
 license = {text = "MIT"}

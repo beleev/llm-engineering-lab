@@ -1,10 +1,18 @@
 # Full Engine — 把模块接成 mini-vLLM
 
+[![引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](../../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
+
+[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
+
 ## 直觉
+
 前面每个模块单独解决一个瓶颈; 引擎只做一件事: 每个 step 把它们按顺序串起来 ——
 **调度** (谁、算几个 token) → **前向** (KV 读写走分页 pool) → **采样** → **后处理** (登记前缀缓存、结束的还 block)。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 | 文件 | 职责 | 复用的模块 |
 |---|---|---|
 | `engine.py` | `add_request / step / generate`, 只有胶水代码 | m03 `Scheduler` (同一个类, 非拷贝), m10 `sample` |
@@ -21,7 +29,16 @@ step():  batch = scheduler.schedule()                       # [(seq, n)]
 对账:    Σ(每条序列 num_tokens-1) = tokens_computed + prefix_hit_tokens      (无抢占时)
 ```
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.full_engine.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.full_engine.demo      # ~1.5 s
 ```
@@ -59,17 +76,20 @@ python -m llm_infer.full_engine.demo      # ~1.5 s
 断言: 每一段的 greedy 输出都与 `TinyLM.generate_greedy` **逐 token 相同**, 无 block 泄漏。
 
 ## 与真实系统的差距
+
 - 逐序列循环前向; vLLM 把 batch 摊平成一个张量 + varlen FlashAttention + CUDA Graph (m11 / m12)
 - 离线同步循环; 真实引擎有异步 API server、流式输出、detokenize 线程、多进程 worker (TP, m09)
 - 未集成: m05 radix cache (与 m04 二选一, 接口不同: radix 按 token 粒度匹配并自己管 LRU)、m07/m17/m19 投机解码、m08 量化
 - 抢占只有 recompute, 没有 swap
 
 ## 常见误区
+
 - "分页 / 前缀缓存只是记账" —— 如果 KV 挂在 Sequence 上、命中了照样整段 prefill, 那确实只是记账。这里 KV 只存在 pool 里, 命中的 token 不做前向
 - "引擎很复杂" —— 复杂度都在调度策略与 kernel 里, 主循环就四行
 - "优化会改变输出" —— 这里所有优化都是**精确**的, 所以能用逐 token 相等做回归测试 (量化 / 稀疏注意力才是有损的)
 
 ## 自测题
+
 1. 一条序列前缀命中 24 token, prompt 共 45 token, 第一步 `runner.run` 的 `start_pos` 和 Q 的行数是多少 (预算充足)? **答**: start_pos=24, Q 有 21 行; K/V 经页表读回 45 行。
 2. 为什么 prefill 中途的 chunk 返回 `None` 而不采样? **答**: 它最后一个位置的 logits 预测的是 prompt 里已知的下一个 token, 不是新 token。
 3. block 不够时, 什么样的调度会让引擎死循环? **答**: `waiting` 非空就只走 prefill 分支, 队首拿不到 block 时什么都没选中就返回, running 从不 decode → block 永不释放。

@@ -1,11 +1,19 @@
 # LLM Infer — 推理与部署优化教具库
 
+[![引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
+
+[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/infer)
+
+## 概览
+
 > 用几千行 numpy（零 GPU 依赖）讲清楚业界主流的 LLM 推理优化技术：27 个模块 + 1 个 mini-engine。
 > 每个模块独立可跑，也能组合成一个完整的 mini-engine。
 
 ---
 
-## 设计原则
+### 设计原则
 
 - **零依赖**：只用 `numpy`，与 `llm_basic` 风格一致
 - **每个模块单独可跑**：每个 `mXX_*/` 都能在仓库根目录用 `python -m llm_infer.mXX_name.demo` 运行（包内绝对 import，直接 `python demo.py` 不行）。后面的模块会直接 import 前面模块的实现，不复制代码，清单见「学习路径」
@@ -15,7 +23,29 @@
 
 ---
 
-## 学习路径
+## 运行
+
+```bash
+# 单模块
+python -m llm_infer.m01_kv_cache.demo
+python -m llm_infer.m02_paged_attention.demo
+# ...
+
+# 集成 mini-engine
+python -m llm_infer.full_engine.demo
+
+# 全部 (28 个 demo, 每个都以 assert 收尾)
+python -m llm_infer.run_all
+```
+均需在仓库根目录执行 (`-m` 方式)。
+
+每个 demo 的输出分三段：现象、数字、结论。
+
+---
+
+## 模块与阅读顺序
+
+### 学习路径
 
 ```
                     ┌─ m01 KV Cache ──────────┐
@@ -92,7 +122,7 @@
 
 ---
 
-## 模块清单
+### 模块清单
 
 | # | 模块 | 核心文件 | 关键概念 |
 |---|------|---------|---------|
@@ -127,7 +157,30 @@
 
 ---
 
-## 业界覆盖度自评
+## 实现说明
+
+### 与参考项目的对应
+
+| 本仓库模块 | nano-vllm 对应 | mini-sglang 对应 |
+|---|---|---|
+| m01 KV Cache | `layers/attention.py` 的 cache 写入 | 同 |
+| m02 Paged Attention | `engine/block_manager.py` | `kvcache/mha_pool.py` |
+| m03 Continuous Batching | `engine/scheduler.py` | `scheduler/scheduler.py` |
+| m04 Prefix Cache | `block_manager.py` 的 hash 链 | — |
+| m05 Radix Cache | — | `kvcache/radix_cache.py` |
+| m06 Chunked Prefill | — | `scheduler/prefill.py` |
+| m09 Tensor Parallel | `layers/linear.py` | `distributed/impl.py` |
+| m11 FlashAttention | 调 flash-attn 库 | 调 flash-attn 库 |
+| m12 CUDA Graph | `engine/model_runner.py` 的 `capture_cudagraph` | `engine/graph.py` |
+
+读完本目录再去读上游源码，名词都对得上：
+- nano-vllm: https://github.com/GeeeekExplorer/nano-vllm
+- mini-sglang: https://github.com/sgl-project/mini-sglang
+- vLLM: https://github.com/vllm-project/vllm · SGLang: https://github.com/sgl-project/sglang
+
+## 边界
+
+### 业界覆盖度自评
 
 | 业界主流技术 | 本仓库 | 备注 |
 |---|:---:|---|
@@ -161,42 +214,3 @@
 | Cache-aware 多副本路由 | ✅ m27 | SGLang router 思路：最长前缀匹配 + balance 阈值 |
 
 ---
-
-## 运行
-
-```bash
-# 单模块
-python -m llm_infer.m01_kv_cache.demo
-python -m llm_infer.m02_paged_attention.demo
-# ...
-
-# 集成 mini-engine
-python -m llm_infer.full_engine.demo
-
-# 全部 (28 个 demo, 每个都以 assert 收尾)
-python -m llm_infer.run_all
-```
-均需在仓库根目录执行 (`-m` 方式)。
-
-每个 demo 的输出分三段：现象、数字、结论。
-
----
-
-## 与参考项目的对应
-
-| 本仓库模块 | nano-vllm 对应 | mini-sglang 对应 |
-|---|---|---|
-| m01 KV Cache | `layers/attention.py` 的 cache 写入 | 同 |
-| m02 Paged Attention | `engine/block_manager.py` | `kvcache/mha_pool.py` |
-| m03 Continuous Batching | `engine/scheduler.py` | `scheduler/scheduler.py` |
-| m04 Prefix Cache | `block_manager.py` 的 hash 链 | — |
-| m05 Radix Cache | — | `kvcache/radix_cache.py` |
-| m06 Chunked Prefill | — | `scheduler/prefill.py` |
-| m09 Tensor Parallel | `layers/linear.py` | `distributed/impl.py` |
-| m11 FlashAttention | 调 flash-attn 库 | 调 flash-attn 库 |
-| m12 CUDA Graph | `engine/model_runner.py` 的 `capture_cudagraph` | `engine/graph.py` |
-
-读完本目录再去读上游源码，名词都对得上：
-- nano-vllm: https://github.com/GeeeekExplorer/nano-vllm
-- mini-sglang: https://github.com/sgl-project/mini-sglang
-- vLLM: https://github.com/vllm-project/vllm · SGLang: https://github.com/sgl-project/sglang

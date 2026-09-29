@@ -1,6 +1,8 @@
 # M13 — Agent Evals
 
-用一个任务集加程序化 grader 给 agent 打分: 判的是环境里真实发生了什么, 而不是"跑一下看着还行"。
+[![pass@k vs pass^k — 能力上限, 还是可靠性? llm_agent/m13](../../docs/screenshots/agent-evals-1.png)](https://beleev.github.io#/agent/evals)
+
+[打开相关交互实验：pass@k vs pass^k — 能力上限, 还是可靠性? llm_agent/m13](https://beleev.github.io#/agent/evals)
 
 ## 直觉
 
@@ -10,7 +12,9 @@ Eval 的最小单元是 任务 = prompt + 全新环境 + grader: grader 检查�
 结果对了过程也可能不合格, 所以还要查轨迹: 工具调用是否超预算、是否成功执行了禁用工具。
 最后, "能做到" (pass@k) 和 "每次都做到" (pass^k) 是两个指标, 面向用户的 agent 要看后者。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 全部在 `m13_evals/demo.py` (刻意不进 `core/`: eval 是 harness 之外的消费者, 只依赖公开接口)。
 
@@ -38,6 +42,10 @@ run_task(task, make_env, llm)
 - 调用预算按 tool_use 数计 (含被拒绝的): 被拒后反复重试同样是过程问题。
 - 回归对比逐任务列出, 不只看总通过率: 总分 4/4 → 2/4 不告诉你坏的是哪两个。
 - 两个估计量都是"n 次试验中成功 c 次, 无放回抽 k 次"的无偏估计, 比直接算 `rate**k` 在小 n 下更稳。
+
+## 运行
+
+用一个任务集加程序化 grader 给 agent 打分: 判的是环境里真实发生了什么, 而不是"跑一下看着还行"。
 
 ## 运行后应该看到什么
 

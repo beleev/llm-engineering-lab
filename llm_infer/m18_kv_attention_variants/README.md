@@ -1,6 +1,11 @@
 # M18 — KV cache 账本: MHA / MQA / GQA / MLA
 
+[![KV 体积 — MHA / GQA / MQA / MLA 各占多少显存 llm_infer/m18](../../docs/screenshots/infer-kv-footprint-1.png)](https://beleev.github.io#/infer/kv-footprint)
+
+[打开相关交互实验：KV 体积 — MHA / GQA / MQA / MLA 各占多少显存 llm_infer/m18](https://beleev.github.io#/infer/kv-footprint)
+
 ## 直觉
+
 decode 的并发上限 = 显存 ÷ 每 token 的 KV 字节数。四种 attention 变体的数学几乎一样, 区别只在
 **cache 里存什么**:
 - **MHA**: 每个 query 头都有自己的 K/V 头, 全存。
@@ -8,7 +13,10 @@ decode 的并发上限 = 显存 ÷ 每 token 的 KV 字节数。四种 attention
 - **MLA** (DeepSeek-V2/V3): 不存 K/V, 只存一个低秩 latent `c_kv` (d_c 维) 和一份所有头共享的 RoPE key
   (d_rope 维); 每头的 K/V 在 attention 时由 `c_kv` 上投影还原 —— 用一点计算换大量显存。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 MHA/GQA/MQA  bytes/token = 2 · n_kv · d_head · n_layer · bytes      cache: K,V 各 (T, n_kv, d_head)
 MLA          bytes/token = (d_c + d_rope) · n_layer · bytes         cache: C (T, d_c), k_rope (T, d_rope)
@@ -28,7 +36,16 @@ cache 本身。此时 MLA decode ≡ 一个 head_dim = d_c + d_rope 的 **MQA** 
 GQA 代码路径 (`GQALayer.forward`): q reshape 成 `(n_kv, n_head/n_kv, T, d)`, K 为 `(n_kv, 1, Tk, d)`,
 靠 `core.dense_attention` 的前导维广播共享 KV, 不 repeat。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m18_kv_attention_variants.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m18_kv_attention_variants.demo     # < 1 s
 ```
@@ -51,6 +68,7 @@ MLA absorb                1.07e-06        7,680     7,680
 整网输出 naive vs absorb max|Δ| = 1.43e-06。全部 `assert` 通过。
 
 ## 与真实系统的差距
+
 - 真实 MLA 还对 q 做低秩压缩 (d_c'=1536)、对 c_kv 做 RMSNorm, 这里省略 (不影响 cache 大小)。
 - "40 GiB" 是纯 KV 预算, 真实部署要先扣掉权重和激活; 还有 paged 碎片 (m02)。
 - 真实 GQA kernel (FlashAttention / FlashInfer) 用 stride 实现广播; 真实 MLA kernel (FlashMLA) 直接在
@@ -58,12 +76,14 @@ MLA absorb                1.07e-06        7,680     7,680
 - TP 下 GQA 的 n_kv 要能被 TP 度整除 (否则复制 KV 头); MLA 的 latent 无法按头切, 通常每卡存全量。
 
 ## 常见误区
+
 - "GQA 降低了计算量" —— 主要降的是 KV 显存和 decode 访存; Q 的头数与 attention FLOPs 基本不变。
 - "MLA 就是对 KV cache 做 SVD 压缩" —— 不是事后压缩, 低秩投影是训练出来的模型结构。
 - "MLA 每步都要还原完整 K/V, 所以很慢" —— absorb 后根本不还原, 等价于 576 维的 MQA。
 - "MLA cache 比 MQA 还小" —— 不一定: DS-V3 每层 576 维 vs MQA 的 2×128=256 维; MLA 赢在质量接近 MHA。
 
 ## 自测题
+
 1. LLaMA-3-70B (80 层, 8 KV 头, d_head=128, fp16) 每 token KV 多少? **答**: 2·8·128·80·2 = 327,680 B = 320 KiB。
 2. 为什么 MLA 不能直接在 latent 上加 RoPE? **答**: RoPE 的位置相关旋转会夹在 q 与 W_UK 之间, 使 W_UK
    无法吸收进 W_Q, decode 每步都得把全部历史 latent 还原成 K 再旋转, 失去意义; 所以另设共享的 k_rope。

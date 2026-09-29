@@ -1,8 +1,11 @@
 # M18 — Sequence Packing
 
-运行: `python -m llm_train.m18_sequence_packing.demo`
+[![Packing — 拼在一行的文档会互相看见吗? llm_train/m18](../../docs/screenshots/train-data-packing-3.png)](https://beleev.github.io#/train/data-packing)
+
+[打开相关交互实验：Packing — 拼在一行的文档会互相看见吗? llm_train/m18](https://beleev.github.io#/train/data-packing)
 
 ## 直觉
+
 m17 产出的是去重、过滤、配好比例的文档流。这一章把这些长短不一的文档装进定长的训练序列。
 
 训练用定长序列 `[L]`, 但文档长短不一, 中位数只有 28 token。每篇单独占一行、补 padding 到 128, 七成的算力花在 pad 上。
@@ -14,21 +17,30 @@ packing 把多篇文档首尾相接塞进同一行, 几乎不留空位。代价�
 2. **位置 id 在每篇开头重置为 0**;
 3. **边界 label 屏蔽**: 每篇最后一个 token 不去预测下一篇的第一个 token。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
+
 - `demo.py:pack_ffd` — First-Fit-Decreasing: 从长到短, 放进第一个装得下的行, 不切断文档。
 - `demo.py:doc_mask` — `mask[t, s] = (t ≥ s) ∧ (doc[t] == doc[s])`, 一行代码。
 - `demo.py:reset_positions` — `[0,1,2, 0,1, 0,1,2,3 …]`。
 - `demo.py:forward` — 单层多头注意力 + 残差 + 输出头; `pos_kind` 选 RoPE 或绝对位置编码。
 - `demo.py:cross_entropy_sum` — 带 `valid` 掩码的 CE, 用来验证第 3 条。
 
-## 核心公式
+### 核心公式
+
 ```
 有效 token 比例 = Σ len_i / (行数 · L)
 varlen 注意力算量 / 整行因果 ≈ Σ len_i² / (行数 · L²)       (只算对角块)
 RoPE:  <R(m)q, R(n)k> = <q, R(n−m)k>  → 只依赖位置差
 ```
 
+## 运行
+
+运行: `python -m llm_train.m18_sequence_packing.demo`
+
 ## 运行后应该看到什么
+
 ```
 每篇一行, 补齐到 L                 = 有效 token 0.285
 动态 padding (batch=8 内补齐到最长) = 有效 token 0.406
@@ -49,6 +61,7 @@ CE 总和: packing / 逐篇 / 不屏蔽边界 = 566.353069 / 566.353069 / 577.56
 - **绝对位置编码**: 不行, 第 2 篇以后的文档全部错位。
 
 ## 与真实系统的差距
+
 - 真实实现不物化 `[L, L]` 的 mask。FlashAttention varlen 接收 `cu_seqlens` (每篇的起止偏移), 只算对角块。所以 packing 还顺带省了注意力算量 (本例 0.466)。
 - 很多预训练框架 (GPT-2/3 风格) 直接拼接文档, 用 EOS 分隔, **不加文档 mask**。
 - Llama 3 报告加了文档 mask。报告说它在标准预训练里影响有限, 在超长序列的继续预训练里才重要。
@@ -59,11 +72,13 @@ CE 总和: packing / 逐篇 / 不屏蔽边界 = 566.353069 / 566.353069 / 577.56
 - 只有前向; 反向走同一个 mask, 梯度也逐元素一致。
 
 ## 常见误区
+
 - "packing 只是把 pad 去掉, 不影响结果" —— 不加 mask 就串文档, 本例 max|Δ| ≈ 3–4。
 - "有 mask 就够了" —— 用绝对位置编码时还要重置位置; label 边界也要屏蔽 (本例 CE 差 11)。
 - "动态 padding 和 packing 差不多" —— 本例 0.406 vs 0.990。
 
 ## 自测题
+
 1. 3 篇长度 [3, 2, 4] 的文档 pack 成一行, 位置 id 是什么? **答: [0,1,2, 0,1, 0,1,2,3]。**
 2. RoPE 模型有文档 mask 时, 为什么不重置位置也能得到同样的注意力输出? **答: RoPE 的 q·k 只依赖位置差, 块内相对位置不变。**
 3. 一行 pack 了 4 篇共 128 token, 有效的 next-token 预测有几个? **答: 128 − 4 = 124 (每篇最后一个 token 不跨篇预测)。**

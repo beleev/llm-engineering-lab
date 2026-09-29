@@ -1,6 +1,11 @@
 # M21 — MoE serving: 专家并行 (EP) 与 EPLB 负载均衡
 
+[![MoE 专家并行 — 热点专家与 EPLB 冗余副本 llm_infer/m21](../../docs/screenshots/infer-moe-serving-1.png)](https://beleev.github.io#/infer/moe-serving)
+
+[打开相关交互实验：MoE 专家并行 — 热点专家与 EPLB 冗余副本 llm_infer/m21](https://beleev.github.io#/infer/moe-serving)
+
 ## 直觉
+
 MoE 层有 E 个专家 FFN, 每个 token 只过 router 选出的 top-k 个, 所以 "参数很多、每 token 计算很少"。
 专家太多一张卡放不下 → **专家并行 (EP)**: 专家分散在各 rank, token 去找专家:
 1. **dispatch** (all-to-all): 每个 (token, 专家) 分配被发到该专家所在的 rank;
@@ -11,7 +16,10 @@ MoE 层有 E 个专家 FFN, 每个 token 只过 router 选出的 top-k 个, 所�
 **一步耗时 = 最慢的 rank**。所以指标是 `max/mean rank load`, 不是平均值。
 **EPLB**: 给热专家多放几个副本 (冗余 slot), 把它的 token 拆给各副本, 再把副本贪心放到最轻的 rank。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 route        logits = x W_r + bias (T, E) → top-k idx (T, k), gates = softmax(top-k logits) (T, k)
 out[t]       = Σ_k gates[t,k] · FFN_{idx[t,k]}(x[t])
@@ -25,7 +33,16 @@ EPLB 两步贪心 (eplb_placement):
   ② 放置:   slot 按每副本负载降序, 依次放到 "当前最轻且有空位" 的 rank
 ```
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m21_moe_serving.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m21_moe_serving.demo     # < 1 s
 ```
@@ -43,6 +60,7 @@ python -m llm_infer.m21_moe_serving.demo     # < 1 s
 max/mean 严格下降 2.95 → 1.48 → 1.02。EPLB 的负载统计来自**另一个**历史 batch, 在新 batch 上评测。
 
 ## 与真实系统的差距
+
 - all-to-all 用数组分组模拟, 没有通信成本。真实系统 (DeepEP) 里 dispatch/combine 的通信量和延迟
   是 EP 的主要开销, 还要 FP8 dispatch、通信计算重叠、节点内 NVLink / 节点间 RDMA 分层。
 - "负载 = token 数" 是代价模型; 真实 grouped GEMM 的耗时对 token 数不是严格线性。
@@ -51,6 +69,7 @@ max/mean 严格下降 2.95 → 1.48 → 1.02。EPLB 的负载统计来自**另�
 - 这里只有一层, 无 shared expert, 无 capacity factor / token drop。
 
 ## 常见误区
+
 - "平均负载一样就行" —— EP 是同步的, 慢的那个 rank 决定一切; 看 max/mean。
 - "把专家重新排一下位置就能均衡" —— 当单个专家的负载 > 平均 rank 负载 (本例 1.42x) 时, 任何无副本
   的放置都不可能均衡 (本例最好 1.48x); 必须复制并拆分。
@@ -58,6 +77,7 @@ max/mean 严格下降 2.95 → 1.48 → 1.02。EPLB 的负载统计来自**另�
 - "gate 是对全部 E 个 logit 做 softmax" —— 常见做法是只在选中的 k 个上归一化 (各模型略有不同)。
 
 ## 自测题
+
 1. 8 个 rank, 某专家独占全部分配的 30%, 无副本时 max/mean 的下界? **答**: 0.30 / (1/8) = 2.4x。
 2. 为什么 EPLB 用历史统计而不是当前 batch 的路由结果? **答**: 放置要搬权重, 必须在 batch 到来之前定好;
    能这么做是因为专家热度在分钟级时间尺度上相对稳定。

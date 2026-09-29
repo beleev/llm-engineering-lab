@@ -1,18 +1,20 @@
 # llm_finetune — 微调与对齐
 
+[![LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](../docs/screenshots/finetune-lora-1.png)](https://beleev.github.io#/finetune/lora)
+
+[打开相关交互实验：LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](https://beleev.github.io#/finetune/lora)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/finetune)
+
+## 概览
+
 `llm_models` 教会了怎么训练一个 LM; 本章回答: 怎么把它变成 **听指令 / 合偏好 / 会解题 / 更小** 的模型。
 
 ```
 llm_basic → llm_models → llm_train → llm_finetune (本章) → llm_infer → llm_agent
 ```
 
-```bash
-python -m llm_finetune.run_all                                   # 全部 15 个脚本, CPU 约 5 分钟
-python -m llm_finetune.run_finetune.grpo.train_grpo              # 单个, 每个 < 35 s
-pytest -m slow -k llm_finetune                                   # 同样的脚本, 走冒烟测试
-```
-
-## 一个任务贯穿全章
+### 一个任务贯穿全章
 
 所有方法共用 [`data/tasks.py`](data/tasks.py) 的 `SeqTask`: prompt 是 6 个随机 token, 正确回复是它的 copy / reverse / sort + EOS。
 答案**由 prompt 决定**, prompt 空间 13⁶ ≈ 480 万, 训练集与留出集按 token 和 mod 5 严格不相交 —— 所以每个脚本末尾断言的都是**留出集**指标, 不是 "背下了一个 batch"。
@@ -23,27 +25,50 @@ pytest -m slow -k llm_finetune                                   # 同样的脚�
 | 偏好对 | chosen = 正确回复, rejected = 改错 / 漏掉一个 token → 留出集偏好准确率 |
 | RLVR 奖励 | `task.verify`: 全对得 1 分。策略不看 prompt 就拿不到分 |
 
-## 路线与入口
+## 运行
+
+```bash
+python -m llm_finetune.run_all                                   # 全部 15 个脚本, CPU 约 5 分钟
+python -m llm_finetune.run_finetune.grpo.train_grpo              # 单个, 每个 < 35 s
+pytest -m slow -k llm_finetune                                   # 同样的脚本, 走冒烟测试
+```
+
+## 模块与阅读顺序
+
+### 路线与入口
 
 | 方法 | 它解决上一步的什么问题 | 代码 | 讲义 (含实测数字 / 误区 / 自测题) |
 |---|---|---|---|
-| **SFT** | LM 只会续写 → 只在回复上算 loss | [sft.py](methods/sft.py) | [readme](run_finetune/sft/readme.md) |
-| **LoRA** | 全参要存梯度 + Adam 状态 + 每任务一份权重 | [lora.py](methods/lora.py) | [readme](run_finetune/lora/readme.md) |
-| **DoRA** | LoRA 把 "长度" 和 "方向" 绑在一起变 | [dora.py](methods/dora.py) | [readme](run_finetune/dora/readme.md) |
-| **QLoRA** | 冻结的基座本身还占显存 → NF4 | [qlora.py](methods/qlora.py) | [readme](run_finetune/qlora/readme.md) |
-| **模型合并** (Task Arithmetic / TIES / DARE / SLERP) | 每个任务一份微调权重 → 不训练, 在权重空间里合成一个 | [merge.py](methods/merge.py) | [readme](run_finetune/merge/readme.md) |
-| **Reward Model** | 相对偏好 → 可调用的标量分 | [reward_model.py](methods/reward_model.py) | [readme](run_finetune/rm/readme.md) |
-| **PRM vs ORM** | 多步推理只看最终答案: 信号稀疏, 定位不了错步 → 逐步打分 | [prm.py](methods/prm.py) | [readme](run_finetune/prm/readme.md) |
-| **DPO** | 跳过 RM 和 RL | [dpo.py](methods/dpo.py) | [readme](run_finetune/dpo/readme.md) |
-| **KTO** | DPO 要同题成对 → 单条 👍 / 👎 就能训, 好坏不均也行 | [kto.py](methods/kto.py) | [readme](run_finetune/kto/readme.md) |
-| **SimPO / ORPO** | 连 reference model 也不要 | [simpo.py](methods/simpo.py) · [orpo.py](methods/orpo.py) | [readme](run_finetune/simpo_orpo/readme.md) |
-| **RLAIF / Constitutional AI** | 偏好标签要人标 → 按 "宪法" 让 AI 批评、改写, 自动造偏好对 | [rlaif.py](methods/rlaif.py) | [readme](run_finetune/rlaif/readme.md) |
-| **PPO** (带 critic) | 策略梯度方差大 → 学一个 V(s_t) 当 baseline, GAE 算逐 token 优势 | [ppo.py](methods/ppo.py) | [readme](run_finetune/ppo/readme.md) |
-| **GRPO** + DAPO / Dr.GRPO / GSPO | PPO 的 critic → 组内均值; 三个变体各修一个偏差 | [grpo.py](methods/grpo.py) | [readme](run_finetune/grpo/readme.md) |
-| **蒸馏** (off-policy, forward KL) | 大模型 → 小模型 | [distill.py](methods/distill.py) | [readme](run_finetune/distill/readme.md) |
-| **On-policy 蒸馏** (reverse KL) | student 没在自己会走到的前缀上被训练过 | [on_policy_distill.py](methods/on_policy_distill.py) | [readme](run_finetune/on_policy_distill/readme.md) |
+| **SFT** | LM 只会续写 → 只在回复上算 loss | [sft.py](methods/sft.py) | [readme](run_finetune/sft/README.md) |
+| **LoRA** | 全参要存梯度 + Adam 状态 + 每任务一份权重 | [lora.py](methods/lora.py) | [readme](run_finetune/lora/README.md) |
+| **DoRA** | LoRA 把 "长度" 和 "方向" 绑在一起变 | [dora.py](methods/dora.py) | [readme](run_finetune/dora/README.md) |
+| **QLoRA** | 冻结的基座本身还占显存 → NF4 | [qlora.py](methods/qlora.py) | [readme](run_finetune/qlora/README.md) |
+| **模型合并** (Task Arithmetic / TIES / DARE / SLERP) | 每个任务一份微调权重 → 不训练, 在权重空间里合成一个 | [merge.py](methods/merge.py) | [readme](run_finetune/merge/README.md) |
+| **Reward Model** | 相对偏好 → 可调用的标量分 | [reward_model.py](methods/reward_model.py) | [readme](run_finetune/rm/README.md) |
+| **PRM vs ORM** | 多步推理只看最终答案: 信号稀疏, 定位不了错步 → 逐步打分 | [prm.py](methods/prm.py) | [readme](run_finetune/prm/README.md) |
+| **DPO** | 跳过 RM 和 RL | [dpo.py](methods/dpo.py) | [readme](run_finetune/dpo/README.md) |
+| **KTO** | DPO 要同题成对 → 单条 👍 / 👎 就能训, 好坏不均也行 | [kto.py](methods/kto.py) | [readme](run_finetune/kto/README.md) |
+| **SimPO / ORPO** | 连 reference model 也不要 | [simpo.py](methods/simpo.py) · [orpo.py](methods/orpo.py) | [readme](run_finetune/simpo_orpo/README.md) |
+| **RLAIF / Constitutional AI** | 偏好标签要人标 → 按 "宪法" 让 AI 批评、改写, 自动造偏好对 | [rlaif.py](methods/rlaif.py) | [readme](run_finetune/rlaif/README.md) |
+| **PPO** (带 critic) | 策略梯度方差大 → 学一个 V(s_t) 当 baseline, GAE 算逐 token 优势 | [ppo.py](methods/ppo.py) | [readme](run_finetune/ppo/README.md) |
+| **GRPO** + DAPO / Dr.GRPO / GSPO | PPO 的 critic → 组内均值; 三个变体各修一个偏差 | [grpo.py](methods/grpo.py) | [readme](run_finetune/grpo/README.md) |
+| **蒸馏** (off-policy, forward KL) | 大模型 → 小模型 | [distill.py](methods/distill.py) | [readme](run_finetune/distill/README.md) |
+| **On-policy 蒸馏** (reverse KL) | student 没在自己会走到的前缀上被训练过 | [on_policy_distill.py](methods/on_policy_distill.py) | [readme](run_finetune/on_policy_distill/README.md) |
 
-## 各方法需要什么
+### 目录
+
+```
+llm_finetune/
+├── data/           tasks.py (SeqTask, make_labels, verify) · instruction / preference / prompt 三种取数方式
+├── methods/        sft · lora · dora · qlora · merge · reward_model · prm · dpo · kto · simpo · orpo · rlaif · ppo · grpo · distill · on_policy_distill
+├── utils/          param_utils.py (count / freeze / print)
+├── run_finetune/   common.py + <name>/train_<name>.py + <name>/README.md
+└── run_all.py
+```
+
+## 实现说明
+
+### 各方法需要什么
 
 | | 数据 | reference model | reward model / verifier | 在线采样 | 常驻权重 (policy = 1) | 每步 LM 前向 | 用通用 Trainer |
 |---|---|---|---|---|---|---|---|
@@ -61,7 +86,7 @@ pytest -m slow -k llm_finetune                                   # 同样的脚�
 | 蒸馏 | (x, y) + teacher | – (teacher 冻结) | – | – | 1 + teacher | 2 | 是, 经 `TeacherStudent` |
 | On-policy 蒸馏 | 只有 x + teacher | – | – | 需要 | 1 + teacher | 采样 + 2 | 否 |
 
-## 实测 (CPU, 默认种子; 全部为留出集指标)
+### 实测 (CPU, 默认种子; 全部为留出集指标)
 
 | 脚本 | 结论 |
 |---|---|
@@ -88,7 +113,7 @@ DPO 的 EM 在表里有两个数:
 
 **一个常见的误解**: "LoRA 比全参收敛更快, 这是 PEFT 的工程优势"。这种结论通常来自病态初始化 (初始 CE ≈ 250 而非 ln V)、只背几条样本、以及给 LoRA 单独调大 10× 的 lr。在初始化正常、同看留出集的条件下, **同样步数下全参更快也更好**; LoRA 买的是显存与存储, 不是收敛速度。
 
-## 哪些方法复用 Trainer
+### 哪些方法复用 Trainer
 
 `llm_models.training.Trainer` 的约定是 "取 batch → `model(**batch)` → `loss.compute(output, labels)` → 更新一次"。
 
@@ -104,16 +129,8 @@ DPO 的 EM 在表里有两个数:
   - 这与 "取 batch → 更新一次" 的约定冲突, 硬塞进去只会更难读。
 - **PRM / ORM**: 也不用 Trainer。loss 函数直接拿模型和一批带噪解算 BCE, `train_prm.py` 里是一个 4 行的手写循环。
 
-## 目录
+## 边界
 
-```
-llm_finetune/
-├── data/           tasks.py (SeqTask, make_labels, verify) · instruction / preference / prompt 三种取数方式
-├── methods/        sft · lora · dora · qlora · merge · reward_model · prm · dpo · kto · simpo · orpo · rlaif · ppo · grpo · distill · on_policy_distill
-├── utils/          param_utils.py (count / freeze / print)
-├── run_finetune/   common.py + <name>/train_<name>.py + <name>/readme.md
-└── run_all.py
-```
+### 未实现
 
-## 未实现
 RFT / best-of-N → SFT (最简单的 RL 基线); QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采到凑满 batch" 与 overlong 惩罚; IPO。

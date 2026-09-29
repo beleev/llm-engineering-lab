@@ -1,6 +1,11 @@
 # M20 — 分层 KV cache 卸载 (GPU → CPU → 磁盘)
 
+[![分层 KV offload — GPU 装不下的历史, 降级而不是丢弃 llm_infer/m20](../../docs/screenshots/infer-kv-offload-1.png)](https://beleev.github.io#/infer/kv-offload)
+
+[打开相关交互实验：分层 KV offload — GPU 装不下的历史, 降级而不是丢弃 llm_infer/m20](https://beleev.github.io#/infer/kv-offload)
+
 ## 直觉
+
 多轮对话每一轮的 prompt 都是 "整段历史 + 新消息"。prefix cache (m04/m05) 能让历史部分免重算 ——
 前提是它的 KV 还在 GPU 上。用户一多, GPU 装不下所有人的历史, LRU 把别人的 block 挤掉, 下一轮又得
 从头 prefill。分层卸载的想法: **被挤掉的 block 不丢, 降级到更大更慢的一层; 再命中时搬回 GPU**。
@@ -9,7 +14,10 @@
 
 > 本模块没有真的搬数据: **所有时间来自代价模型 (`CostModel` + `Tier` 的可见参数), 不是实测**。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 block hash   h_i = sha256(h_{i-1} ‖ block_i.tobytes())        链式: h_i 标识 "到第 i 块为止的整个前缀"
 tiers        [OrderedDict(hash → True)] × 层数                 每层一个 LRU, 容量 = capacity_blocks
@@ -25,7 +33,16 @@ TTFT = recompute(miss tokens) + Σ_tier min(load, recompute)(该层命中的块)
 倒序 touch: 写入一条链时从尾到头 touch, 让链尾比链头先被驱逐 (近似 radix tree 的 "先驱逐叶子");
 否则 LRU 会先踢掉 block 0, 整条链立刻全部失效。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m20_kv_offload.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m20_kv_offload.demo     # < 1 s
 ```
@@ -50,6 +67,7 @@ GPU+CPU (无慢层)            34.81 ms
 带判断的策略逐请求 ≤ 全量重算。剩余 15.7% miss 是每轮的新消息 + 第一轮, 任何缓存都救不了。
 
 ## 与真实系统的差距
+
 - 真实重算时间不是线性的 (attention O(T²)), 长前缀重算更贵 → 真实交叉点更偏向加载。
 - 真实系统按层流水加载 (layer-wise, 边传边算), 加载与 miss 部分的计算可重叠; 这里是串行相加。
 - 写入也有成本: GPU→CPU 的异步拷贝占带宽, 磁盘有写放大; 这里降级是免费的。
@@ -57,12 +75,14 @@ GPU+CPU (无慢层)            34.81 ms
 - Mooncake 还有跨节点的分布式 KV 池 (RDMA), 以及按命中位置调度请求 (cache-aware routing)。
 
 ## 常见误区
+
 - "缓存层越多越好" —— 慢层若每 token 加载时间 > 重算时间, 盲目加载会让 TTFT 变差 ([3])。
 - "命中率高 = TTFT 低" —— 要看命中在哪一层、每次加载的固定延迟能否被摊薄 ([2])。
 - "中间的 block 命中了也能用" —— 不能, KV 依赖完整前缀, 链断了后面全部作废。
 - "hash 用 `bytes(list)` 就行" —— token id > 255 会抛错; 用 `np.asarray(ids, np.int64).tobytes()`。
 
 ## 自测题
+
 1. 把 disk 的 latency 从 2 ms 提到 10 ms, 交叉点变成多少? **答**: 10 / (2.00 − 0.699) ≈ 7.7 blocks (≈123 tokens)。
 2. 为什么三种配置的 GPU 命中率都是 13.3%? **答**: 下层只接收 GPU 驱逐出来的块, 不改变 GPU 层自身的 LRU 内容。
 3. KV 换成 MLA (m18: 约 70 KiB/token, 是本模块 128 KiB/token 的 1/1.9) 对卸载意味着什么? **答**: 每块加载时间同比缩小,

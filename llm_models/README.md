@@ -1,79 +1,23 @@
 # llm_models — 23 个模型的 PyTorch 实现
 
+[![LLaMA 模型结构与运行态](../docs/screenshots/architecture-llama.png)](https://beleev.github.io/llm-engineering-lab/#/models)
+
+[打开相关交互实验：LLaMA 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/models)
+
+## 概览
+
 > 从 2017 年的 Transformer 到 2025 年的 GPT-OSS / LLaDA / Qwen3-Next, 每个模型一个文件。
 > 全部在 CPU 上跑, 配置缩到几层、几百维, 数据是合成的。目的是看清结构和数据流, 训不出能用的模型。
 
-## 设计约定
+### 设计约定
 
 - **零件和组装分开**: 注意力、FFN、归一化、位置编码都在 `layers/`。模型文件只做组装, 两个模型的差别落在构造参数上。
 - **一个训练循环**: `training/Trainer` 只认 "数据生成器" 和 "loss" 两个接口, 换模型不改循环。
 - **一份生成代码**: decoder-only LM 都继承 `utils/generation.py::GenerationMixin`, 共用带 KV cache 的 `generate()`。
 - **脚本以 `assert` 结尾**: `infer_*` 验证结构性质 (因果性、有无 cache 输出相同); `train_*` 验证初始 loss 落在理论值附近 (LM 是 ln V) 且能下降。
-- **每个模型目录有 readme**: 直觉 / 核心公式 / 运行命令 / 运行后应该看到什么 / 与真实系统的差距 / 常见误区 / 3 道自测题。
-
-## 分层
-
-```
-layers/      零件: core (注意力 / FFN / 归一化 / 位置编码 / Block) · sparse (MoE / SSM / DeltaNet) · multimodal · diffusion
-models/      23 个模型类, 按 foundation / language_models / moe / multimodal / generative 分目录
-training/    Trainer · TrainingConfig · 合成数据生成器 · 各种 loss · 扩散调度器与采样器
-utils/       generation (KV cache + generate) · init (N(0, 0.02²)) · masks
-run_models/  <类别>/<模型>/{infer_*.py, train_*.py, readme.md}
-```
-
-依赖是单向的: `layers → models → training → run_models`, 下层不 import 上层。两个例外:
-
-- `models/language_models/llada.py` 在文件头 import 了 `training.loss.LossComputer`。
-- `models/language_models/mtp.py` 在 `__getattr__` 里惰性 import `training.loss.MTPLoss`。
-
-## 模型清单
-
-文件路径相对 `models/`。讲义在 `run_models/<类别>/<目录>/readme.md`。
-
-**语言模型 (9)**
-
-| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
-|---|---|---|---|---|
-| Transformer | `foundation/transformer.py` | `Transformer` | 基线: Encoder-Decoder, MHA + ReLU-FFN + LayerNorm + Sin-PE | [readme](run_models/language_models/transformer/readme.md) |
-| BERT | `language_models/bert.py` | `BERT` | 只留 Encoder, 去掉因果 mask, 目标换成 MLM | [readme](run_models/language_models/bert/readme.md) |
-| GPT-3 | `language_models/gpt3.py` | `GPT3` | 只留 Decoder, 因果 mask + GELU-FFN, 预测下一个 token | [readme](run_models/language_models/gpt3/readme.md) |
-| LLaMA | `language_models/llama.py` | `LLaMA` | GPT-3 换四个零件: GQA、SwiGLU、RMSNorm、RoPE | [readme](run_models/language_models/llama/readme.md) |
-| Mistral | `language_models/mistral.py` | `Mistral` | LLaMA 的因果 mask 裁成带状, cache 滚动裁到 W | [readme](run_models/language_models/mistral/readme.md) |
-| MTP | `language_models/mtp.py` | `MTPLLaMA` | LLaMA 后接 K 级 MTP 模块, 多预测更远的 token | [readme](run_models/language_models/mtp/readme.md) |
-| Qwen3-Next | `language_models/qwen3_next.py` | `Qwen3Next` | 75% 的层换成 Gated DeltaNet, 25% 保留 GQA | [readme](run_models/language_models/qwen3_next/readme.md) |
-| Mamba | `language_models/mamba.py` | `Mamba` | 不用注意力: 因果卷积 + Selective SSM, 状态定长 | [readme](run_models/language_models/mamba/readme.md) |
-| LLaDA | `language_models/llada.py` | `LLaDA` | 去掉因果 mask 的 LLaMA, 掩码扩散训练, 多步去噪生成 | [readme](run_models/language_models/llada/readme.md) |
-
-**MoE (4)**
-
-| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
-|---|---|---|---|---|
-| Mixtral | `moe/mixtral.py` | `Mixtral` | LLaMA 的 FFN 换成 E 个专家选 K 个, softmax 路由 + aux loss | [readme](run_models/moe/mixtral/readme.md) |
-| DeepSeek-V3 | `moe/deepseekV3.py` | `DeepSeekV3` | GQA 换 MLA; sigmoid 路由 + 共享专家; 用 bias 做负载均衡 | [readme](run_models/moe/deepseek/readme.md) |
-| DeepSeek-V3.2 | `moe/deepseekV3.py` | `DeepSeekV3_2` | V3 加 Lightning Indexer, MLA 只在 top-k 个 key 上算 | [readme](run_models/moe/deepseek_v3_2/readme.md) |
-| GPT-OSS | `moe/gpt_oss.py` | `GPTOSSMini` | Mixtral 骨架: 偶数层 SWA、奇数层全注意力, 每 head 一个 sink | [readme](run_models/moe/gpt_oss/readme.md) |
-
-**多模态 (4)**
-
-| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
-|---|---|---|---|---|
-| CLIP | `multimodal/clip.py` | `CLIPModel` | 图文双塔, 对比 loss, 可学习温度 | [readme](run_models/multimodal/clip/readme.md) |
-| Whisper | `multimodal/whisper.py` | `Whisper` | Transformer 的 encoder 输入换成 mel 声谱图 | [readme](run_models/multimodal/whisper/readme.md) |
-| Qwen2-VL | `multimodal/qwen2_vl.py` | `Qwen2VLModel` | 视觉 token 当前缀拼进 LLaMA 式 decoder; M-RoPE | [readme](run_models/multimodal/qwen2_vl/readme.md) |
-| Qwen2.5-Omni | `multimodal/qwen2_5_omni.py` | `Qwen2_5_OmniModel` | 再加视频、音频前缀, 加一个 Talker 输出语音 codec token | [readme](run_models/multimodal/qwen2_5_omni/readme.md) |
-
-**生成模型 (6)**
-
-| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
-|---|---|---|---|---|
-| VAE | `generative/vae.py` | `ImageVAE` | 把图像压成高斯 latent, 给扩散模型当输入 | [readme](run_models/generative/vae/readme.md) |
-| Causal 3D VAE | `generative/vae3d.py` | `CausalVideoVAE` | VAE 搬到视频: 因果 3D 卷积, 时间和空间一起压 | [readme](run_models/generative/vae3d/readme.md) |
-| DiT | `generative/dit.py` | `DiT` | latent 切 patch 当 token, 条件经 adaLN-Zero 注入 | [readme](run_models/generative/dit/readme.md) |
-| MM-DiT | `generative/mmdit.py` | `MMDiT` | 文本和图像两条流做联合注意力, 目标换成 Flow Matching | [readme](run_models/generative/mmdit/readme.md) |
-| Video DiT | `generative/video_dit.py` | `VideoDiT` | DiT 的 patch 换成时空 tubelet, 位置嵌入分时间和空间 | [readme](run_models/generative/video_dit/readme.md) |
-| VAR | `generative/var.py` | `VARModel` | 自回归的一步是一整级 token map, 级内并行 | [readme](run_models/generative/var/readme.md) |
-
-另有两份只讲零件的讲义: [attention](run_models/foundation/attention/readme.md) 和 [RoPE 长度外推](run_models/foundation/rope_scaling/readme.md)。
+- **每个模型目录有 README**: 直觉 / 核心原理 / 运行 / 运行后应该看到什么 / 与真实系统的差距 / 常见误区 / 3 道自测题。
 
 ## 运行
 
@@ -89,7 +33,75 @@ pytest -m slow -k llm_models                                     # 全部 train 
 
 共 48 个脚本: 25 个 `infer_*`, 23 个 `train_*`。`rope_scaling` 和 `vae3d` 只有 infer。
 
-## forward 返回类型
+## 模块与阅读顺序
+
+### 分层
+
+```
+layers/      零件: core (注意力 / FFN / 归一化 / 位置编码 / Block) · sparse (MoE / SSM / DeltaNet) · multimodal · diffusion
+models/      23 个模型类, 按 foundation / language_models / moe / multimodal / generative 分目录
+training/    Trainer · TrainingConfig · 合成数据生成器 · 各种 loss · 扩散调度器与采样器
+utils/       generation (KV cache + generate) · init (N(0, 0.02²)) · masks
+run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
+```
+
+依赖是单向的: `layers → models → training → run_models`, 下层不 import 上层。两个例外:
+
+- `models/language_models/llada.py` 在文件头 import 了 `training.loss.LossComputer`。
+- `models/language_models/mtp.py` 在 `__getattr__` 里惰性 import `training.loss.MTPLoss`。
+
+### 模型清单
+
+文件路径相对 `models/`。讲义在 `run_models/<类别>/<目录>/README.md`。
+
+**语言模型 (9)**
+
+| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
+|---|---|---|---|---|
+| Transformer | `foundation/transformer.py` | `Transformer` | 基线: Encoder-Decoder, MHA + ReLU-FFN + LayerNorm + Sin-PE | [readme](run_models/language_models/transformer/README.md) |
+| BERT | `language_models/bert.py` | `BERT` | 只留 Encoder, 去掉因果 mask, 目标换成 MLM | [readme](run_models/language_models/bert/README.md) |
+| GPT-3 | `language_models/gpt3.py` | `GPT3` | 只留 Decoder, 因果 mask + GELU-FFN, 预测下一个 token | [readme](run_models/language_models/gpt3/README.md) |
+| LLaMA | `language_models/llama.py` | `LLaMA` | GPT-3 换四个零件: GQA、SwiGLU、RMSNorm、RoPE | [readme](run_models/language_models/llama/README.md) |
+| Mistral | `language_models/mistral.py` | `Mistral` | LLaMA 的因果 mask 裁成带状, cache 滚动裁到 W | [readme](run_models/language_models/mistral/README.md) |
+| MTP | `language_models/mtp.py` | `MTPLLaMA` | LLaMA 后接 K 级 MTP 模块, 多预测更远的 token | [readme](run_models/language_models/mtp/README.md) |
+| Qwen3-Next | `language_models/qwen3_next.py` | `Qwen3Next` | 75% 的层换成 Gated DeltaNet, 25% 保留 GQA | [readme](run_models/language_models/qwen3_next/README.md) |
+| Mamba | `language_models/mamba.py` | `Mamba` | 不用注意力: 因果卷积 + Selective SSM, 状态定长 | [readme](run_models/language_models/mamba/README.md) |
+| LLaDA | `language_models/llada.py` | `LLaDA` | 去掉因果 mask 的 LLaMA, 掩码扩散训练, 多步去噪生成 | [readme](run_models/language_models/llada/README.md) |
+
+**MoE (4)**
+
+| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
+|---|---|---|---|---|
+| Mixtral | `moe/mixtral.py` | `Mixtral` | LLaMA 的 FFN 换成 E 个专家选 K 个, softmax 路由 + aux loss | [readme](run_models/moe/mixtral/README.md) |
+| DeepSeek-V3 | `moe/deepseekV3.py` | `DeepSeekV3` | GQA 换 MLA; sigmoid 路由 + 共享专家; 用 bias 做负载均衡 | [readme](run_models/moe/deepseek/README.md) |
+| DeepSeek-V3.2 | `moe/deepseekV3.py` | `DeepSeekV3_2` | V3 加 Lightning Indexer, MLA 只在 top-k 个 key 上算 | [readme](run_models/moe/deepseek_v3_2/README.md) |
+| GPT-OSS | `moe/gpt_oss.py` | `GPTOSSMini` | Mixtral 骨架: 偶数层 SWA、奇数层全注意力, 每 head 一个 sink | [readme](run_models/moe/gpt_oss/README.md) |
+
+**多模态 (4)**
+
+| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
+|---|---|---|---|---|
+| CLIP | `multimodal/clip.py` | `CLIPModel` | 图文双塔, 对比 loss, 可学习温度 | [readme](run_models/multimodal/clip/README.md) |
+| Whisper | `multimodal/whisper.py` | `Whisper` | Transformer 的 encoder 输入换成 mel 声谱图 | [readme](run_models/multimodal/whisper/README.md) |
+| Qwen2-VL | `multimodal/qwen2_vl.py` | `Qwen2VLModel` | 视觉 token 当前缀拼进 LLaMA 式 decoder; M-RoPE | [readme](run_models/multimodal/qwen2_vl/README.md) |
+| Qwen2.5-Omni | `multimodal/qwen2_5_omni.py` | `Qwen2_5_OmniModel` | 再加视频、音频前缀, 加一个 Talker 输出语音 codec token | [readme](run_models/multimodal/qwen2_5_omni/README.md) |
+
+**生成模型 (6)**
+
+| 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
+|---|---|---|---|---|
+| VAE | `generative/vae.py` | `ImageVAE` | 把图像压成高斯 latent, 给扩散模型当输入 | [readme](run_models/generative/vae/README.md) |
+| Causal 3D VAE | `generative/vae3d.py` | `CausalVideoVAE` | VAE 搬到视频: 因果 3D 卷积, 时间和空间一起压 | [readme](run_models/generative/vae3d/README.md) |
+| DiT | `generative/dit.py` | `DiT` | latent 切 patch 当 token, 条件经 adaLN-Zero 注入 | [readme](run_models/generative/dit/README.md) |
+| MM-DiT | `generative/mmdit.py` | `MMDiT` | 文本和图像两条流做联合注意力, 目标换成 Flow Matching | [readme](run_models/generative/mmdit/README.md) |
+| Video DiT | `generative/video_dit.py` | `VideoDiT` | DiT 的 patch 换成时空 tubelet, 位置嵌入分时间和空间 | [readme](run_models/generative/video_dit/README.md) |
+| VAR | `generative/var.py` | `VARModel` | 自回归的一步是一整级 token map, 级内并行 | [readme](run_models/generative/var/README.md) |
+
+另有两份只讲零件的讲义: [attention](run_models/foundation/attention/README.md) 和 [RoPE 长度外推](run_models/foundation/rope_scaling/README.md)。
+
+## 实现说明
+
+### forward 返回类型
 
 三种都有, `GenerationMixin` 用 `_logits_of()` 统一取 logits。自己调 `forward` 时按下表拆。
 
@@ -106,7 +118,7 @@ pytest -m slow -k llm_models                                     # 全部 train 
 
 `Qwen2_5_OmniModel` 传 `return_dict=False` 时返回三元 tuple。
 
-## 本库统一的教学约定
+### 本库统一的教学约定
 
 下面几条是本库为了教学统一加的, 不是原模型的特征。各模型 readme 的「与真实系统的差距」会逐个说明。
 
@@ -117,7 +129,7 @@ pytest -m slow -k llm_models                                     # 全部 train 
   `attention` 和 `llada` 的 train 脚本每步采新数据, 是例外。
 - **Pre-LN**: Transformer block 都是 `x + f(norm(x))`, 包括原论文是 Post-LN 的 Transformer 和 BERT。
 
-## llm_finetune 依赖的内部细节
+### llm_finetune 依赖的内部细节
 
 `llm_finetune` 的基座模型是 `LLaMA`。改下面这些名字或行为, 微调那一章会坏。
 
@@ -131,7 +143,9 @@ pytest -m slow -k llm_models                                     # 全部 train 
 - **第 1 步 lr = 0**: warmup 从 0 起, 第 1 步的 `optimizer.step()` 不改参数。日志里第一条 loss 是未训练模型的 loss。
 - **基类**: `training.loss.LossComputer` 和 `training.data.SyntheticDataGenerator` 被微调的 loss 和数据生成器继承。
 
-## 已知边界
+## 边界
+
+### 已知边界
 
 - **`generate(attention_mask=...)`**: 带 `generate()` 的模型 forward 都收这个参数。左 pad 批量生成与逐条生成是否一致, 分三种:
   - 一致: LLaMA / Mistral / MTPLLaMA / Mixtral / GPTOSSMini / DeepSeekV3 / DeepSeekV3_2, 以及 `use_rope=True` 的 GPT3。

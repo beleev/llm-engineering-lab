@@ -1,6 +1,8 @@
 # M06 — Persistence & Resume: append-only JSONL 会话日志
 
-把 transcript 的每条消息立刻追加成 JSONL 的一行, 于是会话可以在新进程里恢复, 也可以在事后逐步复盘。
+[![Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](../../docs/screenshots/agent-state-subagents-1.png)](https://beleev.github.io#/agent/state-subagents)
+
+[打开相关交互实验：Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](https://beleev.github.io#/agent/state-subagents)
 
 ## 直觉
 
@@ -9,7 +11,9 @@ agent 的全部"状态"其实就是 messages 列表; 它只活在内存里, 进�
 解法朴素: 每产生一条消息就往文件尾追加一行 JSON, resume 就是把这些行读回来当 messages。
 要点在"记什么"和"不恢复什么": assistant 的 `tool_use` 必须和 `tool_result` 一样落盘 (否则只剩孤零零的结果, 既不能审计也不能喂回真实 API); 而权限绝不能随 transcript 恢复。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/persistence.py: JsonlSessionStore` — `append(message)` 追加一行 `{"role", "content", "name"}`; `load()` 给 resume 用, `load_all()` 给审计用。
 - `core/schema.py: Message.to_dict / from_dict` — content 要么是 str, 要么是 block 列表 (`tool_use` / `tool_result`), 序列化后与 Messages API 的消息形状一致。
@@ -38,6 +42,10 @@ agent 的全部"状态"其实就是 messages 列表; 它只活在内存里, 进�
   - `load()` 遇到它就把视图换成"摘要 + 保留的尾部"。
   - `load_all()` 跳过 boundary, 返回全部原始消息。
   - 本模块的 demo 不触发压缩, 演示在 m14。
+
+## 运行
+
+把 transcript 的每条消息立刻追加成 JSONL 的一行, 于是会话可以在新进程里恢复, 也可以在事后逐步复盘。
 
 ## 运行后应该看到什么
 

@@ -1,9 +1,17 @@
 # llm_train — 大模型规模化训练教学章节
 
+[![流水线调度 — GPipe vs 1F1B llm_train/m04](../docs/screenshots/train-model-parallel-1.png)](https://beleev.github.io#/train/model-parallel)
+
+[打开相关交互实验：流水线调度 — GPipe vs 1F1B llm_train/m04](https://beleev.github.io#/train/model-parallel)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/train)
+
+## 概览
+
 > 用纯 `numpy` 单进程模拟大模型训练里的分布式、显存、数值和容错技术。一个 "rank" 就是 Python list 里的一个元素。
 > 不依赖 GPU; 每个模块独立可跑 (多数 < 1 秒; m19 / m20 要真训几十个小模型, 分别约 3.5 秒和 4.5 秒), 全部跑完约 10 秒。
 
-## 设计约定
+### 设计约定
 
 - **原理优先**: 小张量 + 手写梯度, 数据流不藏在框架里。
 - **每个 demo 以真实的 `assert` 结尾**: 凡数学上应与单卡基线等价的, 都断言等价 (多数是逐位相同)。
@@ -11,7 +19,16 @@
 - **共享件进 `core/`**: 通信原语 (含真实逐步传 chunk 的 ring all-reduce)、低精度浮点假量化 (BF16/FP8/FP4 共用)、Adam、checkpoint 读写、溢出检测。
 - **每个模块目录有 README**: 直觉 / 核心公式 (m08、m13、full_loop 换成状态清单、配方对照、步骤清单) / 运行后应该看到什么 / 与真实系统的差距 / 常见误区 / 3 道自测题。
 
-## 学习路径
+## 运行
+
+```bash
+python -m llm_train.m05_zero_fsdp.demo      # 单模块
+python -m llm_train.run_all                 # 全部 (任一 assert 失败即失败)
+```
+
+## 模块与阅读顺序
+
+### 学习路径
 
 ```
 切 batch      m01 梯度累积 → m02 DDP
@@ -27,7 +44,7 @@
 合起来        full_loop
 ```
 
-## 模块清单
+### 模块清单
 
 | # | 模块 | 内容 | 关键断言 |
 |---|------|------|----------|
@@ -54,14 +71,13 @@
 | 21 | [LLM Eval](m21_llm_eval/) | PPL, n-gram 污染检测, pass@k, judge 位置偏差 | 朴素 pass@k 偏低; 交换判消掉位置偏差 |
 | ★ | [Full Loop](full_loop/) | DP × 累积 × AMP × 分片 Adam × clip × NaN guard × 分片 checkpoint | ≈ 单卡; 续训逐位相同 |
 
-## 运行
+## 实现说明
 
-```bash
-python -m llm_train.m05_zero_fsdp.demo      # 单模块
-python -m llm_train.run_all                 # 全部 (任一 assert 失败即失败)
-```
+公共模型、数值运算和通信模拟在 `core/`。各 `mXX_*/demo.py` 演示单项技术；`full_loop/demo.py` 组合梯度累积、数据并行、混合精度、分片 Adam、裁剪和断点恢复。每项实验用断言与基线比较。
 
-## 业界覆盖度自评
+## 边界
+
+### 业界覆盖度自评
 
 | 训练技术 | 覆盖 | 说明 |
 |---|:---:|---|

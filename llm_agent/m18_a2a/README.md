@@ -1,11 +1,8 @@
 # M18 — A2A (Agent2Agent): agent 找 agent
 
-两个进程内的 agent 用 A2A 的形状协作:
-1. 出差助理读 Agent Card 找到报销 agent, 用 `message/send` 交任务。
-2. 对方缺出差日期, 就进入 `input-required` 反问。
-3. 助理补上后, 任务 `completed` 并交回 artifact。
+[![A2A — 一个会反问的任务 llm_agent/m18](../../docs/screenshots/agent-a2a-1.png)](https://beleev.github.io#/agent/a2a)
 
-任务状态机写死, 非法转移在本地和线上都被拒绝。
+[打开相关交互实验：A2A — 一个会反问的任务 llm_agent/m18](https://beleev.github.io#/agent/a2a)
 
 ## 直觉
 
@@ -22,7 +19,9 @@ A2A 解决的是这个: agent 之间以**任务**为单位协作。任务有 id�
 
 **MCP 是 agent 调工具, A2A 是 agent 找 agent。**
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 全部在 `m18_a2a/demo.py`:
 
@@ -55,7 +54,7 @@ submitted ──► working ──► completed
 终态没有出边: completed → working、failed → canceled 都是非法的
 ```
 
-## MCP 与 A2A 对照
+### MCP 与 A2A 对照
 
 | | MCP (m09) | A2A (本章) |
 |---|---|---|
@@ -67,6 +66,15 @@ submitted ──► working ──► completed
 | 对方内部 | 工具就是一个函数 | 不透明: 用什么模型、工具、几轮 loop 都不暴露 |
 | 结果 | `content` + `isError` | 状态消息 + artifacts (text / data parts) |
 | 两者关系 | 一个 A2A agent 的内部完全可以用 MCP 调工具 | |
+
+## 运行
+
+两个进程内的 agent 用 A2A 的形状协作:
+1. 出差助理读 Agent Card 找到报销 agent, 用 `message/send` 交任务。
+2. 对方缺出差日期, 就进入 `input-required` 反问。
+3. 助理补上后, 任务 `completed` 并交回 artifact。
+
+任务状态机写死, 非法转移在本地和线上都被拒绝。
 
 ## 运行后应该看到什么
 

@@ -2,7 +2,7 @@
   PPO vs GRPO: 同样每步 256 条回复, 预算怎么花。
   只讲一件事: GRPO 把 256 条分成 32 题 × 8 条, 组内全对/全错时 A ≡ 0, 这组白花; PPO 一题一采, 256 道题都有信号。
   格子里的 0/1 奖励是前端按随机难度抽的示意 (可以点格子改); 下方表格来自
-  python -m llm_finetune.run_finetune.ppo.train_ppo 的结果表 (与 run_finetune/ppo/readme.md 一致), 不随格子变化。
+  python -m llm_finetune.run_finetune.ppo.train_ppo 的结果表 (与 run_finetune/ppo/README.md 一致), 不随格子变化。
 -->
 <template>
   <LabFrame

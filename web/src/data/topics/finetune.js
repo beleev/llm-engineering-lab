@@ -1,7 +1,7 @@
 // 阶段 4 · llm_finetune 的全部章节 (15 章)。
 // 每章都写全 StageTopic 要渲染的字段。
 // source 只写真实存在的 def / class —— npm run check:sources 会逐条校验。
-// 页面里的数字全部来自 llm_finetune/run_finetune/*/readme.md, 可以用对应的 run 命令复现。
+// 页面里的数字全部来自 llm_finetune/run_finetune/*/README.md, 可以用对应的 run 命令复现。
 export default {
   stage: 'finetune',
   chapters: [
@@ -209,7 +209,7 @@ y = x @ w_hat.T + (alpha / r) * (x @ A.T) @ B.T     # base 冻结, 只训 A/B`,
         { concept: '方向分支', code: 'V = W₀ + (α/r)·B·A', takeaway: '和 LoRA 一模一样的低秩更新, 但只有它的方向会被用到。' },
         { concept: '归一化', code: 'direction.norm(dim=1, keepdim=True).detach()', takeaway: '论文 §4.3 把范数当常数; 忘了 detach 结果差不多, 但多一份全尺寸梯度显存。' },
         { concept: '幅度', code: 'lora_magnitude: nn.Parameter([d_out])', takeaway: '名字带 lora_ 前缀, 直接复用冻结和落盘工具。训练后 layers.0.attn.w_q 的 m 相对初值平均变了 59.7%。这个任务确实要改长度。' },
-        { concept: '换个 r 就不稳', code: 'run_finetune/dora/readme.md', takeaway: '3 个种子平均 loss 0.369 → 0.296, EM 0.382 → 0.522; 但换成 r=2 时 3 个种子里有 1 个是 LoRA 赢。玩具规模, 断言只要求平均值。' },
+        { concept: '换个 r 就不稳', code: 'run_finetune/dora/README.md', takeaway: '3 个种子平均 loss 0.369 → 0.296, EM 0.382 → 0.522; 但换成 r=2 时 3 个种子里有 1 个是 LoRA 赢。玩具规模, 断言只要求平均值。' },
       ],
       snippetTitle: 'DoRA forward (骨架)',
       snippet: `V = W0 + (alpha / r) * (B @ A)            # 方向分支: 与 LoRA 相同的低秩更新
@@ -443,7 +443,7 @@ loss.backward(); opt.step()                # 5. 一次更新`,
         { concept: '组内优势', code: 'llm_finetune/methods/grpo.py:group_advantages', takeaway: '$r - \\mu$; std_norm=True 时再除 $\\sigma$。' },
         { concept: '重要性比率', code: 'ratio = exp(logp_new − logp_old.detach())', takeaway: 'logp_old 在采样后立刻用同一温度算好并冻结。' },
         { concept: 'loss 聚合', code: 'llm_finetune/methods/grpo.py:aggregate', takeaway: 'seq_mean (GRPO, $\\div |o_i|$) · token_mean (DAPO) · fixed_len (Dr.GRPO, $\\div$ 常数 $C$): 差别只在每个 token 的权重。' },
-        { concept: '别误读最终分数', code: 'run_finetune/grpo/readme.md', takeaway: '60 步后留出集采样 pass@1: grpo 0.287 / dapo 0.326 / dr_grpo 0.324 / gspo 0.320, 差异在噪声内。贪心 EM 基本没动 (0.562 → 0.53)。RLVR 主要把 pass@k 挤进 pass@1, 不是教新能力。' },
+        { concept: '别误读最终分数', code: 'run_finetune/grpo/README.md', takeaway: '60 步后留出集采样 pass@1: grpo 0.287 / dapo 0.326 / dr_grpo 0.324 / gspo 0.320, 差异在噪声内。贪心 EM 基本没动 (0.562 → 0.53)。RLVR 主要把 pass@k 挤进 pass@1, 不是教新能力。' },
         { concept: '用什么验收', code: '采样 pass@1, 不是贪心 EM', takeaway: 'RL 优化的就是采样分布; 拿贪心解码去验收 RL, 什么都看不到。' },
       ],
       snippetTitle: '带 ratio + clip 的 GRPO 内层循环',
@@ -507,7 +507,7 @@ for _ in range(K):                                    # 同一批样本更新 K 
         { concept: '离线基线', code: 'llm_finetune/methods/distill.py:DistillLoss', takeaway: '$\\alpha\\cdot\\mathrm{CE} + (1-\\alpha)\\cdot T^2\\cdot\\mathrm{KL}(p_t^T \\,\\|\\, p_s^T)$。这是 forward KL, 数据来自固定语料。' },
         { concept: '学生采样', code: 'llm_finetune/methods/on_policy_distill.py:on_policy_distill_step', takeaway: 'generate 在 no_grad 下跑; 梯度只来自随后那次带梯度的前向。' },
         { concept: '逐 token reverse KL', code: 'llm_finetune/methods/on_policy_distill.py:token_kl', takeaway: '$\\sum_v q_s(v)\\cdot(\\log q_s(v) - \\log p_t(v))$, 在完整词表上精确求和, 不需要对 KL 做采样估计。' },
-        { concept: '各赢各的', code: 'run_finetune/on_policy_distill/readme.md', takeaway: 'off-policy forward KL 0.88 / reverse 2.07; on-policy forward 1.36 / reverse 0.50。谁优化哪个指标就赢哪个, 别只看一栏。' },
+        { concept: '各赢各的', code: 'run_finetune/on_policy_distill/README.md', takeaway: 'off-policy forward KL 0.88 / reverse 2.07; on-policy forward 1.36 / reverse 0.50。谁优化哪个指标就赢哪个, 别只看一栏。' },
         { concept: '为什么不接 Trainer', code: 'run_finetune/on_policy_distill/train_on_policy_distill.py', takeaway: '训练数据由当前 student 现场生成, 数据生成器得拿到模型本身, 和 GRPO 一个原因。' },
       ],
       snippetTitle: 'on-policy 蒸馏一步',

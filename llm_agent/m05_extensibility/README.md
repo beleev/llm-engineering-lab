@@ -1,6 +1,8 @@
 # M05 — Skills 与 Hooks: 两种不改 loop 的扩展方式
 
-Skill 是"模型按需加载的任务手册", hook 是"包在模型循环外、必然执行的确定性代码"; 本模块演示两者各自解决什么问题, 以及 hook 为什么绕不过权限门。
+[![Hook 流水线 — 改写之后, 谁来再查一遍? llm_agent/m05](../../docs/screenshots/agent-extensibility-1.png)](https://beleev.github.io#/agent/extensibility)
+
+[打开相关交互实验：Hook 流水线 — 改写之后, 谁来再查一遍? llm_agent/m05](https://beleev.github.io#/agent/extensibility)
 
 ## 直觉
 
@@ -10,7 +12,9 @@ Hook 解决第二个: 它是 harness 里的普通 Python 函数, 不经过模型
 没有 skill, agent 要么上下文臃肿、要么每次现编流程; 没有 hook, "禁止读 token 文件"只能靠求模型。
 但 hook 能改写调用也意味着它可能成为提权通道, 所以顺序必须是 hook 在前、权限门在后。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/skills.py: SkillRegistry` — skill 的目录:
   - 启动时 glob `*/SKILL.md`, 只留 frontmatter 的 `name` / `description`, 正文当场丢弃。
@@ -39,6 +43,10 @@ tool_result 挂回模型发出的原 id → user 消息;  notes → 独立 syste
   - 拼进去的话, `[audit]` 之类的注释会被模型当成工具数据写进笔记、拿去当检索词。
 - **skill 正文是可信指令**。它由用户自己安装, toy LLM 会服从 `skill` 工具返回的内容; 而 `fetch_doc` 抓回的文档是不可信数据 (m12)。区别在来源, 不在格式。
 - **结果永远挂在模型发出的 id 上**, 即使 hook 把调用改成了别的工具 —— 保证 tool_use / tool_result 配对合法。
+
+## 运行
+
+Skill 是"模型按需加载的任务手册", hook 是"包在模型循环外、必然执行的确定性代码"; 本模块演示两者各自解决什么问题, 以及 hook 为什么绕不过权限门。
 
 ## 运行后应该看到什么
 

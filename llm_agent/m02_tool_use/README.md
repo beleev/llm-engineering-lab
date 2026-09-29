@@ -1,6 +1,8 @@
 # M02 — Tool Use
 
-工具 = 给模型看的 JSON Schema + 由确定性代码执行的 `execute`; 本模块演示 schema、执行前校验和并行工具调用。
+[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+
+[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
 
 ## 直觉
 
@@ -10,7 +12,9 @@
 所以 schema 同时服务两头: 对模型是说明书, 对 harness 是信任边界上的输入验证。
 校验失败不抛异常, 而是回一个 `is_error` 的 `tool_result`, 模型下一轮可以自己改。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/tools.py: Tool` — `name / description / parameters` 加三个只给 harness 看的元数据 `risk / read_only / untrusted_output`。
 - `core/tools.py: Tool.schema` — 输出 `{name, description, input_schema}`, 即 Claude API `tools=[...]` 的元素; 元数据不发给模型。
@@ -39,6 +43,10 @@ user: [tool_result A, tool_result B]           # 全部放进同一条 user 消�
 - `ToolRegistry.schemas()` 按名字排序: 工具列表确定, 真实 API 下才不会因为顺序变化让 prompt cache 失效。
 - `bool` 是 `int` 的子类, `validate_args` 显式排除, 否则 `True` 会被当成合法 `number`。
 - toy LLM 的计划分 `gather` (互不依赖, 一次全发) 和 `act` (写操作, 一次一个): 先并行收集, 再串行动手。
+
+## 运行
+
+工具 = 给模型看的 JSON Schema + 由确定性代码执行的 `execute`; 本模块演示 schema、执行前校验和并行工具调用。
 
 ## 运行后应该看到什么
 

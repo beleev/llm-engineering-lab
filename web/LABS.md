@@ -10,7 +10,7 @@
 |---|---|---|
 | 实验台 | `src/components/labs/<Name>Lab.vue` | 文件名即 lab 名，自动注册 |
 | 把 lab 挂到某章 | `src/data/labmap/<stage>.js` → `{ 'route-name': ['NameLab'] }` | 该章出现"动手实验台"一节 |
-| 新章节 | `src/data/topics/<stage>.js` → `{ stage, chapters, pages }` | 路由 `/stage/name`、侧栏、上一章/下一章全部自动生成 |
+| 新章节 | `src/data/topics/<stage>.js` → `{ stage, chapters, pages }` | 构建时提取目录，正文按阶段加载；路由 `/stage/name`、侧栏、上一章/下一章全部自动生成 |
 | 章末自测 | `src/data/quiz/<stage>.js` → `{ 'route-name': [{ q, options, answer, why }] }` | 章末出现自测；全对后侧栏打 ✓ |
 | 术语 | `src/data/glossary/<stage>.js` → `[{ term, aka?, stage, oneliner, number?, route }]` | 出现在"术语速查"页 |
 | 真源码 | 章节 page 里写 `source: ['llm_x/path/file.py:函数或类名']` | 构建期直接读 Python 文件，不会和仓库漂移 |
@@ -51,6 +51,8 @@ import { mulberry32, randn, softmax, entropy, clamp, lerp, sum, range, argmax, f
 12. **「玩具」和「实测表」不联动时要标明。** 一个实验台里, 左边是前端现算的玩具, 右边贴的是 Python demo 跑出来的表, 拖滑杆时表不会变。在实测那一块的标题或说明里写「实测, 不随左侧变化」, 读者才不会以为滑杆坏了。
 
 ## 自测
+
+目录和阅读量由 `plugins/course-catalog.js` 在构建时提取，浏览器只加载当前阶段正文与题库。新增内容不需要另维护一份目录。
 
 ```bash
 cd web && npm run dev          # 手动点一遍

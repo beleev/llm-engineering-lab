@@ -1,6 +1,8 @@
 # M15 — 接真实模型 (opt-in)
 
-同一个 agent loop, 把 `RuleBasedLLM` 换成调用 Claude Messages API 的 `ClaudeLLM`。本模块不在 `run_all` 里; 默认 demo 不会实例化 `ClaudeLLM`, 不发网络请求 (m19 只借用了同文件里的纯函数 `to_api_messages`)。
+[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+
+[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
 
 ## 直觉
 
@@ -12,7 +14,9 @@
 
 **重要声明**: 本仓库的开发与测试环境没有安装 `anthropic` SDK, 也没有 API key; 在线路径 (`ClaudeLLM.next` 和 demo 的第 [2] 段) 从未对真实 API 运行过, 只有离线的 `to_api_messages` 被断言覆盖。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/llm.py` — `LLM` 协议: `next(messages, tools) -> ModelAction`, 无状态, 状态全在 messages 里。
 - `core/claude_llm.py` — `to_api_messages(messages) -> (system, api_messages)`: 纯函数, 不需要 SDK, 可离线测试。
@@ -46,6 +50,10 @@ Agent.run 把 action.raw_content 原样 append 进 transcript (含 thinking bloc
 - 原始 blocks 原样存回: 带 thinking 的工具循环要求把 thinking block 原封不动回传, 只存拍平后的文本会丢掉它们。
 - 用 API 给的 `tool_use.id`, 参数直接用已解析的 dict: 不对序列化后的 JSON 字符串做匹配。
 - key 只由 SDK 从环境变量读, 代码不经手; SDK 延迟导入, 所以没装 SDK 时包的其余部分照常工作。
+
+## 运行
+
+同一个 agent loop, 把 `RuleBasedLLM` 换成调用 Claude Messages API 的 `ClaudeLLM`。本模块不在 `run_all` 里; 默认 demo 不会实例化 `ClaudeLLM`, 不发网络请求 (m19 只借用了同文件里的纯函数 `to_api_messages`)。
 
 ## 运行后应该看到什么
 

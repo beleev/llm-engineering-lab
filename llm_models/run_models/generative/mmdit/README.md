@@ -1,0 +1,70 @@
+# MM-DiT — SD3 / FLUX 的双流扩散 Transformer + Flow Matching
+
+MM-DiT 的图文双流：
+
+```mermaid
+flowchart LR
+  A[带噪图像 latent] --> C[图像流]
+  B[文本条件] --> D[文本流]
+  C --> E[联合注意力]
+  D --> E
+  E --> F[各自的 FFN]
+  F --> G[图像流速度预测]
+```
+
+
+## 直觉
+
+DiT 只能经 adaLN 注入一个全局向量, 整句文本被压成一个点。MM-DiT 把文本 token 和图像 patch token 拼成一条序列做联合注意力,
+但两种模态分布差异大, 所以 QKV / FFN / adaLN 各用一套参数: **参数分, 注意力合**。
+训练目标换成 Rectified Flow: 噪声与数据之间走直线, 学这条直线的速度。
+
+## 核心原理
+
+### 核心公式
+
+- `x_t = (1−t)·x_0 + t·ε`, `v = dx_t/dt = ε − x_0`, `loss = MSE(model(x_t, t·1000, text), v)`
+- Euler 采样: `x_{t−Δt} = x_t − Δt·v̂`, 从 t=1 走到 0
+- 联合注意力: `Attn(cat[q_img,q_txt], cat[k_img,k_txt], cat[v_img,v_txt])`, 再切回两条流
+
+## 运行
+
+```bash
+python -m llm_models.run_models.generative.mmdit.infer_mmdit
+python -m llm_models.run_models.generative.mmdit.train_mmdit
+```
+
+## 运行后应该看到什么
+
+`infer_mmdit`:
+- `cos(emb(t=0.1), emb(t=0.9))`: 裸 t = **0.981**, scheduler 输出的 t_norm (×1000) = **0.167**
+- 换文本 token → 图像流输出变化 1.617e-02 (联合注意力通了); 换 t → 4.726e-02
+- Euler 20 步, 模型看到的 t: 1000 → 50
+
+`train_mmdit`: 喂给模型的 t = `[161.28, 995.03]`; loss 2.1937 → 0.0005。
+初始 ≈ 2: 零初始化输出 0 → `MSE = E[(ε−x_0)²] = Var(ε)+Var(x_0) = 2` (只有 512 个元素, 估计标准差 ≈ 0.125)。
+**固定 batch, 下降 = 背下 2 个样本**。
+
+## 与真实系统的差距
+
+- **没有文本编码器**: `text_embeds` 和 `text_pooled` 是 `randn` 出来的。真实系统由预训练的文本编码器给出这两个量。
+- **latent 是随机数**: x_0 从 N(0, I) 采, 没有接 VAE。
+- **规模**: train 是 2 层、d_model=96, 图像 16 个 token、文本 16 个 token。固定 2 个样本训 60 步, 固定 batch 是本库约定。
+- **t 均匀采样**: 训练时 t ~ U(0,1), 没有实现其他采样分布, 也没有按 t 给 loss 加权。
+- **文本流多了一份位置嵌入**: 本库给文本 token 加了可学习的 `text_pos`。文本超过 `text_seq_len` 会被截断, 不足时不补齐。
+- **没有文本的 CFG**: 采样器的引导走 `class_labels`。MM-DiT 没有 "空文本" 条件, demo 的 Euler 采样没有开引导。
+- **所有层都是双流**: 没有两种模态共用一套参数的单流 block。
+
+## 常见误区
+
+- "Flow Matching 的 t∈[0,1] 直接喂 TimestepEmbedding": sinusoidal 频率族 (max_period=10000) 是为跨度上千的位置设计的, [0,1] 内大部分频率几乎不动: 不缩放时 t=0.1 与 t=0.9 的嵌入余弦相似度高达 0.98, 模型根本分不清早晚。SD3 同样把 t ×1000。插值系数仍用 t∈[0,1], 只有 **给模型看的 t** 要缩放; 采样器必须用同一量纲 (`EulerFlowSampler.time_scale`)。
+- "双流 = 两个独立 Transformer": 注意力是共享的一次 softmax, 文本 token 能看图像 token, 反之亦然。
+- "回归目标 v 依赖 t": 对一对固定的 (x_0, ε), 直线路径上 v = ε − x_0 与 t 无关。
+  - 但同一个 x_t 可能来自很多对 (x_0, ε), 模型学到的是它们的条件平均 E[ε − x_0 | x_t, t]。
+  - 这个速度场依赖 t, 所以 t 仍要喂给模型。
+
+## 自测题
+
+1. 为什么 Flow Matching 的初始 loss ≈ 2 而 DDPM ≈ 1? —— target 是 ε−x_0, 两个独立单位方差之差, 方差为 2。
+2. 图像 64 token、文本 16 token, 联合注意力矩阵多大? —— 80×80 (每个头)。
+3. Euler 20 步时最后一次前向的 t 为什么是 50 而不是 0? —— t 取每步的起点 1, 0.95, …, 0.05; 走完最后一步才到 0。

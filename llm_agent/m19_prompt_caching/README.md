@@ -1,15 +1,8 @@
 # M19 — Prompt caching: 前缀逐字节相同才命中
 
-模拟 Messages API 的 `cache_control` 断点:
-- 按 tools → system → messages 拼出请求, 按前缀哈希查缓存。
-- 写入 ×1.25、读取 ×0.1、TTL 5 分钟。
+[![Prompt caching — 12 次调用的账单 llm_agent/m19](../../docs/screenshots/agent-prompt-caching-1.png)](https://beleev.github.io#/agent/prompt-caching)
 
-用一个 6 轮、12 次模型调用的 agent 会话, 比较三种情况的计费和首 token 延迟:
-- 不缓存。
-- 正确缓存。
-- "时间戳放在 system 开头"。
-
-**价格与延迟倍率都是示意值** (`PRICE` / `LATENCY_MS`), 实际以官方定价为准。不同模型的读取倍率不同 (多数 ×0.1, 部分新模型更低); 1 小时 TTL 的写入是 ×2。
+[打开相关交互实验：Prompt caching — 12 次调用的账单 llm_agent/m19](https://beleev.github.io#/agent/prompt-caching)
 
 ## 直觉
 
@@ -24,7 +17,9 @@ agent loop 每一轮都把整个上下文重发给模型 (m04 / m14)。几千 to
 
 治法是一条排版规则: 稳定的放前面, 易变的放后面。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 全部在 `m19_prompt_caching/demo.py`。请求体转换复用 `core/claude_llm.py: to_api_messages` (m15), 工具顺序复用 `core/tools.py: ToolRegistry.schemas()` 的排序。
 
@@ -52,7 +47,7 @@ write   = tokens(block_hit .. block_{bp2})                并把 hash_bp1、hash
 input   = tokens(bp2 之后)                                本 demo 断点在最后一个 block, 恒为 0
 ```
 
-## 公式
+### 公式
 
 ```
 cost  = input·1.0 + write·1.25 + read·0.1                      (单位: 基础输入单价 × token)
@@ -61,6 +56,19 @@ ttft  = 300ms + (input + write)·0.20ms + read·0.02ms           (示意 prefill
 盈亏平衡 (5 分钟 TTL): 同一前缀用 2 次, 缓存 1.25 + 0.1 = 1.35 < 不缓存 2.0
                         只用 1 次, 缓存 1.25 > 不缓存 1.0  —— 冷写比不开缓存贵 25%
 ```
+
+## 运行
+
+模拟 Messages API 的 `cache_control` 断点:
+- 按 tools → system → messages 拼出请求, 按前缀哈希查缓存。
+- 写入 ×1.25、读取 ×0.1、TTL 5 分钟。
+
+用一个 6 轮、12 次模型调用的 agent 会话, 比较三种情况的计费和首 token 延迟:
+- 不缓存。
+- 正确缓存。
+- "时间戳放在 system 开头"。
+
+**价格与延迟倍率都是示意值** (`PRICE` / `LATENCY_MS`), 实际以官方定价为准。不同模型的读取倍率不同 (多数 ×0.1, 部分新模型更低); 1 小时 TTL 的写入是 ×2。
 
 ## 运行后应该看到什么
 

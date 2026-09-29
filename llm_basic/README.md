@@ -1,8 +1,16 @@
 # llm\_basic — 只用 numpy 手写一个 GPT（前向 + 反向）
 
+[![形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路 llm_basic/model.py](../docs/screenshots/basic-forward-1.png)](https://beleev.github.io#/basic/forward)
+
+[打开相关交互实验：形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路 llm_basic/model.py](https://beleev.github.io#/basic/forward)
+
+[项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/basic)
+
+## 概览
+
 没有 torch、没有自动微分。字符级语言模型的训练与推理全过程——前向、反向、优化器、采样、梯度检查——每一步都是看得见的 numpy 代码。
 
-## 直觉
+### 直觉
 
 - 语言模型只做一件事：给定前文，输出"下一个 token"的概率分布。训练 = 让真实下一个 token 的概率变大（交叉熵变小）。
 - `loss.backward()` 不是魔法：每个算子写一对 `xxx_forward(...) -> (out, cache)` / `xxx_backward(dout, cache) -> (dx, *dparams)`，整个模型的反向就是**把前向倒着走一遍**，把 `dout` 一层层往回传。
@@ -25,21 +33,9 @@ ids [B,T] → tok_emb[V,D] + pos_emb[T_max,D]
 | `train.py` / `sample.py` | 训练循环 / 自回归采样（temperature + top-k） |
 | `bpe.py` | **独立演示**，不参与训练：手写 byte-level BPE。训练、采样和自带的 `ckpt.npz` 全部基于字符级 `tokenizer.py` |
 
-## 核心公式
+## 运行
 
-| 算子 | 前向 | 反向 |
-| --- | --- | --- |
-| Linear | `y = x @ W + b` | `dx = dy @ Wᵀ`，`dW = xᵀ @ dy`，`db = Σ dy` |
-| RMSNorm | `y = g ⊙ x / rms`，`rms = √(mean(x²)+ε)` | `dx = g⊙dy/rms − x·Σⱼ(dyⱼgⱼxⱼ)/(D·rms³)` |
-| Attention | `A = softmax(QKᵀ/√D + mask)`，`out = (A @ V) @ Wo` | `dV = Aᵀ @ dctx`，`dA = dctx @ Vᵀ`，`dS = A ⊙ (dA − Σⱼ AⱼdAⱼ)` |
-| Cross-entropy | `L = −mean(log pᵧ)` | `dlogits = (p − onehot(y)) / N` |
-| Embedding | `out = W[ids]` | `np.add.at(dW, ids, dout)`（重复 id 要累加） |
-| Adam(W) | `m,v` 为 g、g² 的滑动平均，除以 `1−βᵗ` 做偏置修正 | `W ← W − lr·( m̂/(√v̂+ε) + λW )` |
-
-warmup+cosine：`lr(t) = max_lr·t/warmup`（t ≤ warmup），之后 `min_lr + ½(max_lr−min_lr)(1+cos(π·progress))`。
-梯度裁剪：`g ← g · min(1, max_norm/‖g‖)`，‖g‖ 是**所有参数**拼成一个向量的范数。
-
-## 运行命令
+### 运行命令
 
 所有脚本都在 `llm_basic/` 目录下直接运行（脚本之间用 `from model import ...` 互相导入，**不能**用 `python -m llm_basic.xxx`）：
 
@@ -56,7 +52,27 @@ python sample.py --ckpt /tmp/c2.npz --top-k 10
 python bpe.py --merges 300   # 独立的 BPE 演示
 ```
 
-## 运行后应该看到什么
+## 模块与阅读顺序
+
+建议按 `prepare.py` / `tokenizer.py` → `model.py` → `gradcheck.py` → `optim.py` → `train.py` → `sample.py` 阅读。`bpe.py` 是独立分词实验。
+
+## 实现说明
+
+### 核心公式
+
+| 算子 | 前向 | 反向 |
+| --- | --- | --- |
+| Linear | `y = x @ W + b` | `dx = dy @ Wᵀ`，`dW = xᵀ @ dy`，`db = Σ dy` |
+| RMSNorm | `y = g ⊙ x / rms`，`rms = √(mean(x²)+ε)` | `dx = g⊙dy/rms − x·Σⱼ(dyⱼgⱼxⱼ)/(D·rms³)` |
+| Attention | `A = softmax(QKᵀ/√D + mask)`，`out = (A @ V) @ Wo` | `dV = Aᵀ @ dctx`，`dA = dctx @ Vᵀ`，`dS = A ⊙ (dA − Σⱼ AⱼdAⱼ)` |
+| Cross-entropy | `L = −mean(log pᵧ)` | `dlogits = (p − onehot(y)) / N` |
+| Embedding | `out = W[ids]` | `np.add.at(dW, ids, dout)`（重复 id 要累加） |
+| Adam(W) | `m,v` 为 g、g² 的滑动平均，除以 `1−βᵗ` 做偏置修正 | `W ← W − lr·( m̂/(√v̂+ε) + λW )` |
+
+warmup+cosine：`lr(t) = max_lr·t/warmup`（t ≤ warmup），之后 `min_lr + ½(max_lr−min_lr)(1+cos(π·progress))`。
+梯度裁剪：`g ← g · min(1, max_norm/‖g‖)`，‖g‖ 是**所有参数**拼成一个向量的范数。
+
+### 运行后应该看到什么
 
 以下都是实测输出（Apple Silicon CPU，seed 固定，可复现）。
 
@@ -110,7 +126,7 @@ Gacking wich should bothess preath my him her patime have a fare don to whenth t
 
 `python bpe.py`：`字符级需要 60 个 token, BPE 只要 24 个`，压缩率 2.50 字符/token。
 
-## 常见误区
+### 常见误区
 
 1. **"gradcheck 过了 = 训练一定没问题"**：它只证明 backward 与 forward 一致。forward 本身写错（比如 mask 方向反了）它查不出来，要靠初始 loss≈ln V、loss 曲线、采样结果来发现。
 2. **ε 越小数值梯度越准**：不对。截断误差 ∝ ε²，舍入误差 ∝ 1/ε。本模型实测 ε=1e-4 时 `pos_emb` 相对误差 1.1e-4（不过关），ε=1e-5 降到 1.1e-6，ε=1e-6 时 `attn_Wq` 反而恶化到 1.3e-3。误差随 ε² 缩小说明是截断误差而不是 bug。
@@ -119,7 +135,7 @@ Gacking wich should bothess preath my him her patime have a fare don to whenth t
 5. **梯度裁剪是逐参数裁**：那样会改变梯度方向。全局范数裁剪是所有参数同乘一个系数，方向不变。
 6. **多层需要新的反向推导**：不需要。前向 `for` 循环存下每层 cache，反向 `reversed` 再走一遍。层数直接从参数名 `block_{i}_*` 数出来，所以 checkpoint 里不必存 `n_layer`：自带的 `ckpt.npz` 就没有这个字段，照常加载。
 
-## 自测题
+### 自测题
 
 1. 为什么交叉熵对 logits 的梯度 `(p − onehot)/N` 每一行加起来恰好为 0？这意味着什么？
    **答**：`Σp = 1`、`Σonehot = 1`，相减为 0。意味着给一行 logits 同时加一个常数不改变 loss（softmax 平移不变），梯度在这个方向上没有分量。`gradcheck.py` 断言的是所有行的梯度总和为 0，比"每一行为 0"弱一些。
@@ -128,7 +144,9 @@ Gacking wich should bothess preath my him her patime have a fare don to whenth t
 3. 训练第 1 步 loss 打印出 20 而不是 4.17，最可能哪里错了？
    **答**：初始化太大：logits 不再 ≈ 0，模型"自信地瞎猜"，loss ≫ ln V（实测把矩阵 std 从 0.02 改成 1，初始 loss = 19.98）。应检查 `init_weights` 的 std=0.02；`train.py` 的断言 `|loss − ln V| < 0.5` 会直接拦下。
 
-## 与真实系统的差距
+## 边界
+
+### 与真实系统的差距
 
 为了让每一步都看得见，这里刻意省略了这些：
 

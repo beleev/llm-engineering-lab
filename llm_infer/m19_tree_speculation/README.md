@@ -1,12 +1,20 @@
 # M19 — Tree Speculation: 一次 target forward 验一整棵 token 树
 
+[![树形投机 — tree attention mask 一次验整棵树 llm_infer/m19](../../docs/screenshots/infer-tree-speculation-1.png)](https://beleev.github.io#/infer/tree-speculation)
+
+[打开相关交互实验：树形投机 — tree attention mask 一次验整棵树 llm_infer/m19](https://beleev.github.io#/infer/tree-speculation)
+
 ## 直觉
+
 链式 draft (m07) 第一个 token 猜错, 后面 K−1 个全废。可 draft 的第 2、第 3 候选经常是对的 ——
 那就别只押 top-1: 每个节点保留 top-k 个孩子, 长成一棵树, 让 target **一次 forward 验完所有分支**,
 接受与 target greedy 一致的最长路径。decode 是带宽受限的, 多验十几个 token 几乎不加延迟。
 Medusa、SpecInfer、EAGLE-2 都是这个套路, 区别只在树怎么长。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 - 树: BFS 编号, `parents (n,)`, `depth (n,)`; 节点 0 = 根 = `out[-1]`。`widths=[3,2,1]` → 1+3+6+6 = 16 节点。
 - 祖先矩阵 `anc (n, n)`: `anc[i] = anc[parent[i]] | onehot(i)`。
 - tree mask `(n, n_ctx + n)`: 上下文列全 0 (可见); 树内列 `anc ? 0 : −inf` —— 兄弟/堂兄弟互相看不见。
@@ -16,7 +24,16 @@ Medusa、SpecInfer、EAGLE-2 都是这个套路, 区别只在树怎么长。
 - 接受 `accept_tree`: 从根出发, 当前节点的 target argmax 命中哪个孩子就走进去; 走不动时该 argmax 就是纠错/bonus token。
 - `gather_kv`: forward 后 KV 多了 n 行, 只保留 `n_ctx + path` 这几行。K 是 RoPE 之后存的, 路径上 depth 连续, 挑行即等价于顺序 decode。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m19_tree_speculation.demo
+```
+
 ## 运行后应该看到什么
+
 `python -m llm_infer.m19_tree_speculation.demo` (约 3 s)
 ```
 [1] widths=[2, 1], 上下文 3 个 token; parents = [-1, 0, 0, 1, 2]; RoPE 位置 = [3, 4, 4, 5, 5]
@@ -38,6 +55,7 @@ assert: 树形/链式输出都与 `target.generate_greedy` 逐 token 相同; 树
 逐轮 树接受数 ≥ 同一棵树的 top-1 脊; 总体 tree 每轮接受 ≥ chain K=3 且 target 调用 ≤ chain。
 
 ## 与真实系统的差距
+
 - 固定形状的树; EAGLE-2 按 draft 置信度动态展开并重排, 只把最可能的 ~60 个节点送去验证。
 - draft 侧没做 KV gather, 每轮丢掉树的 KV、下轮重喂被接受的 token (不多花调用, 多花一点计算)。
 - 只有 greedy 接受; 采样版需要多候选 rejection sampling (SpecInfer 的 multi-round / 无放回采样), 比链式复杂。
@@ -45,12 +63,14 @@ assert: 树形/链式输出都与 `target.generate_greedy` 逐 token 相同; 树
 - 真实 kernel 直接吃稀疏的 tree mask (FlashInfer), 这里是 dense 加性 mask。
 
 ## 常见误区
+
 - "兄弟节点位置应该依次 +1" —— 错。它们是同一位置的不同候选, 位置 = n_ctx + depth; 否则被接受路径的 KV 与顺序 decode 对不上。
 - "接受后要重算 KV" —— 不用, gather 出路径那几行即可, demo [1] 验证了与顺序 forward 逐元素相等。
 - "树总是赚的" —— 只赚 target 调用数; 验证 token 数是链的 4 倍, 算力受限时可能更慢。
 - "chain K=15 验证量相同所以应该打平" —— 链越长越难全中 (α^k 衰减), 同样 16 个验证 token, 花在"宽"上比花在"深"上值, 且链要 15 次串行 draft。
 
 ## 自测题
+
 1. widths=[3,2,1] 的树里, 节点 5 (父 1) 能看到节点 2 吗? 为什么必须看不到?
    答: 不能。节点 2 是节点 1 的兄弟, 属于另一条候选序列; 看到它就等于在一个不存在的上下文上算 logits, 验证结果无意义。
 2. 为什么 gather KV 的行就够了, 不需要对 K 重新做 RoPE?

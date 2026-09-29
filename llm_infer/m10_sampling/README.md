@@ -1,11 +1,19 @@
 # M10 — Sampling: 把 logits 变成 token
 
+[![温度实验台 — 一根滑杆连接采样与蒸馏 llm_infer/m10](../../docs/screenshots/basic-optim-sample-2.png)](https://beleev.github.io#/basic/optim-sample)
+
+[打开相关交互实验：温度实验台 — 一根滑杆连接采样与蒸馏 llm_infer/m10](https://beleev.github.io#/basic/optim-sample)
+
 ## 直觉
+
 模型给出 V 个 logit, 最后一步要选 1 个 token。纯 greedy 确定但容易复读; 纯按 softmax 采样有多样性,
 但词表很大时长尾 token 虽然单个概率极小, 加起来却有可观质量, 隔一阵就会抽到一个"垃圾 token"把后文带偏。
 所有策略都在做同一件事: **先改造分布 (调尖/调平、砍尾巴、罚重复), 再采样**。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 每个 filter 都是 `logits (V,) → logits (V,)`, 被砍的置 `-inf`, 因此可以任意串联:
 
 | 策略 | 规则 | 保留集合大小 |
@@ -23,7 +31,16 @@ element-wise 运算 + 一次 argmax (没有 cumsum / 二分搜索), batch 维天
 API (full_engine 依赖): `SamplingParams(temperature, top_k, top_p, min_p, repetition_penalty)`,
 `sample(logits, params, history=None, rng=None) -> int`; `temperature=0` 即 greedy。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m10_sampling.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m10_sampling.demo      # ~1.1 s
 ```
@@ -45,6 +62,7 @@ min-p 集合 == `{p_i ≥ min_p·p_max}`; T=0 与 T=1e-4 都等于 argmax; Gumbe
 被罚 token 概率严格下降; 被砍 token 在 10000 次里出现 0 次。
 
 ## 与真实系统的差距
+
 - 真实系统对整个 batch `(B, V)` 一次处理, 每行参数不同; top-p 的全词表排序很贵, FlashInfer 用
   rejection sampling 做免排序的 top-k/top-p。这里是单条 `(V,)` + Python。
 - 顺序不统一: vLLM / HF / llama.cpp 对 min_p 与 top_k/top_p 的先后不完全一致, 同一组参数跨框架分布可能不同。
@@ -52,6 +70,7 @@ min-p 集合 == `{p_i ≥ min_p·p_max}`; T=0 与 T=1e-4 都等于 argmax; Gumbe
   bad_words、per-request seed、以及 m14 的结构化输出 mask (也是一个 `-inf` filter, 插在同一条链上)。
 
 ## 常见误区
+
 - "top-k 用 `logits >= 第k大值` 就行": 有并列值时会留下多于 k 个, 所以要按下标保留。
 - "repetition penalty 就是 logit 除以 penalty": 负 logit 除以 >1 的数会变大, 反而鼓励重复 (见 [4])。
 - "top-p 和温度谁先谁后无所谓": 温度在前时, T 越大分布越平, 同样的 p 会留下更多 token。
@@ -59,6 +78,7 @@ min-p 集合 == `{p_i ≥ min_p·p_max}`; T=0 与 T=1e-4 都等于 argmax; Gumbe
 - "Gumbel-max 是近似采样": 是精确的, [3] 里它与 multinomial 的 TV 处在同一噪声水平。
 
 ## 自测题
+
 1. **概率 [0.5, 0.3, 0.1, 0.1], top_p=0.8 留几个? top_p=0.81 呢?**
    0.5+0.3=0.8 ≥ 0.8 → 2 个; 0.81 时 0.8 < 0.81, 需再加一个 → 3 个。
 2. **模型非常确定 (p_max=0.95) 与非常犹豫 (p_max=0.05) 时, min_p=0.1 的阈值各是多少? 这比固定 top-k 好在哪?**

@@ -1,6 +1,8 @@
 # M09 — MCP: 工具活在另一个进程里
 
-用一个真实的 stdio JSON-RPC 2.0 server 演示: 工具由外部进程通过标准协议提供, 但进了 agent 之后和内置工具走完全相同的校验与权限路径。
+[![MCP — 一次外部工具调用的完整报文 llm_agent/m09](../../docs/screenshots/agent-mcp-1.png)](https://beleev.github.io#/agent/mcp)
+
+[打开相关交互实验：MCP — 一次外部工具调用的完整报文 llm_agent/m09](https://beleev.github.io#/agent/mcp)
 
 ## 直觉
 
@@ -9,7 +11,9 @@ MCP (Model Context Protocol) 把"工具提供方"拆成独立进程: 它用 JSON
 对模型来说什么都没变: 它看到的还是 `{name, description, input_schema}`。MCP 是 harness 与 server 之间的协议, 不是模型的新能力。
 代价是信任问题: server 是第三方代码, 它的工具描述、自报的"只读"注解、返回内容都不可信。没有统一的权限门, 装一个 server 就等于给 agent 开了个后门。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 | 位置 | 作用 |
 | --- | --- |
@@ -43,6 +47,10 @@ close(): 关 stdin --------------------------------------->  读到 EOF, 循环�
   - 同一批里的两个 MCP 调用不会互相锁死: 污点只看这批调用发出之前已经返回的结果 (见 m12)。
 - **两种失败分开**: 方法不存在是协议错误 (JSON-RPC `error`, 客户端抛 `MCPError`); 工具自己执行失败是正常的 `result` 加 `isError: true`, 变成 `ToolResult(ok=False)` 回给模型, 让它有机会改参数重试。
 - **唯一的子进程**: 只 spawn 调用方给的 argv 列表 (`sys.executable` + 同目录 `server.py`), 不经过 shell, 没有字符串拼接命令。
+
+## 运行
+
+用一个真实的 stdio JSON-RPC 2.0 server 演示: 工具由外部进程通过标准协议提供, 但进了 agent 之后和内置工具走完全相同的校验与权限路径。
 
 ## 运行后应该看到什么
 

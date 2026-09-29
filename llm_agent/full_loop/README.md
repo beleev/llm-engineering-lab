@@ -1,6 +1,8 @@
 # Full Loop — 把全部机制拼成一个 mini harness
 
-用 `core/` 的零件组装一个 Claude-Code 式的 agent, 连续跑 5 个场景并逐一断言, 最后检查整份落盘 transcript 里 tool_use / tool_result 的配对完整。
+[![把每一层单独关掉 — 它原本挡住了什么 llm_agent/m12](../../docs/screenshots/agent-full-loop-1.png)](https://beleev.github.io#/agent/full-loop)
+
+[打开相关交互实验：把每一层单独关掉 — 它原本挡住了什么 llm_agent/m12](https://beleev.github.io#/agent/full-loop)
 
 ## 直觉
 
@@ -9,7 +11,9 @@
 所以这里不引入任何新机制, 只验证"它们互不踩脚": 同一个 `Agent` 实例、同一份 JSONL、同一个权限门, 连续处理五种性质完全不同的请求。
 整体形状是 一个薄 loop + 一圈确定性的 harness: 模型只负责提议下一步, 能不能做、做完怎么记, 都由确定性代码决定。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 组装全部在 `full_loop/demo.py`:
 
@@ -46,6 +50,10 @@ model → tool_use
 - hook 注释、skill 正文、记忆都走各自的消息, 不拼进用户 prompt 或工具数据: 这样检索词是干净的用户原话, 写进笔记的只有工具数据。
 - 子智能体只回一段有长度上限的摘要, 完整过程写进自己的 JSONL: 父上下文干净, 审计仍可追。
 - 脱敏发生在进入 transcript 之前, 而不是打印时: 上下文、日志、下一次模型请求三处同时受益。
+
+## 运行
+
+用 `core/` 的零件组装一个 Claude-Code 式的 agent, 连续跑 5 个场景并逐一断言, 最后检查整份落盘 transcript 里 tool_use / tool_result 的配对完整。
 
 ## 运行后应该看到什么
 

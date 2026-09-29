@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software or its teaching materials, please cite it using this metadata."
+title: "LLM Engineering Lab"
+type: software
+authors:
+  - name: "LLM Engineering Lab contributors"
+version: 1.0.0
+date-released: 2026-09-29
+url: "https://beleev.github.io/llm-engineering-lab/"
+repository-code: "https://github.com/beleev/llm-engineering-lab"
+license: MIT
+abstract: >-
+  CPU-runnable Python experiments and interactive Chinese-language tutorials
+  covering Transformers from scratch, model architectures, distributed training
+  simulations, fine-tuning and alignment, inference, and AI agents.
+keywords:
+  - large language models
+  - education
+  - pytorch
+  - numpy
+  - inference
+  - agents

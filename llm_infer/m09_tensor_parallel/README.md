@@ -1,11 +1,19 @@
 # M09 — Tensor Parallelism: 把一层的矩阵切给多张卡
 
+[![张量并行 — 通信到底该插在哪? llm_train/m03](../../docs/screenshots/train-model-parallel-2.png)](https://beleev.github.io#/train/model-parallel)
+
+[打开相关交互实验：张量并行 — 通信到底该插在哪? llm_train/m03](https://beleev.github.io#/train/model-parallel)
+
 ## 直觉
+
 LLaMA-70B 的 fp16 权重 140 GB, 一张 80 GB 的卡装不下。Tensor Parallel (Megatron-LM) 把**每一层**的
 权重矩阵切成 tp 份, 每张卡只存、只算自己那份; 激活 x 在每张卡上都有完整副本。
 做法是"先列切、后行切"配对: 中间结果天然是切开的, 整个子层只需要在末尾做 **1 次 all-reduce** (把各卡的结果加起来, 每张卡都拿到总和)。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 列切 (按输出维): W=[W_1|…|W_tp]   X@W = concat_r(X@W_r)     无通信, 输出天然按最后一维切开
 行切 (按输入维): W=[W_1;…;W_tp]   X@W = Σ_r X_r@W_r         求和 = 1 次 all-reduce
@@ -20,7 +28,16 @@ RMSNorm gamma: 很小, 每卡复制
 - rank 本地计算就是同一个 `mha` / `swiglu`, 只是传入更窄的权重; 每卡输出的 (T,D) 是"本卡那部分的贡献", 求和即全量。
 - 每次 all-reduce 载荷 = T×D 个激活, 与 tp 无关; ring all-reduce 每卡实际发送 2(tp-1)/tp × 载荷。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m09_tensor_parallel.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m09_tensor_parallel.demo
 ```
@@ -38,6 +55,7 @@ assert: max|Δ| < 1e-5 (基线是不切分的 `dense_block`, attention 用 `core
 all-reduce 次数 == 2; 每卡权重 == 矩阵/tp + 2 个 gamma。~1e-7 的差异只来自浮点求和顺序。
 
 ## 与真实系统的差距
+
 - 这里的 rank 是 Python 列表, all-reduce 是顺序求和, **不含通信耗时**。真实系统里 all-reduce 在关键路径上,
   TP 通常只在单机 NVLink 内用 (tp ≤ 8), 跨机改用 pipeline parallel。
 - vLLM 把 Q/K/V 合成一个 `QKVParallelLinear`, gate/up 合成 `MergedColumnParallelLinear`, 各一次 GEMM。
@@ -45,12 +63,14 @@ all-reduce 次数 == 2; 每卡权重 == 矩阵/tp + 2 个 gamma。~1e-7 的差�
 - 没演示: KV cache 也随头切成 1/tp (每卡只存自己头的 KV); sequence parallel (把 norm/dropout 的激活也切开)。
 
 ## 常见误区
+
 - "TP 输出只是近似一致" —— 数学上严格相等; 若基线用单头、TP 侧却按 4 个头各自 softmax, 才会看到差异 (见 [3])。
 - "QKV 列切后要先 all-gather 再算 attention" —— 不用, 头之间本来就独立, 直到 O 投影后才需要求和。
 - "tp 越大通信载荷越小" —— 每次 all-reduce 的载荷恒为 T×D; tp 变大只让每卡的计算变少, 通信占比反而上升。
 - "激活也被切了" —— 标准 TP 里子层的输入/输出 x 在每卡上是完整副本, 切的是权重和子层内部的中间激活。
 
 ## 自测题
+
 1. 为什么 MLP 是"先列切再行切", 反过来 (先行切再列切) 行不行?
    **答**: 先行切的输出要 all-reduce 后才能进激活函数 (silu(a+b) ≠ silu(a)+silu(b)), 会多一次通信; 列切的输出按元素独立, 可以直接过 silu。
 2. 32 层模型, tp=4, decode 一步 (T=1, D=4096, fp16), 一共几次 all-reduce? 每次载荷多大?

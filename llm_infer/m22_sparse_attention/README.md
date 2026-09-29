@@ -1,12 +1,20 @@
 # M22 — 稀疏 attention decode (Quest / NSA / DSA 风格)
 
+[![稀疏注意力 decode — 只读 top-k 个 KV block llm_infer/m22](../../docs/screenshots/infer-sparse-decode-1.png)](https://beleev.github.io#/infer/sparse-decode)
+
+[打开相关交互实验：稀疏注意力 decode — 只读 top-k 个 KV block llm_infer/m22](https://beleev.github.io#/infer/sparse-decode)
+
 ## 直觉
+
 decode 每生成 1 个 token 都要把**全部** KV 读一遍 —— 长上下文下这是纯访存瓶颈。但训练过的 LLM 的
 attention 高度集中: 绝大部分概率质量落在少数 token 上。如果能**不读 KV 就猜出哪些 block 重要**,
 只对这些 block 做 attention, 访存就按比例下降, 输出几乎不变。做法: 每个 KV block 常驻一份很小的摘要,
 用 q 对摘要打分, 选 top-k block; 永远保留第 0 块 (attention sink, m16) 和最后一块 (最近的 token)。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 KV 切块         K (T, d) → (nb, bs, d)
 Quest 摘要      kmin, kmax = 逐维 min/max                        (nb, d) × 2
@@ -19,7 +27,16 @@ mean 打分       s_b = q · mean(K_b)                              NSA 压缩�
 上界为什么成立: 对每一维, k_i ∈ [kmin_i, kmax_i], 所以 q_i·k_i ≤ max(q_i·kmin_i, q_i·kmax_i)
 (q_i 为正取 kmax, 为负取 kmin); 逐维相加即得。上界保证 "不会漏掉真正的高分块", 但可能很松。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m22_sparse_attention.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m22_sparse_attention.demo     # < 1 s
 ```
@@ -48,6 +65,7 @@ python -m llm_infer.m22_sparse_attention.demo     # < 1 s
 recall > 随机; quest 误差随 k 大体单调下降; TinyLM 上只断言 recall ≥ 随机。
 
 ## 与真实系统的差距
+
 - 这里只统计 "读了多少 KV", 没有真实 kernel; 真实收益需要 block-sparse / paged kernel (FlashInfer, FlashMLA sparse)。
 - DSA 的 lightning indexer 和 NSA 的压缩/选择分支是**训练出来**的 (NSA 原生稀疏训练; DSA 在 dense 模型上续训),
   比 min/max 启发式准得多; DSA 是 token 级 top-k (2048 个), 不是 block 级。
@@ -57,12 +75,14 @@ recall > 随机; quest 误差随 k 大体单调下降; TinyLM 上只断言 recal
   - 每步对所有 block 打分是 O(nb·d), 超长上下文下也需要优化。
 
 ## 常见误区
+
 - "Quest 上界保证选得准" —— 它只保证不低估; 在各向同性噪声上界很松 (6.68x), 排序信息主要来自结构化的 key。
 - "稀疏 attention 省的是计算" —— decode 阶段省的主要是访存/带宽; prefill 才是省 FLOPs。
 - "和 attention sink (m16) 一样是丢 KV" —— m16 永久丢弃旧 KV; 这里 KV 全保留, 每步按 q 动态选, 不同 q 选不同块。
 - "随机权重模型上也该有效" —— 见上, 没有集中性就没有可利用的稀疏性。
 
 ## 自测题
+
 1. bs=16, d=128 时 Quest 摘要占 KV (只算 K+V) 的比例? **答**: 每 block 2 个向量 vs 32 个向量 = 1/16。
 2. 为什么 k=4 时 quest 的 recall 只有 59.1%? **答**: 首块和末块强制占 2 个名额, 只剩 2 个给 4 个 needle block。
 3. 若 q 的某一维为负, 该维上界用 kmin 还是 kmax? **答**: kmin (负数 × 最小值 = 该维最大的乘积)。

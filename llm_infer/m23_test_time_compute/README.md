@@ -1,6 +1,11 @@
 # M23 — Test-Time Compute: 模型不变, 推理时多花 token 换正确率
 
+[![Test-time compute — 采 N 条之后靠什么挑 llm_infer/m23](../../docs/screenshots/infer-test-time-compute-1.png)](https://beleev.github.io#/infer/test-time-compute)
+
+[打开相关交互实验：Test-time compute — 采 N 条之后靠什么挑 llm_infer/m23](https://beleev.github.io#/infer/test-time-compute)
+
 ## 直觉
+
 一道 K 步的推理题, 每步答对 p, 整条答对只有 p^K (p=0.75, K=4 → 0.32)。一步错, 后面全在错的值上"正确地"算。
 
 换更大的模型很贵。另一条路是**推理时多花 token**:
@@ -14,7 +19,10 @@
 
 投票和自查只会收敛到模型自己的众数, 消不掉误解。要越过它, 必须有**外部**判分器。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
+
 - 任务 `tts.py:Problem`: `x0` + K 个 `(运算符, 操作数)`; `trap` = 陷阱步下标 (−1 无)。
   `make_problems(200, K=4, trap_frac=0.3)`, 实际 32.5% 的题带陷阱。
 - "模型" `tts.py:step_dist` + `sample_step`: 每步 6 个候选 = 正确值 + 4 种粗心错 (±1, ±10) + 看错运算符,
@@ -37,7 +45,8 @@
 
 训练出的判分器和策略模型一样会有系统性盲区, 这时它也越不过去。
 
-## 公式
+### 公式
+
 ```
 单条正确率        q = Π_i p_i        普通步 p = e³/(e³+5e^0.3) = 0.75;  陷阱步 p = 0.34 (误解 0.56)
 pass@N            1 − (1 − q)^N      (有完美判分器时 best-of-N 的上限)
@@ -46,7 +55,16 @@ token 账          best-of-N / 投票: N·K;  PRM beam: expand + (K−1)·width�
 判分器调用        不计入 token (真实系统里 PRM 每步都要跑一次前向, 是不小的开销)
 ```
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m23_test_time_compute.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m23_test_time_compute.demo     # ~2 s
 ```
@@ -79,6 +97,7 @@ python -m llm_infer.m23_test_time_compute.demo     # ~2 s
 - budget forcing B=2 < 0.1 < B=4; B=64 比 B=4 高 0.2 以上; B=64 时陷阱题比无陷阱题低 0.4 以上。
 
 ## 与真实系统的差距
+
 - 玩具里随机错**只来自采样噪声**, 所以 T=0 greedy 直接拿到 0.675 (= 无陷阱比例), 比 T=1 单条好得多。
   真实模型的 greedy 也会犯随机错, 长思考和采样的收益比这里更实在。这里不要读成"greedy 就够了"。
 - PRM beam 只在**小预算**赢 (8–28 token)。52 token 以上与 best-of-N 打平甚至略输 (0.830 vs 0.849)。
@@ -92,12 +111,14 @@ python -m llm_infer.m23_test_time_compute.demo     # ~2 s
 - 投票要求答案可以比较相等 (数学题), 开放式回答没法直接投票。
 
 ## 常见误区
+
 - "多采几条投票总能更准" —— 只对随机错成立。众数本身是错的题, 投票越多越稳定地错 (陷阱题 0.254 → 0.108)。
 - "best-of-N 的上限是 pass@N" —— 是, 但前提是判分器可靠。ORM 有噪声时 BoN 永远低于 pass@N (N=16: 0.865 vs 0.973)。
 - "beam 越宽越好" —— PRM 有噪声时 4×4 (0.830) 还不如 2×4 (0.865)。宽了就有更多错步候选去碰运气。
 - "预算翻倍正确率就涨" —— budget forcing 在 B=4→8 平坦。一次修正要能写完才算数。
 
 ## 自测题
+
 1. 单步正确率 0.75、链长 4, 单条正确率是多少? 想让 best-of-N (完美判分器) 达到 95%, N 至少要多少?
    **答**: 0.75⁴ ≈ 0.316; 1 − 0.684^N ≥ 0.95 → N ≥ 8。
 2. 为什么多数投票在陷阱题上随 N 增大反而变差?

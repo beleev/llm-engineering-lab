@@ -1,11 +1,19 @@
 # M05 — Radix Cache (SGLang RadixAttention): 任意长度前缀共享
 
+[![Radix cache — 公共前缀只算一次 llm_infer/m05](../../docs/screenshots/infer-prefix-radix-1.png)](https://beleev.github.io#/infer/prefix-radix)
+
+[打开相关交互实验：Radix cache — 公共前缀只算一次 llm_infer/m05](https://beleev.github.io#/infer/prefix-radix)
+
 ## 直觉
+
 多轮对话、few-shot、共享 system prompt 的请求, 前缀大量重复。把所有见过的 token 序列存进一棵
 **基数树** (边上是一段 token, 不是单个 token), 新请求从 root 沿边走到走不动为止 —
 走过的部分就是最长公共前缀, 它的 KV 直接复用, 只 prefill 剩下的后缀。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 ```
 RadixNode: edge_tokens [t0..tk]   父→本节点这条边上的 token
            slots       [s0..sk]   等长; 每个 token 的 KV 在 pool 里的槽位 (SGLang 的 TreeNode.value)
@@ -22,7 +30,16 @@ RadixNode: edge_tokens [t0..tk]   父→本节点这条边上的 token
 radix 命中全部 n 个。两者数据结构和接口不同 (m04 是 hash→block 的 dict, 这里是 token→slot 的树),
 本模块**不是** m04 的即插即用替换, demo 里只按 m04 的粒度规则算了一个对照数字。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m05_radix_cache.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m05_radix_cache.demo      # ~0.4 s
 ```
@@ -37,6 +54,7 @@ python -m llm_infer.m05_radix_cache.demo      # ~0.4 s
 ref_count 全归零; 驱逐释放的槽位与锁定槽位不相交; 剩余节点全部 ref_count>0; 每一步槽位守恒且无重复释放。
 
 ## 与真实系统的差距
+
 - slots 在这里只是整数; SGLang 里是指向 `token_to_kv_pool` 的索引张量, 命中后直接拼进请求的 KV 索引表。
 - SGLang `page_size>1` 时 match 也会对齐到页边界, 此时粒度优势缩小到"页内"; vLLM 的 APC 是 block hash。
 - evict 每次 O(N) 扫全树 (`radix_tree.py` 的 `evict` 里有注释写明这个上限); SGLang 用按访问时间的小顶堆。
@@ -44,6 +62,7 @@ ref_count 全归零; 驱逐释放的槽位与锁定槽位不相交; 剩余节点
 - 真实负载的命中率取决于流量形态; [3] 的 44.8% / 33.5% 只对这份合成负载成立。
 
 ## 常见误区
+
 - "match 是只读操作": 不是, 停在边中间会 split, 树结构会变 (token 总数不变)。
 - "split 出来的中间节点 ref_count 从 0 开始": 错。锁着下游节点的请求也经过它, 不继承的话它会被误驱逐,
   而且 unlock 时减成负数。
@@ -51,6 +70,7 @@ ref_count 全归零; 驱逐释放的槽位与锁定槽位不相交; 剩余节点
 - "insert 传进去的 slots 都进了树": 只有未命中的后缀进树, 前 n 个是重复的, 不释放就泄漏。
 
 ## 自测题
+
 1. **两条序列公共前缀 6 个 token, block_size=4。block hash 与 radix 各能复用几个?**
    hash: ⌊6/4⌋·4 = 4; radix: 6。
 2. **请求 R 锁住路径 root→[1,2,3,4]→[9,9]。此时另一请求 match [1,2,7], 树怎么变, ref_count 怎么变?**

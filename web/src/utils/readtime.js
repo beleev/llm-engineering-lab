@@ -1,8 +1,9 @@
 // 粗估每章的阅读量。数字来自真实内容长度, 不是拍脑袋填的:
-//   数据驱动的章节 → 数 topicPages 里的正文字数
-//   手写视图的章节 → 读 .vue 源码, 去掉 script/style/标签后数正文字数
+//   数据驱动的章节 → 构建时统计正文长度
+//   手写视图的章节 → 构建时读取 .vue, 浏览器只下载统计结果
 // 按每分钟 300 字算 (技术文, 比小说慢), 每个实验台另加 4 分钟动手时间。
-import { agentModules, inferModules, stageBy, topicPages, trainModules, timeline } from '@/data/models.js'
+import { agentModules, inferModules, stageBy, trainModules, timeline } from '@/data/models.js'
+import { pageStats, viewStats } from 'virtual:course-catalog'
 import { labMap } from '@/data/labMap.js'
 
 const CHARS_PER_MIN = 300
@@ -15,8 +16,6 @@ const VIEW_OF = {
   train: 'Train', finetune: 'Finetune', infer: 'Infer', agent: 'Agent',
   compare: 'Compare', glossary: 'Glossary',
 }
-const rawViews = import.meta.glob('@/views/*.vue', { query: '?raw', import: 'default', eager: true })
-
 // CJK 字算 1, 连续的拉丁词算 1 —— 中英混排时长度才不会被低估
 const textLen = (s) => {
   const cjk = (s.match(/[一-龥]/g) || []).length
@@ -24,15 +23,7 @@ const textLen = (s) => {
   return cjk + latin
 }
 
-const viewChars = (name) => {
-  const src = Object.entries(rawViews).find(([p]) => p.endsWith(`/${name}.vue`))?.[1]
-  if (!src) return 0
-  const body = src
-    .replace(/<script[\s\S]*?<\/script>/g, '')
-    .replace(/<style[\s\S]*?<\/style>/g, '')
-    .replace(/<[^>]+>/g, ' ')          // 去标签, 只留给人读的字
-  return textLen(body)
-}
+const viewChars = (name) => viewStats[name]?.chars || 0
 
 // 阶段总览页渲染的是 stages / 模块表 / 时间轴这些数据, 不在 .vue 源码里
 const MODULE_TABLE = { train: trainModules, infer: inferModules, agent: agentModules }
@@ -48,37 +39,23 @@ const dataChars = (route) => {
 }
 
 // 手写视图直接 import 实验台组件, 不走 labMap, 所以要从源码里数
-const viewLabs = (name) => {
-  const src = Object.entries(rawViews).find(([p]) => p.endsWith(`/${name}.vue`))?.[1] || ''
-  return new Set([...src.matchAll(/components\/labs\/(\w+)\.vue/g)].map((m) => m[1])).size
-}
-
-const pageChars = (page) => {
-  const parts = [
-    page.subtitle, page.tldr, page.question,
-    ...(page.points || []).flatMap((p) => [p.title, p.body]),
-    ...(page.links || []).map((l) => l.body),
-    ...(page.sourceRows || []).map((r) => r.takeaway),
-    page.snippet,
-  ]
-  return textLen(parts.filter(Boolean).join(' '))
-}
+const viewLabs = (name) => viewStats[name]?.labs || 0
 
 const cache = new Map()
 
 /** 这一章挂了几个实验台 (含手写视图里直接 import 的)。 */
 export function labsOf(route) {
   const view = VIEW_OF[route]
-  return new Set([...(topicPages[route]?.widgets || []), ...(labMap[route] || [])]).size + (view ? viewLabs(view) : 0)
+  return new Set([...(pageStats[route]?.widgets || []), ...(labMap[route] || [])]).size + (view ? viewLabs(view) : 0)
 }
 
 /** 某一章的粗估分钟数 (至少 2 分钟)。 */
 export function minutesOf(route) {
   if (cache.has(route)) return cache.get(route)
   const view = VIEW_OF[route]
-  const chars = (topicPages[route] ? pageChars(topicPages[route]) : 0)
+  const chars = (pageStats[route]?.chars || 0)
     + (view ? viewChars(view) + dataChars(route) : 0)
-  const labs = new Set([...(topicPages[route]?.widgets || []), ...(labMap[route] || [])]).size
+  const labs = new Set([...(pageStats[route]?.widgets || []), ...(labMap[route] || [])]).size
     + (view ? viewLabs(view) : 0)
   const m = Math.max(2, Math.round(chars / CHARS_PER_MIN) + labs * MIN_PER_LAB)
   cache.set(route, m)

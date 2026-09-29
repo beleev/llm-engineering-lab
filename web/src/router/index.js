@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { extraChapters } from '@/data/topics/index.js'
+import { extraChapters, loadTopics } from '@/data/topics/index.js'
+import { loadQuiz } from '@/data/quiz/index.js'
 import { stageBy, stages } from '@/data/models.js'
 
 // meta.stage 用于侧栏分组与面包屑; meta.title 是章节名, 显示在面包屑和标签页标题里。
@@ -309,6 +310,11 @@ const router = createRouter({
   routes: [...routes, notFound],
   // 浏览器后退 / 前进时回到离开时的位置 (从术语表返回, 还在刚才读的那一段); 点链接进新页面才回顶部
   scrollBehavior: (to, from, saved) => saved || { top: 0 },
+})
+
+// 导航完成前加载当前阶段的数据, 深链接刷新和跨阶段切换走同一条路径。
+router.beforeResolve(async (to) => {
+  await Promise.all([loadTopics(to.meta.stage), loadQuiz(to.name)])
 })
 
 // 标签页标题跟着章节走, 开了一排标签页也分得清

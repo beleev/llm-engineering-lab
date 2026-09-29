@@ -1,6 +1,8 @@
 # M08 — Retrieval (RAG-lite): 知识放在上下文之外, 按需取 top-k
 
-用纯 stdlib 实现 TF-IDF 稀疏向量 + 余弦相似度检索 (支持中文), 并以同名工具 `search_docs` 热替换掉关键词计数版, agent loop 零改动。
+[![中文检索 — 为什么要字符 bigram llm_agent/m08](../../docs/screenshots/agent-context-memory-1.png)](https://beleev.github.io#/agent/context-memory)
+
+[打开相关交互实验：中文检索 — 为什么要字符 bigram llm_agent/m08](https://beleev.github.io#/agent/context-memory)
 
 ## 直觉
 
@@ -10,7 +12,9 @@ TF-IDF 的修正是: 几乎每篇都有的词权重趋近 0, 罕见词主导排�
 另一个坑是分词: 只认 `[a-z0-9]+` 的分词器会把中文整段丢掉, 中文查询得分恒为 0。
 检索错了, agent 后面的推理再好也是在错误证据上推理。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/utils.py: tokenize` — 英文 / 数字按词 (先 lower); 连续 CJK 字符 (U+4E00–U+9FFF) 切成字符 bigram, 单字则保留该字。
 - `core/retrieval.py: TfidfIndex` — 构建时对每篇 `title + body` 分词, 统计 df, 算出 `idf` 字典和每篇文档的归一化稀疏向量 `_doc_vec`。
@@ -34,6 +38,10 @@ TF-IDF 的修正是: 几乎每篇都有的词权重趋近 0, 罕见词主导排�
 - **BM25 式 idf**: 加 0.5 平滑并包一层 `ln(1 + ·)`, 保证恒为正; 8 篇里出现 6 篇的 `the` 只有 0.33, 只出现 1 篇的 `fragmentation` 是 1.79。
 - **字符 bigram 而非中文分词器**: 零依赖、无词典, 是 Lucene CJKAnalyzer 的同款折中; 代价是产生"片怎""么解"这类跨词边界的无意义 token; 它们多半不在语料词表里, 会被当作语料外的词丢掉, 偶尔碰巧命中则成为噪声。
 - **工具名和 schema 不变**: 模型侧看到的仍是 `search_docs(query)`, 所以检索质量升级对 loop、权限规则、prompt 全透明。关键词 → TF-IDF → 神经 embedding 走的是同一个接口。
+
+## 运行
+
+用纯 stdlib 实现 TF-IDF 稀疏向量 + 余弦相似度检索 (支持中文), 并以同名工具 `search_docs` 热替换掉关键词计数版, agent loop 零改动。
 
 ## 运行后应该看到什么
 

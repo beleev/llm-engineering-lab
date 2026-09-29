@@ -1,6 +1,11 @@
 # M26 — Flash-Decoding: decode 只有 1 个 query, 就沿 KV 长度切开并行
 
+[![Flash-Decoding — Q 切不动, 就切 KV llm_infer/m26](../../docs/screenshots/infer-compute-2.png)](https://beleev.github.io#/infer/compute)
+
+[打开相关交互实验：Flash-Decoding — Q 切不动, 就切 KV llm_infer/m26](https://beleev.github.io#/infer/compute)
+
 ## 直觉
+
 FlashAttention (m11) 的并行单位是 (batch, head, Q 块)。
 - **prefill**: Q 有几千行, 切出来的块多得是。
 - **decode**: 每条序列只有 **1 个 query**, Q 块只有一个, 并行单位只剩 B×H。
@@ -13,7 +18,10 @@ Flash-Decoding 的治法: Q 切不动, 就切 KV。
 
 合并公式就是 m11 的 `merge_attention`, 只是一次合 S 段。所以结果与普通 attention **严格相等**。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 `flash_decoding.py:partial_attention` 算一段 KV 上的局部结果 (已归一化的 `O_s` 与分母的 log `lse_s`):
 ```
 S_s = q·K_sᵀ/√d        lse_s = logsumexp(S_s)        O_s = softmax(S_s)·V_s
@@ -33,7 +41,16 @@ t     = launch + waves · (T/S) · KV_bytes_per_token / (HBM_bw / N_SM)
 ```
 参数: A100, 108 SM, HBM (GPU 显存) 带宽 2000 GB/s, 每个 SM 最多拿到 1/108 的带宽; head_dim 128, fp16 → 512 B/token/head; 每个 kernel 3 μs 固定开销。
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m26_flash_decoding.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m26_flash_decoding.demo     # < 1 s
 ```
@@ -60,6 +77,7 @@ python -m llm_infer.m26_flash_decoding.demo     # < 1 s
 - 每个 T 上 B=4 的加速都小于 B=1; B=64 全部 < 1.1x。
 
 ## 与真实系统的差距
+
 - **[2][3] 的所有延迟都是代价模型算出来的**。numpy 里 split 循环是串行的, 反而更慢。
 - 模型假设每个 SM 最多拿到 1/N_SM 的 HBM 带宽。真卡上单个 SM 能拿到的带宽比这高, 少数 SM 也能吃掉一部分带宽。
   所以真实加速比低于这里的数。
@@ -70,12 +88,14 @@ python -m llm_infer.m26_flash_decoding.demo     # < 1 s
 - 只讲 decode attention 这一个算子。整步 decode 还包括 GEMM 读权重, 那部分不受影响。所以端到端加速远小于 attention 本身的加速。
 
 ## 常见误区
+
 - "Flash-Decoding 是近似" —— 不是, lse 加权合并与普通 softmax 数学相等 (最坏误差 2e-7)。
 - "S 越大越好" —— S=4 与 S=2 一样慢 (128 个 block 跑 2 波), S 太大 reduce 开销上升。要让 B·H·S 接近 N_SM 的整数倍。
 - "所有 decode 都该开 split-K" —— B·H ≥ N_SM 时 SM 已经满了, B=64 加速 1.00x, 多一个 kernel 反而亏。
 - "局部结果直接平均就行" —— 每段的 softmax 分母不同, 必须按 exp(lse_s − lse) 加权 (m11 demo [4] 的反例)。
 
 ## 自测题
+
 1. B=2, H=8 (GQA 后的 KV head 数), 108 个 SM。按本模型, split-K 的加速比上限是多少?
    **答**: N_SM/(B·H) = 108/16 = 6.75x。并行单位越少, split-K 越有用。
 2. 为什么 reduce 只需要每段的 O_s 和 lse_s, 而不需要每段的全部分数?

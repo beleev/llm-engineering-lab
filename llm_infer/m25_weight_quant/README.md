@@ -1,6 +1,11 @@
 # M25 — GPTQ / SmoothQuant / FP8: 量化的另外三条路
 
+[![SmoothQuant — 把离群值从激活挪给权重 llm_infer/m25](../../docs/screenshots/infer-quant-awq-3.png)](https://beleev.github.io#/infer/quant-awq)
+
+[打开相关交互实验：SmoothQuant — 把离群值从激活挪给权重 llm_infer/m25](https://beleev.github.io#/infer/quant-awq)
+
 ## 直觉
+
 m08 讲过: 同样的 bit 数, 差别在"组"怎么划; AWQ 再用缩放保护激活大的输入通道。
 这里接着讲另外三种病和各自的治法:
 
@@ -16,7 +21,10 @@ m08 讲过: 同样的 bit 数, 差别在"组"怎么划; AWQ 再用缩放保护�
 
 RTN (round-to-nearest) 是 m08 的基线: 不做任何补偿, 直接把每个数舍入到最近的格点。
 
-## 核心数据结构或公式
+## 核心原理
+
+### 核心数据结构或公式
+
 **GPTQ** (`gptq.py:gptq_quantize`): 输出误差是二次型 `‖XΔW‖² = N·tr(ΔWᵀ H ΔW)`, `H = XᵀX/N`。
 ```
 H += 0.01·mean(diag H)·I;   U = chol(H⁻¹)ᵀ  (上三角, H⁻¹ = UᵀU)
@@ -39,7 +47,16 @@ W8A8: X' per-token 对称 INT8 (动态), W' per-output-channel 对称 INT8 → �
 | E4M3 (fn) | 4 / 3 | 448 | 2^-6 | 2^-4 = 6.25% |
 | E5M2 | 5 / 2 | 57344 | 2^-14 | 2^-3 = 12.5% |
 
+## 运行
+
+在仓库根目录执行：
+
+```bash
+python -m llm_infer.m25_weight_quant.demo
+```
+
 ## 运行后应该看到什么
+
 ```bash
 python -m llm_infer.m25_weight_quant.demo     # < 1 s
 ```
@@ -70,6 +87,7 @@ python -m llm_infer.m25_weight_quant.demo     # < 1 s
 - C: 舍入误差不超上界; INT8 per-channel 改善 > 5x 而 FP8 < 1.2x; E4M3 在激活离群时 < 0.7×INT8。
 
 ## 与真实系统的差距
+
 - **GPTQ 的收益取决于激活相关性**。iid 激活下它最多与 RTN 打平。
   校准样本少 (N=256 对 D_in=256) 时, 它会把采样噪声当相关性去补偿, held-out 误差反而比 RTN 高 56%。
 - 这里用"低秩公共成分 + 噪声"合成相关激活来显出效果。真实 LLM 激活确实强相关, 但幅度不是这个数。
@@ -82,6 +100,7 @@ python -m llm_infer.m25_weight_quant.demo     # < 1 s
 - C2 里 INT8 per-channel (0.0070) 比 E4M3 per-channel (0.0251) 还准: 没有离群值的分布, 均匀格点更划算。FP8 不是处处胜过 INT8。
 
 ## 常见误区
+
 - "GPTQ 就是更好的 RTN, 总能降误差" —— 只在激活通道相关时成立。校准集太小还会过拟合 (A2)。
 - "SmoothQuant 的 α 越大越好, 激活越平越好" —— 激活平了, 离群值跑到权重上, α=1 的 W8A8 误差 (0.0297) 比不平滑还差。
 - "SmoothQuant 和 AWQ 是一回事" —— 恒等式相同。AWQ 为了保护权重 (weight-only), SmoothQuant 为了让激活能量化 (W8A8)。
@@ -89,6 +108,7 @@ python -m llm_infer.m25_weight_quant.demo     # < 1 s
 - "FP8 不用 scale 直接转就行" —— 权重幅度小时 E4M3 掉进非正规区, 误差 0.28 vs 加 scale 0.027 (C1)。
 
 ## 自测题
+
 1. 若校准激活的 H 恰好是对角矩阵, GPTQ 的结果和 RTN 有什么关系?
    **答**: 完全相同。H⁻¹ 也对角, 其 Cholesky 因子 U 的非对角元为 0, `W[i+1:] -= U[i,i+1:]ᵀ⊗δ` 什么也不做。
 2. SmoothQuant 中 α=0 时, s_j = 1/max|W_j|, 为什么 W8A8 误差 (0.0315) 比不平滑 (0.0278) 还略大?

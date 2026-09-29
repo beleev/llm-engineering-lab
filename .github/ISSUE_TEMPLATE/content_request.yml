@@ -1,0 +1,17 @@
+name: Topic or improvement / 主题与改进
+description: 建议新实验、讲解改进或文档修正 / Suggest a teaching improvement.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题 / Problem
+      description: 哪个概念难理解，或当前实验缺少什么？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议如何演示和验证 / Proposed demonstration and validation
+      description: 可以附原始论文、官方文档或最小实验；不确定实现方式也可以直接描述需求。
+    validations:
+      required: true

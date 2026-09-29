@@ -1,6 +1,8 @@
 # M03 — Permissions
 
-权限门: 每个工具调用执行前过一次 `deny > ask > allow > 模式兜底` 的判定; 同时当场演示字符串黑名单挡不住什么。
+[![权限门 — 一次工具调用是怎么被裁决的 llm_agent/m03](../../docs/screenshots/agent-tools-permissions-1.png)](https://beleev.github.io#/agent/tools-permissions)
+
+[打开相关交互实验：权限门 — 一次工具调用是怎么被裁决的 llm_agent/m03](https://beleev.github.io#/agent/tools-permissions)
 
 ## 直觉
 
@@ -9,7 +11,9 @@
 权限系统要解决的是这两头之间的分配: 哪些直接放行, 哪些必须问人, 哪些永远不行, 以及没人可问时怎么办 (fail closed)。
 本模块的另一半内容是演示黑名单的局限: deny 规则靠字符串匹配枚举"坏"的写法, 而等价写法无穷多。demo [4] 给出三个绕过。
 
-## 核心数据结构与控制流
+## 核心原理
+
+### 核心数据结构与控制流
 
 - `core/permissions.py: PermissionRule` — `(tool glob, 参数 glob, decision, reason)`; `pattern` 为空表示匹配该工具的任何调用。
 - `core/permissions.py: PermissionOutcome` — `allowed / decision / source / reason`; `source` 为 `rule / human / auto / 模式名`, 审计时要能回答"是谁放行的"。
@@ -51,6 +55,10 @@ evaluate(call, tool)
 - auto 模式下: low / medium 风险放行, high 风险且没看到危险词也不放行, 而是问人; 没人可问就拒绝。
 - plan 模式里 allow 规则不生效: 只读是模式的保证, 不应被一条配置覆盖; 只有计划获批切换模式后才能写 (`ExitPlanModeTool`, 见 m10)。
 - 在 agent loop 里 (`core/agent.py: Agent._authorize`), 门评估的是 PreToolUse hook 改写之后的最终调用。
+
+## 运行
+
+权限门: 每个工具调用执行前过一次 `deny > ask > allow > 模式兜底` 的判定; 同时当场演示字符串黑名单挡不住什么。
 
 ## 运行后应该看到什么
 
