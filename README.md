@@ -49,7 +49,7 @@ Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：
 
 ### Agent 知识覆盖
 
-[六阶段知识复查](docs/knowledge-audit.md) 保留发现问题的依据；九项补充见[验收记录](docs/knowledge-completion.md)。原书标题映射齐全不等于内容已全部讲透。
+[六阶段知识复查](docs/knowledge-audit.md) 保留发现问题的依据；九项补充见[验收记录](docs/knowledge-completion.md)。原书标题映射齐全不等于内容已全部讲透。 按研究方向长图对照的 11 个方向、45 个主题见[知识交叉检查](docs/image-knowledge-audit.md)，区分已有教学闭环、部分覆盖与缺失。
 
 按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。新增 m26–m44 仍属于扩展层, 包含真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
 
