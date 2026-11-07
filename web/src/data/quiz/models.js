@@ -1,5 +1,5 @@
 // 阶段 2 · llm_models 自测题 (含手写总览页 models / attention / position / blocks / moe / diffusion)
-export default {
+const quiz = {
   models: [
     {
       q: '阶段 2 说 “几十种主流模型 = 少数零件的不同组合”。这些零件槽位指的是?',
@@ -301,3 +301,67 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "models": [
+    {
+      "q": "CLIP 与视觉前缀语言模型主要区别是什么？",
+      "options": [
+        "CLIP 直接生成文本，视觉前缀只能做检索",
+        "CLIP 学对齐向量，视觉前缀条件生成文本",
+        "两者都无需训练就能理解任意新图片",
+        "两者都只用图像重建 loss 学到语言"
+      ],
+      "answer": 1,
+      "why": "CLIP 的对比相似度不是文本解码器；视觉前缀经过 projector 后参与语言生成。"
+    },
+    {
+      "q": "图像边长翻倍、patch 边长固定，patch 数怎样变化？",
+      "options": [
+        "变成 2 倍，完整注意力成本不变",
+        "变成 4 倍，前缀长度也相应增加",
+        "变成 8 倍，KV 总量自动降为一半",
+        "保持不变，只改变位置编码频率"
+      ],
+      "answer": 1,
+      "why": "二维网格两边各翻倍，patch 数四倍；总长度还需加文本和特殊 token。"
+    },
+    {
+      "q": "仓库 Whisper 脚本直接接收随机 mel，说明什么？",
+      "options": [
+        "已完成真实波形到文本的端到端识别",
+        "音频 codec 已将输出恢复为可听波形",
+        "验证模型通路，真实音频前处理另补",
+        "随机 mel 可取代真实语料评测准确率"
+      ],
+      "answer": 2,
+      "why": "波形处理、声学模型和真实识别质量是不同验收环节。"
+    },
+    {
+      "q": "Omni 的 Talker 在本仓库里输出什么？",
+      "options": [
+        "直接输出可播放且完成解码的波形",
+        "输出语音 codec logits，波形还需解码",
+        "只输出图文对齐用的归一化句向量",
+        "把未来语音标签直接写回 Thinker 输入"
+      ],
+      "answer": 1,
+      "why": "Thinker 隐状态条件化 Talker，当前没有真实 codec/声码器。"
+    }
+  ],
+  "models-mtp": [
+    {
+      "q": "W=8（含当前位置）、4 层纯滑窗，最后位置的感受野上界是？",
+      "options": [
+        "29，且不能据此保证有效利用全部信息",
+        "32，而且上下文长度必须固定等于 32",
+        "8，因为跨层不可能传递窗口外的信息",
+        "40，只要输入 40 个 token 就能完全利用"
+      ],
+      "answer": 0,
+      "why": "每层向左增加 W−1，总共 1+4×7=29；实际再截到 t+1。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+export default quiz

@@ -35,4 +35,11 @@ export default [
   { term: 'Wave', aka: '波次', stage: S, oneliner: 'GPU 一次最多并行跑 SM 数那么多个线程块 (thread block); 超出的排到下一波, 多 1 个也要多跑一整波', number: 'S=4: 128 个线程块 → 2 波, 与 S=2 同为 459 μs', route: 'infer-compute' },
   { term: 'Prefix-aware routing', aka: '缓存感知路由 (sgl-router)', stage: S, oneliner: '请求送到缓存里前缀最长的副本, 积压超阈值就让位给最闲的', number: 'thr=1s: 命中 83.6%, TTFT 比最少负载低 33%', route: 'infer-multi-replica-routing' },
   { term: 'Load threshold', aka: '负载阈值兜底', stage: S, oneliner: '最佳副本比最闲副本多积压超过阈值, 就放弃缓存', number: '纯前缀 max/mean 4.18 → thr=1s 1.19', route: 'infer-multi-replica-routing' },
+{
+  "term": "容量与尾延迟",
+  "aka": "Capacity / Tail latency",
+  "stage": "infer",
+  "oneliner": "按到达率扫描 p95/p99、拒绝/超时和 goodput，选满足服务约束的负载区间",
+  "route": "infer-scheduler"
+},
 ]

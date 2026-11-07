@@ -2,7 +2,7 @@
 // 每章都写全 StageTopic 要渲染的字段。
 // source 只写真实存在的 def / class —— npm run check:sources 会逐条校验。
 // 页面里的数字全部来自 llm_finetune/run_finetune/*/README.md, 可以用对应的 run 命令复现。
-export default {
+const topic = {
   stage: 'finetune',
   chapters: [
     { route: 'finetune-qlora', label: 'QLoRA · NF4 量化基座', hint: '4 bit 存基座, 前向再解开; 整模型 389 KiB → 59 KiB' },
@@ -902,3 +902,33 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "finetune-sft": [
+    {
+      "title": "消息对象还不是 token",
+      "body": "Chat Template 把结构化 role/content 变成角色头、正文、END/EOS 和生成前缀。训练和推理必须用同一套格式。下方字节级教学模板不冒充厂商 tokenizer；正文里的 EOS 字样不能注入特殊 token。",
+      "source": "llm_finetune/data/chat_template.py:serialize"
+    },
+    {
+      "title": "多轮监督与工具配对",
+      "body": "只监督 assistant 正文和结束标记。工具调用是 assistant 动作，工具结果是可见观察，不计算其 loss。labels 左移后仍要保留第一个回复 token；padding 的 loss mask 与 attention mask 分开。错误角色、未配对调用、超长半条消息直接拒绝。",
+      "source": "llm_finetune/data/chat_template.py:training_example"
+    },
+    {
+      "title": "RFT：采样来源变了，监督 loss 没变",
+      "body": "示范 SFT 用人工成功轨迹；RFT 用当前策略采样后经独立执行验证的成功轨迹；在线 RL 在当前采样上计算策略梯度。三者共享小 LLaMA 初始化，RFT/RL 各采 256 条。更新步数不同；实体留出只检验同一协议和值域，不代表语义泛化。",
+      "source": "llm_finetune/run_finetune/rft/train_rft.py:run"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+export default topic

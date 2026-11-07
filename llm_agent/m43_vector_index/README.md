@@ -95,3 +95,7 @@ python -m llm_agent.m43_vector_index.demo
 ## 延伸阅读
 
 [ai-agent-book 第 3 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L286)。
+
+## 表示与索引分开验收
+
+二维固定向量说明 ANN 机制，不代表语义能力。[m45](../m45_semantic_retrieval/README.md) 补可训练表示与重排，按 exact→ANN→rerank 对比；候选里没有答案时，重排无法补救。

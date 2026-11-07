@@ -41,6 +41,7 @@
     />
 
     <ModelArchitectureLab />
+    <MultimodalPathLab />
 
     <section class="section">
       <h2>阶段 2 的阅读顺序</h2>
@@ -132,6 +133,7 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
+import MultimodalPathLab from '@/components/labs/MultimodalPathLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import { timeline, learningPath } from '@/data/models.js'
 

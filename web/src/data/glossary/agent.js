@@ -68,4 +68,11 @@ export default [
   { term: '轨迹准入', aka: 'trajectory eligibility', stage: 'agent', oneliner: '验收通过的轨迹才进入学习数据, 猜中不等于合格', route: 'agent-trajectory-learning' },
   { term: '旧能力保持', aka: 'retention evaluation', stage: 'agent', oneliner: '学习新规则后复测未变任务, 防止更新破坏已有能力', route: 'agent-learning-loop' },
   { term: '首错定位', aka: 'first-error diagnosis', stage: S, oneliner: '找到轨迹首次违反验收条件的位置, 保存此前上下文', route: 'agent-evals' },
+{
+  "term": "Trace / Span",
+  "aka": "调用链 / 操作区间",
+  "stage": "agent",
+  "oneliner": "用父子关系连接任务、模型请求、尝试与工具；并行时长不能直接相加",
+  "route": "agent-eval-suite"
+},
 ]

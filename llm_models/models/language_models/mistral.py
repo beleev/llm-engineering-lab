@@ -144,11 +144,11 @@ class Mistral(GenerationMixin, nn.Module):
 
     def receptive_field(self) -> int:
         """
-        理论感受野 ≈ num_layers × window_size。
-        第 1 层的位置 t 聚合了 (t-W, t]; 第 2 层在此之上再向左延伸 W, 以此类推。
+        理论感受野上界 = 1 + L*(W-1)，W 含当前位置，无 dilation/全局层。
+        第 1 层聚合 [t-W+1, t]；以后每层向左增加 W-1；位置 t 再取 min(t+1, 上界)。
         这是 SWA "局部注意力不等于局部信息" 的关键: 深度替代了宽度。
         """
-        return self.num_layers * self.window_size
+        return 1 + self.num_layers * (self.window_size - 1)
 
     def kv_cache_entries(self, seq_len: int) -> int:
         """推理时 KV cache 实际需要保留的位置数: min(T, W) — rolling buffer 上限。"""

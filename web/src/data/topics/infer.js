@@ -4,7 +4,7 @@
 // 所以几乎每一项优化都在省 KV 的"搬运"和"存储", 而不是省乘法。
 const I = 'llm_infer/'
 
-export default {
+const topic = {
   stage: 'infer',
   chapters: [
     { route: 'infer-prefix-radix', label: '前缀复用 · hash 与 radix', hint: '链式 block hash、radix tree、命中即跳过前向' },
@@ -1009,3 +1009,37 @@ answer = beams[0][1][-1]`,
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "infer-scheduler": [
+    {
+      "title": "队列需要容量边界",
+      "body": "新增 m28 在固定长短请求分布下扫描到达率，比有界/无界队列。拒绝、超时、取消和完成分别统计；每种终态回收活跃资源。毫秒数来自代价模型，不能拿来配置真实 GPU 容量。",
+      "source": "llm_infer/m28_service_capacity/demo.py:simulate"
+    }
+  ],
+  "infer-multi-replica-routing": [
+    {
+      "title": "不要只报平均吞吐",
+      "body": "TTFT 含排队，ITL 看 token 间隔；p95/p99 仅在完成样本上统计，必须一起看未完成比例。goodput 是满足整套 SLO 的完成请求/观测时间；排空期也计入分母。",
+      "source": "llm_infer/m28_service_capacity/demo.py:experiment"
+    }
+  ],
+  "infer-engine": [
+    {
+      "title": "从机制正确到负载下可用",
+      "body": "模型吞吐、接收量与好吞吐不是同一个数。容量实验核对到达=完成+拒绝+超时+取消，结束占页为零。提高拒绝率可能让 p99 好看，不能因此宣称服务变好。",
+      "source": "llm_infer/m28_service_capacity/demo.py:simulate"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+export default topic

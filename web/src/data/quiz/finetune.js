@@ -1,5 +1,5 @@
 // 阶段 4 · llm_finetune 自测题: 每章 3 题, 考取舍与"为什么", 错误选项是常见误解。
-export default {
+const quiz = {
   finetune: [
     {
       q: 'SFT、LoRA、DPO 三者的关系, 哪种说法是对的?',
@@ -375,3 +375,43 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "finetune-sft": [
+    {
+      "q": "工具结果在多轮 SFT 里应如何处理？",
+      "options": [
+        "对模型可见，但不算 assistant loss",
+        "既遮住上下文，也屏蔽所有监督目标",
+        "把整段工具返回作为 assistant 答案",
+        "将所有角色头与 padding 都算进 loss"
+      ],
+      "answer": 0,
+      "why": "观察是上下文；assistant 的调用动作和回答才是这里的监督目标。"
+    },
+    {
+      "q": "RFT 采样后没有一条成功轨迹，正确动作是？",
+      "options": [
+        "复制验证答案补足批次后继续更新",
+        "跳过更新并报告零保留及任务覆盖",
+        "用全部失败轨迹当正确答案来训练",
+        "把验证阈值降到至少能留下一个"
+      ],
+      "answer": 1,
+      "why": "RFT 的监督来自通过验证的轨迹；空集合没有可用 CE 目标。"
+    },
+    {
+      "q": "RFT/RL 各采 256 次，能直接说计算预算相同吗？",
+      "options": [
+        "能，采样条数唯一决定计算量",
+        "不能，还要看步数、轨迹长度和前向成本",
+        "能，只要最终模型参数量相同",
+        "不能，两个方法必须使用不同任务集"
+      ],
+      "answer": 1,
+      "why": "实验只对齐候选数，单独报告更新步数，不制造公平比较的假象。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+export default quiz

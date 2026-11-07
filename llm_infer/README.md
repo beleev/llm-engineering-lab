@@ -214,3 +214,7 @@ python -m llm_infer.run_all
 | Cache-aware 多副本路由 | ✅ m27 | SGLang router 思路：最长前缀匹配 + balance 阈值 |
 
 ---
+
+## 从调度机制到服务容量
+
+[m28](m28_service_capacity/README.md) 扫描到达率，比较有界/无界队列的 TTFT/ITL 分位数、拒绝/超时、goodput 与取消后的资源回收。时间和页数是明确的代价模型。

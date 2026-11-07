@@ -1,5 +1,5 @@
 // 阶段 6 · llm_agent 的实验台挂载
-export default {
+const labs = {
   'agent-self-distillation': ['AgentCoverageLab'],
   'agent-vector-index': ['AgentCoverageLab'],
   'agent-tool-discovery': ['AgentCoverageLab'],
@@ -44,3 +44,16 @@ export default {
   'agent-trajectory-learning': ['AgentTrajectoryLab'],
   'agent-learning-loop': ['AgentLearningLab'],
 }
+
+for (const route of [
+  "agent-trajectory-learning",
+  "agent-agent-training",
+  "agent-runtime-reliability",
+  "agent-async-runtime",
+  "agent-full-loop",
+  "agent-eval-suite",
+  "agent-evals",
+  "agent-rag",
+  "agent-vector-index"
+]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+export default labs

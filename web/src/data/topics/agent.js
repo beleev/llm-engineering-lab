@@ -1760,7 +1760,7 @@ const coveragePages = {
 const A = 'llm_agent/'
 const C = `${A}core/`
 
-export default {
+const topic = {
   stage: 'agent',
   chapters: [
     { route: 'agent-mcp', label: 'MCP · stdio JSON-RPC', hint: 'initialize → tools/list → tools/call, mcp__server__tool' },
@@ -3326,3 +3326,86 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "agent-rag": [
+    {
+      "title": "先学表示，再查是哪一层丢了答案",
+      "body": "m45 用平均池化和可训练投影做双编码器，再用查询/文档联合 MLP 重排。精确检索错误看表征，ANN 错误看剪枝，重排错误先看候选召回。改写、跨语言、否定、编号分开测；四个机制探针不能当线上准确率。",
+      "source": "llm_agent/m45_semantic_retrieval/demo.py:run"
+    }
+  ],
+  "agent-vector-index": [
+    {
+      "title": "索引正确不等于表示有语义",
+      "body": "固定二维向量验证索引；新增 m45 用真实参数训练补表示层。exact 与分区近似使用同一组向量，才能隔离索引误差。编号映射为未知词时向量可能完全相同，应补精确词面约束。",
+      "source": "llm_agent/m45_semantic_retrieval/demo.py:Encoder"
+    }
+  ],
+  "agent-evals": [
+    {
+      "title": "从动作日志到 trace/span",
+      "body": "根 span 对应一次任务，模型/工具是子 span，API attempt 再挂在模型下面。线程显式携带父 id；并行耗时有重叠，不能把所有 span 相加当用户等待。",
+      "source": "llm_agent/core/tracing.py:Tracer"
+    }
+  ],
+  "agent-eval-suite": [
+    {
+      "title": "让指标回到一次真实调用链",
+      "body": "新的离线实验走实际 Agent 和 ClaudeLLM，覆盖并行工具、限流重试、取消。成功请求 usage 汇总只取一层；失败尝试计费未知。默认不记录提示、参数和输出。",
+      "source": "llm_agent/m31_eval_suite/trace_demo.py:experiment"
+    }
+  ],
+  "agent-runtime-reliability": [
+    {
+      "title": "流开始前和开始后，重试边界不同",
+      "body": "实际 ClaudeLLM 默认流式。仅对限流、部分服务端错误、连接/超时，在 message_start 前做有界退避；开始后不自动重发。SDK 重试关闭，避免两个预算相乘。未知停止原因、未闭合 JSON、断流不交出可执行动作。",
+      "source": "llm_agent/core/claude_llm.py:next"
+    }
+  ],
+  "agent-async-runtime": [
+    {
+      "title": "增量可展示，副作用等完整消息",
+      "body": "文本 delta 可交给 on_text；工具 input_json_delta 先累积，block_stop 解析，message_stop 后整体校验。累计 output_tokens 要覆盖旧值，不逐块相加。流在 finally 关闭；离线事件通过不能代替真实 API 验证。",
+      "source": "llm_agent/core/streaming.py:MessageStream"
+    }
+  ],
+  "agent-full-loop": [
+    {
+      "title": "把适配器的运行时带进闭环",
+      "body": "真实适配器已支持流累积、有限重试和实报 usage。Agent.usage 保留字符估算，reported_usage 单列实报，不能混加。缓存计数可读，但尚未自动配置 cache_control。在线调用仍须主动设置凭据。",
+      "source": "llm_agent/core/agent.py:_ask_model"
+    }
+  ],
+  "agent-trajectory-learning": [
+    {
+      "title": "从筛选导出走到真正更新参数",
+      "body": "RFT 在当前策略上采 256 次，只取独立验证通过的轨迹再做 CE。保留分布显示六个训练任务未入选；无成功样本时不更新。与示范 SFT、在线 RL 同起点对照，而不是把预设候选叫训练。",
+      "source": "llm_finetune/run_finetune/rft/train_rft.py:collect"
+    }
+  ],
+  "agent-agent-training": [
+    {
+      "title": "三种训练方式：谁提供标签",
+      "body": "SFT 的标签来自人工；RFT 来自模型自身合格轨迹；RL 用采样奖励改变概率。实验里三者留出通过率相同，必须保留这个结果，不预设新方法更好。协议状态编码未输入实体名，不能声称学会了新实体语义。",
+      "source": "llm_finetune/run_finetune/rft/train_rft.py:run"
+    }
+  ],
+  "agent-context-engineering": [
+    {
+      "title": "能放进去、能连接到、能有效利用是三件事",
+      "body": "上下文上限描述可接受的 token 数；理论感受野描述结构上的信息通路；有效利用需长距离检索、多跳和干扰实测。压缩摘要变短或全注意力可见，不等于关键证据一定保留或被模型用到。",
+      "source": null
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+export default topic

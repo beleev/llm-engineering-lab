@@ -458,7 +458,7 @@ const coverageQuiz = {
 }
 
 // 阶段 6 · llm_agent 自测题: 每章 3 题, 考取舍和"为什么", 错误选项是常见误解
-export default {
+const quiz = {
   ...coverageQuiz,
   agent: [
     {
@@ -984,3 +984,47 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "agent-eval-suite": [
+    {
+      "q": "两个工具 span 时间重叠，总等待时间如何计算？",
+      "options": [
+        "把所有父子 span 时长直接相加",
+        "看根 span 区间及依赖的关键路径",
+        "只取工具平均时长忽略其他调用",
+        "按工具个数乘最长工具运行时间"
+      ],
+      "answer": 1,
+      "why": "父子包含和并发会重复计时，attempt 数也不等于逻辑请求数。"
+    }
+  ],
+  "agent-runtime-reliability": [
+    {
+      "q": "已收到 message_start 后断流，默认怎样做？",
+      "options": [
+        "自动重发直到有一个请求成功",
+        "执行已经完整的那部分工具调用",
+        "报不完整结果，不自动重发副作用",
+        "丢掉所有 usage 并将账单记为零"
+      ],
+      "answer": 2,
+      "why": "部分输出和计费状态可能已产生；完整消息前不交出工具动作。"
+    }
+  ],
+  "agent-rag": [
+    {
+      "q": "精确向量 top-4 没有答案，重排仍答错，先查什么？",
+      "options": [
+        "提高重排层数，召回无需检查",
+        "候选召回与编码器表征的错误",
+        "只调整 ANN 分区，不改任何表征",
+        "把重排分数改为归一化概率"
+      ],
+      "answer": 1,
+      "why": "重排只能从候选中选；精确检索错误不能归因于 ANN。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+export default quiz

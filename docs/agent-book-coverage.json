@@ -383,11 +383,12 @@
       "chapter": 2,
       "line": 502,
       "title": "从 API 消息到模型 Token：Chat Template",
-      "level": "概念与机制对照",
+      "level": "机制与实际执行",
       "evidence": [
         "llm_agent/m19_prompt_caching/README.md",
         "llm_agent/m23_context_cache/README.md",
-        "llm_agent/m41_system_design/README.md"
+        "llm_agent/m41_system_design/README.md",
+        "llm_finetune/run_finetune/chat_template/README.md"
       ]
     },
     {
@@ -2053,9 +2054,11 @@
       "chapter": 7,
       "line": 698,
       "title": "Agent 的可观测性",
-      "level": "概念与机制对照",
+      "level": "机制与实际执行",
       "evidence": [
-        "llm_agent/m31_eval_suite/README.md"
+        "llm_agent/m31_eval_suite/README.md",
+        "llm_agent/core/tracing.py",
+        "llm_agent/m31_eval_suite/trace_demo.py"
       ]
     },
     {
@@ -2350,10 +2353,11 @@
       "chapter": 8,
       "line": 370,
       "title": "SFT 数据合成：从示范到可训练轨迹",
-      "level": "概念与机制对照",
+      "level": "机制与实际执行",
       "evidence": [
         "llm_agent/m32_agent_training/README.md",
-        "llm_agent/m25_trajectory_learning/README.md"
+        "llm_agent/m25_trajectory_learning/README.md",
+        "llm_finetune/run_finetune/rft/README.md"
       ]
     },
     {

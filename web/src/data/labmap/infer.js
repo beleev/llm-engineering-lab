@@ -1,5 +1,5 @@
 // 阶段 5 · llm_infer 实验台挂载表 (每章 ≤ 3 个; 已有的 AttnMaskLab / SoftmaxTempLab 由 models.js 的 widgets 挂载)
-export default {
+const labs = {
   'infer-kv-memory': ['InferKvCacheLab', 'InferPagedAttentionLab'],
   'infer-scheduler': ['InferContinuousBatchingLab', 'InferChunkedPrefillLab', 'InferPdDisaggLab'],
   'infer-decode-control': ['InferSpecDecodeLab', 'InferSamplingLab', 'InferBeamLab'],
@@ -17,3 +17,10 @@ export default {
   'infer-test-time-compute': ['InferBestOfNLab', 'InferBudgetForcingLab'],
   'infer-multi-replica-routing': ['InferRouterLab'],
 }
+
+for (const route of [
+  "infer-scheduler",
+  "infer-multi-replica-routing",
+  "infer-engine"
+]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+export default labs

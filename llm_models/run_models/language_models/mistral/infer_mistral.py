@@ -49,7 +49,7 @@ def main():
     assert not same[:W].any(), "窗口内 (位置 0..W-1) 的输出应随位置 0 改变"
     assert same[W:].all(), "窗口外 (位置 ≥ W) 的输出不应依赖位置 0"
     print(f"[3] 单层: 改位置 0 只影响位置 0..{W - 1}; "
-          f"{mistral.num_layers} 层时感受野 ≈ {mistral.receptive_field()}")
+          f"{mistral.num_layers} 层时理论感受野上界 = {mistral.receptive_field()}")
 
     # ---- 4) rolling KV cache ----
     cache = KVCache(len(mistral.layers))

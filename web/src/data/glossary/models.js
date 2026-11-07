@@ -9,7 +9,7 @@ export default [
   t('Pre-LN Block', '预归一化块', 'norm 在子层之前, 残差主干无 norm, 深层稳定', '$x + f(\\mathrm{norm}(x))$', 'blocks'),
   t('SwiGLU', '门控 FFN', '一路做开关一路做内容, 三个线性层, 中间维缩到 $8d/3$ 保持参数量', '$3 \\cdot d \\cdot (8d/3) = 8d^2$', 'blocks'),
   t('MoE', 'Mixture of Experts', '每个 token 只过 top-k 个专家: 用显存换算力', '激活参数 $\\ll$ 总参数', 'moe'),
-  t('SWA', 'Sliding Window Attention', '每层只看最近 W 个 token, 远处信息跨层接力', 'KV 上限 $W$; 感受野 $\\approx L \\cdot W$', 'models-mtp'),
+  t('SWA', 'Sliding Window Attention', '每层只看最近 W 个 token, 远处信息跨层接力', 'KV 上限 $W$; 理论感受野上界 $1+L(W-1)$', 'models-mtp'),
   t('MTP', 'Multi-Token Prediction', '级联小模块在每个位置多预测几步, 监督更密, 还白送投机草稿', '第 k 级目标 = 标签左移 k', 'models-mtp'),
   t('Gated DeltaNet', '门控 delta 规则', '固定大小状态矩阵: 先擦掉 key 方向旧值再写新值, $\\alpha$ 门整体衰减', '$S \\leftarrow \\alpha(S - \\beta k \\cdot k^\\top S) + \\beta k \\cdot v^\\top$', 'models-mtp'),
   t('Flow Matching', '流匹配 / rectified flow', '噪声与数据之间走直线, 网络预测恒定速度, 几步就能采样', '$x_t = (1-t)x_0 + t\\varepsilon,\\ v = \\varepsilon - x_0$', 'diffusion'),

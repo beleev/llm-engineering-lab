@@ -55,3 +55,7 @@ python -m llm_finetune.run_finetune.sft.train_sft      # ~15 s
 1. 回复长度 R (含 EOS)、prompt 长度 P, labels 里有几个位置不是 −100? — **R 个**: 位置 P−1 … P+R−2。
 2. 为什么不在 prompt 上也算 loss? — 那是在教模型 "生成用户的问题"; 容量和梯度都浪费在不需要的分布上, 回复部分的有效权重被稀释。
 3. 把 `SFTLoss` 换成 `StandardLMLoss` 会怎样? — 完全一样, 它们是同一个类。
+
+## 多轮对话与成功轨迹
+
+原实验聚焦两段式 mask；多轮序列化、工具配对和 padding 见 [Chat Template](../chat_template/README.md)。当前策略采样后筛选并实际更新参数见 [RFT](../rft/README.md)，与示范 SFT、在线 RL 共用同一初始化。

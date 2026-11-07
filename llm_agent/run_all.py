@@ -30,6 +30,7 @@ DEMOS = [
     "llm_agent.m18_a2a.demo",
     "llm_agent.m19_prompt_caching.demo",
     "llm_agent.full_loop.demo",
+    "llm_agent.m15_claude_api.stream_demo",
     "llm_agent.m20_memory_lifecycle.demo",
     "llm_agent.m21_completion_verification.demo",
     "llm_agent.m22_runtime_reliability.demo",
@@ -43,6 +44,7 @@ DEMOS = [
     "llm_agent.m29_async_runtime.demo",
     "llm_agent.m30_collaboration.demo",
     "llm_agent.m31_eval_suite.demo",
+    "llm_agent.m31_eval_suite.trace_demo",
     "llm_agent.m32_agent_training.demo",
     "llm_agent.m33_skill_evolution.demo",
     "llm_agent.m34_voice_interaction.demo",
@@ -56,11 +58,13 @@ DEMOS = [
     "llm_agent.m42_memory_privacy.demo",
     "llm_agent.m43_vector_index.demo",
     "llm_agent.m44_self_distillation.demo",
+    "llm_agent.m45_semantic_retrieval.demo",
 ]
 
 
 TRAINING_DEMOS = {"llm_agent.m32_agent_training.demo", "llm_agent.m37_midtraining.demo",
-                  "llm_agent.m44_self_distillation.demo"}
+                  "llm_agent.m44_self_distillation.demo",
+    "llm_agent.m45_semantic_retrieval.demo", "llm_agent.m45_semantic_retrieval.demo"}
 
 
 def main(with_training: bool = False) -> None:
@@ -73,5 +77,5 @@ def main(with_training: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--with-training", action="store_true", help="包括需要 torch 的三个 CPU 训练扩展")
+    parser.add_argument("--with-training", action="store_true", help="包括需要 torch 的四个 CPU 训练扩展")
     main(parser.parse_args().with_training)

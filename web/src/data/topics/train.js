@@ -1,7 +1,7 @@
 // 阶段 3 · llm_train 的全部章节页 (完整定义)。
 // 数字全部取自对应 demo 的实际输出, 改 Python 后请重新核对。
 // points 里 key: true 的那一条 = 这一章只让人记住一句话时, 记这句。
-export default {
+const topic = {
   stage: 'train',
   chapters: [
     { route: 'train-pipeline-schedules', label: '1F1B 与交错调度', hint: '气泡公式、在途激活、interleaved 1F1B' },
@@ -922,3 +922,30 @@ def judge_swap(qa, qb):
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "train-model-parallel": [
+    {
+      "title": "多维配置要一起算",
+      "body": "m22 固定模型和全局 batch，比较 DP×TP×PP。先验证 rank 网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP 重叠和 PP 气泡。Roofline 比较算力与访存上限；MFU 是代价模型估计，不是硬件实测。TP 增加可能省内存却降低吞吐。",
+      "source": "llm_train/m22_parallel_budget/demo.py:estimate"
+    }
+  ],
+  "train-collectives-loop": [
+    {
+      "title": "多维配置要一起算",
+      "body": "m22 固定模型和全局 batch，比较 DP×TP×PP。先验证 rank 网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP 重叠和 PP 气泡。Roofline 比较算力与访存上限；MFU 是代价模型估计，不是硬件实测。TP 增加可能省内存却降低吞吐。",
+      "source": "llm_train/m22_parallel_budget/demo.py:estimate"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+export default topic

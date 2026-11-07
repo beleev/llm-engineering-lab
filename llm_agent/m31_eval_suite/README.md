@@ -87,3 +87,15 @@ python -m llm_agent.m31_eval_suite.demo
 ## 延伸阅读
 
 机制参考 [ai-agent-book 第 7 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter7.md#L162)。模型、指标与脚本为本仓库的教学实现, 边界如上。
+
+## Trace / span：把一次任务的等待时间还原出来
+
+`python -m llm_agent.m31_eval_suite.trace_demo` 运行真实 Agent→ClaudeLLM→离线流式客户端，工具由真实线程并行执行。根 span 对应 Agent.run，模型请求和工具为子节点，API attempt 挂在模型请求下面。导出包含 trace_id、id、parent、单调时钟区间、状态、错误类别和实报 usage，不记录提示、工具参数、输出或异常正文。
+
+parallel / retry / cancel 三种情形使用同一套数据结构。默认两个逻辑模型请求、两次工具执行；限流重试变成三个模型 attempt，但工具仍执行两次。取消关闭根和子 span，不能留下 running。线程显式传入父 span，避免线程池丢失 ContextVar。
+
+实际端到端时间看根 span；子 span 相加会重复计算父子包含和并行重叠，不能当用户等待时间。关键路径要按依赖和实际区间找；本例两工具有屏障证明重叠，汇合后再调用模型。直接用 `Tracer.export()` 可导出 JSON 树；网页回放不固定机器时钟和随机 trace id。
+
+费用只按成功请求实报计算，演示单价为每千 token 输入/输出/缓存读 1/2/0.25 单位，不是供应商报价；失败请求记账不完整，不能声称总账单已知。model 与 attempt 都附 usage 便于查看，汇总只取一层，避免重复加。每个 Agent 实例仍是单会话状态机，不能由多个任务并发共享。
+
+边界：标准库内存追踪，没有 OTLP、采样、持久化或后端检索。正式服务还要控制留存和授权。自测：两个并行工具各花 100 ms，用户是不是等了 200 ms？不是，先看它们的时间重叠和上游/下游串行依赖。

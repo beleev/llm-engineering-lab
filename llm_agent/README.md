@@ -24,8 +24,8 @@
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 42 个默认 demo, 标准库即可运行
-python -m llm_agent.run_all --with-training # 加入 3 个 CPU 训练扩展, 共 45 个
+python -m llm_agent.run_all                 # 44 个默认 demo, 标准库即可运行
+python -m llm_agent.run_all --with-training # 加入 4 个 CPU 训练扩展, 共 48 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
 
@@ -87,7 +87,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 42 个标准库 demo, 加 `--with-training` 后共 45 个（m15 仍需主动开启）。
+新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 44 个标准库 demo, 加 `--with-training` 后共 48 个（m15 在线 demo 仍需主动开启）。
 
 ## 实现说明
 
@@ -163,3 +163,10 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 - [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 近似索引用更少的距离计算换召回率, 必须保留精确基准。
 
 - [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师分支可以多看验证信息, 学生部署时仍只能看普通观察。
+
+## 教学链条补充
+
+- [m45 语义检索与重排](m45_semantic_retrieval/README.md)：需要 torch；加入 run_all --with-training。
+- [m15 流式运行时](m15_claude_api/README.md)：离线协议夹具加入默认 run_all，在线 demo 仍需主动配置凭据。
+- [m31 trace/span](m31_eval_suite/README.md)：实际 Agent 调用链的并发、重试、取消。
+- [多轮模板](../llm_finetune/run_finetune/chat_template/README.md) 与 [RFT](../llm_finetune/run_finetune/rft/README.md)：接回训练数据和策略更新。

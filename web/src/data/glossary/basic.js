@@ -25,4 +25,12 @@ export default [
   t('条件数', 'condition number κ', '最陡与最平方向的曲率比; SGD 的 lr 被最陡方向卡死', 'SGD 稳定要求 $\\mathrm{lr} < 2/\\kappa$', 'basic-optim-sample'),
   t('temperature', '采样温度', '$\\mathrm{softmax}(z/T)$: $T<1$ 更尖更确定, $T>1$ 更平更随机', '$T \\to 0$ 即贪心', 'basic-optim-sample'),
   t('top-k 采样', 'top-k sampling', '只在概率最高的 k 个 token 里采样, 砍掉长尾里的胡话', '$k = 1$ 即贪心', 'basic-optim-sample'),
+{
+  "term": "感受野",
+  "aka": "Receptive field",
+  "stage": "basic",
+  "oneliner": "一个输出在结构上能依赖哪些输入；可达不等于训练后会有效利用",
+  "number": "纯滑窗：min(t+1, 1+L×(W−1))，W 含当前位置",
+  "route": "basic-forward"
+},
 ]

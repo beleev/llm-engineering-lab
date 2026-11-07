@@ -1,6 +1,6 @@
 // 阶段 4 · llm_finetune: 章节路由 -> 实验台。
 // finetune-rlhf 另有 topics/finetune.js 里的 widgets (GrpoLab, SoftmaxTempLab)。
-export default {
+const labs = {
   'finetune-sft': ['FtSftMaskLab'],
   'finetune-lora': ['FtLoraLab'],
   'finetune-qlora': ['FtNf4Lab'],
@@ -17,3 +17,8 @@ export default {
   'finetune-prm': ['FtPrmLab'],
   'finetune-ppo': ['FtGaeLab', 'FtPpoCriticLab'],
 }
+
+for (const route of [
+  "finetune-sft"
+]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+export default labs

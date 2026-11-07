@@ -26,6 +26,7 @@ DEMOS = [
     "llm_train.m19_scaling_laws.demo",
     "llm_train.m20_mup.demo",
     "llm_train.m21_llm_eval.demo",
+    "llm_train.m22_parallel_budget.demo",
     "llm_train.full_loop.demo",
 ]
 

@@ -1,5 +1,5 @@
 // 阶段 3 · llm_train 自测题。每章 3 题, 考取舍和"为什么", 错误选项都是常见误解。
-export default {
+const quiz = {
   train: [
     {
       q: '模型放得进单卡, 只是训练太慢。第一步该上哪种并行?',
@@ -319,3 +319,21 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "train-model-parallel": [
+    {
+      "q": "TP 增大后状态显存下降、吞吐也下降，哪个解释合理？",
+      "options": [
+        "更多小消息增加启动延迟与同步等待",
+        "并行卡数增加会必然降低浮点精度",
+        "参数切分自动使全局 batch 变成原来的两倍",
+        "TP 能省显存，所以测到的吞吐一定有误"
+      ],
+      "answer": 0,
+      "why": "显存、消息数和等待要一起算。Roofline/MFU 模型不是实测。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+export default quiz

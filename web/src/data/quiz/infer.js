@@ -1,5 +1,5 @@
 // 阶段 5 · llm_infer 自测题 (每章 3 题; 错误选项都是常见误解)
-export default {
+const quiz = {
   infer: [
     {
       q: '训练时最贵的是反向传播, 推理服务里 decode 阶段最常见的瓶颈是什么?',
@@ -407,3 +407,21 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "infer-scheduler": [
+    {
+      "q": "有界准入的 p99 更低，为什么还要报告拒绝率？",
+      "options": [
+        "拒绝率影响模型参数量和注意力头数",
+        "分位数只看完成样本，可能丢掉慢请求",
+        "拒绝越多时所有请求的 TTFT 都越高",
+        "拒绝率决定生成 token 的语义正确性"
+      ],
+      "answer": 1,
+      "why": "要一起看负载、所有终态和满足 SLO 的 goodput，避免幸存者偏差。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+export default quiz

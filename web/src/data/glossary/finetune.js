@@ -41,4 +41,18 @@ export default [
   { term: 'GAE', aka: 'Generalized Advantage Estimation', stage: 'finetune', oneliner: '把 TD 误差按 $(\\gamma\\lambda)^k$ 累加成逐 token 优势', number: 'λ=0 → TD(0); λ=1 → MC 回报', route: 'finetune-ppo' },
   { term: '解释方差', aka: 'explained variance', stage: 'finetune', oneliner: 'baseline 解释掉了多少回报方差; 0 = 和常数一样', number: '$1 - \\mathrm{Var}(R-b)/\\mathrm{Var}(R)$; critic 0.025, 组均值 0.365', route: 'finetune-ppo' },
   { term: 'PairwiseForward', stage: 'finetune', oneliner: '把一步里的多次前向包成一个 Module, 通用 Trainer 就不用改', number: 'DPO / SimPO / ORPO / RM 共用', route: 'finetune-runs' },
+{
+  "term": "Chat Template",
+  "aka": "聊天模板",
+  "stage": "finetune",
+  "oneliner": "把消息角色、正文、边界和生成前缀序列化成 token；与 loss mask 配套",
+  "route": "finetune-sft"
+},
+{
+  "term": "RFT（拒绝采样微调）",
+  "aka": "Rejection-sampling fine-tuning",
+  "stage": "finetune",
+  "oneliner": "当前策略采样后筛选合格轨迹，再做 SFT；无成功样本就不更新",
+  "route": "finetune-sft"
+},
 ]

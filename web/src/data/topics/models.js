@@ -3,7 +3,7 @@
 const A = 'llm_models/layers/core/attention.py'
 const RUN = 'python -m llm_models.run_models'
 
-export default {
+const topic = {
   stage: 'models',
   chapters: [
     { route: 'models-generation', label: 'KV cache 生成', hint: '旧 token 的 K/V 不会变: prefill 一次, 之后每步只算 1 个' },
@@ -34,7 +34,7 @@ export default {
       },
       code: 'llm_models/models/language_models/{mistral.py,mtp.py,qwen3_next.py} · llm_models/layers/sparse/linear_attention.py',
       points: [
-        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层的理论感受野 $\\approx L\\cdot W$ (Mistral 32 层 × 4096 ≈ 131K)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
+        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层理论感受野上界 $1+L(W-1)$，位置 t 再取不超过 t+1 (Mistral 32 层、W=4096 时为 131041)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
         { title: 'mask 即架构', body: '- 全因果: LLaMA\n- 带状: Mistral\n- 带状加 sink: GPT-OSS\n- top-k: DSA\nQKV 投影一行不改, 谁能看见谁全由 mask 决定。所以 Mistral 和 LLaMA 参数量完全相同 (demo: 都是 3,076,352)。', key: true },
         { title: '级联保因果', body: 'MTP 第 k 级在位置 i: 拼上真实 token $t_{i+k}$ 的 embedding → 过一个 Block → 预测 $t_{i+k+1}$。\n每深一级, 多看一个真 token、多预测一步, 因果链没断。\n总损失 $= \\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$。DeepSeek-V3 的 $\\lambda$ 取 0.3, 后期降到 0.1。' },
         { title: '状态替代缓存', body: 'Gated DeltaNet 是一种线性注意力: 不存历史 K/V, 只维护一个 Dh×Dh 的状态矩阵 (Dh 是每头维度)。\n- delta rule: 先擦掉 k 方向的旧值, 再写入新值。\n- α 门: 负责整体遗忘。\n它的 “cache” 与读了多少 token 无关。demo 里 T 从 8 涨到 32, 同类层加总的缓存元素数 (batch 2):\n- 注意力层 (共 2 层): 4096 → 16384。\n- delta 层 (共 6 层): 恒为 49152。\n代价是压缩有损。所以 Qwen3-Next 每 4 层留 1 层全注意力, 兜底精确召回。' },
@@ -475,3 +475,30 @@ image = decoder(f_hat + upsample(codebook[indices[-1]], H))
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "models-mtp": [
+    {
+      "title": "精确范围与实际能力分开",
+      "body": "纯因果滑窗、窗口 W 含当前位置、无 dilation 或全局通路时：位置 t 的可达输入数为 min(t+1, 1+L×(W−1))。L×W 只是大窗口近似。模型上下文上限和长距离检索成功率还需另测。",
+      "source": "llm_models/models/language_models/mistral.py:receptive_field"
+    }
+  ],
+  "models-gptoss": [
+    {
+      "title": "全局可达不等于有效利用",
+      "body": "交替全注意力可以建立远处信息通路，但训练分布、注意力权重和中间表示决定是否真正用上。下方滑窗实验展示可达范围，不展示长上下文任务准确率。",
+      "source": null
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+export default topic

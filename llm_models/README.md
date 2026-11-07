@@ -159,3 +159,7 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 - **上下文写满之后没有 cache**: 序列到 `max_len` 后窗口每步左移, 所有位置都变, `generate()` 每步整段重算。
 - **没有 `generate()` 的模型**: Transformer 和 Whisper 在脚本里手写贪心循环; Qwen2-VL 和 Omni 只能整段前向; LLaDA 用自己的 `sample()`。
 - **没有真实数据**: 没有 tokenizer, 没有数据集, 没有 checkpoint 读写。要看训练工程见 `llm_train`, 要看可学习的任务见 `llm_finetune`。
+
+## 图文与语音的阅读入口
+
+[多模态学习路线](../docs/multimodal-learning-path.md) 串起现有 CLIP、Qwen2-VL、Whisper、Omni 的输入、连接方式、loss、信息流断言与实现边界。网页入口在本阶段总览，沿用已有代码。
