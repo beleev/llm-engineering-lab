@@ -10,6 +10,8 @@ SCRIPTS = ["sft", "lora", "dora", "qlora", "merge", "rm", "prm", "dpo", "kto", "
 
 def main() -> None:
     importlib.import_module("llm_finetune.run_finetune.chat_template.demo").main()
+    for name in ("ipo", "peft_comparison", "knowledge_edit", "privacy_unlearning", "online_preference"):
+        importlib.import_module(f"llm_finetune.run_finetune.{name}.demo").main()
     for name in SCRIPTS:
         t0 = time.perf_counter()
         print(f"\n{'#' * 20} {name} {'#' * 20}")

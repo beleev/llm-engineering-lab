@@ -1,6 +1,6 @@
 # LLM Engineering Lab
 
-A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments and 136 interactive experiments (including Python evidence replays). The tutorial text is primarily in Chinese.
+A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments, interactive visualizations, and replayable execution evidence across six learning stages. The tutorial text is primarily in Chinese.
 
 [在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.0.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.0.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
 
@@ -16,7 +16,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
 - 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
-- 配套 **交互式 Web 教程**：136 个可拖、可点、可单步播放的实验入口（含 Python 运行证据回放），346 道章末自测，222 条术语速查。页面上的代码直接取自仓库里的 Python 源文件。
+- 配套 **交互式 Web 教程**：六阶段、26 个主题组、111 个章节入口、182 个实验入口，384 道章末自测，248 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -28,15 +28,15 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 阶段 2 · llm_models      PyTorch 实现 23 个模型: 2017 Transformer → 2025 GPT-OSS / LLaDA / Qwen3-Next
     ↓
 阶段 3 · llm_train       纯 numpy 模拟大规模训练: DDP / TP / PP / ZeRO / EP / Ring + Ulysses / FP8 / FP4 / Muon
-                          以及数据去重与 packing、scaling law、μP、评测
+                          以及数据去重与 packing、scaling law、μP、课程/合成数据、校准与多语言评测
     ↓
 阶段 4 · llm_finetune    SFT / LoRA / QLoRA / DoRA / DPO / KTO / SimPO / ORPO / RM / PRM / PPO / GRPO 及变体
-                          / RLAIF / 模型合并 / 离线与在线蒸馏
+                          / IPO / RLAIF / 在线偏好 / Prompt-Prefix-Adapter / 知识编辑 / DP 与遗忘 / 蒸馏
     ↓
-阶段 5 · llm_infer       27 个推理优化模块 (含测试时计算、多副本路由) + 真分页的 mini-vLLM 引擎
+阶段 5 · llm_infer       31 个推理模块 (含推理图、剪枝融合、端侧预算与服务容量) + 真分页的 mini-vLLM 引擎
     ↓
 阶段 6 · llm_agent       Agent 循环 / 工具 / 权限 / 上下文工程 / Hook / Skill / MCP / 子智能体 / 护栏 / 评测
-                          / RAG / Computer use / A2A / Prompt caching / 记忆更新 / 完成验收 / 故障恢复 / 持续改进
+                          / RAG 联合目标 / Computer use / A2A / 记忆 / 验收恢复 / 学习世界模型 / 代码与形式验证
 ```
 
 推荐节奏：**先在网页上拖实验台建立直觉 → 做章末自测 → 再跑对应的 Python demo 读源码**。模块目录下的 README 大体按这个顺序写：
@@ -47,16 +47,29 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：首错诊断、记忆更新、完成验收、重试与取消、上下文净成本、多跳证据、轨迹学习和四阶段改进评估。
 
-### Agent 知识覆盖
+### 知识覆盖与新增实验
 
-[六阶段知识复查](docs/knowledge-audit.md) 保留发现问题的依据；九项补充见[验收记录](docs/knowledge-completion.md)。原书标题映射齐全不等于内容已全部讲透。 按研究方向长图对照的 11 个方向、45 个主题见[知识交叉检查](docs/image-knowledge-audit.md)，区分已有教学闭环、部分覆盖与缺失。
+[六阶段知识复查](docs/knowledge-audit.md) 与 [九项补充验收](docs/knowledge-completion.md) 保留前期发现与修复。研究方向长图的 [原始审计](docs/image-knowledge-audit.md) 固定在 `23f1c93`；后续 **11 个方向、45 个主题、90 条原差距**的处理见 [补充覆盖与边界](docs/research-completion.md)。原审计保留历史状态，不把当时的“缺失”误当作当前结果。
 
-按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。新增 m26–m44 仍属于扩展层, 包含真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。Agent 模块现扩展到 m53，保留真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+
+本轮新增 **25 组实验、76 个对照条件、25 道自测和 20 条术语**，继续归入原有三级章节；没有新增二级主题组。
+
+| 学习位置 | 新增内容与阅读入口 |
+| --- | --- |
+| 数据与评测 | [课程与主动选域](llm_train/m23_data_curriculum/README.md)、[多代合成反馈](llm_train/m24_synthetic_feedback/README.md)、[校准/拒答/人工评价](llm_train/m25_reliability_metrics/README.md)、[多语言](llm_train/m26_multilingual/README.md) |
+| 微调与对齐 | [IPO](llm_finetune/run_finetune/ipo/README.md)、[四类 PEFT](llm_finetune/run_finetune/peft_comparison/README.md)、[在线偏好](llm_finetune/run_finetune/online_preference/README.md)、[知识编辑](llm_finetune/run_finetune/knowledge_edit/README.md)、[隐私与遗忘](llm_finetune/run_finetune/privacy_unlearning/README.md) |
+| 模型与多模态 | [递归记忆/分层读取](llm_models/run_models/foundation/hierarchical_memory/README.md)、[机制解释/SAE](llm_models/run_models/foundation/interpretability/README.md)、[视觉任务](llm_models/run_models/multimodal/vision_tasks/README.md)、[音频信号链](llm_models/run_models/multimodal/audio_pipeline/README.md)、[媒体一致性与来源](llm_models/run_models/generative/media_evaluation/README.md) |
+| 推理与设备 | [链/树/图推理](llm_infer/m29_reasoning_graph/README.md)、[剪枝与融合](llm_infer/m30_pruning_fusion/README.md)、[端侧预算](llm_infer/m31_edge_budget/README.md) |
+| Agent 与知识 | [RAG 联合目标](llm_agent/m46_joint_rag/README.md)、[有效上下文](llm_agent/m47_context_utilization/README.md)、[安全与治理](llm_agent/m48_safety_governance/README.md)、[工具数据筛选](llm_agent/m53_tool_data/README.md) |
+| 行动与验收 | [学习世界模型](llm_agent/m49_learned_world/README.md)、[仓库级代码验证](llm_agent/m50_repository_verification/README.md)、[形式证明与科学验证](llm_agent/m51_formal_science/README.md)、[专业领域工作流](llm_agent/m52_domain_workflows/README.md) |
+
+这些补充包含实际梯度更新、采样、像素/波形计算和独立进程验收，也包含明确标注的预算模型。网页按钮切换的是 **Python 实际运行记录**，不会现场训练或调用 API。真实大模型泛化、多机 GPU 性能、真实机器人与领域上线效果尚未据此验证；不能把教学闭环当成这些能力的完成证明。
 
 ## 安装与运行
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.10; 阶段 2/4 需要 torch, 阶段 1/3/5 只要 numpy, 阶段 6 基础模块用标准库, 三个训练扩展复用 torch
+pip install -e ".[dev]"      # Python ≥ 3.10；包含 numpy / torch；不需要 GPU
 python main.py               # 冒烟: 每个核心模型跑一次前向, 断言初始 loss ≈ ln V、KV cache 有无一致
 
 pytest                       # 所有 demo / infer 脚本, 耗时依机器而定
@@ -69,9 +82,20 @@ pytest -m slow               # 所有训练脚本
 python -m llm_train.run_all
 python -m llm_finetune.run_all
 python -m llm_infer.run_all
-python -m llm_agent.run_all
+python -m llm_agent.run_all                  # 标准库 + numpy 的离线模块
+python -m llm_agent.run_all --with-training  # 加上五个 torch 训练扩展
 cd llm_basic && python gradcheck.py && python train.py && python sample.py "ROMEO:"
 ```
+
+只跑本轮研究补充与证据检查（CPU；不调用模型 API）：
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python scripts/run-research-completion.py
+python scripts/check-research-coverage.py
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-research-completion.py --check
+```
+
+修改实验后先重新导出 `web/scripts/export-research-completion.py`，核对各模块 README 中的结果，再运行 `--check`。旧的 `export-knowledge-completion.py` 摘要覆盖全仓库 Python，Python 源码变化后也要重新导出。浏览器回归命令见 [补充验证记录](docs/research-completion-validation.md)。
 
 单个模块：
 

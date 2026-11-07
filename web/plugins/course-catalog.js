@@ -15,7 +15,7 @@ export default function courseCatalog() {
     resolveId: (name) => name === id ? resolved : null,
     async load(name) {
       if (name !== resolved) return
-      const extraChapters = {}, pageStats = {}, viewStats = {}, quizStages = {}
+      const extraChapters = {}, pageStats = {}, viewStats = {}, quizStages = {}, replayStats = {}
       for (const kind of ['topics', 'quiz']) {
         const dir = join(src, 'data', kind)
         for (const file of readdirSync(dir).filter((f) => f.endsWith('.js') && f !== 'index.js')) {
@@ -36,6 +36,18 @@ export default function courseCatalog() {
           }
         }
       }
+      // 一个回放组件可能在同章渲染多组 LabFrame；目录计数按实际组数。
+      for (const [file, component] of [['knowledge-completion.json', 'KnowledgeCompletionLab'], ['research-completion.json', 'ResearchCompletionLab']]) {
+        const path = join(src, 'data', file)
+        this.addWatchFile(path)
+        for (const entry of JSON.parse(readFileSync(path, 'utf8')).entries) {
+          for (const route of entry.routes) {
+            const row = replayStats[route] ||= { counts: {}, chars: 0 }
+            row.counts[component] = (row.counts[component] || 0) + 1
+            row.chars += textLen([entry.intuition, ...(entry.principles || []), entry.protocol].filter(Boolean).join(' '))
+          }
+        }
+      }
       for (const file of readdirSync(join(src, 'views')).filter((f) => f.endsWith('.vue'))) {
         const path = join(src, 'views', file)
         this.addWatchFile(path)
@@ -47,11 +59,11 @@ export default function courseCatalog() {
           labs: new Set([...text.matchAll(/components\/labs\/(\w+)\.vue/g)].map((m) => m[1])).size,
         }
       }
-      return Object.entries({ extraChapters, pageStats, viewStats, quizStages })
+      return Object.entries({ extraChapters, pageStats, viewStats, quizStages, replayStats })
         .map(([key, value]) => `export const ${key} = ${JSON.stringify(value)}`).join('\n')
     },
     handleHotUpdate({ file, server }) {
-      if (!file.startsWith(src) || !/\/(data\/(topics|quiz)|views)\//.test(file)) return
+      if (!file.startsWith(src) || (!/\/(data\/(topics|quiz)|views)\//.test(file) && !/\/data\/(research|knowledge)-completion\.json$/.test(file))) return
       const mod = server.moduleGraph.getModuleById(resolved)
       if (mod) server.moduleGraph.invalidateModule(mod)
       server.ws.send({ type: 'full-reload' })

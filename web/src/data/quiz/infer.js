@@ -424,4 +424,47 @@ const completionQuestions = {
   ]
 }
 for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+// research-completion questions
+const researchQuestions = {
+  "infer-test-time-compute": [
+    {
+      "q": "两条路径到达同一数字，就一定能合并吗？",
+      "options": [
+        "可以，数字相同就代表状态相同",
+        "不一定，还要核对影响未来的约束",
+        "不可以，图搜索不能合并任何路径",
+        "可以，只要最终答案的字符串相同"
+      ],
+      "answer": 1,
+      "why": "状态等价取决于任务。剩余预算、动作历史、权限等也可能影响未来可行解，不能只用表面数字作键。"
+    }
+  ],
+  "infer-compute": [
+    {
+      "q": "把 90% 权重置零后，dense GEMM 会自动快十倍吗？",
+      "options": [
+        "不会，执行器可能仍计算全部位置",
+        "会，任何硬件都自动支持稀疏跳过",
+        "不会，因为结构化剪枝也无法提速",
+        "会，矩阵里非零数量决定执行时间"
+      ],
+      "answer": 0,
+      "why": "零值只改变数值。要节省实际工作，需要删除维度或使用支持相应稀疏格式的算子。"
+    }
+  ],
+  "infer-engine": [
+    {
+      "q": "权重从 FP16 改 INT4，峰值内存一定降为四分之一吗？",
+      "options": [
+        "一定，只要参数总数保持完全相同",
+        "不一定，因为 INT4 的权重反而更大",
+        "一定，所有运行时状态都同倍率压缩",
+        "不一定，KV 与工作区可能没有压缩"
+      ],
+      "answer": 3,
+      "why": "只有权重部分按位宽缩小，缓存、工作区与运行时开销仍然存在。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz

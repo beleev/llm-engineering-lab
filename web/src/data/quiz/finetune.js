@@ -414,4 +414,60 @@ const completionQuestions = {
   ]
 }
 for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+// research-completion questions
+const researchQuestions = {
+  "finetune-dpo": [
+    {
+      "q": "IPO 间隔超过目标以后，平方损失会怎样？",
+      "options": [
+        "自动转换为 PPO 的策略梯度",
+        "继续奖励更大的偏好间隔",
+        "梯度会把间隔推回有限目标",
+        "立即冻结所有模型参数"
+      ],
+      "answer": 2,
+      "why": "平方目标两侧都有惩罚；h 超过 1/(2β) 后，梯度方向会将它拉回。"
+    }
+  ],
+  "finetune-lora": [
+    {
+      "q": "本例 Prefix 与 Soft Prompt 最关键的区别是什么？",
+      "options": [
+        "Prompt 修改所有基座权重再冻结输出",
+        "前者学层内 KV，后者学输入向量",
+        "两者只是同一个可训练张量的不同名字",
+        "Prefix 一定不消耗任何缓存或上下文"
+      ],
+      "answer": 1,
+      "why": "Soft Prompt 经基座投影形成 K/V；Prefix 直接学习层内 K/V 状态。多层实现还要明确每层的注入位置。"
+    }
+  ],
+  "finetune-rlaif": [
+    {
+      "q": "在线偏好奖励上升却更常答错，优先检查什么？",
+      "options": [
+        "检查反馈是否偏好迎合而忽略事实",
+        "停止所有事实核验以保持反馈一致",
+        "只保留奖励最高的一次运行结果",
+        "优先增加采样温度以提高多样性"
+      ],
+      "answer": 0,
+      "why": "反馈可能把讨好、冗长或自信当成正确。应把事实核验与风格偏好拆开，并在独立样本上检查。"
+    }
+  ],
+  "finetune-sft": [
+    {
+      "q": "原问题编辑成功，能说明知识已可靠更新吗？",
+      "options": [
+        "能，只要更新矩阵是低秩矩阵",
+        "不能，因为参数编辑不可能成功",
+        "能，所有改写都共享同一答案",
+        "不能，还要测改写、邻域和关联事实"
+      ],
+      "answer": 3,
+      "why": "目标命中只覆盖 efficacy。改写泛化、无关事实保持和关联推理都可能失败。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz

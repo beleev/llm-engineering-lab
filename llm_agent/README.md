@@ -18,13 +18,13 @@
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
 - **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
 - **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
-- **基础零依赖**: 默认路径只用 stdlib。`--with-training` 加入 m32 / m37 / m44 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
+- **基础模块零依赖**: 原基础模块用 stdlib，研究补充使用 numpy。`--with-training` 加入 m32 / m37 / m44 / m45 / m46 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 运行
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 44 个默认 demo, 标准库即可运行
+python -m llm_agent.run_all                 # 51 个默认 demo，使用标准库与 numpy
 python -m llm_agent.run_all --with-training # 加入 4 个 CPU 训练扩展, 共 48 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
@@ -87,7 +87,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 44 个标准库 demo, 加 `--with-training` 后共 48 个（m15 在线 demo 仍需主动开启）。
+新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 51 个 demo，加 `--with-training` 后共 56 个（m15 在线 demo 仍需主动开启）。
 
 ## 实现说明
 
@@ -170,3 +170,20 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 - [m15 流式运行时](m15_claude_api/README.md)：离线协议夹具加入默认 run_all，在线 demo 仍需主动配置凭据。
 - [m31 trace/span](m31_eval_suite/README.md)：实际 Agent 调用链的并发、重试、取消。
 - [多轮模板](../llm_finetune/run_finetune/chat_template/README.md) 与 [RFT](../llm_finetune/run_finetune/rft/README.md)：接回训练数据和策略更新。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [RAG：答案误差如何反传到检索器](m46_joint_rag/README.md) | 检索器选错文档时，只训练生成器可能让它背答案；让答案损失影响检索，才有机会改进证据选择。 |
+| [有效上下文：看得到，不等于用得上](m47_context_utilization/README.md) | 模型能接收很长输入，不代表能稳定利用中间的一小段证据。理论可达、检索命中和正确组合是三件事。 |
+| [安全与治理：误拒、漏拦和责任记录](m48_safety_governance/README.md) | 正常文档可以讨论攻击，恶意文档也可以不含攻击关键词。权限需要依据可信的用户授权，而不是文档措辞。 |
+| [学习世界模型：预测和反馈的差别](m49_learned_world/README.md) | 世界模型根据动作预测下一步；控制器还需要在预测出错后重新观察。能生成连贯视频，并不等于能控制真实世界。 |
+| [代码任务：跨文件修改与独立验收](m50_repository_verification/README.md) | 一个函数通过测试，不等于整个仓库的行为正确。接口单位变了，调用方也必须理解同一个约定。 |
+| [形式证明与科学假设：三种正确](m51_formal_science/README.md) | 一个数算对了、一个命题证出来了、一条现实规律成立了，依赖的是不同证据。 |
+| [专业领域：证据时效、地域与复核](m52_domain_workflows/README.md) | 专业任务的错误往往不是句子不通，而是引用了过期规则、错误地域或不适用的人群。 |
+| [工具学习：从候选调用到训练数据](m53_tool_data/README.md) | 工具调用执行成功，不代表值得教给模型。训练数据应保留能帮助后续预测的调用，并计算额外成本。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。

@@ -26,6 +26,8 @@ jobs:
         run: pytest
       - name: Agent knowledge coverage references
         run: python scripts/check-agent-book-coverage.py
+      - name: Research curriculum coverage references
+        run: python scripts/check-research-coverage.py
       - name: Training scripts
         run: pytest -m slow
 

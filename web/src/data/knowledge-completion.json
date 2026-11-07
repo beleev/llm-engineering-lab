@@ -1,5 +1,5 @@
 {
-  "source_digest": "f820e60bea85da7bda9f4bf7b822c3ba1e15bdaf5fdb67904219e16081d8641f",
+  "source_digest": "2a097a855d25b6be0f88dbb529af86c783380eccbbe719d08cdb37b5ceb43abe",
   "kind": "Python 执行记录回放；切换条件读取预先运行的结果，不在浏览器训练或调用 API。",
   "entries": [
     {

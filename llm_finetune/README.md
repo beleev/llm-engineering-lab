@@ -142,3 +142,17 @@ QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采�
 ## 多轮模板与拒绝采样微调
 
 [Chat Template](run_finetune/chat_template/README.md) 补消息→token→多轮监督；[RFT](run_finetune/rft/README.md) 在同一小 LLaMA 上对比示范 SFT、筛选采样后 SFT、在线 RL，报告任务保留偏差。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [IPO：偏好间隔为何有有限目标](run_finetune/ipo/README.md) | 成对标签说 A 比 B 好，并没有要求把 B 的概率压到零。IPO 用有限的相对概率间隔作为优化目标。 |
+| [PEFT：Prompt、Prefix、Adapter 与 LoRA](run_finetune/peft_comparison/README.md) | 冻结基座并不意味着只能改提示词。四种方法把可训练参数放在不同位置，影响梯度路径和部署代价。 |
+| [在线偏好：更新后还符合谁的偏好](run_finetune/online_preference/README.md) | 策略变了，采到的回答也会变。持续学习需要重新收集偏好，同时防止把“用户爱听”学成“事实可以错”。 |
+| [知识编辑：改对一个事实，伤到多少邻居](run_finetune/knowledge_edit/README.md) | 改参数里的事实不像改数据库的一行。共享表示会让一次更新影响相似实体、别名和关联事实。 |
+| [隐私：记忆提取、DP 与参数遗忘](run_finetune/privacy_unlearning/README.md) | 拒绝复述某条记录不代表模型没有记住它；攻击没成功，也不等于已经证明隐私安全。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。

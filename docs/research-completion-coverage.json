@@ -1,0 +1,766 @@
+{
+  "baseline": "23f1c93",
+  "items": [
+    {
+      "id": "1.1",
+      "title": "数据清洗与配比",
+      "original_gaps": [
+        "语言识别与预训练语料 PII 过滤",
+        "数据来源、授权和许可证记录",
+        "依据验证损失动态调整数据配比"
+      ],
+      "new_entries": [
+        "curriculum",
+        "safety"
+      ],
+      "evidence": [
+        "llm_train/m23_data_curriculum/README.md",
+        "llm_agent/m48_safety_governance/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "固定模型、随机种子与训练样本预算，比较静态、课程、主动策略；再把验证分布改偏，检查主动选择是否过拟合验证域。额外候选梯度计算必须计入总成本。；四个合成案例只验证具体授权与误报逻辑。生产应把策略版本、决策日志、人工复核与撤销测试纳入验收；这不构成通用防越狱保证或法律合规判定。"
+    },
+    {
+      "id": "1.2",
+      "title": "数据选择与课程学习",
+      "original_gaps": [
+        "按难度/长度改变训练顺序的对照实验",
+        "主动样本选择、数据影响与预算收益"
+      ],
+      "new_entries": [
+        "curriculum"
+      ],
+      "evidence": [
+        "llm_train/m23_data_curriculum/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "固定模型、随机种子与训练样本预算，比较静态、课程、主动策略；再把验证分布改偏，检查主动选择是否过拟合验证域。额外候选梯度计算必须计入总成本。"
+    },
+    {
+      "id": "1.3",
+      "title": "合成数据",
+      "original_gaps": [
+        "多代自生成数据的多样性、长尾损失与 model collapse",
+        "真实/合成混合比例、去重和难度控制的联合实验"
+      ],
+      "new_entries": [
+        "synthetic"
+      ],
+      "evidence": [
+        "llm_train/m24_synthetic_feedback/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先比较三种实际采样路径，再改变 rounds 和种子复查尾部。要研究真实 LLM 的 model collapse，必须训练多代模型并固定总预算；本例只隔离有限采样和选择偏差。"
+    },
+    {
+      "id": "1.4",
+      "title": "Continual Pre-training",
+      "original_gaps": [
+        "真实领域语料、未见知识泛化、长序列课程仍未验证；属于深度边界，不再列成空白"
+      ],
+      "new_entries": [
+        "curriculum"
+      ],
+      "evidence": [
+        "llm_train/m23_data_curriculum/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "固定模型、随机种子与训练样本预算，比较静态、课程、主动策略；再把验证分布改偏，检查主动选择是否过拟合验证域。额外候选梯度计算必须计入总成本。"
+    },
+    {
+      "id": "2.1",
+      "title": "Transformer 结构优化",
+      "original_gaps": [
+        "CPU 算法实验不等同 GPU kernel 性能复现"
+      ],
+      "new_entries": [
+        "pruning"
+      ],
+      "evidence": [
+        "llm_infer/m30_pruning_fusion/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先核对数学输出，再计算理想访存次数。这里没有 GPU kernel 或真实加速比；实测需 warm-up、同步、固定 batch/上下文、设备功率与分位数。"
+    },
+    {
+      "id": "2.2",
+      "title": "Mixture of Experts",
+      "original_gaps": [
+        "专家专业化的实证分析与真实跨卡测量未覆盖"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_models/run_models/moe/deepseek/README.md",
+        "llm_train/m11_expert_parallel/README.md",
+        "llm_train/m11_expert_parallel/demo.py",
+        "llm_infer/m21_moe_serving/README.md",
+        "llm_infer/m21_moe_serving/demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "专家专业化需统计各领域的路由分布、专家输出差异，再替换或消融专家测任务损失；路由热图本身不是专业化的因果证据。跨卡验收记录 dispatch/combine 字节、拥塞、最忙 rank 与端到端吞吐，不能从 numpy 等价性推断。"
+    },
+    {
+      "id": "2.3",
+      "title": "长序列架构",
+      "original_gaps": [
+        "递归记忆/分层注意力的专门对照",
+        "长输入可接受、理论可达、信息有效利用三者的端到端评测"
+      ],
+      "new_entries": [
+        "context",
+        "hierarchy"
+      ],
+      "evidence": [
+        "llm_agent/m47_context_utilization/README.md",
+        "llm_models/run_models/foundation/hierarchical_memory/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "18 个位置×长度×证据组合全部执行。这里是显式机制模型，不是某个 LLM 的 Lost in the Middle 实测；真实评测要控制输出预算和检索器变化。；核对 24 个查询的准确率，同时报告访问量和持久存储。块 ID 已知，因此这里不测语义检索；连接 agent-context-engineering 阅读有效上下文实验。"
+    },
+    {
+      "id": "2.4",
+      "title": "SSM 与混合架构",
+      "original_gaps": [
+        "合成训练验证结构，不是长文本 benchmark 对比"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_models/run_models/language_models/mamba/README.md",
+        "llm_models/models/language_models/mamba.py",
+        "llm_models/run_models/language_models/qwen3_next/README.md"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "比较 SSM 与混合架构时固定训练数据和计算预算，分别测内容检索、顺序记忆和长度外推；状态固定只说明内存复杂度，不保证任意远细节可恢复。已有合成训练验证保留，真实长文本 benchmark 未执行。"
+    },
+    {
+      "id": "3.1",
+      "title": "Supervised Fine-Tuning",
+      "original_gaps": [
+        "真实 SFT 语料的质量、长短答案配比和任务分布消融仍可深化"
+      ],
+      "new_entries": [
+        "curriculum",
+        "synthetic"
+      ],
+      "evidence": [
+        "llm_train/m23_data_curriculum/README.md",
+        "llm_train/m24_synthetic_feedback/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "固定模型、随机种子与训练样本预算，比较静态、课程、主动策略；再把验证分布改偏，检查主动选择是否过拟合验证域。额外候选梯度计算必须计入总成本。；先比较三种实际采样路径，再改变 rounds 和种子复查尾部。要研究真实 LLM 的 model collapse，必须训练多代模型并固定总预算；本例只隔离有限采样和选择偏差。"
+    },
+    {
+      "id": "3.2",
+      "title": "偏好对齐与 AI Feedback",
+      "original_gaps": [
+        "IPO 明确未实现",
+        "在线偏好采集→更新循环",
+        "迎合、长度偏好和持续/个性化对齐的专门实验"
+      ],
+      "new_entries": [
+        "ipo",
+        "online"
+      ],
+      "evidence": [
+        "llm_finetune/run_finetune/ipo/README.md",
+        "llm_finetune/run_finetune/online_preference/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "同一组四个单 token 偏好分别训练 DPO 与 IPO，比较 loss 和 log-ratio margin，而不是只检查训练集准确率。长文本上还应控制回答长度与参考模型概率。；固定随机种子和交互预算，比较偏好变化前后各用户指标。模型层迎合与有意欺骗不能只由一个错误答案判定，需要可核验的任务行为和多个条件。"
+    },
+    {
+      "id": "3.3",
+      "title": "面向推理的 RL",
+      "original_gaps": [
+        "短序列规则任务不代表数学长链推理或开放任务泛化"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_finetune/run_finetune/grpo/README.md",
+        "llm_finetune/methods/grpo.py",
+        "llm_finetune/run_finetune/rft/README.md",
+        "llm_finetune/data/tasks.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "把奖励验证器与策略训练集分开；用未见模板、数值范围和推理长度测试，并统计格式错误与 reward hacking。现有短序列参数更新成立，不能推出数学长链或开放任务泛化。"
+    },
+    {
+      "id": "3.4",
+      "title": "On-policy 蒸馏与强到弱迁移",
+      "original_gaps": [
+        "已有实现偏 GKD 式停止采样梯度，不是完整 MiniLLM；校准收益未验证"
+      ],
+      "new_entries": [
+        "reliability"
+      ],
+      "evidence": [
+        "llm_train/m25_reliability_metrics/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "实验固定同一组正确/错误标签，只改变置信度或拒答阈值，并实际拟合成对胜负得分。真实校准必须使用未参与阈值选择的测试集；不要从教学数组推断某个模型可靠。"
+    },
+    {
+      "id": "3.5",
+      "title": "参数高效微调",
+      "original_gaps": [
+        "瓶颈 Adapter、Prompt Tuning、Prefix Tuning 仅部分提名，缺机制对照",
+        "适配器组合与持续个性化对齐"
+      ],
+      "new_entries": [
+        "peft",
+        "online"
+      ],
+      "evidence": [
+        "llm_finetune/run_finetune/peft_comparison/README.md",
+        "llm_finetune/run_finetune/online_preference/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "四种模式使用相同冻结基座和固定 32 条样本，报告可训练参数数与 MSE，断言基座不变。参数量没有配平，结果只验证可学习路径，不作为方法排名。；固定随机种子和交互预算，比较偏好变化前后各用户指标。模型层迎合与有意欺骗不能只由一个错误答案判定，需要可核验的任务行为和多个条件。"
+    },
+    {
+      "id": "4.1",
+      "title": "CoT 与搜索式推理",
+      "original_gaps": [
+        "显式 CoT 的提示与训练区别",
+        "CoT 忠实性及解释不等于内部机制",
+        "ToT/GoT 的状态表示、分支评估与图合并对照"
+      ],
+      "new_entries": [
+        "reasoning"
+      ],
+      "evidence": [
+        "llm_infer/m29_reasoning_graph/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "三个策略使用同一初态、目标和动作集合；统计展开数并拒绝伪造路径。迁移到 LLM 后还需审计步骤粒度、验证器相关错误与未见任务泛化。"
+    },
+    {
+      "id": "4.2",
+      "title": "过程监督与验证器",
+      "original_gaps": [
+        "形式化证明器见 11.2；缺长推理 verifier overcredit 专门评测"
+      ],
+      "new_entries": [
+        "reasoning",
+        "formal"
+      ],
+      "evidence": [
+        "llm_infer/m29_reasoning_graph/README.md",
+        "llm_agent/m51_formal_science/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "三个策略使用同一初态、目标和动作集合；统计展开数并拒绝伪造路径。迁移到 LLM 后还需审计步骤粒度、验证器相关错误与未见任务泛化。；伪造证明必须被拒；拟合误差与留出误差分别显示。本例是命题逻辑和合成数值实验，不冒充数学竞赛解题器或真实科研发现。"
+    },
+    {
+      "id": "4.3",
+      "title": "Test-Time Scaling",
+      "original_gaps": [
+        "程序 sampler/verifier，不是实测大模型；判分器前向未计入 token 账"
+      ],
+      "new_entries": [
+        "reasoning"
+      ],
+      "evidence": [
+        "llm_infer/m29_reasoning_graph/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "三个策略使用同一初态、目标和动作集合；统计展开数并拒绝伪造路径。迁移到 LLM 后还需审计步骤粒度、验证器相关错误与未见任务泛化。"
+    },
+    {
+      "id": "4.4",
+      "title": "RL for Reasoning",
+      "original_gaps": [
+        "形式证明与开放式奖励可靠性仍需深化"
+      ],
+      "new_entries": [
+        "reasoning",
+        "formal"
+      ],
+      "evidence": [
+        "llm_infer/m29_reasoning_graph/README.md",
+        "llm_agent/m51_formal_science/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "三个策略使用同一初态、目标和动作集合；统计展开数并拒绝伪造路径。迁移到 LLM 后还需审计步骤粒度、验证器相关错误与未见任务泛化。；伪造证明必须被拒；拟合误差与留出误差分别显示。本例是命题逻辑和合成数值实验，不冒充数学竞赛解题器或真实科研发现。"
+    },
+    {
+      "id": "5.1",
+      "title": "RAG",
+      "original_gaps": [
+        "通用查询改写与训练反馈",
+        "Retriever 与 Generator 联合训练；m45 联合输入重排不是检索—生成联合训练"
+      ],
+      "new_entries": [
+        "rag-joint"
+      ],
+      "evidence": [
+        "llm_agent/m46_joint_rag/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先比较冻结与只更新检索，再看共同训练是否走向记忆捷径。检查不同模式实际更新的参数和 top-1，不以“joint”命名代替梯度证据。"
+    },
+    {
+      "id": "5.2",
+      "title": "Long Context",
+      "original_gaps": [
+        "证据位置×长度×干扰量的有效利用评测",
+        "Lost in the Middle 与多证据组合；稀疏注意力的合成 needle 召回不能替代此项"
+      ],
+      "new_entries": [
+        "context"
+      ],
+      "evidence": [
+        "llm_agent/m47_context_utilization/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "18 个位置×长度×证据组合全部执行。这里是显式机制模型，不是某个 LLM 的 Lost in the Middle 实测；真实评测要控制输出预算和检索器变化。"
+    },
+    {
+      "id": "5.3",
+      "title": "Long-term Memory",
+      "original_gaps": [
+        "以有限夹具验收，不代表通用自动记忆决策或生产存储系统"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_agent/m20_memory_lifecycle/README.md",
+        "llm_agent/m20_memory_lifecycle/demo.py",
+        "llm_agent/m42_memory_privacy/README.md",
+        "llm_agent/m42_memory_privacy/demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "长期记忆按写入、读取、冲突更新、过期与删除逐步验收；使用带时间戳的事实变化任务核对原文、索引、缓存是否一致删除。已有夹具验证机制，生产存储还要测备份、并发、跨副本及恢复语义。"
+    },
+    {
+      "id": "5.4",
+      "title": "知识编辑与幻觉缓解",
+      "original_gaps": [
+        "参数知识编辑及编辑成功/改写泛化/局部性/关联事实指标",
+        "模型回答置信校准与选择性回答"
+      ],
+      "new_entries": [
+        "reliability",
+        "editing"
+      ],
+      "evidence": [
+        "llm_train/m25_reliability_metrics/README.md",
+        "llm_finetune/run_finetune/knowledge_edit/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "实验固定同一组正确/错误标签，只改变置信度或拒答阈值，并实际拟合成对胜负得分。真实校准必须使用未参与阈值选择的测试集；不要从教学数组推断某个模型可靠。；固定旧模型，对同一目标做三种更新，同时输出目标误差与保护邻域误差。真实编辑还要批量累积、撤销、关联问答和校准测试，避免只挑原问题验收。"
+    },
+    {
+      "id": "6.1",
+      "title": "工具学习与 Function Calling",
+      "original_gaps": [
+        "Toolformer 式自动插入调用数据的训练路线未专门复现"
+      ],
+      "new_entries": [
+        "tool-data"
+      ],
+      "evidence": [
+        "llm_agent/m53_tool_data/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "无过滤、收益过滤和高成本门槛分别验收调用数与正确数。真实 Toolformer 的候选生成、语言模型条件似然和再训练规模不在此小模型结果中。"
+    },
+    {
+      "id": "6.2",
+      "title": "规划、反思与执行",
+      "original_gaps": [
+        "脚本策略与小型任务环境，不宣称通用长期规划能力"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_agent/m10_planning/README.md",
+        "llm_agent/m10_planning/demo.py",
+        "llm_agent/m21_completion_verification/README.md",
+        "llm_agent/m21_completion_verification/demo.py",
+        "llm_agent/m22_runtime_reliability/README.md",
+        "llm_agent/m22_runtime_reliability/demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "长程规划应逐步记录观察、动作、预算与终态，反思建议只能在独立回归通过后进入策略。对比同预算的无反思、固定反思与按失败触发反思；本仓库既有任务不证明通用长期自主能力。"
+    },
+    {
+      "id": "6.3",
+      "title": "Computer Use 与具身 Agent",
+      "original_gaps": [
+        "VLA 参数训练、视觉—动作真实数据",
+        "真实传感/延迟/接触等具身任务；一维模拟仅覆盖反馈机制"
+      ],
+      "new_entries": [
+        "world"
+      ],
+      "evidence": [
+        "llm_agent/m49_learned_world/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "检查拟合参数、同状态反向动作差异和部署漂移下的预测误差。迁移机器人时需真实传感/执行延迟、部分可观测和接触任务，先离线验证再受控执行。"
+    },
+    {
+      "id": "6.4",
+      "title": "Multi-Agent Systems",
+      "original_gaps": [
+        "不是增加 Agent 数量就提高能力；真实模型通信收益需要另测"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_agent/m11_orchestrator/README.md",
+        "llm_agent/m11_orchestrator/demo.py",
+        "llm_agent/m30_collaboration/README.md",
+        "llm_agent/m30_collaboration/demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "多 Agent 比较固定总模型调用预算，单独消融角色、通信与审查。对相同错误来源的多个 Agent 不能假设错误独立；记录协调成本、冲突和最终通过率，真实模型收益仍需另测。"
+    },
+    {
+      "id": "7.1",
+      "title": "视觉语言理解",
+      "original_gaps": [
+        "VQA/OCR/文档与图表理解任务级实验",
+        "数量/空间关系、视觉不确定性与拒答"
+      ],
+      "new_entries": [
+        "vision"
+      ],
+      "evidence": [
+        "llm_models/run_models/multimodal/vision_tasks/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "切换遮挡和歧义，检查正确读取与拒答是否合理。模板 OCR 只识别四个合成字形；真实 VLM 还需独立图像集、未见字体和文档版式。"
+    },
+    {
+      "id": "7.2",
+      "title": "Speech 与 Omni",
+      "original_gaps": [
+        "波形前处理、codec→波形、真实流式感知生成",
+        "说话人识别、口音/噪声/韵律评测；m34 不是 ASR/TTS 实现"
+      ],
+      "new_entries": [
+        "audio"
+      ],
+      "evidence": [
+        "llm_models/run_models/multimodal/audio_pipeline/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "比较相同信号的噪声和量化失真。此例不训练 ASR/TTS；已有语音交互状态机用于打断与快慢响应，两者共同覆盖信号链和交互链。"
+    },
+    {
+      "id": "7.3",
+      "title": "图像、视频与音频生成",
+      "original_gaps": [
+        "可控编辑、运动/身份一致性、镜头控制与音画同步",
+        "音频生成完整路径",
+        "水印、内容溯源与深伪检测"
+      ],
+      "new_entries": [
+        "audio",
+        "media"
+      ],
+      "evidence": [
+        "llm_models/run_models/multimodal/audio_pipeline/README.md",
+        "llm_models/run_models/generative/media_evaluation/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "比较相同信号的噪声和量化失真。此例不训练 ASR/TTS；已有语音交互状态机用于打断与快慢响应，两者共同覆盖信号链和交互链。；分别修改身份属性与字节内容，检查时序指标和签名验证反应。公开教学密钥不能保护真实来源；完整内容凭证还需要身份、密钥管理和编辑链。"
+    },
+    {
+      "id": "7.4",
+      "title": "3D 空间智能与世界模型",
+      "original_gaps": [
+        "从观测学习动力学的实验",
+        "多步预测误差与动作条件因果对照",
+        "3D 空间表征与空间推理；视频生成不算掌握动力学"
+      ],
+      "new_entries": [
+        "world"
+      ],
+      "evidence": [
+        "llm_agent/m49_learned_world/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "检查拟合参数、同状态反向动作差异和部署漂移下的预测误差。迁移机器人时需真实传感/执行延迟、部分可观测和接触任务，先离线验证再受控执行。"
+    },
+    {
+      "id": "8.1",
+      "title": "分布式训练",
+      "original_gaps": [
+        "numpy 仿真与成本模型，不是多机多卡故障/吞吐实测"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_train/m05_zero_fsdp/README.md",
+        "llm_train/m05_zero_fsdp/demo.py",
+        "llm_train/m08_checkpoint_resume/README.md",
+        "llm_train/m08_checkpoint_resume/demo.py",
+        "llm_train/m22_parallel_budget/README.md",
+        "llm_train/m22_parallel_budget/demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "多机实测先校验梯度/优化器状态等价，再测通信重叠、rank 拖尾与故障恢复；检查 checkpoint 一致点和恢复后样本重复/遗漏。仓库成本模型不能代替带拓扑、设备与故障注入的运行记录。"
+    },
+    {
+      "id": "8.2",
+      "title": "模型压缩",
+      "original_gaps": [
+        "权重/结构化剪枝、稀疏性与实际加速区别",
+        "压缩前后长尾能力、推理与安全退化的切片评测"
+      ],
+      "new_entries": [
+        "pruning"
+      ],
+      "evidence": [
+        "llm_infer/m30_pruning_fusion/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先核对数学输出，再计算理想访存次数。这里没有 GPU kernel 或真实加速比；实测需 warm-up、同步、固定 batch/上下文、设备功率与分位数。"
+    },
+    {
+      "id": "8.3",
+      "title": "推理与 Serving",
+      "original_gaps": [
+        "通用算子融合/编译执行的机制实验；CUDA Graph 调度复用不能代替融合",
+        "真实 GPU 吞吐/延迟/质量联合测量为生产深度边界"
+      ],
+      "new_entries": [
+        "pruning"
+      ],
+      "evidence": [
+        "llm_infer/m30_pruning_fusion/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先核对数学输出，再计算理想访存次数。这里没有 GPU kernel 或真实加速比；实测需 warm-up、同步、固定 batch/上下文、设备功率与分位数。"
+    },
+    {
+      "id": "8.4",
+      "title": "端侧 LLM 与 Green AI",
+      "original_gaps": [
+        "设备内存/带宽/功耗/散热/电池约束",
+        "质量—延迟—能耗联合预算",
+        "模型、编译器、kernel 与设备协同设计"
+      ],
+      "new_entries": [
+        "edge"
+      ],
+      "evidence": [
+        "llm_infer/m31_edge_budget/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "全部参数是公开假设：1B 参数、2 GiB 内存等。切换精度和热态观察可行性及成本；真实选型还需测量量化质量、温度、功率曲线和电池。"
+    },
+    {
+      "id": "9.1",
+      "title": "能力与可靠性评测",
+      "original_gaps": [
+        "回答置信校准：可靠性图/ECE/Brier 与拒答权衡",
+        "群体公平性、毒性、输入扰动鲁棒性",
+        "HELM 式同场景多指标比较"
+      ],
+      "new_entries": [
+        "reliability",
+        "safety"
+      ],
+      "evidence": [
+        "llm_train/m25_reliability_metrics/README.md",
+        "llm_agent/m48_safety_governance/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "实验固定同一组正确/错误标签，只改变置信度或拒答阈值，并实际拟合成对胜负得分。真实校准必须使用未参与阈值选择的测试集；不要从教学数组推断某个模型可靠。；四个合成案例只验证具体授权与误报逻辑。生产应把策略版本、决策日志、人工复核与撤销测试纳入验收；这不构成通用防越狱保证或法律合规判定。"
+    },
+    {
+      "id": "9.2",
+      "title": "人工评测与 LLM Judge",
+      "original_gaps": [
+        "人工成对评价协议、标注者一致性",
+        "Arena 类排名与不确定性",
+        "真实多裁判/自我偏好消融；规则裁判并非真实 LLM Judge"
+      ],
+      "new_entries": [
+        "reliability"
+      ],
+      "evidence": [
+        "llm_train/m25_reliability_metrics/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "实验固定同一组正确/错误标签，只改变置信度或拒答阈值，并实际拟合成对胜负得分。真实校准必须使用未参与阈值选择的测试集；不要从教学数组推断某个模型可靠。"
+    },
+    {
+      "id": "9.3",
+      "title": "Agent 与系统评测",
+      "original_gaps": [
+        "在线真实任务大样本评测不在教学验收范围"
+      ],
+      "new_entries": [],
+      "evidence": [
+        "llm_agent/m13_evals/README.md",
+        "llm_agent/m13_evals/demo.py",
+        "llm_agent/m31_eval_suite/README.md",
+        "llm_agent/m31_eval_suite/demo.py",
+        "llm_agent/m31_eval_suite/trace_demo.py"
+      ],
+      "level": "沿用已有闭环 + 补充评测协议",
+      "protocol": "在线任务评测保留任务抽样框、失败与取消分母、用户群体和版本；按任务而非单个 span 统计成功，分别报告成本、尾延迟与副作用。真实在线大样本和用户满意度不属于本地教学实验的已验证结果。"
+    },
+    {
+      "id": "9.4",
+      "title": "机制可解释性",
+      "original_gaps": [
+        "表示探针与相关/因果区别",
+        "activation patching、causal tracing、circuit analysis",
+        "SAE 稀疏特征与干预验证"
+      ],
+      "new_entries": [
+        "interpretability"
+      ],
+      "evidence": [
+        "llm_models/run_models/foundation/interpretability/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先比较两个同样相关的通道在干预后的差别，再看 SAE 的重建与稀疏权衡。这里使用已知小网络做因果校验，不宣称解释真实 LLM 的全部机制。"
+    },
+    {
+      "id": "10.1",
+      "title": "对齐安全与 Red Teaming",
+      "original_gaps": [
+        "有害/正常请求的配对安全训练和评测",
+        "拒绝边界、过度拒答、迎合/欺骗",
+        "对抗改写与模型层红队流程"
+      ],
+      "new_entries": [
+        "online",
+        "safety"
+      ],
+      "evidence": [
+        "llm_finetune/run_finetune/online_preference/README.md",
+        "llm_agent/m48_safety_governance/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "固定随机种子和交互预算，比较偏好变化前后各用户指标。模型层迎合与有意欺骗不能只由一个错误答案判定，需要可核验的任务行为和多个条件。；四个合成案例只验证具体授权与误报逻辑。生产应把策略版本、决策日志、人工复核与撤销测试纳入验收；这不构成通用防越狱保证或法律合规判定。"
+    },
+    {
+      "id": "10.2",
+      "title": "Jailbreak 与 Prompt Injection",
+      "original_gaps": [
+        "模型越狱与系统注入的独立威胁模型和测试",
+        "多载体间接注入、策略误报/漏报评测；关键词护栏不是通用防御"
+      ],
+      "new_entries": [
+        "safety"
+      ],
+      "evidence": [
+        "llm_agent/m48_safety_governance/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "四个合成案例只验证具体授权与误报逻辑。生产应把策略版本、决策日志、人工复核与撤销测试纳入验收；这不构成通用防越狱保证或法律合规判定。"
+    },
+    {
+      "id": "10.3",
+      "title": "隐私、记忆与版权",
+      "original_gaps": [
+        "差分隐私、训练数据提取、成员推断实验",
+        "参数级 machine unlearning 与效用/遗忘验证",
+        "数据授权、输出相似性与内容溯源"
+      ],
+      "new_entries": [
+        "privacy",
+        "media"
+      ],
+      "evidence": [
+        "llm_finetune/run_finetune/privacy_unlearning/README.md",
+        "llm_models/run_models/generative/media_evaluation/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "仅用合成记录重现三条路径。固定公开随机种子方便教学复现，却不提供真实私密数据的 DP 保护；真实发布必须使用合适随机源、审计 accountant 与全部数据访问。；分别修改身份属性与字节内容，检查时序指标和签名验证反应。公开教学密钥不能保护真实来源；完整内容凭证还需要身份、密钥管理和编辑链。"
+    },
+    {
+      "id": "10.4",
+      "title": "公平性、社会影响与治理",
+      "original_gaps": [
+        "群体公平性及语言/文化差异评测",
+        "数据卡/模型卡、责任与部署风险记录",
+        "治理生命周期与持续监控的完整案例"
+      ],
+      "new_entries": [
+        "reliability",
+        "multilingual",
+        "safety"
+      ],
+      "evidence": [
+        "llm_train/m25_reliability_metrics/README.md",
+        "llm_train/m26_multilingual/README.md",
+        "llm_agent/m48_safety_governance/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "实验固定同一组正确/错误标签，只改变置信度或拒答阈值，并实际拟合成对胜负得分。真实校准必须使用未参与阈值选择的测试集；不要从教学数组推断某个模型可靠。；先跑三个采样条件，再核对错误来自训练覆盖还是翻译标签。当前短语分类不验证通用跨语言语义迁移；真实模型需留出未见实体和原生表达。；四个合成案例只验证具体授权与误报逻辑。生产应把策略版本、决策日志、人工复核与撤销测试纳入验收；这不构成通用防越狱保证或法律合规判定。"
+    },
+    {
+      "id": "11.1",
+      "title": "Code LLMs",
+      "original_gaps": [
+        "代码模型训练目标/补全与测试生成",
+        "跨文件依赖和仓库级任务",
+        "漏洞/私有仓库适配评测；单函数夹具不是仓库级能力"
+      ],
+      "new_entries": [
+        "repository"
+      ],
+      "evidence": [
+        "llm_agent/m50_repository_verification/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "对完整、局部和投机补丁分别启动独立 Python 进程验收。可见测试被替换为 assert True 也不能影响外部判分；本例只运行本仓库生成的可信小片段。"
+    },
+    {
+      "id": "11.2",
+      "title": "数学推理与 AI for Science",
+      "original_gaps": [
+        "形式化证明与 theorem prover 闭环",
+        "科学数据/模拟器/假设生成→独立实验验证",
+        "数值正确、形式正确与现实假设正确的区别"
+      ],
+      "new_entries": [
+        "formal"
+      ],
+      "evidence": [
+        "llm_agent/m51_formal_science/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "伪造证明必须被拒；拟合误差与留出误差分别显示。本例是命题逻辑和合成数值实验，不冒充数学竞赛解题器或真实科研发现。"
+    },
+    {
+      "id": "11.3",
+      "title": "医疗、法律与金融 LLM",
+      "original_gaps": [
+        "领域数据适配与独立工作流评测",
+        "时效/地域/证据、专家复核和责任边界",
+        "校准、隐私及高代价错误的案例化验收"
+      ],
+      "new_entries": [
+        "domain"
+      ],
+      "evidence": [
+        "llm_agent/m52_domain_workflows/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "比较不加约束、证据过滤和带外部复核的输出状态。全部术语与规则均为虚构测试夹具，不提供专业结论；真实上线需由领域专家制定标签与验收阈值。"
+    },
+    {
+      "id": "11.4",
+      "title": "多语言与低资源语言",
+      "original_gaps": [
+        "跨语言迁移与语言均衡训练",
+        "tokenizer 分词膨胀和低资源数据预算",
+        "文化语境、翻译偏差与本地化独立评测"
+      ],
+      "new_entries": [
+        "multilingual"
+      ],
+      "evidence": [
+        "llm_train/m26_multilingual/README.md"
+      ],
+      "level": "机制实验 + 方法讲解",
+      "protocol": "先跑三个采样条件，再核对错误来自训练覆盖还是翻译标签。当前短语分类不验证通用跨语言语义迁移；真实模型需留出未见实体和原生表达。"
+    }
+  ]
+}

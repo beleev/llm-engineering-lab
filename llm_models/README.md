@@ -163,3 +163,17 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 ## 图文与语音的阅读入口
 
 [多模态学习路线](../docs/multimodal-learning-path.md) 串起现有 CLIP、Qwen2-VL、Whisper、Omni 的输入、连接方式、loss、信息流断言与实现边界。网页入口在本阶段总览，沿用已有代码。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [机制解释：可读出，不等于起作用](run_models/foundation/interpretability/README.md) | 某个激活能预测答案，可能只是旁观者。要说明它参与决策，需要改变它并观察输出是否改变。 |
+| [视觉任务：OCR、图表与不确定性](run_models/multimodal/vision_tasks/README.md) | 看到图像 token，不代表已经读对文字或理解坐标轴。任务级检查要把感知错误和推理错误分开。 |
+| [语音信号：波形、Mel 与 codec](run_models/multimodal/audio_pipeline/README.md) | 语音系统要处理连续的声音和时间，而不仅是转写后的文字。压缩、延迟和噪声会改变可用信息。 |
+| [媒体生成：一致性、水印与来源](run_models/generative/media_evaluation/README.md) | 单帧漂亮不代表视频连贯；检测到水印，也不代表画面内容真实。 |
+| [递归记忆与分层读取：压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 摘要能连接前后两段，却不一定能还原原来的细节。结构连通和信息保存需要分别证明。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。

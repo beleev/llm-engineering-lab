@@ -1,5 +1,5 @@
 // 阶段 1 · llm_basic 自测题: 每章 3 题以上, 考"为什么这么写", 错误选项都是常见误解
-export default {
+const quiz = {
   basic: [
     {
       q: '每个算子都写成 xxx_forward / xxx_backward 一对, forward 多返回的那个 cache 是干什么的?',
@@ -113,3 +113,23 @@ export default {
     },
   ],
 }
+
+// research-completion questions
+const researchQuestions = {
+  "basic-data": [
+    {
+      "q": "语言均衡训练后还要单独测原生题，原因是什么？",
+      "options": [
+        "均衡采样已经保证所有语言公平",
+        "共享词表会消除所有语言差异",
+        "原生题天然比翻译题更容易",
+        "翻译可能改变语义与文化语境"
+      ],
+      "answer": 3,
+      "why": "翻译数据可能带来标签和语境偏差。均衡采样只调整训练分布，不能代替原生语言的独立验收。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
+
+export default quiz

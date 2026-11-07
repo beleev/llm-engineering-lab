@@ -21,6 +21,11 @@ for (const m of base.matchAll(/source:\s*\[([^\]]*)\]/g)) {
   for (const s of m[1].matchAll(/'([^']+)'/g)) refs.push({ ref: s[1], where: 'models.js' })
 }
 
+for (const file of ['knowledge-completion.json', 'research-completion.json']) {
+  const data = JSON.parse(readFileSync(join(web, 'src/data', file), 'utf8'))
+  for (const entry of data.entries) refs.push({ ref: entry.module + ':experiment', where: `${file} › ${entry.id}` })
+}
+
 let bad = 0
 for (const { ref, where } of refs) {
   const [path, symbol = ''] = ref.split(':')

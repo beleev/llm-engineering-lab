@@ -112,3 +112,16 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 ## 多维并行预算补充
 
 [m22](m22_parallel_budget/README.md) 把 DP×TP×PP、rank 网格、状态/激活显存、α/β 通信、重叠和 Roofline/MFU 放入同一代价模型。它不启动真实多进程或测量硬件吞吐。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [数据课程：相同样本数，学到的一样吗](m23_data_curriculum/README.md) | 数据选择是在预算内决定下一步学什么。容易的样本有助于起步，但一直重复容易样本，会把预算花在已经学会的部分。 |
+| [合成数据：多代反馈与长尾消失](m24_synthetic_feedback/README.md) | 生成得更多，不一定知道得更多。小概率事实一旦没有被采到，下一代模型可能再也生成不出来。 |
+| [可靠性：校准、拒答与人工评价](m25_reliability_metrics/README.md) | 准确率告诉你答对多少，校准告诉你“有多确定”是否可信。二者要分开测。 |
+| [多语言：采样、分词与翻译偏差](m26_multilingual/README.md) | 同样一句意思，不同语言可能消耗不同数量的 token；同样一份数据预算，也可能几乎没有训练到低资源语言。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。

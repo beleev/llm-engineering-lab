@@ -364,4 +364,47 @@ const completionQuestions = {
   ]
 }
 for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+// research-completion questions
+const researchQuestions = {
+  "blocks": [
+    {
+      "q": "探针准确读出一个属性，为什么还不能断言模型使用它？",
+      "options": [
+        "因为只有注意力权重才有因果意义",
+        "因为 SAE 的重建误差必须先等于零",
+        "因为任何线性探针都无法读取信息",
+        "因为相关信息可能不影响最终输出"
+      ],
+      "answer": 3,
+      "why": "可读出性是相关证据。需要有控制的干预、消融与恢复来检验对实际输出的作用。"
+    }
+  ],
+  "diffusion": [
+    {
+      "q": "来源签名有效，能推出画面描述的事件真实发生吗？",
+      "options": [
+        "不能，签名核验完整性与签署关系",
+        "能，只要同时检测到数字水印",
+        "不能，签名无法检测任何字节变化",
+        "能，签名已经核验了现实世界"
+      ],
+      "answer": 0,
+      "why": "签名验证内容与签署者关系及完整性，不能替代现实证据核查。"
+    }
+  ],
+  "attention": [
+    {
+      "q": "两个序列有相同摘要，可以认为所有问题的答案相同吗？",
+      "options": [
+        "可以，只要摘要维度大于一个数",
+        "不可以，因为所有摘要都没有用处",
+        "可以，摘要相同意味着信息完全相同",
+        "不可以，摘要可能丢失顺序和细节"
+      ],
+      "answer": 3,
+      "why": "压缩映射可能把不同输入映到同一个状态。应构造摘要碰撞，检查任务所需细节是否被保存。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
