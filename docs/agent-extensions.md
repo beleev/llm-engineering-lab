@@ -38,3 +38,7 @@ python web/scripts/check-agent-ui.py
 脚本检查 8 个路由上的 9 个新实验台, 覆盖 select 全选项、关键数值、滑杆与按钮的键盘操作、390px 窄屏、明暗主题和直接刷新。截图见 [章节预览](screenshots/README.md)。
 
 训练桥接当前交付的是可验证数据、偏好对与过程标签, 并未训练权重; 费用与调度时间均明确标成模型值。
+
+## 全书范围继续扩展
+
+m26–m44 的逐节对照、实际执行层次与研究边界见 [知识覆盖表](agent-book-coverage.md)。其中 m32 / m37 / m44 使用仓库已有 PyTorch 依赖实际训练, 其余新增默认 demo 使用标准库。m35 的 Chromium 验收需单独安装可选 playwright 与 pillow。

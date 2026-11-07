@@ -24,6 +24,8 @@ jobs:
           pip install -e ".[dev]"
       - name: Smoke tests
         run: pytest
+      - name: Agent knowledge coverage references
+        run: python scripts/check-agent-book-coverage.py
       - name: Training scripts
         run: pytest -m slow
 

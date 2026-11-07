@@ -17,14 +17,15 @@
 - **原理优先**: 默认"模型"是 `RuleBasedLLM` (关键词规则), 行为完全确定 —— 所以每个 demo 都能用 `assert` 证明自己声称的行为, 而不是无条件打印 OK。
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
 - **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
-- **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 唯一的子进程是 m09 用 `sys.executable` 拉起本包自己的 MCP server。
-- **零依赖**: 默认路径只用 stdlib。CI 在 Python 3.10 和 3.13 上跑。
+- **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
+- **基础零依赖**: 默认路径只用 stdlib。`--with-training` 加入 m32 / m37 / m44 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 运行
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 全部默认 demo, 任何断言失败即非零退出
+python -m llm_agent.run_all                 # 42 个默认 demo, 标准库即可运行
+python -m llm_agent.run_all --with-training # 加入 3 个 CPU 训练扩展, 共 45 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
 
@@ -86,7 +87,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 26 个 demo（m15 仍需主动开启）。
+新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 42 个标准库 demo, 加 `--with-training` 后共 45 个（m15 仍需主动开启）。
 
 ## 实现说明
 
@@ -132,3 +133,33 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 
 读完本目录再看 Claude Code / Claude Agent SDK / OpenHands / LangGraph, 可以把复杂系统拆成几条主线:
 **模型怎么选动作、工具怎么执行、权限怎么拦、上下文怎么控、状态怎么留、子任务怎么隔离、不可信输入怎么防、改动之后怎么验。**
+
+## 全书知识补齐实验
+
+继续沿用扩展层, 主线阅读顺序不变。逐节来源和覆盖层次见 [知识覆盖表](../docs/agent-book-coverage.md)。
+
+| 模块 | 读完能解释什么 |
+|---|---|
+| [m26_tool_discovery](m26_tool_discovery/README.md) | 先发现能力, 再加载经过版本核验的工具定义。 |
+| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。 |
+| [m28_coding_agent](m28_coding_agent/README.md) | 读取、精确修改、运行测试和终态验收组成一次修复。 |
+| [m29_async_runtime](m29_async_runtime/README.md) | 请求取消和确认停止之间有状态; 已提交的副作用仍然存在。 |
+| [m30_collaboration](m30_collaboration/README.md) | 没有文本冲突不代表合并后满足共同约束。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。 |
+| [m32_agent_training](m32_agent_training/README.md) | 进入环境采样、计算奖励、更新参数, 再用隔离任务验收。 |
+| [m33_skill_evolution](m33_skill_evolution/README.md) | 先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 坐标属于一次观察, 提交前还要核对当前对象。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | 动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。 |
+| [m37_midtraining](m37_midtraining/README.md) | 中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。 |
+| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序让执行可重复, 但规则、数据接口和生成结果仍须验证。 |
+| [m39_meta_optimization](m39_meta_optimization/README.md) | 回放只能重组走过的分支; 学习搜索方法也需要独立测试。 |
+| [m40_agent_society](m40_agent_society/README.md) | 个体奖励、公共目标和交互历史共同决定协作结果。 |
+| [m41_system_design](m41_system_design/README.md) | 按任务不确定性分配自主性, 按证据与预算约束执行。 |
+| [m42_memory_privacy](m42_memory_privacy/README.md) | 授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。 |
+
+新增 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
+
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 近似索引用更少的距离计算换召回率, 必须保留精确基准。
+
+- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师分支可以多看验证信息, 学生部署时仍只能看普通观察。

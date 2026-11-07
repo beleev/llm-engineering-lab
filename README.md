@@ -1,6 +1,6 @@
 # LLM Engineering Lab
 
-A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments and 117 interactive labs. The tutorial text is primarily in Chinese.
+A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments and 136 interactive experiments (including Python evidence replays). The tutorial text is primarily in Chinese.
 
 [在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.0.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.0.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
 
@@ -16,7 +16,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
 - 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
-- 配套 **交互式 Web 教程**：117 个可拖、可点、可单步播放的实验台，308 道章末自测，203 条术语速查。页面上的代码直接取自仓库里的 Python 源文件。
+- 配套 **交互式 Web 教程**：136 个可拖、可点、可单步播放的实验入口（含 Python 运行证据回放），346 道章末自测，222 条术语速查。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -47,13 +47,17 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：首错诊断、记忆更新、完成验收、重试与取消、上下文净成本、多跳证据、轨迹学习和四阶段改进评估。
 
+### Agent 知识覆盖
+
+按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。新增 m26–m44 仍属于扩展层, 包含真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+
 ## 安装与运行
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.10; 阶段 2/4 需要 torch, 阶段 1/3/5 只要 numpy, 阶段 6 纯标准库
+pip install -e ".[dev]"      # Python ≥ 3.10; 阶段 2/4 需要 torch, 阶段 1/3/5 只要 numpy, 阶段 6 基础模块用标准库, 三个训练扩展复用 torch
 python main.py               # 冒烟: 每个核心模型跑一次前向, 断言初始 loss ≈ ln V、KV cache 有无一致
 
-pytest                       # 所有 demo / infer 脚本 (约 1.5 分钟)
+pytest                       # 所有 demo / infer 脚本, 耗时依机器而定
 pytest -m slow               # 所有训练脚本
 ```
 
@@ -169,13 +173,13 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 
 ## Web 教程
 
-### 93 章不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
+### 112 章不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
 
 | 档位 | 章数 | 用时 (粗估) | 读完能干什么 |
 |------|-----:|------------|--------------|
 | ★ 冲刺 | 12 | 约 1.7 小时 | 每个阶段最核心的那一两页, 接得上下一阶段 |
 | ● 主干 | 42 | 约 5.9 小时 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
-| ○ 全部 | 93 | 以网页动态估算为准 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+| ○ 全部 | 112 | 以网页动态估算为准 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
 
 分层只是阅读建议, 不影响任何章节的内容。侧栏可以按档位收起扩展章, 每章开头标着它属于哪一层,
 章内最该带走的那条结论有「重点」徽章。用时按内容字数粗估, 只用来排计划。

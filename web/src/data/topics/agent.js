@@ -1,3 +1,1760 @@
+const coverageChapters = [
+  {
+    "route": "agent-tool-discovery",
+    "label": "工具发现 · 按需加载与提示设计",
+    "hint": "先发现能力, 再加载经过版本核验的工具定义。"
+  },
+  {
+    "route": "agent-knowledge-organization",
+    "label": "知识组织 · 树状摘要与关系图",
+    "hint": "树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。"
+  },
+  {
+    "route": "agent-coding-agent",
+    "label": "Coding Agent · 修改、测试与修复",
+    "hint": "读取、精确修改、运行测试和终态验收组成一次修复。"
+  },
+  {
+    "route": "agent-async-runtime",
+    "label": "异步运行 · 事件、取消与恢复",
+    "hint": "请求取消和确认停止之间有状态; 已提交的副作用仍然存在。"
+  },
+  {
+    "route": "agent-collaboration",
+    "label": "多智能体 · 独立审查与共享冲突",
+    "hint": "没有文本冲突不代表合并后满足共同约束。"
+  },
+  {
+    "route": "agent-eval-suite",
+    "label": "评估体系 · 用户环境与裁判校准",
+    "hint": "固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。"
+  },
+  {
+    "route": "agent-agent-training",
+    "label": "Agent 训练 · 轨迹到参数更新",
+    "hint": "进入环境采样、计算奖励、更新参数, 再用隔离任务验收。"
+  },
+  {
+    "route": "agent-skill-evolution",
+    "label": "Skill 进化 · 提案、发布与整理",
+    "hint": "先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。"
+  },
+  {
+    "route": "agent-voice-interaction",
+    "label": "语音交互 · 打断与快慢响应",
+    "hint": "语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。"
+  },
+  {
+    "route": "agent-visual-grounding",
+    "label": "视觉操作 · 截图、定位与核对",
+    "hint": "坐标属于一次观察, 提交前还要核对当前对象。"
+  },
+  {
+    "route": "agent-embodied-control",
+    "label": "具身控制 · 反馈与模拟偏差",
+    "hint": "动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。"
+  },
+  {
+    "route": "agent-midtraining",
+    "label": "中期训练 · 新知识与旧能力",
+    "hint": "中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。"
+  },
+  {
+    "route": "agent-programmatic-actions",
+    "label": "程序化行动 · 规则、适配器与生成界面",
+    "hint": "程序让执行可重复, 但规则、数据接口和生成结果仍须验证。"
+  },
+  {
+    "route": "agent-meta-optimization",
+    "label": "元优化 · 发现树与回放",
+    "hint": "回放只能重组走过的分支; 学习搜索方法也需要独立测试。"
+  },
+  {
+    "route": "agent-agent-society",
+    "label": "智能体社会 · 激励与重复博弈",
+    "hint": "个体奖励、公共目标和交互历史共同决定协作结果。"
+  },
+  {
+    "route": "agent-system-design",
+    "label": "系统选择 · 工作流、状态与缓存",
+    "hint": "按任务不确定性分配自主性, 按证据与预算约束执行。"
+  },
+  {
+    "route": "agent-memory-privacy",
+    "label": "个人记忆 · 同意、过期与删除",
+    "hint": "授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。"
+  },
+  {
+    "route": "agent-vector-index",
+    "label": "向量索引 · 精确扫描与近似搜索",
+    "hint": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+  },
+  {
+    "route": "agent-self-distillation",
+    "label": "在轨自蒸馏 · 特权信息与部署边界",
+    "hint": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+  }
+]
+const coveragePages = {
+  "agent-tool-discovery": {
+    "title": "工具发现 · 按需加载与提示设计",
+    "subtitle": "工具有一百个, 模型该先看哪几个?",
+    "tldr": "先发现能力, 再加载经过版本核验的工具定义。",
+    "question": "工具有一百个, 模型该先看哪几个?",
+    "evolution": {
+      "title": "按需加载与提示设计",
+      "subtitle": "根问题: 工具有一百个, 模型该先看哪几个",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 工具有一百个, 模型该先看哪几个?",
+          "fix": "Agent 初次只看到 discover"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "关键词规则混淆查询与写入; 工作流程先判断意图, 项目例外再缩小范围"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m26_tool_discovery/demo.py",
+    "points": [
+      {
+        "title": "查目录不等于把目录全塞进去",
+        "body": "Agent 初次只看到 discover。\n执行后注册匹配工具, 下一次请求才带新 Schema。\n目录检索用固定标签, 不声称能理解任意自然语言。",
+        "key": true
+      },
+      {
+        "title": "规则粒度和例子解决不同问题",
+        "body": "关键词规则混淆查询与写入; 工作流程先判断意图, 项目例外再缩小范围。\n别名示例只补充它明确覆盖的表达。\n语气和角色不构成权限。"
+      },
+      {
+        "title": "工具描述也是输入",
+        "body": "加载前比对预审版本摘要。\n修改描述、实现元数据或参数语义都应重新审核; 摘要匹配只证明版本一致, 不证明内容安全。"
+      },
+      {
+        "title": "缓存与能力扩展有代价",
+        "body": "新增 Schema 会改变请求前缀。\n工具数量少了不保证任务总成本降低: 发现要多一次调用, 还可能漏召回。\n按名称排序只保证稳定顺序。"
+      },
+      {
+        "title": "参数保真与字符串复制",
+        "body": "文件路径、中文引号、反斜杠和换行都可能影响动作含义。\nfidelity_check 验证 JSON 往返逐字保留; 自动把中文引号换成英文引号会改变内容。\n精确编辑必须保留原字符串, 不把可读性整理偷偷混进参数。"
+      },
+      {
+        "title": "实验边界",
+        "body": "默认策略读取标签和返回值; 提示对照是固定语法解释器。\n没有联网 MCP、向量工具搜索或真实模型提示胜率。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 4 章",
+        "to": "llm_agent/m26_tool_discovery",
+        "body": "来源固定为 dbc046eb 的第 4 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "Spec",
+        "code": "m26_tool_discovery/demo.py:Spec",
+        "takeaway": "查目录不等于把目录全塞进去"
+      },
+      {
+        "concept": "Discover",
+        "code": "m26_tool_discovery/demo.py:Discover",
+        "takeaway": "规则粒度和例子解决不同问题"
+      },
+      {
+        "concept": "prompt_trials",
+        "code": "m26_tool_discovery/demo.py:prompt_trials",
+        "takeaway": "工具描述也是输入"
+      },
+      {
+        "concept": "fidelity_check",
+        "code": "m26_tool_discovery/demo.py:fidelity_check",
+        "takeaway": "传参逐字保真"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m26_tool_discovery.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('flat', 'discovery', 'poisoned'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m26_tool_discovery.demo",
+    "source": [
+      "llm_agent/m26_tool_discovery/demo.py:Spec",
+      "llm_agent/m26_tool_discovery/demo.py:Discover",
+      "llm_agent/m26_tool_discovery/demo.py:prompt_trials",
+      "llm_agent/m26_tool_discovery/demo.py:fidelity_check"
+    ]
+  },
+  "agent-knowledge-organization": {
+    "title": "知识组织 · 树状摘要与关系图",
+    "subtitle": "问全局主题和问实体关系, 应该查同一种索引吗?",
+    "tldr": "树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。",
+    "question": "问全局主题和问实体关系, 应该查同一种索引吗?",
+    "evolution": {
+      "title": "树状摘要与关系图",
+      "subtitle": "根问题: 问全局主题和问实体关系, 应该查同一种索引吗",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 问全局主题和问实体关系, 应该查同一种索引吗?",
+          "fix": "原始块是叶子, 聚类后逐层摘要, 查询可命中不同粒度"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "实体和关系构成图"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m27_knowledge_organization/demo.py",
+    "points": [
+      {
+        "title": "RAPTOR 的树形思路",
+        "body": "原始块是叶子, 聚类后逐层摘要, 查询可命中不同粒度。\n本例按已知主题分组并摘取摘要, 隔离层次结构; 未运行嵌入聚类或 LLM 摘要。",
+        "key": true
+      },
+      {
+        "title": "GraphRAG 的图形思路",
+        "body": "实体和关系构成图。\n沿 Atlas→团队→负责人可拼出关系答案。\n完整 GraphRAG 还包含实体抽取、社区发现和社区摘要; 简单多跳遍历只是其中一环。"
+      },
+      {
+        "title": "给分块补上上下文",
+        "body": "只有 20 看不出对象、单位和版本。\n将 Atlas、limit、v2 加回块, 提高可辨认性; 检索命中后仍校验来源, 不能让生成上下文替代原文。"
+      },
+      {
+        "title": "更新与全量整理分开",
+        "body": "增量更新先保留原证据, 同对象同关系按版本替换索引。\n定期整理再修复跨块关系、重复摘要和失效引用。\n索引过时也会造成回答过时。"
+      },
+      {
+        "title": "文件系统与结构化知识",
+        "body": "分层目录可用摘要索引、资源概览、完整正文三级加载, 以稳定 URI 关联证据。\n表格分析应把统计事实和因果解释分开; 多模态记忆也要保存原文件与摘要之间的链接。"
+      },
+      {
+        "title": "从数据到知识不等于多写摘要",
+        "body": "dataset_insights 比较短任务和长任务的两种方案: A 在两组内成功率都较高, 总体却低于 B, 因为任务分配不同。\n先保留计数、分组、分母和时间范围, 再分析关联; 观察数据的关联不能直接当因果。"
+      },
+      {
+        "title": "实验边界",
+        "body": "数据是人工构造的三元组; 不含自然语言实体抽取、真实语义嵌入或自动社区发现。\n实验比较表示方法, 不宣称完整复现论文算法。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 3 章",
+        "to": "llm_agent/m27_knowledge_organization",
+        "body": "来源固定为 dbc046eb 的第 3 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "current_facts",
+        "code": "m27_knowledge_organization/demo.py:current_facts",
+        "takeaway": "RAPTOR 的树形思路"
+      },
+      {
+        "concept": "hierarchy",
+        "code": "m27_knowledge_organization/demo.py:hierarchy",
+        "takeaway": "GraphRAG 的图形思路"
+      },
+      {
+        "concept": "graph_path",
+        "code": "m27_knowledge_organization/demo.py:graph_path",
+        "takeaway": "给分块补上上下文"
+      },
+      {
+        "concept": "dataset_insights",
+        "code": "m27_knowledge_organization/demo.py:dataset_insights",
+        "takeaway": "分组统计与总体混杂"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m27_knowledge_organization.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('flat', 'hierarchy', 'graph'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m27_knowledge_organization.demo",
+    "source": [
+      "llm_agent/m27_knowledge_organization/demo.py:current_facts",
+      "llm_agent/m27_knowledge_organization/demo.py:hierarchy",
+      "llm_agent/m27_knowledge_organization/demo.py:graph_path",
+      "llm_agent/m27_knowledge_organization/demo.py:dataset_insights"
+    ]
+  },
+  "agent-coding-agent": {
+    "title": "Coding Agent · 修改、测试与修复",
+    "subtitle": "代码改完了, 为什么还不能说修好了?",
+    "tldr": "读取、精确修改、运行测试和终态验收组成一次修复。",
+    "question": "代码改完了, 为什么还不能说修好了?",
+    "evolution": {
+      "title": "修改、测试与修复",
+      "subtitle": "根问题: 代码改完了, 为什么还不能说修好了",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 代码改完了, 为什么还不能说修好了?",
+          "fix": "搜索定位函数, 读取原文, 唯一旧文本才能替换"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "工具启动本地 Python 子进程导入修改后的模块"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m28_coding_agent/demo.py",
+    "points": [
+      {
+        "title": "先建立工作区证据",
+        "body": "搜索定位函数, 读取原文, 唯一旧文本才能替换。\n含糊替换可能改错位置; 修改前后生成 diff, 测试文件保持原摘要。",
+        "key": true
+      },
+      {
+        "title": "测试真的运行",
+        "body": "工具启动本地 Python 子进程导入修改后的模块。\n首个候选只返回原价, 测试失败; 模型读取反馈后换为正确折扣与两位小数。"
+      },
+      {
+        "title": "验收与修复预算独立",
+        "body": "最终文字不参与成功判定。\n预算耗尽或测试失败时恢复原文件; 只有环境验收通过才保留候选。"
+      },
+      {
+        "title": "Coding Agent 的工程接口",
+        "body": "大项目还要检索符号、管理上下文、执行 lint 和构建、隔离工作区、审查差异。\n代码能表达复杂规则, 但生成代码仍需权限和运行约束。"
+      },
+      {
+        "title": "实验边界",
+        "body": "策略是固定修复器, 只接受三个预审算术表达式。\n临时目录与路径围栏不是 OS 沙箱, 不支持运行任意不可信生成代码。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 5 章",
+        "to": "llm_agent/m28_coding_agent",
+        "body": "来源固定为 dbc046eb 的第 5 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "Workspace",
+        "code": "m28_coding_agent/demo.py:Workspace",
+        "takeaway": "先建立工作区证据"
+      },
+      {
+        "concept": "ProjectTool",
+        "code": "m28_coding_agent/demo.py:ProjectTool",
+        "takeaway": "测试真的运行"
+      },
+      {
+        "concept": "RepairPolicy",
+        "code": "m28_coding_agent/demo.py:RepairPolicy",
+        "takeaway": "验收与修复预算独立"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m28_coding_agent.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('one-shot', 'repair', 'budget'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m28_coding_agent.demo",
+    "source": [
+      "llm_agent/m28_coding_agent/demo.py:Workspace",
+      "llm_agent/m28_coding_agent/demo.py:ProjectTool",
+      "llm_agent/m28_coding_agent/demo.py:RepairPolicy"
+    ]
+  },
+  "agent-async-runtime": {
+    "title": "异步运行 · 事件、取消与恢复",
+    "subtitle": "用户打断时, 工具究竟执行到哪了?",
+    "tldr": "请求取消和确认停止之间有状态; 已提交的副作用仍然存在。",
+    "question": "用户打断时, 工具究竟执行到哪了?",
+    "evolution": {
+      "title": "事件、取消与恢复",
+      "subtitle": "根问题: 用户打断时, 工具究竟执行到哪了",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 用户打断时, 工具究竟执行到哪了?",
+          "fix": "任务从外部事件开始, 在 await 处挂起, 再由结果唤醒"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "asyncio Task.cancel 在可取消点抛 CancelledError"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m29_async_runtime/demo.py",
+    "points": [
+      {
+        "title": "从调用栈变成事件生命周期",
+        "body": "任务从外部事件开始, 在 await 处挂起, 再由结果唤醒。\n事件应标识任务与 generation, 状态包括 working、completed、cancel-request 与 cancel-ack。",
+        "key": true
+      },
+      {
+        "title": "取消要等执行器确认",
+        "body": "asyncio Task.cancel 在可取消点抛 CancelledError。\n本例等待确认再结束, 旧 generation 不再输出。\n阻塞线程、外部服务和物理设备没有这种自动保证。"
+      },
+      {
+        "title": "提交状态独立持久化",
+        "body": "SQLite 主键绑定操作与金额, 同键异参拒绝。\n同一事务边界内可避免重复入账; 恢复后查已有收据, 不能凭超时判断未执行。"
+      },
+      {
+        "title": "流式输出也需要代际",
+        "body": "模型文字块、工具进度、语音输出都是事件。\n展示已经发生的进度, 不把局部 token 当最终承诺。\n预算预留在无 await 临界段完成。"
+      },
+      {
+        "title": "长期任务需要更多恢复信息",
+        "body": "生产任务还要持久化检查点、租约、输入版本和审批状态, 区分外部通知与用户新指令。\n虚拟身份与工具凭证按执行身份隔离; 本例只展示单进程机制。"
+      },
+      {
+        "title": "同步模型怎样接异步事件",
+        "body": "模型不支持原生异步时, 运行时可以排队事件, 在安全轮次边界注入上下文, 或中止旧请求后用新 generation 重发。\n支持原生事件接口的模型也仍需任务归属、迟到结果过滤和预算。\n不能把后台通知直接升级为用户授权。"
+      },
+      {
+        "title": "实验边界",
+        "body": "真实 asyncio 与磁盘 SQLite, 但没有网络分区、分布式租约或进程强杀测试。\n重开的是账本, 不是自动恢复任意 Python 调用栈。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 6 章",
+        "to": "llm_agent/m29_async_runtime",
+        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "Journal",
+        "code": "m29_async_runtime/demo.py:Journal",
+        "takeaway": "从调用栈变成事件生命周期"
+      },
+      {
+        "concept": "Runtime",
+        "code": "m29_async_runtime/demo.py:Runtime",
+        "takeaway": "取消要等执行器确认"
+      },
+      {
+        "concept": "run_case",
+        "code": "m29_async_runtime/demo.py:run_case",
+        "takeaway": "提交状态独立持久化"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m29_async_runtime.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('complete', 'cancel-before', 'cancel-after'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m29_async_runtime.demo",
+    "source": [
+      "llm_agent/m29_async_runtime/demo.py:Journal",
+      "llm_agent/m29_async_runtime/demo.py:Runtime",
+      "llm_agent/m29_async_runtime/demo.py:run_case"
+    ]
+  },
+  "agent-collaboration": {
+    "title": "多智能体 · 独立审查与共享冲突",
+    "subtitle": "两个 Agent 改不同文件, 为什么仍可能冲突?",
+    "tldr": "没有文本冲突不代表合并后满足共同约束。",
+    "question": "两个 Agent 改不同文件, 为什么仍可能冲突?",
+    "evolution": {
+      "title": "独立审查与共享冲突",
+      "subtitle": "根问题: 两个 Agent 改不同文件, 为什么仍可能冲突",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 两个 Agent 改不同文件, 为什么仍可能冲突?",
+          "fix": "顺序流水线便于核查依赖, 并行专家汇总增加信息源, 提议—审查形成纠错循环"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "两个 worker 都看见总量 8, 各把自己负责的资源从 4 改到 6"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m30_collaboration/demo.py",
+    "points": [
+      {
+        "title": "协作拓扑改变信息流",
+        "body": "顺序流水线便于核查依赖, 并行专家汇总增加信息源, 提议—审查形成纠错循环。\n去中心化协作需要消息、归属和终止协议, 不是去掉管理者就会自动协调。",
+        "key": true
+      },
+      {
+        "title": "版本检查与语义检查互补",
+        "body": "两个 worker 都看见总量 8, 各把自己负责的资源从 4 改到 6。\n单文件无冲突, 合并总量变成 12; 版本号拒绝过期提案, 总量约束拒绝不合法状态。"
+      },
+      {
+        "title": "多数票不等于独立证据",
+        "body": "同一过期来源让三个答案都错。\n审查者读取 v2 得到新事实, 才能纠正结果; 同质投票不能用独立随机误差公式估计收益。"
+      },
+      {
+        "title": "避免级联和失控",
+        "body": "委托要写目标、边界、输出和预算。\n共享上下文容易互相污染, 隔离上下文需要显式传证据。\n设任务所有者、迭代上限和人工升级条件, 不把所有模糊决策都转交用户。"
+      },
+      {
+        "title": "实验边界",
+        "body": "规则 worker 提案与固定证据审查, 未证明真实多模型的独立性。\n并发取消和 A2A 协议分别见 m29 与 m18。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 10 章",
+        "to": "llm_agent/m30_collaboration",
+        "body": "来源固定为 dbc046eb 的第 10 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "SharedPlan",
+        "code": "m30_collaboration/demo.py:SharedPlan",
+        "takeaway": "协作拓扑改变信息流"
+      },
+      {
+        "concept": "reviewed_answer",
+        "code": "m30_collaboration/demo.py:reviewed_answer",
+        "takeaway": "版本检查与语义检查互补"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m30_collaboration.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('file-only', 'revision', 'invariant'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m30_collaboration.demo",
+    "source": [
+      "llm_agent/m30_collaboration/demo.py:SharedPlan",
+      "llm_agent/m30_collaboration/demo.py:reviewed_answer"
+    ]
+  },
+  "agent-eval-suite": {
+    "title": "评估体系 · 用户环境与裁判校准",
+    "subtitle": "总通过率上涨, 是哪类问题真的改善了?",
+    "tldr": "固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。",
+    "question": "总通过率上涨, 是哪类问题真的改善了?",
+    "evolution": {
+      "title": "用户环境与裁判校准",
+      "subtitle": "根问题: 总通过率上涨, 是哪类问题真的改善了",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 总通过率上涨, 是哪类问题真的改善了?",
+          "fix": "用户隐藏状态、环境、工具、终态裁判和过程约束共同定义测试"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "关闭澄清或授权机制时使用同一任务集"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m31_eval_suite/demo.py",
+    "points": [
+      {
+        "title": "任务不只有一段提示",
+        "body": "用户隐藏状态、环境、工具、终态裁判和过程约束共同定义测试。\n账户有歧义时用户模拟器只回答澄清问题, 不提前把隐藏状态泄漏给策略。",
+        "key": true
+      },
+      {
+        "title": "消融必须保持题目相同",
+        "body": "关闭澄清或授权机制时使用同一任务集。\neasy、hard、safety 分开报告, suite 摘要标识版本; 更换数据分布不能当同一次 A/B。"
+      },
+      {
+        "title": "评审器也要验证",
+        "body": "长度偏好会把长而错的结果判为好。\nrubric 检查支持与作用域, 与预先标注夹具算一致率、假阳性和假阴性。\n真实 LLM judge 还需人工样本校准与顺序交换。"
+      },
+      {
+        "title": "观测与实验基础设施",
+        "body": "记录调用、错误类别、延迟和真实 usage, 区分模型失败与基础设施失败。\n机制开关和目标人群开关分开; 配对重采样、样本量与效果阈值一起解释。"
+      },
+      {
+        "title": "模拟器也可能教坏策略",
+        "body": "用户语气、工具延迟和错误分布可做域随机化, 但要用真实案例校准保真度。\n隐私日志只留必要字段, 失败案例进训练前检查泄漏和授权。"
+      },
+      {
+        "title": "评估集需要长期维护",
+        "body": "来自真实失败、人工设计和合成任务的样本各有偏差。\n标记来源、难度、时间与适用人群, 按同源任务分组拆分, 保留封闭测试集。\n题目长期全对可能意味着饱和或泄漏, 不一定是能力已无限提高。"
+      },
+      {
+        "title": "实验边界",
+        "body": "小型规则用户、人工预设校准标签, 没有开展真实人工评审或线上 A/B。\n调用数来自执行, 延迟与费用不编造。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 7 章",
+        "to": "llm_agent/m31_eval_suite",
+        "body": "来源固定为 dbc046eb 的第 7 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "UserSimulator",
+        "code": "m31_eval_suite/demo.py:UserSimulator",
+        "takeaway": "任务不只有一段提示"
+      },
+      {
+        "concept": "run_task",
+        "code": "m31_eval_suite/demo.py:run_task",
+        "takeaway": "消融必须保持题目相同"
+      },
+      {
+        "concept": "calibration",
+        "code": "m31_eval_suite/demo.py:calibration",
+        "takeaway": "评审器也要验证"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m31_eval_suite.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('baseline', 'no-clarify', 'full'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m31_eval_suite.demo",
+    "source": [
+      "llm_agent/m31_eval_suite/demo.py:UserSimulator",
+      "llm_agent/m31_eval_suite/demo.py:run_task",
+      "llm_agent/m31_eval_suite/demo.py:calibration"
+    ]
+  },
+  "agent-agent-training": {
+    "title": "Agent 训练 · 轨迹到参数更新",
+    "subtitle": "轨迹已经导出了, 模型真的学会行动了吗?",
+    "tldr": "进入环境采样、计算奖励、更新参数, 再用隔离任务验收。",
+    "question": "轨迹已经导出了, 模型真的学会行动了吗?",
+    "evolution": {
+      "title": "轨迹到参数更新",
+      "subtitle": "根问题: 轨迹已经导出了, 模型真的学会行动了吗",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 轨迹已经导出了, 模型真的学会行动了吗?",
+          "fix": "m25 的 execute 同时检查答案、来源、授权和预算"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "SFT 用正确轨迹教 lookup→answer 协议, prompt 位置不计 loss"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m32_agent_training/demo.py",
+    "points": [
+      {
+        "title": "复用同一个验收器",
+        "body": "m25 的 execute 同时检查答案、来源、授权和预算。\n小 LLaMA 生成受限动作, 环境只在 lookup 或违规 steal 后提供观察; 猜中答案仍可能过程不合格。",
+        "key": true
+      },
+      {
+        "title": "SFT 与在线 RL 分别负责什么",
+        "body": "SFT 用正确轨迹教 lookup→answer 协议, prompt 位置不计 loss。\n在线策略梯度重新采样当前策略, 用组内均值作 baseline, 更新同一模型参数。"
+      },
+      {
+        "title": "采样与训练概率必须一致",
+        "body": "在线探索温度为 3, log-prob 也在温度 3 下计算。\n若采样与训练的模型、温度或数值精度不一致, 行为分布就会错配。"
+      },
+      {
+        "title": "多轮归因有方差",
+        "body": "这里把末端过程奖励传给整条动作序列, 能更新但归因粗。\nPRM、逐步奖励、critic 和优势估计可细化信用分配; 奖励越稠密也越需检查被钻空子的机会。"
+      },
+      {
+        "title": "数据与结论的边界",
+        "body": "训练与留出实体分离, 动作协议和数值范围相同。\n结果显示协议学习, 不代表未知工具或自然语言推理泛化; 这里 RL 保持留出满分, 不声称超过 SFT。"
+      },
+      {
+        "title": "后续训练方法的连接",
+        "body": "偏好对接 DPO, 过程标签接 PRM, 在线采样接 PPO/GRPO。\n失败轨迹、长动作截断、工具异常和安全约束都要进入训练设计; 对模型环境、蒸馏与自蒸馏仍要防裁判同源偏差。"
+      },
+      {
+        "title": "奖励可以携带诊断",
+        "body": "结果奖励是一项标量, 多目标可先保留质量、成本与安全的向量, 生成式诊断解释首错和修复方向。\n最终优化前必须明确组合方式, 不能用更低成本抵消授权违规。\nRLVP 一类路径约束把过程有效性也纳入验收。"
+      },
+      {
+        "title": "经典 RL 与语言动作",
+        "body": "经典环境常用固定离散动作或连续控制量; 语言 Agent 一次动作可能是变长 token 串和工具参数。\n动作语法、执行是否成功、终止与截断要分别记录, 否则训练会把无效协议当普通低奖励轨迹。"
+      },
+      {
+        "title": "实验边界",
+        "body": "真实 CPU 小 LLaMA 权重更新, 但只有四个符号动作。\n不是通用自然语言 Agent 训练基准; 不报告无证据的 RL 泛化收益。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 8 章",
+        "to": "llm_agent/m32_agent_training",
+        "body": "来源固定为 dbc046eb 的第 8 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "rollout",
+        "code": "m32_agent_training/demo.py:rollout",
+        "takeaway": "复用同一个验收器"
+      },
+      {
+        "concept": "sft",
+        "code": "m32_agent_training/demo.py:sft",
+        "takeaway": "SFT 与在线 RL 分别负责什么"
+      },
+      {
+        "concept": "online_update",
+        "code": "m32_agent_training/demo.py:online_update",
+        "takeaway": "采样与训练概率必须一致"
+      },
+      {
+        "concept": "training_run",
+        "code": "m32_agent_training/demo.py:training_run",
+        "takeaway": "多轮归因有方差"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m32_agent_training.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('untrained', 'sft', 'rl'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m32_agent_training.demo",
+    "source": [
+      "llm_agent/m32_agent_training/demo.py:rollout",
+      "llm_agent/m32_agent_training/demo.py:sft",
+      "llm_agent/m32_agent_training/demo.py:online_update",
+      "llm_agent/m32_agent_training/demo.py:training_run"
+    ]
+  },
+  "agent-skill-evolution": {
+    "title": "Skill 进化 · 提案、发布与整理",
+    "subtitle": "从一次失败学到规则, 怎样避免影响别的项目?",
+    "tldr": "先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。",
+    "question": "从一次失败学到规则, 怎样避免影响别的项目?",
+    "evolution": {
+      "title": "提案、发布与整理",
+      "subtitle": "根问题: 从一次失败学到规则, 怎样避免影响别的项目",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 从一次失败学到规则, 怎样避免影响别的项目?",
+          "fix": "知识修改事实, Prompt 修改决策顺序, Skill 保存可复用步骤, 程序修改执行机制, 参数修改模型概率"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "项目 A 的失败生成例外"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m33_skill_evolution/demo.py",
+    "points": [
+      {
+        "title": "更新载体不只有记忆",
+        "body": "知识修改事实, Prompt 修改决策顺序, Skill 保存可复用步骤, 程序修改执行机制, 参数修改模型概率。\n四类载体使用不同检查, 不能用记住新事实代替全部学习。",
+        "key": true
+      },
+      {
+        "title": "提案来自已验证反馈",
+        "body": "项目 A 的失败生成例外。\n直接把全局语言改成 Rust 会破坏 B 和安全用例; 局部提案通过后才发布, 验收集不进入提案生成输入。"
+      },
+      {
+        "title": "Skill 的三层加载",
+        "body": "index.md 供发现, SKILL.md 供决策, rules.json 保存详细规则。\n正文引用脚本或资源时还要检查路径、来源和执行权限; 描述命中不构成脚本执行授权。"
+      },
+      {
+        "title": "睡眠学习是离线整合",
+        "body": "按时间、轨迹数量、容量或错误频率触发, 在线只收证据。\n后台合并同范围重复项、保留来源、归档过期规则、重建索引, 经过回归再激活。"
+      },
+      {
+        "title": "版本控制不能代替评估",
+        "body": "可回滚让失败可恢复, 但不证明新规则可靠。\n程序更新还要测试和差异审查; 参数更新还要检查保持与安全。\n元优化比较学习方法本身, 见 m39。"
+      },
+      {
+        "title": "怎样写一份可用的 Skill",
+        "body": "先写触发条件、服务对象、步骤和输出验收。\n核心规则带正反例, 禁止项注明合法例外, 资料和脚本放引用层。\n用真实任务的失败与人工修改反推规则, 避免把一次对话全文直接当 Skill。"
+      },
+      {
+        "title": "内容加载不等于固定角色",
+        "body": "目录先可发现, 正文按需读取, 并不规定正文一定属于 system。\n不同客户端可能用 user、developer 或工具结果承载, 需要按实际 API 与信任边界检查; 不能从加载位置推断自动提权。"
+      },
+      {
+        "title": "实验边界",
+        "body": "规则提案器与本地文件发布, 不是自主生成任意自然语言 Skill。\n逐文件 replace 不构成跨文件原子事务, 并发发布需额外版本锁。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 9 章",
+        "to": "llm_agent/m33_skill_evolution",
+        "body": "来源固定为 dbc046eb 的第 9 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "propose",
+        "code": "m33_skill_evolution/demo.py:propose",
+        "takeaway": "更新载体不只有记忆"
+      },
+      {
+        "concept": "SkillStore",
+        "code": "m33_skill_evolution/demo.py:SkillStore",
+        "takeaway": "提案来自已验证反馈"
+      },
+      {
+        "concept": "curate",
+        "code": "m33_skill_evolution/demo.py:curate",
+        "takeaway": "Skill 的三层加载"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m33_skill_evolution.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('global', 'scoped', 'rollback'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m33_skill_evolution.demo",
+    "source": [
+      "llm_agent/m33_skill_evolution/demo.py:propose",
+      "llm_agent/m33_skill_evolution/demo.py:SkillStore",
+      "llm_agent/m33_skill_evolution/demo.py:curate"
+    ]
+  },
+  "agent-voice-interaction": {
+    "title": "语音交互 · 打断与快慢响应",
+    "subtitle": "用户已经改口, 为什么系统还在播旧答案?",
+    "tldr": "语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。",
+    "question": "用户已经改口, 为什么系统还在播旧答案?",
+    "evolution": {
+      "title": "打断与快慢响应",
+      "subtitle": "根问题: 用户已经改口, 为什么系统还在播旧答案",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 用户已经改口, 为什么系统还在播旧答案?",
+          "fix": "VAD 判断说话边界, ASR 产生部分及最终转录, LLM 处理任务, TTS 分块播放"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "播放期间继续监听, 回声消除需要参考信号"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m34_voice_interaction/demo.py",
+    "points": [
+      {
+        "title": "识别、推理与合成是不同阶段",
+        "body": "VAD 判断说话边界, ASR 产生部分及最终转录, LLM 处理任务, TTS 分块播放。\n级联系统便于替换组件, 原生 Omni 可联合建模但仍需控制状态。",
+        "key": true
+      },
+      {
+        "title": "全双工不能把回声当新用户",
+        "body": "播放期间继续监听, 回声消除需要参考信号。\n示例用已知波形相减演示边界; 真实设备还有延迟、混响、串音和漏检。"
+      },
+      {
+        "title": "快回应不等于快承诺",
+        "body": "先播“正在查”降低等待感, 最终答案仍等工具结果。\n快慢双通道需要共享任务状态, 防止慢结果覆盖已经取消的新需求。"
+      },
+      {
+        "title": "打断要传播到输出队列",
+        "body": "用户新语音推进 generation, 旧 TTS 块和工具结果丢弃。\n仅停止当前声音却继续接受旧结果, 会稍后重新播出过期答案。"
+      },
+      {
+        "title": "测量用户体验",
+        "body": "区分首个响应延迟、最终答案延迟、打断到停播延迟和误打断率。\n时间线是给定事件, 不把这些数写成真实语音系统性能。"
+      },
+      {
+        "title": "语音自然度不只看字准确",
+        "body": "TTS 的音色、韵律、停顿和情感影响表达; 分块太短可能降低连贯性, 等完整句子又增加延迟。\n流式感知还需保留时间戳、说话人和中断位置, 不应把多个音频片段简单当普通文字拼接。"
+      },
+      {
+        "title": "实验边界",
+        "body": "VAD 使用合成波形, ASR 与 TTS 事件是预设夹具。\n没有调用声学识别或合成模型; 重点是全双工和代际状态, 模型结构另见多模态阶段。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 6 章",
+        "to": "llm_agent/m34_voice_interaction",
+        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "voice_activity",
+        "code": "m34_voice_interaction/demo.py:voice_activity",
+        "takeaway": "识别、推理与合成是不同阶段"
+      },
+      {
+        "concept": "experiment",
+        "code": "m34_voice_interaction/demo.py:experiment",
+        "takeaway": "全双工不能把回声当新用户"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m34_voice_interaction.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('half', 'duplex', 'no-generation'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m34_voice_interaction.demo",
+    "source": [
+      "llm_agent/m34_voice_interaction/demo.py:voice_activity",
+      "llm_agent/m34_voice_interaction/demo.py:experiment"
+    ]
+  },
+  "agent-visual-grounding": {
+    "title": "视觉操作 · 截图、定位与核对",
+    "subtitle": "截图上的坐标没算错, 为什么还是点错订单?",
+    "tldr": "坐标属于一次观察, 提交前还要核对当前对象。",
+    "question": "截图上的坐标没算错, 为什么还是点错订单?",
+    "evolution": {
+      "title": "截图、定位与核对",
+      "subtitle": "根问题: 截图上的坐标没算错, 为什么还是点错订单",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 截图上的坐标没算错, 为什么还是点错订单?",
+          "fix": "定位器在截图里找目标颜色的区域中心"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "截图后交换两个订单按钮的位置, 旧坐标命中另一个订单"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m35_visual_grounding/demo.py",
+    "points": [
+      {
+        "title": "从像素找到目标",
+        "body": "定位器在截图里找目标颜色的区域中心。\n默认 demo 用栅格图; browser.py 使用 Chromium 实际截图和鼠标点击, 同一个定位函数读取真实像素。",
+        "key": true
+      },
+      {
+        "title": "观察和行动之间环境会变",
+        "body": "截图后交换两个订单按钮的位置, 旧坐标命中另一个订单。\n刷新截图可以更新坐标, 但不能保证点击瞬间页面没有再变。"
+      },
+      {
+        "title": "把导航和副作用分开",
+        "body": "点击先打开详情, 核对对象正确再提交业务动作。\n误点可以恢复, 错误提交则可能不可逆; 需要事务、授权和人工确认的动作不能只看按钮名字。"
+      },
+      {
+        "title": "不局限于浏览器",
+        "body": "桌面与手机都需要感知、动作空间、焦点和输入状态。\n音视频 GUI 还要采样时间轴; 世界模型可预测动作后果, 但预测仍需环境反馈核对。"
+      },
+      {
+        "title": "实验边界",
+        "body": "真实浏览器夹具没有联网, 定位靠特定颜色而非通用视觉语言模型。\n不会声称可操作任意站点、桌面或手机。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 6 章",
+        "to": "llm_agent/m35_visual_grounding",
+        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "locate",
+        "code": "m35_visual_grounding/demo.py:locate",
+        "takeaway": "从像素找到目标"
+      },
+      {
+        "concept": "hit",
+        "code": "m35_visual_grounding/demo.py:hit",
+        "takeaway": "观察和行动之间环境会变"
+      },
+      {
+        "concept": "experiment",
+        "code": "m35_visual_grounding/demo.py:experiment",
+        "takeaway": "把导航和副作用分开"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m35_visual_grounding.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('stale', 'refresh', 'verify'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m35_visual_grounding.demo",
+    "source": [
+      "llm_agent/m35_visual_grounding/demo.py:locate",
+      "llm_agent/m35_visual_grounding/demo.py:hit",
+      "llm_agent/m35_visual_grounding/demo.py:experiment"
+    ]
+  },
+  "agent-embodied-control": {
+    "title": "具身控制 · 反馈与模拟偏差",
+    "subtitle": "模拟器里刚好到达目标, 换个执行器为什么越界?",
+    "tldr": "动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。",
+    "question": "模拟器里刚好到达目标, 换个执行器为什么越界?",
+    "evolution": {
+      "title": "反馈与模拟偏差",
+      "subtitle": "根问题: 模拟器里刚好到达目标, 换个执行器为什么越界",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 模拟器里刚好到达目标, 换个执行器为什么越界?",
+          "fix": "机器人观测包括视觉、本体和接触信号, 动作可为力矩、关节或末端目标"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "VLA 将视觉、语言指令映射为动作, 动作可离散 token 或连续分布"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m36_embodied_control/demo.py",
+    "points": [
+      {
+        "title": "观测、控制与动作块",
+        "body": "机器人观测包括视觉、本体和接触信号, 动作可为力矩、关节或末端目标。\n长动作块减少推理次数, 却延长不看环境的时间; 反馈重新测量当前状态。",
+        "key": true
+      },
+      {
+        "title": "VLA 与分层控制",
+        "body": "VLA 将视觉、语言指令映射为动作, 动作可离散 token 或连续分布。\n高层拆任务, 低层控制稳定性; 语言计划不能直接代替实时控制与碰撞限制。"
+      },
+      {
+        "title": "世界模型与规划",
+        "body": "用动力学预测多个候选动作的后果, 再选动作; 模型偏差会沿长轨迹放大。\n执行一段再观测的滚动规划减少累积误差, 但不能消除未建模风险。"
+      },
+      {
+        "title": "Sim2Real 需要变化的环境",
+        "body": "本例改变执行器增益, 比较标称开环、反馈和最坏增益动作限制。\n域随机化、系统辨识和真实校准是互补方法, 在一个模拟器成功不代表现实安全。"
+      },
+      {
+        "title": "实验边界",
+        "body": "一维离散动力学模拟, 没有真实机器人、接触力学或训练 VLA。\n安全边界只在给定增益范围与精确观测假设下成立。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 6 章",
+        "to": "llm_agent/m36_embodied_control",
+        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "rollout",
+        "code": "m36_embodied_control/demo.py:rollout",
+        "takeaway": "观测、控制与动作块"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m36_embodied_control.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('open-loop', 'feedback', 'robust'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m36_embodied_control.demo",
+    "source": [
+      "llm_agent/m36_embodied_control/demo.py:rollout"
+    ]
+  },
+  "agent-midtraining": {
+    "title": "中期训练 · 新知识与旧能力",
+    "subtitle": "继续训练的 loss 很低, 为什么旧任务不会做了?",
+    "tldr": "中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。",
+    "question": "继续训练的 loss 很低, 为什么旧任务不会做了?",
+    "evolution": {
+      "title": "新知识与旧能力",
+      "subtitle": "根问题: 继续训练的 loss 很低, 为什么旧任务不会做了",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 继续训练的 loss 很低, 为什么旧任务不会做了?",
+          "fix": "继续 next-token 学习领域语料、工具文档和长上下文; SFT 用角色遮罩教交互格式; RL 在可评分轨迹中重"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "本例复用小 LLaMA 学固定符号知识, 新域继续训练全部 token 位置"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m37_midtraining/demo.py",
+    "points": [
+      {
+        "title": "中期训练不是大剂量 SFT",
+        "body": "继续 next-token 学习领域语料、工具文档和长上下文; SFT 用角色遮罩教交互格式; RL 在可评分轨迹中重分配概率。\n阶段选择取决于失败原因。",
+        "key": true
+      },
+      {
+        "title": "不要只看新域损失",
+        "body": "本例复用小 LLaMA 学固定符号知识, 新域继续训练全部 token 位置。\n新域正确率之外单独探测旧域, 防止新能力遮住遗忘。"
+      },
+      {
+        "title": "混合与课程",
+        "body": "新旧语料混合帮助保留能力, 长度课程应逐级扩展并检查短上下文保持。\n标称窗口扩大不代表远距离信息可用, 需远距检索和推理测试。"
+      },
+      {
+        "title": "数据和早停",
+        "body": "过滤重复、低质和污染, 按来源与时间拆分训练验证, 观察知识获得和遗忘曲线。\n若 pass@k 几乎为零先补知识, 协议失败先稳定格式, 有奖励差异再做 RL。"
+      },
+      {
+        "title": "实验边界",
+        "body": "训练真实更新权重, 但语料只有固定符号映射。\n探测衡量已知映射保持, 不称为未见知识泛化或真实长上下文训练。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 8 章",
+        "to": "llm_agent/m37_midtraining",
+        "body": "来源固定为 dbc046eb 的第 8 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "probe",
+        "code": "m37_midtraining/demo.py:probe",
+        "takeaway": "中期训练不是大剂量 SFT"
+      },
+      {
+        "concept": "continue_training",
+        "code": "m37_midtraining/demo.py:continue_training",
+        "takeaway": "不要只看新域损失"
+      },
+      {
+        "concept": "training_run",
+        "code": "m37_midtraining/demo.py:training_run",
+        "takeaway": "混合与课程"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m37_midtraining.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('base', 'domain-only', 'replay'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m37_midtraining.demo",
+    "source": [
+      "llm_agent/m37_midtraining/demo.py:probe",
+      "llm_agent/m37_midtraining/demo.py:continue_training",
+      "llm_agent/m37_midtraining/demo.py:training_run"
+    ]
+  },
+  "agent-programmatic-actions": {
+    "title": "程序化行动 · 规则、适配器与生成界面",
+    "subtitle": "把规则写成代码, 就自动可靠了吗?",
+    "tldr": "程序让执行可重复, 但规则、数据接口和生成结果仍须验证。",
+    "question": "把规则写成代码, 就自动可靠了吗?",
+    "evolution": {
+      "title": "规则、适配器与生成界面",
+      "subtitle": "根问题: 把规则写成代码, 就自动可靠了吗",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 把规则写成代码, 就自动可靠了吗?",
+          "fix": "算术、表格处理和复杂约束可交给解释器, 减少反复自然语言执行"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "专用工具提供稳定窄接口, 通用执行器组合能力强但风险大, Skill 说明何时怎样用"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m38_programmatic_actions/demo.py",
+    "points": [
+      {
+        "title": "代码是可执行的思考",
+        "body": "算术、表格处理和复杂约束可交给解释器, 减少反复自然语言执行。\n错误规则写成代码只会稳定地执行错误, 所以仍需要边界用例。",
+        "key": true
+      },
+      {
+        "title": "能力形态按问题选择",
+        "body": "专用工具提供稳定窄接口, 通用执行器组合能力强但风险大, Skill 说明何时怎样用。\n运行时适配器把外部 Schema 转成内部协议, 不能静默接受接口漂移。"
+      },
+      {
+        "title": "生成 UI 与媒体",
+        "body": "数据和结构分开: 用户字符串转义后进入 HTML 文本, SVG 用文本节点生成。\n媒体生成的程序表示便于编辑与复验, 不意味着生成的界面可以任意执行脚本。"
+      },
+      {
+        "title": "自举也需要外部约束",
+        "body": "Agent 可编写自己的适配器或测试, 但不能自己修改评分标准后证明进步。\n只接受有限 AST 语法并计预算; 通用生成代码仍需真正的隔离执行环境。"
+      },
+      {
+        "title": "实验边界",
+        "body": "受限四则表达式与本地 HTML/SVG, 不执行任意 Python、JavaScript 或第三方 Skill 脚本。\n它展示表示方式, 不衡量通用生成质量。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 5 章",
+        "to": "llm_agent/m38_programmatic_actions",
+        "body": "来源固定为 dbc046eb 的第 5 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "calculate",
+        "code": "m38_programmatic_actions/demo.py:calculate",
+        "takeaway": "代码是可执行的思考"
+      },
+      {
+        "concept": "adapt",
+        "code": "m38_programmatic_actions/demo.py:adapt",
+        "takeaway": "能力形态按问题选择"
+      },
+      {
+        "concept": "make_ui",
+        "code": "m38_programmatic_actions/demo.py:make_ui",
+        "takeaway": "生成 UI 与媒体"
+      },
+      {
+        "concept": "make_svg",
+        "code": "m38_programmatic_actions/demo.py:make_svg",
+        "takeaway": "自举也需要外部约束"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m38_programmatic_actions.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('naive', 'validated', 'rejected'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m38_programmatic_actions.demo",
+    "source": [
+      "llm_agent/m38_programmatic_actions/demo.py:calculate",
+      "llm_agent/m38_programmatic_actions/demo.py:adapt",
+      "llm_agent/m38_programmatic_actions/demo.py:make_ui",
+      "llm_agent/m38_programmatic_actions/demo.py:make_svg"
+    ]
+  },
+  "agent-meta-optimization": {
+    "title": "元优化 · 发现树与回放",
+    "subtitle": "历史回放分数提高, 为什么新任务反而更差?",
+    "tldr": "回放只能重组走过的分支; 学习搜索方法也需要独立测试。",
+    "question": "历史回放分数提高, 为什么新任务反而更差?",
+    "evolution": {
+      "title": "发现树与回放",
+      "subtitle": "根问题: 历史回放分数提高, 为什么新任务反而更差",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 历史回放分数提高, 为什么新任务反而更差?",
+          "fix": "知识更新改变知道什么, 程序更新改变怎么执行, 元优化改变如何存取信息或组织探索"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "每个节点保存历史评分和后继"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m39_meta_optimization/demo.py",
+    "points": [
+      {
+        "title": "优化的对象上移一层",
+        "body": "知识更新改变知道什么, 程序更新改变怎么执行, 元优化改变如何存取信息或组织探索。\n候选可以是 Prompt、工作流、Harness 或搜索策略, 不能混淆机制和更新载体。",
+        "key": true
+      },
+      {
+        "title": "发现树保留可回放过程",
+        "body": "每个节点保存历史评分和后继。\n策略只看已经发现的前沿及先验, 选择展开才看到得分, 防止离线评估偷看未来。"
+      },
+      {
+        "title": "复用反馈不等于预测世界",
+        "body": "回放省下重复调用底层 Agent 的成本, 但不能生成历史中没发生过的分支。\n在线和离线决策接口一致, 才有可比的预算和顺序。"
+      },
+      {
+        "title": "验证元过拟合",
+        "body": "训练树选择按先验搜索, 留出树却更适合广度搜索。\n历史最优只是历史内保证; 保留旧策略、用新任务验证、报告探索成本和失败。"
+      },
+      {
+        "title": "实验边界",
+        "body": "固定发现树与两个程序策略, 没有在线自动写代码或复现论文规模实验。\n先验只是给定信号, 不假装是模型置信度。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 9 章",
+        "to": "llm_agent/m39_meta_optimization",
+        "body": "来源固定为 dbc046eb 的第 9 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "ReplayWorld",
+        "code": "m39_meta_optimization/demo.py:ReplayWorld",
+        "takeaway": "优化的对象上移一层"
+      },
+      {
+        "concept": "search",
+        "code": "m39_meta_optimization/demo.py:search",
+        "takeaway": "发现树保留可回放过程"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m39_meta_optimization.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('breadth', 'prior', 'selected'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m39_meta_optimization.demo",
+    "source": [
+      "llm_agent/m39_meta_optimization/demo.py:ReplayWorld",
+      "llm_agent/m39_meta_optimization/demo.py:search"
+    ]
+  },
+  "agent-agent-society": {
+    "title": "智能体社会 · 激励与重复博弈",
+    "subtitle": "每个 Agent 都优化自己, 集体会更好吗?",
+    "tldr": "个体奖励、公共目标和交互历史共同决定协作结果。",
+    "question": "每个 Agent 都优化自己, 集体会更好吗?",
+    "evolution": {
+      "title": "激励与重复博弈",
+      "subtitle": "根问题: 每个 Agent 都优化自己, 集体会更好吗",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 每个 Agent 都优化自己, 集体会更好吗?",
+          "fix": "长期 Agent 需要身份、记忆、关系和信息传播机制"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "固定收益矩阵中背叛合作方获得高个体收益, 双方都背叛却总收益更低"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m40_agent_society/demo.py",
+    "points": [
+      {
+        "title": "从任务协作到长期社会",
+        "body": "长期 Agent 需要身份、记忆、关系和信息传播机制。\n小镇式模拟可观察日程和关系演化, 但模拟行为不是现实人类规律。",
+        "key": true
+      },
+      {
+        "title": "个体最优可能损害集体",
+        "body": "固定收益矩阵中背叛合作方获得高个体收益, 双方都背叛却总收益更低。\n市场、谈判和竞价同样要检查奖励与公共约束。"
+      },
+      {
+        "title": "重复交互改变激励",
+        "body": "互惠策略记住上一轮对方行为, 对持续合作与持续利用给出不同结果。\n声誉、预算、契约和退出机制会改变长期行为。"
+      },
+      {
+        "title": "评估社会实验",
+        "body": "区分个人收益、总收益、分配不均、规则违规与长期稳定性。\n对角色、信息、网络结构和奖励分别消融; 相关模型偏差可能放大群体假象。"
+      },
+      {
+        "title": "信息不对称与策略博弈",
+        "body": "隐藏角色游戏中, 每个 Agent 只能看到自己的信息与公开消息。\n实验必须限制观察接口, 防止把其他角色状态泄漏给策略。\n讨论、承诺、欺骗和投票的收益取决于规则, 不能从一个固定游戏外推社会行为。"
+      },
+      {
+        "title": "实验边界",
+        "body": "规则策略的重复囚徒困境, 没有 LLM 社会仿真、真实市场或人类行为推断。\n结论只属于给定收益矩阵和策略。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 10 章",
+        "to": "llm_agent/m40_agent_society",
+        "body": "来源固定为 dbc046eb 的第 10 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "action",
+        "code": "m40_agent_society/demo.py:action",
+        "takeaway": "从任务协作到长期社会"
+      },
+      {
+        "concept": "play",
+        "code": "m40_agent_society/demo.py:play",
+        "takeaway": "个体最优可能损害集体"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m40_agent_society.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('exploit', 'mutual', 'reciprocal'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m40_agent_society.demo",
+    "source": [
+      "llm_agent/m40_agent_society/demo.py:action",
+      "llm_agent/m40_agent_society/demo.py:play"
+    ]
+  },
+  "agent-system-design": {
+    "title": "系统选择 · 工作流、状态与缓存",
+    "subtitle": "什么时候该用固定流程, 什么时候放开 Agent?",
+    "tldr": "按任务不确定性分配自主性, 按证据与预算约束执行。",
+    "question": "什么时候该用固定流程, 什么时候放开 Agent?",
+    "evolution": {
+      "title": "工作流、状态与缓存",
+      "subtitle": "根问题: 什么时候该用固定流程, 什么时候放开 Agent",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 什么时候该用固定流程, 什么时候放开 Agent?",
+          "fix": "固定步骤用 workflow, 开放调查用循环 Agent, 混合系统把可验证流程与不确定决策分开"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "框架提供编排和接口, Harness 管权限、上下文、预算、恢复和验收"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m41_system_design/demo.py",
+    "points": [
+      {
+        "title": "先画观察、决策和行动边界",
+        "body": "固定步骤用 workflow, 开放调查用循环 Agent, 混合系统把可验证流程与不确定决策分开。\n模型选择还要看工具行为、质量、成本、延迟和可恢复性。",
+        "key": true
+      },
+      {
+        "title": "框架与 Harness 的职责",
+        "body": "框架提供编排和接口, Harness 管权限、上下文、预算、恢复和验收。\n选择框架按这些接口能否满足任务评估, 不按产品名判断先进程度。"
+      },
+      {
+        "title": "结构化状态栏",
+        "body": "把目标、已完成项、剩余预算、待核实问题作为独立状态维护。\n状态更新来自环境事件, 不把模型自述直接当事实; 状态栏本身也占上下文。"
+      },
+      {
+        "title": "Prompt Cache 与 KV 不等价",
+        "body": "Prompt 缓存是服务接口的前缀复用与计费语义; KV 是模型层的中间状态。\nChat template、工具顺序、位置、模型版本和前缀都影响复用条件。"
+      },
+      {
+        "title": "可编辑上下文必须核对因果依赖",
+        "body": "本例用两层因果混合说明: 后缀隐藏状态依赖之前的前缀, 换前缀后直接拼旧状态会错。\n组合 KV 需要额外模型结构或重算验证, 不能只按文本块 id 拼接。"
+      },
+      {
+        "title": "人工介入应有明确触发",
+        "body": "对象歧义先澄清, 高后果动作交授权方。\n护栏要覆盖输入、上下文和执行; Sidecar 只看结构化动作能减少被原文诱导, 但仍需要独立执行约束。"
+      },
+      {
+        "title": "上下文学习的机制边界",
+        "body": "上下文示例能激活关联、模式匹配和任务适应, 并不更新持久参数。\n书中“检索而非推理”应读作相关机制实验的解释, 不能当作所有模型和任务的定理。\n压缩后能否保留关系、否定和约束, 仍须用具体任务检验。"
+      },
+      {
+        "title": "实验边界",
+        "body": "任务路由与费用是明确的教学模型; KV 反例使用标量因果混合, 不代替真实 Transformer 精度和性能测试。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 1 章",
+        "to": "llm_agent/m41_system_design",
+        "body": "来源固定为 dbc046eb 的第 1 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "choose",
+        "code": "m41_system_design/demo.py:choose",
+        "takeaway": "先画观察、决策和行动边界"
+      },
+      {
+        "concept": "status_bar",
+        "code": "m41_system_design/demo.py:status_bar",
+        "takeaway": "框架与 Harness 的职责"
+      },
+      {
+        "concept": "cache_experiment",
+        "code": "m41_system_design/demo.py:cache_experiment",
+        "takeaway": "结构化状态栏"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m41_system_design.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('workflow', 'agent', 'hybrid'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m41_system_design.demo",
+    "source": [
+      "llm_agent/m41_system_design/demo.py:choose",
+      "llm_agent/m41_system_design/demo.py:status_bar",
+      "llm_agent/m41_system_design/demo.py:cache_experiment"
+    ]
+  },
+  "agent-memory-privacy": {
+    "title": "个人记忆 · 同意、过期与删除",
+    "subtitle": "记忆删了, 为什么检索结果还可能找到它?",
+    "tldr": "授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。",
+    "question": "记忆删了, 为什么检索结果还可能找到它?",
+    "evolution": {
+      "title": "同意、过期与删除",
+      "subtitle": "根问题: 记忆删了, 为什么检索结果还可能找到它",
+      "steps": [
+        {
+          "name": "直接执行",
+          "pain": "(原点) 记忆删了, 为什么检索结果还可能找到它?",
+          "fix": "工作记忆放当下状态, 情节记忆保留经历, 语义记忆保留事实, 程序记忆保留做法"
+        },
+        {
+          "name": "遇到边界",
+          "pain": "直接执行还没有验证错误路径和适用范围",
+          "fix": "记住一条事实、在多轮对话找回、在合适时机主动帮助是三种能力"
+        },
+        {
+          "name": "对照验收",
+          "pain": "局部改善不等于其他条件下仍然成立",
+          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+        }
+      ]
+    },
+    "code": "llm_agent/m42_memory_privacy/demo.py",
+    "points": [
+      {
+        "title": "记忆层次与表示",
+        "body": "工作记忆放当下状态, 情节记忆保留经历, 语义记忆保留事实, 程序记忆保留做法。\n这些是设计类比, 不是对模型认知能力的证明; 可用列表、文档、图或可执行规则表示。",
+        "key": true
+      },
+      {
+        "title": "跨会话与主动服务分开测",
+        "body": "记住一条事实、在多轮对话找回、在合适时机主动帮助是三种能力。\n主动使用个人信息还需要同意, 不能因为记得就自动通知。"
+      },
+      {
+        "title": "层级与多模态不绕过权限",
+        "body": "租户、用户和主题共同决定召回范围。\n摘要层、完整正文、图片字幕、音频转录和原文件链接都继承来源权限, 不能只过滤最终原文。"
+      },
+      {
+        "title": "删除与压缩的区别",
+        "body": "过期决定是否还可召回, 压缩减少体积, 删除清理原文及派生引用。\n本例删除同步清理索引和缓存, 审计只留操作和散列标识, 不保留个人正文。"
+      },
+      {
+        "title": "后台整理需要冲突策略",
+        "body": "频率、时间、重要性可辅助筛选, 但不能把常被访问的错误当真。\n合并前保留来源与作用域, 碰到冲突重新求证; 索引损坏需可从证据重建。"
+      },
+      {
+        "title": "实验边界",
+        "body": "内存中的合成个人信息, 没有生产身份认证、加密或备份删除。\n说明数据生命周期, 不宣称满足某项法律或平台合规要求。"
+      }
+    ],
+    "links": [
+      {
+        "from": "ai-agent-book 第 3 章",
+        "to": "llm_agent/m42_memory_privacy",
+        "body": "来源固定为 dbc046eb 的第 3 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
+      }
+    ],
+    "sourceRows": [
+      {
+        "concept": "MemoryService",
+        "code": "m42_memory_privacy/demo.py:MemoryService",
+        "takeaway": "记忆层次与表示"
+      }
+    ],
+    "snippetTitle": "运行对照, 再核对假设",
+    "snippet": "from llm_agent.m42_memory_privacy.demo import experiment\n\n# 返回真实运行记录, 不以模型完成声明判定成功\nfor mode in ('flat', 'scoped', 'forget'):\n    result = experiment(mode)\n    for event in result[\"trace\"]:\n        print(event[\"title\"], event[\"detail\"])",
+    "run": "python -m llm_agent.m42_memory_privacy.demo",
+    "source": [
+      "llm_agent/m42_memory_privacy/demo.py:MemoryService"
+    ]
+  },
+  "agent-vector-index": {
+    "title": "向量索引 · 精确扫描与近似搜索",
+    "subtitle": "向量都算出来了, 为什么还需要索引?",
+    "tldr": "近似索引用更少的距离计算换召回率, 必须保留精确基准。",
+    "question": "向量都算出来了, 为什么还需要索引?",
+    "code": "llm_agent/m43_vector_index/demo.py",
+    "evolution": {
+      "title": "精确扫描与近似搜索",
+      "subtitle": "根问题: 向量都算出来了, 为什么还需要索引?",
+      "steps": [
+        {
+          "name": "直接做",
+          "pain": "(原点) 向量都算出来了, 为什么还需要索引?",
+          "fix": "先建立可精确检查的基线"
+        },
+        {
+          "name": "改变条件",
+          "pain": "基线暴露计算或监督信号不足",
+          "fix": "引入本章机制, 同时保留失败对照"
+        },
+        {
+          "name": "隔离验收",
+          "pain": "单个案例成功不代表无条件有效",
+          "fix": "检查预算、信息边界和独立测试, 报告未覆盖范围"
+        }
+      ]
+    },
+    "points": [
+      {
+        "title": "从词向量到语境向量",
+        "body": "Word2Vec 为词存一个静态向量; 上下文编码器让同一个词随语境变化。\n句向量还需池化与检索训练。\n稠密、稀疏和多向量表示各有索引方式, 不能把随机投影的字词特征称为训练过的语义表示。",
+        "key": true
+      },
+      {
+        "title": "相似度不是语义保证",
+        "body": "余弦比较方向, 点积受长度影响, 欧氏距离衡量空间距离。\n归一化会改变三者关系; 嵌入相似也不证明事实正确或证据充分。\n模型、归一化和索引度量应配套验证。"
+      },
+      {
+        "title": "树与图怎样减少搜索",
+        "body": "本例投影树只搜索一个叶子, 在分割边界可能漏掉最近点。\n图搜索从入口沿邻居扩展, 用距离计算预算控制开销; 预算充足可回到精确结果, 小预算可能困在局部。"
+      },
+      {
+        "title": "ANNOY 与 HNSW 的结构区别",
+        "body": "ANNOY 通过多棵随机投影树收集候选, 多树或更大搜索预算提高召回。\nHNSW 使用多层邻近图, 上层快速定位, 底层扩展候选; 邻接度与搜索宽度影响内存、构建和查询。"
+      },
+      {
+        "title": "更新同样有成本",
+        "body": "静态树常用重建吸收新数据; 图结构可增量插入, 但也要处理删除、连通性和长期退化。\n用精确近邻做 recall 基准, 同时报距离计算、内存、构建和更新代价。"
+      },
+      {
+        "title": "实验边界",
+        "body": "二维固定向量、单树和单层图的机制实验, 未实现完整 ANNOY/HNSW, 未训练语义嵌入。\n距离计算次数是实际计数, 不是生产延迟。"
+      }
+    ],
+    "source": [
+      "llm_agent/m43_vector_index/demo.py:exact",
+      "llm_agent/m43_vector_index/demo.py:build_tree",
+      "llm_agent/m43_vector_index/demo.py:tree_query",
+      "llm_agent/m43_vector_index/demo.py:build_graph",
+      "llm_agent/m43_vector_index/demo.py:graph_query"
+    ],
+    "sourceRows": [
+      {
+        "concept": "exact",
+        "code": "m43_vector_index/demo.py:exact",
+        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+      },
+      {
+        "concept": "build_tree",
+        "code": "m43_vector_index/demo.py:build_tree",
+        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+      },
+      {
+        "concept": "tree_query",
+        "code": "m43_vector_index/demo.py:tree_query",
+        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+      },
+      {
+        "concept": "build_graph",
+        "code": "m43_vector_index/demo.py:build_graph",
+        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+      },
+      {
+        "concept": "graph_query",
+        "code": "m43_vector_index/demo.py:graph_query",
+        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+      }
+    ],
+    "snippetTitle": "固定基线, 再比较条件",
+    "snippet": "from llm_agent.m43_vector_index.demo import experiment\n\nfor mode in ('exact', 'tree', 'graph'):\n    print(mode, experiment(mode))",
+    "run": "python -m llm_agent.m43_vector_index.demo",
+    "links": [
+      {
+        "from": "ai-agent-book 第 3 章",
+        "to": "m43_vector_index",
+        "body": "对应固定书版本的机制, 逐节对照见 docs/agent-book-coverage.md。"
+      }
+    ]
+  },
+  "agent-self-distillation": {
+    "title": "在轨自蒸馏 · 特权信息与部署边界",
+    "subtitle": "没有更强的教师, 同一个模型能给自己监督吗?",
+    "tldr": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。",
+    "question": "没有更强的教师, 同一个模型能给自己监督吗?",
+    "code": "llm_agent/m44_self_distillation/demo.py",
+    "evolution": {
+      "title": "特权信息与部署边界",
+      "subtitle": "根问题: 没有更强的教师, 同一个模型能给自己监督吗?",
+      "steps": [
+        {
+          "name": "直接做",
+          "pain": "(原点) 没有更强的教师, 同一个模型能给自己监督吗?",
+          "fix": "先建立可精确检查的基线"
+        },
+        {
+          "name": "改变条件",
+          "pain": "基线暴露计算或监督信号不足",
+          "fix": "引入本章机制, 同时保留失败对照"
+        },
+        {
+          "name": "隔离验收",
+          "pain": "单个案例成功不代表无条件有效",
+          "fix": "检查预算、信息边界和独立测试, 报告未覆盖范围"
+        }
+      ]
+    },
+    "points": [
+      {
+        "title": "同一个模型, 不同的信息",
+        "body": "教师和学生共用参数, 教师分支额外接收经验证的方向提示。\n优势来自信息条件, 不是凭空多了一个更聪明的模型; 模型须已有利用提示的能力。",
+        "key": true
+      },
+      {
+        "title": "在学生实际访问的状态上蒸馏",
+        "body": "学生按当前策略走向目标, 由自己的动作决定后续状态。\n对这些状态计算教师分布, 用现有 reverse KL 更新学生; 教师分支用 no_grad 截断梯度。"
+      },
+      {
+        "title": "没有额外信息时会怎样",
+        "body": "教师和学生看到同样输入、使用相同参数, 两个分布相同, KL 为零。\n不能把自我重复当作新的学习信号。"
+      },
+      {
+        "title": "答案隔离与保持",
+        "body": "部署接口的提示通道始终为零, 只在训练侧使用已验证信息。\n测试起点与训练起点不同, 轨迹状态可能重叠; 这里只验证控制规则迁移, 不声称分布外语言推理。"
+      },
+      {
+        "title": "自蒸馏仍会失败",
+        "body": "如果特权信息错误或教师无法利用它, 就会复制错误。\n参考答案、人工示范或领域材料需要授权和校验; 保持正则、风格评估和安全回归限制副作用。"
+      },
+      {
+        "title": "实验边界",
+        "body": "四参数线性控制策略, 提示通道的利用能力预先设定。\n训练确实更新参数, 但不是完整语言模型 OPSD 配方, 不证明未知知识能被自我创造。"
+      }
+    ],
+    "source": [
+      "llm_agent/m44_self_distillation/demo.py:rollout",
+      "llm_agent/m44_self_distillation/demo.py:score",
+      "llm_agent/m44_self_distillation/demo.py:train"
+    ],
+    "sourceRows": [
+      {
+        "concept": "rollout",
+        "code": "m44_self_distillation/demo.py:rollout",
+        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+      },
+      {
+        "concept": "score",
+        "code": "m44_self_distillation/demo.py:score",
+        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+      },
+      {
+        "concept": "train",
+        "code": "m44_self_distillation/demo.py:train",
+        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+      }
+    ],
+    "snippetTitle": "固定基线, 再比较条件",
+    "snippet": "from llm_agent.m44_self_distillation.demo import experiment\n\nfor mode in ('before', 'no-hint', 'privileged'):\n    print(mode, experiment(mode))",
+    "run": "python -m llm_agent.m44_self_distillation.demo",
+    "links": [
+      {
+        "from": "ai-agent-book 第 8 章",
+        "to": "m44_self_distillation",
+        "body": "对应固定书版本的机制, 逐节对照见 docs/agent-book-coverage.md。"
+      }
+    ]
+  }
+}
+
 // 阶段 6 · llm_agent: 23 章的完整页面定义。
 // 每页的 points 里恰好有一条 key: true, 标这一章最该带走的那条。
 const A = 'llm_agent/'
@@ -23,8 +1780,10 @@ export default {
     { route: 'agent-evidence-chain', label: '检索证据 · 从相关到足够回答', hint: '别名、对象、版本与答案形成完整证据链, 才能输出结果。' },
     { route: 'agent-trajectory-learning', label: '轨迹学习 · 先验证，再造训练数据', hint: '结果、来源、授权和预算一起决定轨迹能否进入训练集。' },
     { route: 'agent-learning-loop', label: '持续改进 · 学会、迁移、变化与保持', hint: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。' },
+    ...coverageChapters,
   ],
   pages: {
+    ...coveragePages,
     'agent-loop': {
       title: 'Agent loop · 从"会说"到"会做"的最小闭环',
       subtitle: '读完你能说清: 一次工具调用在 loop 里要经过哪几站, 以及工具报错为什么不该把 loop 炸掉。',
