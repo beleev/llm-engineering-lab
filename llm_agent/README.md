@@ -119,15 +119,15 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | 权限: 规则 + 模式 + plan mode | yes | m03 / m10; 黑名单局限已当场演示 |
 | OS 级沙箱 / 真实 shell | no | 教学安全: 只模拟; 路径围栏见 m12 |
 | Hooks (7 事件) | yes | Stop 仅通知, 不能阻止结束 |
-| Skills 渐进式披露 | yes | 两层 (目录 / 正文), 未做第三层附件 |
+| Skills 渐进式披露 | yes | m05 为目录/正文两层；m33 演示 index / SKILL / rules 三层资料及版本发布 |
 | MCP | partial | 真实 stdio + tools; 无 resources / prompts / HTTP / OAuth |
 | 持久化 / resume / compact boundary | yes | m06 / m14 |
 | Subagents / orchestrator-workers | yes | m07 / m11; lead 不会多轮重规划 |
-| 检索 | partial | m08 TF-IDF; m16 切块 + BM25 + 字符级稠密 + RRF + rerank; 无神经 embedding / ANN |
-| Computer use / A2A | partial | m17 模拟浏览器 (无真实渲染); m18 进程内 A2A (无 HTTP / 流式 / 推送) |
+| 检索 | partial | m08/m16 覆盖词面与字符特征检索；m43 有固定向量 ANN 机制实验；无训练过的语义 embedding、完整 ANNOY/HNSW |
+| Computer use / A2A | partial | m17 模拟浏览器，m35 可选真实 Chromium 截图/点击（颜色定位）；m18 仍为进程内 A2A，无 HTTP/流式/推送 |
 | Context editing / compaction / memory tool | yes | m14; 预算按字符, token 为估算 |
 | Prompt injection 防护 / 脱敏 | partial | 正则特征 + 轮级污点; 无信息流追踪。各层挡不住什么, 见 m03 / m07 / m09 / m12 / m17 的「与真实系统的差距」 |
-| Evals | partial | 小任务集; 无 LLM-as-judge、置信区间 |
+| Evals | partial | m13/m31 有终态、轨迹、裁判校准夹具及配对 bootstrap；无真实 LLM-as-judge 或大规模任务验证 |
 | 真实 LLM | opt-in | m15; 无 streaming / 重试 |
 | Prompt caching | partial | m19 离线模拟计费与 TTL; m15 的真实调用未启用 |
 
