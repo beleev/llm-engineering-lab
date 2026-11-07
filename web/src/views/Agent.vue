@@ -31,6 +31,8 @@
       :next-step="nextChapter"
     />
 
+    <StageContents stage-id="agent" />
+
     <section class="section">
       <h2>1. 应用层依赖链</h2>
       <div class="lead-group">
@@ -163,6 +165,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'

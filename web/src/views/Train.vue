@@ -30,6 +30,8 @@
       :next-step="nextChapter"
     />
 
+    <StageContents stage-id="train" />
+
     <section class="section">
       <h2>1. 训练技术的依赖链</h2>
       <div class="lead-group">
@@ -174,6 +176,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'

@@ -1,4 +1,4 @@
-// 目录由构建插件提取; 进入一个阶段时才下载正文。新增章节仍只改该阶段文件。
+// 目录由构建插件提取; 进入一个阶段时才下载正文。新增章节还需在 chapterGroups.js 中指定所属主题。
 import { shallowReactive } from 'vue'
 export { extraChapters } from 'virtual:course-catalog'
 

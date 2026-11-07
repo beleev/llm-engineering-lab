@@ -3,7 +3,9 @@
 // 时间轴的三条主线: left (语言), eye (多模态理解), right (图像视频生成)
 
 import { extraChapters } from 'virtual:course-catalog'
+import { organizeStage } from './chapterGroups.js'
 
+// 收集原始章节；最终分组和阅读顺序由 chapterGroups.js 决定。
 // topics/*.js 追加的章节默认接在本阶段末尾 (压轴章之前); 写了 after: '某章 route' 的挪到那一章后面
 function place(list) {
   const out = list.filter((c) => !c.after)
@@ -155,13 +157,16 @@ export const stages = [
   },
 ]
 
+stages.forEach(organizeStage)
+export const chapterByRoute = Object.fromEntries(stages.flatMap((s) => s.chapters.map((c) => [c.route, c])))
+
 export const stageBy = Object.fromEntries(stages.map(s => [s.id, s]))
 
 export const learningPath = [
   { route: 'home', label: '主线总览' },
   ...stages.flatMap(s => [
     ...(s.route ? [{ route: s.route, label: `阶段 ${s.idx}.0 · 阶段总览` }] : []),
-    ...(s.chapters || []).map(c => ({ route: c.route, label: c.label })),
+    ...(s.chapters || []).map(c => ({ route: c.route, label: `${c.number} · ${c.label}`, groupId: c.groupId })),
   ]),
   { route: 'compare', label: '总览对照表' },
 ]

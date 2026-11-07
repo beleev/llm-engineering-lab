@@ -38,8 +38,10 @@
 
     <section v-for="g in groups" :key="g.stage" class="section">
       <h2>{{ g.title }} <span class="stage-code mono">{{ g.code }}</span></h2>
+      <template v-for="topic in g.topics" :key="topic.id">
+      <h3 v-if="topic.title" class="path-topic">{{ topic.title }}</h3>
       <ol class="path">
-        <li v-for="c in g.items" :key="c.route" :class="{ done: progress.isVisited(c.route) }">
+        <li v-for="c in topic.items" :key="c.route" :class="{ done: progress.isVisited(c.route) }">
           <router-link :to="{ name: c.route }" class="row">
             <span class="tier" :class="tierOf(c.route)" :title="TIER_META[tierOf(c.route)].desc">
               {{ isSprint(c.route) ? '★' : TIER_META[tierOf(c.route)].mark }}
@@ -54,6 +56,7 @@
           </router-link>
         </li>
       </ol>
+      </template>
     </section>
 
     <section class="section">
@@ -97,7 +100,7 @@ const readCount = computed(() => list.value.filter((c) => progress.isVisited(c.r
 const nextUp = computed(() => list.value.find((c) => !progress.isVisited(c.route)) || list.value[0])
 
 // 按阶段分组, 组内保持 learningPath 的顺序
-const groups = computed(() =>
+const stageGroups = computed(() =>
   stages
     .map((s) => ({
       stage: s.id,
@@ -108,9 +111,21 @@ const groups = computed(() =>
     }))
     .filter((g) => g.items.length),
 )
+const groups = computed(() => stageGroups.value.map((g) => {
+  const stage = stages.find((s) => s.id === g.stage)
+  const overview = g.items.filter((c) => !c.groupId)
+  return { ...g, topics: [
+    ...(overview.length ? [{ id: 'overview', title: '', items: overview }] : []),
+    ...(stage?.groups || []).map((topic) => ({
+      id: topic.id, title: `${topic.number} · ${topic.title}`,
+      items: g.items.filter((c) => c.groupId === topic.id),
+    })).filter((topic) => topic.items.length),
+  ] }
+}))
 </script>
 
 <style scoped>
+.path-topic { font-size: 14px; margin: 20px 0 8px; color: var(--text-muted); }
 .levels { margin-bottom: 16px; }
 .summary { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
 .sum-item { display: flex; flex-direction: column; }

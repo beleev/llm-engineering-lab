@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { extraChapters, loadTopics } from '@/data/topics/index.js'
 import { loadQuiz } from '@/data/quiz/index.js'
-import { stageBy, stages } from '@/data/models.js'
+import { stageBy, stages, chapterByRoute } from '@/data/models.js'
 
 // meta.stage 用于侧栏分组与面包屑; meta.title 是章节名, 显示在面包屑和标签页标题里。
 // 章节名以侧栏为准: 文件末尾会用 models.js 里的 label 覆盖这里的 title, 两边不会各说各的。
@@ -301,7 +301,11 @@ for (const s of stages) {
   const titles = [[s.route, s.title], ...(s.chapters || []).map((c) => [c.route, c.label])]
   for (const [name, title] of titles) {
     const r = routes.find((x) => x.name === name)
-    if (r) r.meta.title = title
+    if (r) {
+      r.meta.title = title
+      const chapter = chapterByRoute[name]
+      if (chapter) Object.assign(r.meta, { number: chapter.number, groupId: chapter.groupId, groupTitle: chapter.groupTitle })
+    }
   }
 }
 
