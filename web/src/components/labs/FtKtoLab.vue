@@ -40,7 +40,7 @@
       <!-- 拖竖线 = 改隐式奖励 r -->
       <line :x1="RX(r)" y1="16" :x2="RX(r)" y2="140" stroke="var(--accent)" stroke-width="2" />
       <rect
-        class="draggable" :x="RX(r) - 8" y="8" width="16" height="136" fill="transparent"
+        class="draggable focus-inset" :x="RX(r) - 8" y="8" width="16" height="136" fill="transparent"
         tabindex="0" role="slider" aria-label="隐式奖励 r" :aria-valuenow="r.toFixed(1)" aria-valuemin="-10" aria-valuemax="10"
         @pointerdown="start($event, { svg: svgEl, onMove: ({ x }) => setR((x - 290) / 26) })"
         @keydown.right.prevent="setR(r + 0.5)" @keydown.left.prevent="setR(r - 0.5)"

@@ -82,7 +82,7 @@ const icon = computed(() => {
 }
 
 .ref-icon { font-size: 11px; opacity: 0.85; }
-.ref-path { background: transparent; border: none; padding: 0; color: inherit; font: inherit; }
+.ref-path { min-width: 0; overflow-wrap: anywhere; background: transparent; border: none; padding: 0; color: inherit; font: inherit; }
 .ref-line {
   color: var(--text-dim);
   font-size: 10.5px;

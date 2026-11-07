@@ -32,7 +32,7 @@
         <text :x="px(t)" :y="H - 6" class="tick" text-anchor="middle">{{ t }}</text>
       </g>
       <circle v-for="(d, i) in shown" :key="i" :cx="px(d.diff)" :cy="d.y" r="2.6" :class="d.cls" />
-      <g class="draggable" tabindex="0" role="slider" aria-label="先手加分 bias" :aria-valuenow="bias"
+      <g class="draggable focus-inset" tabindex="0" role="slider" aria-label="先手加分 bias" :aria-valuenow="bias"
         @pointerdown="start($event, { svg, onMove: ({ x }) => (bias = clamp(Math.round(-pxInv(x) * 20) / 20, 0, 1.5)) })"
         @keydown.left.prevent.stop="bias = clamp(+(bias + 0.05).toFixed(2), 0, 1.5)" @keydown.right.prevent.stop="bias = clamp(+(bias - 0.05).toFixed(2), 0, 1.5)">
         <line :x1="px(-bias)" :x2="px(-bias)" :y1="8" :y2="H - 20" class="bound" />
