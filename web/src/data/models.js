@@ -663,6 +663,55 @@ export const agentModules = [
     link: '一个 mini-Claude-Code-style harness',
     file: 'llm_agent/full_loop/demo.py',
   },
+  {
+    id: 'm20',
+    name: '记忆更新 · 来源、范围与版本',
+    concept: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。',
+    link: '查询先找项目, 再回退全局',
+    file: 'llm_agent/m20_memory_lifecycle/demo.py',
+  },
+  {
+    id: 'm21',
+    name: '完成验收 · 说完不等于做完',
+    concept: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。',
+    link: '把缺口交回执行者',
+    file: 'llm_agent/m21_completion_verification/demo.py',
+  },
+  {
+    id: 'm22',
+    name: '故障恢复 · 重试、幂等与取消',
+    concept: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。',
+    link: '幂等键绑定同一个操作',
+    file: 'llm_agent/m22_runtime_reliability/demo.py',
+  },
+  {
+    id: 'm23',
+    name: '上下文成本 · 压缩与缓存一起算',
+    concept: '比较净成本, 同时检查范围、否定和来源是否保留。',
+    link: '摘要也有账单',
+    file: 'llm_agent/m23_context_cache/demo.py',
+  },
+  {
+    id: 'm24',
+    name: '检索证据 · 从相关到足够回答',
+    concept: '别名、对象、版本与答案形成完整证据链, 才能输出结果。',
+    link: '两跳要有两段证据',
+    file: 'llm_agent/m24_agentic_rag/demo.py',
+  },
+  {
+    id: 'm25',
+    name: '轨迹学习 · 先验证，再造训练数据',
+    concept: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
+    link: '同一份轨迹生成三种数据',
+    file: 'llm_agent/m25_trajectory_learning/demo.py',
+  },
+  {
+    id: 'learning',
+    name: '持续改进 · 学会、迁移、变化与保持',
+    concept: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。',
+    link: '规则变化应有一个可解释的恢复点',
+    file: 'llm_agent/full_learning_loop/demo.py',
+  },
 ]
 
 

@@ -170,3 +170,7 @@ BM25 分数没有上界, 余弦在 [-1, 1], 两者直接相加会被 BM25 主导
 神经 embedding 在大语料上见过 "get my money back" 与 "refund" 的共现, 预期能把 billing#1 排进前几名。但这需要用同一套 `QA` 实测, 不能假设。
 
 </details>
+
+## 继续实验
+
+相关块之外, 怎样检查对象、版本与多跳证据? 见 [m24_agentic_rag](../m24_agentic_rag/README.md)。

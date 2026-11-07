@@ -40,4 +40,12 @@ export default [
   { term: 'RRF', aka: 'Reciprocal Rank Fusion', stage: S, oneliner: '多路检索只按名次融合, 不管分数尺度', number: '$\\sum_r 1/(60 + \\mathrm{rank}_r)$', route: 'agent-rag' },
   { term: 'Rerank', aka: '重排 / cross-encoder', stage: S, oneliner: '只对前几名逐对精读、重新排序; 改名次, 不改召回', number: 'm16: resume 题 RRF 第 8 → rerank 第 1', route: 'agent-rag' },
   { term: 'recall@k / MRR', aka: '检索评测', stage: S, oneliner: '相关块进前 k 的比例 / 第一个相关块名次倒数的平均', number: 'hybrid+rerank: recall@1 0.95, MRR 0.96', route: 'agent-rag' },
+  { term: '记忆作用域', aka: 'memory scope', stage: 'agent', oneliner: '项目例外只覆盖对应对象和范围, 不改全局事实', route: 'agent-memory-lifecycle' },
+  { term: '完成验收', aka: 'completion verification', stage: 'agent', oneliner: '用环境证据确认完成, 失败后在预算内修复', route: 'agent-completion-verification' },
+  { term: '取消确认', aka: 'cancellation acknowledgement', stage: 'agent', oneliner: '执行器确认停机后才停止新动作, 已有副作用仍在', route: 'agent-runtime-reliability' },
+  { term: '压缩净成本', aka: 'net compaction cost', stage: 'agent', oneliner: '压缩后的输入加上摘要与缓存重建, 才是总成本', route: 'agent-context-cost' },
+  { term: '证据链完整性', aka: 'evidence completeness', stage: 'agent', oneliner: '引用既要支持答案, 也要支持对象和版本的对应关系', route: 'agent-evidence-chain' },
+  { term: '轨迹准入', aka: 'trajectory eligibility', stage: 'agent', oneliner: '验收通过的轨迹才进入学习数据, 猜中不等于合格', route: 'agent-trajectory-learning' },
+  { term: '旧能力保持', aka: 'retention evaluation', stage: 'agent', oneliner: '学习新规则后复测未变任务, 防止更新破坏已有能力', route: 'agent-learning-loop' },
+  { term: '首错定位', aka: 'first-error diagnosis', stage: S, oneliner: '找到轨迹首次违反验收条件的位置, 保存此前上下文', route: 'agent-evals' },
 ]

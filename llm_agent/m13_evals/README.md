@@ -75,12 +75,24 @@ cd <仓库根目录> && python3 -m llm_agent.m13_evals.demo
 - FlakyLLM 下 `0 < c < n`, 且 `pass^3 < 单次通过率 < pass@3` (0.25 < 0.65 < 0.97): 同一个 agent, 两个指标讲的是完全不同的故事。
 - 边界: 全部成功时两个指标都为 1.0; `c < k` 时 `pass^k = 0`。
 
+## 首错诊断与前缀回归
+
+[![同一句完成声明的不同首错](../../docs/screenshots/agent-evals-extension-1.png)](https://beleev.github.io/llm-engineering-lab/#/agent/evals)
+
+`diagnostics.py` 增加五种真实教学 Agent 轨迹：正确、提前结束、越界写入、工具失败、模型不可用。前四种最终文字相同，但环境与过程不同。首错分别是无、第 2 步、第 2 步、第 1 步、第 1 步。
+
+冻结首错之前的消息和环境快照，再单独检查下一步动作。三个边界案例覆盖项目例外、本轮指令优先、对象歧义；可接受动作是集合，澄清或继续检查都可能合理。
+
+同时记录调用次数、成功调用的估算用量与模型尝试数。基础设施失败单列；没有响应的调用不能假装已有准确费用。配对 bootstrap 按题重采样，这三个手写案例的区间不支持线上泛化结论。
+
+网页记录可用 `python web/scripts/export-agent-evidence.py` 重建。`tests/test_agent_extensions.py` 会确认记录与当前源码一致。
+
 ## 与真实系统的差距
 
-- 任务集只有 4 个手写任务, 单一领域; 真实 suite 是几十到上千个任务, 要分层 (能力 / 安全 / 回归), 还要防止任务泄漏进 prompt 或训练数据。
+- 入门任务集只有 4 个手写任务, 另有 5 条诊断轨迹和 3 个前缀边界案例; 真实 suite 是几十到上千个任务, 要分层 (能力 / 安全 / 回归), 还要防止任务泄漏进 prompt 或训练数据。
 - 没有 LLM-as-judge: 这里所有任务都能用终态判分。开放式输出 (摘要质量、代码风格) 需要 rubric + 模型评审, 以及对评审本身的校准。
-- 没有成本 / 延迟指标: `Agent.usage` 里有 token 估算, 但 eval 没有用它。真实回归要同时看通过率、token、耗时、工具调用数。
-- 没有统计置信度: n=20 时 0.65 的 95% 区间大约是 ±0.2, demo 没算区间, 也没做 A/B 的显著性检验 —— 小差异很可能只是噪声。
+- 原四题没有成本 / 延迟指标; 诊断扩展记录调用数与 token 粗估, 未测真实延迟: `Agent.usage` 里有 token 估算, 但 eval 没有用它。真实回归要同时看通过率、token、耗时、工具调用数。
+- 入门采样部分没有统计置信度（扩展只示范了配对 bootstrap）: n=20 时 0.65 的 95% 区间大约是 ±0.2, demo 没算区间, 也没做 A/B 的显著性检验 —— 小差异很可能只是噪声。
 - FlakyLLM 的失误只有一种形态 (跳过工具) 且各次试验独立; 真实模型的失败模式多样, 并且与 prompt 相关。
 - 环境是内存里的 list 和模拟 shell; 真实 eval (SWE-bench 式) 要起容器、跑测试、做环境快照与清理。
 - 试验串行执行; 真实 harness 要并行跑、缓存、失败重试与区分"agent 失败"和"基础设施失败"。
@@ -110,3 +122,5 @@ cd <仓库根目录> && python3 -m llm_agent.m13_evals.demo
 <details><summary>答案</summary>
 `note` 的 grader 要求 `len(env.notes) == 1`, 第二次试验起 notes 里已有上一次的笔记, 会被误判失败; `safety` 在 B 配置执行过一次后 `shell.executed` 永远非空, 之后即使修好了配置也永远失败; agent 的 `messages` 还会带着上一个任务的历史, 调用预算按累计 tool_use 计也会超标。试验间状态泄漏会同时制造假阳性和假阴性, 所以"全新环境"是 eval 的硬性前提。
 </details>
+
+设计参考 [ai-agent-book 第七章的首错归因与前缀评估](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter7.md#L434)。新增代码是本仓库的独立教学实现。

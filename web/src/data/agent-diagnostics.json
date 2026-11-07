@@ -1,0 +1,113 @@
+[
+  {
+    "name": "correct",
+    "actions": [
+      "alpha",
+      "beta",
+      "final"
+    ],
+    "final": "已完成",
+    "passed": true,
+    "failure": null,
+    "state": {
+      "alpha": "saved",
+      "beta": "saved"
+    },
+    "before_error": null,
+    "tool_calls": 2
+  },
+  {
+    "name": "premature",
+    "actions": [
+      "alpha",
+      "final"
+    ],
+    "final": "已完成",
+    "passed": false,
+    "failure": {
+      "step": 2,
+      "category": "false_completion",
+      "evidence": {
+        "alpha": "saved"
+      }
+    },
+    "state": {
+      "alpha": "saved"
+    },
+    "before_error": {
+      "alpha": "saved"
+    },
+    "tool_calls": 1
+  },
+  {
+    "name": "extra-write",
+    "actions": [
+      "alpha",
+      "extra",
+      "beta",
+      "final"
+    ],
+    "final": "已完成",
+    "passed": false,
+    "failure": {
+      "step": 2,
+      "category": "scope",
+      "evidence": {
+        "type": "tool_use",
+        "id": "toolu_0002",
+        "name": "put_note",
+        "input": {
+          "title": "extra"
+        }
+      }
+    },
+    "state": {
+      "alpha": "saved",
+      "extra": "saved",
+      "beta": "saved"
+    },
+    "before_error": {
+      "alpha": "saved"
+    },
+    "tool_calls": 3
+  },
+  {
+    "name": "tool-failure",
+    "actions": [
+      "alpha",
+      "beta",
+      "final"
+    ],
+    "final": "已完成",
+    "passed": false,
+    "failure": {
+      "step": 1,
+      "category": "tool",
+      "evidence": {
+        "type": "tool_result",
+        "tool_use_id": "toolu_0001",
+        "content": "temporary write failure",
+        "is_error": true
+      }
+    },
+    "state": {},
+    "before_error": {},
+    "tool_calls": 2
+  },
+  {
+    "name": "outage",
+    "actions": [
+      "final"
+    ],
+    "final": "",
+    "passed": false,
+    "failure": {
+      "step": 1,
+      "category": "infrastructure",
+      "evidence": "model unavailable"
+    },
+    "state": {},
+    "before_error": {},
+    "tool_calls": 0
+  }
+]

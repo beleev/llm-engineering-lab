@@ -28,6 +28,13 @@ DEMOS = [
     "llm_agent.m18_a2a.demo",
     "llm_agent.m19_prompt_caching.demo",
     "llm_agent.full_loop.demo",
+    "llm_agent.m20_memory_lifecycle.demo",
+    "llm_agent.m21_completion_verification.demo",
+    "llm_agent.m22_runtime_reliability.demo",
+    "llm_agent.m23_context_cache.demo",
+    "llm_agent.m24_agentic_rag.demo",
+    "llm_agent.m25_trajectory_learning.demo",
+    "llm_agent.full_learning_loop.demo",
 ]
 
 

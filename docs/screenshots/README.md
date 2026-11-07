@@ -133,3 +133,19 @@
 | [DeepSeek‑V3 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-deepseek_v3.png) |
 | [Qwen2‑VL 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-qwen2_vl.png) |
 | [DiT 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-dit.png) |
+
+## Agent 验证与改进扩展
+
+下列图片由浏览器验收脚本截取真实实验台, 不是示意图。
+
+| 章节 | 截图 |
+|---|---|
+| [首错诊断与轨迹回归](https://beleev.github.io/llm-engineering-lab/#/agent/evals) | [查看截图](agent-evals-extension-1.png) |
+| [记忆更新 · 来源、范围与版本](https://beleev.github.io/llm-engineering-lab/#/agent/memory-lifecycle) | [查看截图](agent-memory-lifecycle-extension-1.png) |
+| [完成验收 · 说完不等于做完](https://beleev.github.io/llm-engineering-lab/#/agent/completion-verification) | [查看截图](agent-completion-verification-extension-1.png) |
+| [故障恢复 · 重试、幂等与取消 · 重试](https://beleev.github.io/llm-engineering-lab/#/agent/runtime-reliability) | [查看截图](agent-runtime-reliability-extension-1.png) |
+| [故障恢复 · 重试、幂等与取消 · 取消](https://beleev.github.io/llm-engineering-lab/#/agent/runtime-reliability) | [查看截图](agent-runtime-reliability-extension-2.png) |
+| [上下文成本 · 压缩与缓存一起算](https://beleev.github.io/llm-engineering-lab/#/agent/context-cost) | [查看截图](agent-context-cost-extension-1.png) |
+| [检索证据 · 从相关到足够回答](https://beleev.github.io/llm-engineering-lab/#/agent/evidence-chain) | [查看截图](agent-evidence-chain-extension-1.png) |
+| [轨迹学习 · 先验证，再造训练数据](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning) | [查看截图](agent-trajectory-learning-extension-1.png) |
+| [持续改进 · 学会、迁移、变化与保持](https://beleev.github.io/llm-engineering-lab/#/agent/learning-loop) | [查看截图](agent-learning-loop-extension-1.png) |

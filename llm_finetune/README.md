@@ -134,3 +134,7 @@ DPO 的 EM 在表里有两个数:
 ### 未实现
 
 RFT / best-of-N → SFT (最简单的 RL 基线); QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采到凑满 batch" 与 overlong 惩罚; IPO。
+
+## 从 Agent 轨迹构造学习数据
+
+[轨迹学习实验](../llm_agent/m25_trajectory_learning/README.md) 把结果、授权、来源和预算转换为 SFT 样本、偏好对与过程标签, 并按实体切分留出集。它验证数据入口, 不重复实现本章算法, 也不宣称已完成模型训练。

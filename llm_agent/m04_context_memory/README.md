@@ -117,3 +117,7 @@ cd <仓库根目录> && python3 -m llm_agent.m04_context_memory.demo
 <details><summary>答案</summary>
 写进 transcript 的内容会被永久携带、被持久化、被后续压缩反复处理, 而且记忆文件更新后旧副本仍留在历史里, 造成新旧冲突。每轮按当前 prompt 现查 (`memory_messages`), 上下文里只有与本轮相关的片段, 文件一改下一轮立即生效, transcript 也保持为"真实发生过的对话"。代价是每轮多一次检索, 以及记忆内容要占用当轮预算 (`Agent._assemble_context` 会先从预算里扣掉它)。
 </details>
+
+## 继续实验
+
+文件记忆有了之后, 怎样处理范围、冲突和回滚? 见 [m20_memory_lifecycle](../m20_memory_lifecycle/README.md)。

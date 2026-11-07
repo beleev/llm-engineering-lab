@@ -1,4 +1,4 @@
-// 阶段 6 · llm_agent: 16 章的完整页面定义。
+// 阶段 6 · llm_agent: 23 章的完整页面定义。
 // 每页的 points 里恰好有一条 key: true, 标这一章最该带走的那条。
 const A = 'llm_agent/'
 const C = `${A}core/`
@@ -16,6 +16,13 @@ export default {
     { route: 'agent-context-engineering', label: '上下文工程', hint: '清工具结果 → 摘要、即时检索、memory 工具' },
     { route: 'agent-prompt-caching', label: 'Prompt caching · 成本', hint: '前缀字节匹配、写 ×1.25 读 ×0.1、TTL' },
     { route: 'agent-rag', after: 'agent-context-memory', label: 'RAG · 切块、混合检索与 rerank', hint: 'BM25 + 稠密、RRF、rerank、recall@k / MRR' },
+    { route: 'agent-memory-lifecycle', label: '记忆更新 · 来源、范围与版本', hint: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。' },
+    { route: 'agent-completion-verification', label: '完成验收 · 说完不等于做完', hint: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。' },
+    { route: 'agent-runtime-reliability', label: '故障恢复 · 重试、幂等与取消', hint: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。' },
+    { route: 'agent-context-cost', label: '上下文成本 · 压缩与缓存一起算', hint: '比较净成本, 同时检查范围、否定和来源是否保留。' },
+    { route: 'agent-evidence-chain', label: '检索证据 · 从相关到足够回答', hint: '别名、对象、版本与答案形成完整证据链, 才能输出结果。' },
+    { route: 'agent-trajectory-learning', label: '轨迹学习 · 先验证，再造训练数据', hint: '结果、来源、授权和预算一起决定轨迹能否进入训练集。' },
+    { route: 'agent-learning-loop', label: '持续改进 · 学会、迁移、变化与保持', hint: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。' },
   ],
   pages: {
     'agent-loop': {
@@ -680,6 +687,7 @@ def confine(root, user_path):
       },
       code: 'llm_agent/m13_evals/demo.py',
       points: [
+        { title: '从总分走到首错', body: '五条轨迹区分真正完成、提前结束、越界写入、工具失败和模型不可用。冻结出错前的上下文, 再用可接受动作集合检查下一步; 三个规则案例只验证协议, 不外推模型能力。' },
         {
           title: '以环境终态判分',
           body: '任务 = prompt + 一个全新的环境 + 一个看终态的 grader。\ngrader 看的是: 笔记到底写了没、危险命令到底跑了没 (env.shell.executed == [])。\n模型说 "我已经写好了" 不算数; 反过来, 措辞不同也可能真做对了。\n每次试验都要一个全新环境, 试验之间不能互相污染。',
@@ -720,7 +728,7 @@ c = sum(run_task(task, baseline, FlakyLLM(p=0.3, seed=s)) for s in range(n))
 pass_at_k  = 1 - comb(n - c, k) / comb(n, k)     # k 次里至少成一次
 pass_hat_k = comb(c, k) / comb(n, k)             # k 次全部成功`,
       run: 'python -m llm_agent.m13_evals.demo',
-      source: [`${A}m13_evals/demo.py:run_task`, `${A}m13_evals/demo.py:pass_at_k`, `${A}m13_evals/demo.py:pass_hat_k`],
+      source: [`${A}m13_evals/demo.py:run_task`, `${A}m13_evals/demo.py:pass_at_k`, `${A}m13_evals/demo.py:pass_hat_k`, `${A}m13_evals/diagnostics.py:diagnose`, `${A}m13_evals/diagnostics.py:next_action`, `${A}m13_evals/diagnostics.py:paired_interval`],
     },
 
     'agent-context-engineering': {
@@ -1054,6 +1062,508 @@ ranks = [first_relevant_rank(search, q, answer) for q, answer in QA]   # 20 道�
 recall_at_1, recall_at_3, mrr = metrics(ranks)`,
       run: 'python -m llm_agent.m16_rag.demo',
       source: [`${A}m16_rag/demo.py:structural_chunks`, `${A}m16_rag/demo.py:BM25`, `${A}m16_rag/demo.py:DenseIndex`, `${A}m16_rag/demo.py:rrf`, `${A}m16_rag/demo.py:rerank_score`, `${A}m16_rag/demo.py:metrics`, `${A}m16_rag/demo.py:RagSearchTool`],
+    },
+    'agent-memory-lifecycle': {
+      title: '记忆更新 · 来源、范围与版本',
+      subtitle: '读完你能用对照实验解释：项目 A 改用 TypeScript, 为什么项目 B 也跟着变了?',
+      tldr: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。',
+      question: '项目 A 改用 TypeScript, 为什么项目 B 也跟着变了?',
+      evolution: {
+        title: '来源、范围与版本',
+        subtitle: '根问题: 新偏好覆盖旧文件, 项目例外污染了全局',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 新偏好覆盖旧文件, 项目例外污染了全局',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '新偏好覆盖旧文件, 项目例外污染了全局',
+            fix: '直接追加不丢原文, 但旧条目可能一直排在前面',
+          },
+          {
+            name: '本章实现',
+            pain: '直接追加不丢原文, 但旧条目可能一直排在前面',
+            fix: '按对象和范围审核候选, 发布版本; 原证据保留, 索引可重建',
+          },
+        ],
+      },
+      code: 'llm_agent/m20_memory_lifecycle/demo.py',
+      points: [
+        {
+          title: '先看证据有没有支持这次修改',
+          body: '候选必须与 source_id 对应的对象、范围和原值一致。提案还要指出基于哪个版本; 后来已有更新时, 旧提案不能直接覆盖。',
+        },
+        {
+          title: '查询先找项目, 再回退全局',
+          body: 'Alice 的项目 A 用 TypeScript, 项目 B 用 Python; Bob 没有证据, 返回 unknown。三个查询中, 简单追加与全局覆盖各对 2 个, 按范围保存对 3 个。',
+          key: true,
+        },
+        {
+          title: '回滚不删证据',
+          body: '发布与回滚都留下事件。撤销项目 A 的例外后, 查询回退到全局 Python。重新加载快照、重建索引后结果一致。',
+        },
+        {
+          title: '审核的边界',
+          body: '检查候选忠于证据, 不等于证明证据真实。快照是单进程教学文件, 没有数据库的事务、并发与崩溃恢复保证。',
+        },
+      ],
+      links: [
+        { from: 'core/memory.py:FileMemory', to: 'm20_memory_lifecycle/demo.py:VersionedMemory', body: '保留入门文件记忆, 新实验单独表达来源、作用域和版本。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'Evidence',
+          code: 'm20_memory_lifecycle/demo.py:Evidence',
+          takeaway: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。',
+        },
+        {
+          concept: 'Proposal',
+          code: 'm20_memory_lifecycle/demo.py:Proposal',
+          takeaway: '查询先找项目, 再回退全局',
+        },
+        {
+          concept: 'VersionedMemory',
+          code: 'm20_memory_lifecycle/demo.py:VersionedMemory',
+          takeaway: '回滚不删证据',
+        },
+        {
+          concept: 'comparison',
+          code: 'm20_memory_lifecycle/demo.py:comparison',
+          takeaway: '审核的边界',
+        },
+      ],
+      snippetTitle: '先审核, 再发布生效版本',
+      snippet: 'proposal = memory.propose(source_id)\n# publish 检查对象、范围、原值与基线版本\nversion = memory.publish(proposal)\nfact = memory.recall(entity, project)\nmemory.rollback(entity, project, previous_version)',
+      run: 'python -m llm_agent.m20_memory_lifecycle.demo',
+      source: ['llm_agent/m20_memory_lifecycle/demo.py:Evidence', 'llm_agent/m20_memory_lifecycle/demo.py:Proposal', 'llm_agent/m20_memory_lifecycle/demo.py:VersionedMemory', 'llm_agent/m20_memory_lifecycle/demo.py:comparison'],
+    },
+    'agent-completion-verification': {
+      title: '完成验收 · 说完不等于做完',
+      subtitle: '读完你能用对照实验解释：模型说已完成, 为什么还要看环境?',
+      tldr: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。',
+      question: '模型说已完成, 为什么还要看环境?',
+      evolution: {
+        title: '说完不等于做完',
+        subtitle: '根问题: 模型少写一条笔记, 却回答全部完成',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 模型少写一条笔记, 却回答全部完成',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '模型少写一条笔记, 却回答全部完成',
+            fix: '检查回答里的完成字样, 看不到环境中的缺口',
+          },
+          {
+            name: '本章实现',
+            pain: '检查回答里的完成字样, 看不到环境中的缺口',
+            fix: '检查必需结果与作用域, 返回缺失项; 修复有调用数和次数上限',
+          },
+        ],
+      },
+      code: 'llm_agent/m21_completion_verification/demo.py',
+      points: [
+        {
+          title: '声明和事实分开',
+          body: '三个基线收到同样的完成声明。直接结束和文本检查都接受, 但环境里只有 alpha、beta。环境验收发现 gamma 缺失。',
+        },
+        {
+          title: '把缺口交回执行者',
+          body: '驱动器生成只包含缺失项的修复请求, 原 Agent 继续经过工具和权限门。默认允许一次修复, 模型调用从 2 次增加到 4 次。',
+          key: true,
+        },
+        {
+          title: '验证器不替模型写答案',
+          body: 'verify_notes 只读环境, 还检查多写的对象和已有内容是否被修改。它不能自己补 gamma 再宣称验收通过。',
+        },
+        {
+          title: '预算耗尽就报告未完成',
+          body: '模型持续空口声明、工具持续失败或预算太少, 都不能靠无限重试拖延。Stop Hook 保持通知接口, 外部驱动器负责验收。',
+        },
+      ],
+      links: [
+        { from: 'core/agent.py:Agent.run', to: 'm21_completion_verification/demo.py:run_verified', body: '外部驱动器复用 Agent 的工具与权限, 验收失败时才提交修复请求。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'verify_notes',
+          code: 'm21_completion_verification/demo.py:verify_notes',
+          takeaway: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。',
+        },
+        {
+          concept: 'run_verified',
+          code: 'm21_completion_verification/demo.py:run_verified',
+          takeaway: '把缺口交回执行者',
+        },
+        {
+          concept: 'experiment',
+          code: 'm21_completion_verification/demo.py:experiment',
+          takeaway: '验证器不替模型写答案',
+        },
+      ],
+      snippetTitle: '候选完成与真正完成分开',
+      snippet: 'candidate = agent.run(task)\ncheck = verify_notes(world, required, before)\nif not check.passed and budget_remaining:\n    candidate = agent.run(repair_prompt(check.missing))\n    check = verify_notes(world, required, before)\nreturn check.passed, candidate',
+      run: 'python -m llm_agent.m21_completion_verification.demo',
+      source: ['llm_agent/m21_completion_verification/demo.py:verify_notes', 'llm_agent/m21_completion_verification/demo.py:run_verified', 'llm_agent/m21_completion_verification/demo.py:experiment'],
+    },
+    'agent-runtime-reliability': {
+      title: '故障恢复 · 重试、幂等与取消',
+      subtitle: '读完你能用对照实验解释：超时了再试一次, 会不会执行两次?',
+      tldr: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。',
+      question: '超时了再试一次, 会不会执行两次?',
+      evolution: {
+        title: '重试、幂等与取消',
+        subtitle: '根问题: 服务端已写入, 客户端却因响应丢失而重试',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 服务端已写入, 客户端却因响应丢失而重试',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '服务端已写入, 客户端却因响应丢失而重试',
+            fix: '只限制重试次数, 仍可能重复写入或接受迟到结果',
+          },
+          {
+            name: '本章实现',
+            pain: '只限制重试次数, 仍可能重复写入或接受迟到结果',
+            fix: '服务端幂等键和状态查询确认提交; 取消确认后停机, 按任务版本过滤结果',
+          },
+        ],
+      },
+      code: 'llm_agent/m22_runtime_reliability/demo.py',
+      points: [
+        {
+          title: '响应丢失不是没执行',
+          body: '账本第一次提交已经成功, 然后抛超时。盲重试写入两次共 20 元; 同一幂等键或先查收据都只写一次 10 元。',
+        },
+        {
+          title: '幂等键绑定同一个操作',
+          body: '键和参数必须一起核对。同键换金额直接拒绝; 授权拒绝只发一次请求, 不因重试切换成放行。',
+          key: true,
+        },
+        {
+          title: '最快不等于合格',
+          body: '三个任务在时刻 1、3、6 完成, 第一个不合格。等全部耗费 10 个工作单位; 首个合格后取消耗费 7 个, 最后工作时刻从 6 变成 3。',
+        },
+        {
+          title: '取消不等于回滚',
+          body: '取消请求和执行器确认之间仍可能出现副作用。确认后不能发新动作; 旧 generation 的迟到结果不会进入新任务。',
+        },
+      ],
+      links: [
+        { from: 'core/subagents.py:DelegateTool', to: 'm22_runtime_reliability/demo.py:Runtime', body: '现有子 Agent 教上下文隔离; 新实验单独验证预算、取消确认与迟到结果。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'Ledger',
+          code: 'm22_runtime_reliability/demo.py:Ledger',
+          takeaway: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。',
+        },
+        {
+          concept: 'retry_write',
+          code: 'm22_runtime_reliability/demo.py:retry_write',
+          takeaway: '幂等键绑定同一个操作',
+        },
+        {
+          concept: 'Runtime',
+          code: 'm22_runtime_reliability/demo.py:Runtime',
+          takeaway: '最快不等于合格',
+        },
+        {
+          concept: 'schedule',
+          code: 'm22_runtime_reliability/demo.py:schedule',
+          takeaway: '取消不等于回滚',
+        },
+      ],
+      snippetTitle: '超时后先确认提交状态',
+      snippet: 'try:\n    receipt = service.submit(operation, amount, idempotency_key)\nexcept TimeoutError:\n    # unknown 不代表没有发生副作用\n    receipt = query_receipt(idempotency_key)\n    if receipt is None and retry_budget:\n        receipt = retry_same_operation(idempotency_key)',
+      run: 'python -m llm_agent.m22_runtime_reliability.demo',
+      source: ['llm_agent/m22_runtime_reliability/demo.py:Ledger', 'llm_agent/m22_runtime_reliability/demo.py:retry_write', 'llm_agent/m22_runtime_reliability/demo.py:Runtime', 'llm_agent/m22_runtime_reliability/demo.py:schedule'],
+    },
+    'agent-context-cost': {
+      title: '上下文成本 · 压缩与缓存一起算',
+      subtitle: '读完你能用对照实验解释：输入短了, 为什么总费用反而更高?',
+      tldr: '比较净成本, 同时检查范围、否定和来源是否保留。',
+      question: '输入短了, 为什么总费用反而更高?',
+      evolution: {
+        title: '压缩与缓存一起算',
+        subtitle: '根问题: 长会话反复发送历史, 成本和上下文同时增长',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 长会话反复发送历史, 成本和上下文同时增长',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '长会话反复发送历史, 成本和上下文同时增长',
+            fix: '只看压缩后的长度, 漏掉摘要调用和缓存重建费用',
+          },
+          {
+            name: '本章实现',
+            pain: '只看压缩后的长度, 漏掉摘要调用和缓存重建费用',
+            fix: '统一统计读写缓存、摘要输入输出, 再单独验收关键约束',
+          },
+        ],
+      },
+      code: 'llm_agent/m23_context_cache/demo.py',
+      points: [
+        {
+          title: '动态状态放哪会影响前缀',
+          body: '固定同一批工具日志, 把变化状态放在最前部会破坏其后的复用。6 轮模拟费用 6075; 放到历史后为 4925。',
+        },
+        {
+          title: '摘要也有账单',
+          body: '阈值为 4 个历史块时, 总模拟费用 3202.5, 其中摘要费用 1327.5; 峰值从 1360 降到 530。两轮短会话里, 摘要却让费用从 695 增至 840。',
+          key: true,
+        },
+        {
+          title: '便宜与正确分别验收',
+          body: '保留限定与丢限定的摘要费用相同, 但前者保住 3 条事实, 后者只保住语言值。两者原始审计记录都还有 12 个块。',
+        },
+        {
+          title: '使用的是费用模型',
+          body: '复用 m19 的缓存与计价函数; 固定长度 ASCII 块、TTL 和输入费用都为示意。没有真实 API、tokenizer 或延迟实测。',
+        },
+      ],
+      links: [
+        { from: 'm19_prompt_caching/demo.py:PromptCache', to: 'm23_context_cache/demo.py:simulate', body: '复用前缀缓存和费用模型, 把摘要请求也计入总账。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'summarize',
+          code: 'm23_context_cache/demo.py:summarize',
+          takeaway: '比较净成本, 同时检查范围、否定和来源是否保留。',
+        },
+        {
+          concept: 'simulate',
+          code: 'm23_context_cache/demo.py:simulate',
+          takeaway: '摘要也有账单',
+        },
+      ],
+      snippetTitle: '摘要开销也进同一本账',
+      snippet: 'if len(history) >= threshold:\n    cost += cached_input_cost(history) + summary_output_cost\n    history = [summary_with_scope(history)]\nblocks = [stable_policy, *history, current_state, query]\nusage = cache.request(blocks, breakpoints, now)\ncost += bill(usage)[0]',
+      run: 'python -m llm_agent.m23_context_cache.demo',
+      source: ['llm_agent/m23_context_cache/demo.py:summarize', 'llm_agent/m23_context_cache/demo.py:simulate'],
+    },
+    'agent-evidence-chain': {
+      title: '检索证据 · 从相关到足够回答',
+      subtitle: '读完你能用对照实验解释：相关文档找到了, 为什么还是不能回答?',
+      tldr: '别名、对象、版本与答案形成完整证据链, 才能输出结果。',
+      question: '相关文档找到了, 为什么还是不能回答?',
+      evolution: {
+        title: '从相关到足够回答',
+        subtitle: '根问题: 相似块里有数字, 却可能来自旧版本或同名产品',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 相似块里有数字, 却可能来自旧版本或同名产品',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '相似块里有数字, 却可能来自旧版本或同名产品',
+            fix: '增加块的上下文能认出对象, 别名仍可能需要另一条资料',
+          },
+          {
+            name: '本章实现',
+            pain: '增加块的上下文能认出对象, 别名仍可能需要另一条资料',
+            fix: '按证据继续检索, 限制查询预算; 缺少关键来源就保留未知',
+          },
+        ],
+      },
+      code: 'llm_agent/m24_agentic_rag/demo.py',
+      points: [
+        {
+          title: '先给块补对象与版本',
+          body: '无上下文基线只取 top-1, 不能稳定区分同样写着 upload limit 的块。上下文版把实体与版本加入检索, 再筛选元数据。',
+        },
+        {
+          title: '两跳要有两段证据',
+          body: 'Comet 的别名记录指向 Atlas v2; 对应版本的上传限制是 20 MB。两条来源都要引用, 不能只拿到数字就跳过对象确认。',
+          key: true,
+        },
+        {
+          title: '预算不足时承认缺证据',
+          body: '直接问 Atlas v2 一跳就够。Comet 需要两跳, 预算为 1 时不回答。Nova 没有别名证据, 即使其他产品资料齐全也不能凑数。',
+        },
+        {
+          title: '指标从排名走到支持度',
+          body: '独立验证器检查引用来源是否匹配对象、版本和答案。错版本、错对象或缺少别名关系都会失败, 即使回答里有正确数字。',
+        },
+      ],
+      links: [
+        { from: 'core/retrieval.py:TfidfIndex', to: 'm24_agentic_rag/demo.py:supported', body: '相似度负责找候选; 独立验收器检查引用能否支持对象、版本和答案。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'retrieve',
+          code: 'm24_agentic_rag/demo.py:retrieve',
+          takeaway: '别名、对象、版本与答案形成完整证据链, 才能输出结果。',
+        },
+        {
+          concept: 'answer',
+          code: 'm24_agentic_rag/demo.py:answer',
+          takeaway: '两跳要有两段证据',
+        },
+        {
+          concept: 'supported',
+          code: 'm24_agentic_rag/demo.py:supported',
+          takeaway: '预算不足时承认缺证据',
+        },
+      ],
+      snippetTitle: '只有证据足够才回答',
+      snippet: 'hits = retrieve(question)\nif question_uses_alias and budget_remaining:\n    entity, version = resolve_alias(hits)\n    hits += retrieve(entity + version + " upload limit")\nif evidence_supports_object_version_and_answer(hits):\n    return answer_with_sources(hits)\nreturn "insufficient"',
+      run: 'python -m llm_agent.m24_agentic_rag.demo',
+      source: ['llm_agent/m24_agentic_rag/demo.py:retrieve', 'llm_agent/m24_agentic_rag/demo.py:answer', 'llm_agent/m24_agentic_rag/demo.py:supported'],
+    },
+    'agent-trajectory-learning': {
+      title: '轨迹学习 · 先验证，再造训练数据',
+      subtitle: '读完你能用对照实验解释：答案碰巧正确的轨迹, 应该拿去训练吗?',
+      tldr: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
+      question: '答案碰巧正确的轨迹, 应该拿去训练吗?',
+      evolution: {
+        title: '先验证，再造训练数据',
+        subtitle: '根问题: 只奖励最终答案, 没查证据的捷径也会得高分',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 只奖励最终答案, 没查证据的捷径也会得高分',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '只奖励最终答案, 没查证据的捷径也会得高分',
+            fix: '再扣调用成本, 反而更偏好碰巧猜中的短轨迹',
+          },
+          {
+            name: '本章实现',
+            pain: '再扣调用成本, 反而更偏好碰巧猜中的短轨迹',
+            fix: '先验证过程再生成 SFT、偏好对和逐步标签, 按实体划分留出集',
+          },
+        ],
+      },
+      code: 'llm_agent/m25_trajectory_learning/demo.py',
+      points: [
+        {
+          title: '奖励可能教出错误捷径',
+          body: '同题五条轨迹里, 猜中、越权取数和正常查询都可能得到正确数字。只看结果并扣调用成本时, 猜中的轨迹奖励最高。',
+        },
+        {
+          title: '同一份轨迹生成三种数据',
+          body: '验收通过的回复进入 SFT; 同题好坏轨迹组成 chosen/rejected; 每一步的授权、来源、预算检查形成过程标签。',
+          key: true,
+        },
+        {
+          title: '留出集不要拆散同一实体',
+          body: '16 个任务生成 16 条 SFT、64 对偏好和 80 条过程记录。8 个实体按稳定哈希切为训练 7 个、测试 1 个, 同实体的任务和前缀不跨集合。',
+        },
+        {
+          title: '接到已有微调方法',
+          body: '数据先保留可读动作序列, token 化后把 prompt 标签置为 -100。SFT、DPO、PRM、GRPO 的实现仍在 llm_finetune; 本实验不另写算法, 也未训练模型。',
+        },
+      ],
+      links: [
+        { from: 'm25_trajectory_learning/demo.py:build_dataset', to: 'llm_finetune/methods/dpo.py:DPOLoss', body: '本章验证样本与标签入口; token 化和训练继续复用微调阶段的方法。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'execute',
+          code: 'm25_trajectory_learning/demo.py:execute',
+          takeaway: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
+        },
+        {
+          concept: 'reward',
+          code: 'm25_trajectory_learning/demo.py:reward',
+          takeaway: '同一份轨迹生成三种数据',
+        },
+        {
+          concept: 'build_dataset',
+          code: 'm25_trajectory_learning/demo.py:build_dataset',
+          takeaway: '留出集不要拆散同一实体',
+        },
+        {
+          concept: 'masked_example',
+          code: 'm25_trajectory_learning/demo.py:masked_example',
+          takeaway: '接到已有微调方法',
+        },
+      ],
+      snippetTitle: '验收之后才决定样本去向',
+      snippet: 'for trajectory in candidates(task):\n    report = execute(task, trajectory)\n    if report["eligible"]:\n        sft.append(trajectory)\n    process.append(report["step_labels"])\n# chosen/rejected 来自同题, 所有前缀随实体进入同一个 split',
+      run: 'python -m llm_agent.m25_trajectory_learning.demo',
+      source: ['llm_agent/m25_trajectory_learning/demo.py:execute', 'llm_agent/m25_trajectory_learning/demo.py:reward', 'llm_agent/m25_trajectory_learning/demo.py:build_dataset', 'llm_agent/m25_trajectory_learning/demo.py:masked_example'],
+    },
+    'agent-learning-loop': {
+      title: '持续改进 · 学会、迁移、变化与保持',
+      subtitle: '读完你能用对照实验解释：修好了新任务, 怎么知道旧任务没坏?',
+      tldr: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。',
+      question: '修好了新任务, 怎么知道旧任务没坏?',
+      evolution: {
+        title: '学会、迁移、变化与保持',
+        subtitle: '根问题: 积累经验后总分上升, 旧任务却悄悄退步',
+        steps: [
+          {
+            name: '朴素做法',
+            pain: '(原点) 积累经验后总分上升, 旧任务却悄悄退步',
+            fix: '先按最直接的策略执行, 记录结果作为基线',
+          },
+          {
+            name: '局部补救',
+            pain: '积累经验后总分上升, 旧任务却悄悄退步',
+            fix: '只反复测试刚学过的题, 看不到跨对象迁移和规则变化',
+          },
+          {
+            name: '本章实现',
+            pain: '只反复测试刚学过的题, 看不到跨对象迁移和规则变化',
+            fix: '按时间分四阶段, 反馈在验收后开放, 未变任务单独复测',
+          },
+        ],
+      },
+      code: 'llm_agent/full_learning_loop/demo.py',
+      points: [
+        {
+          title: '行动之前看不到标准答案',
+          body: '策略只接收 entity 和 scope, 不能读取 expected 或未来反馈。每题事件顺序固定为 act → grade → update。',
+        },
+        {
+          title: '规则变化应有一个可解释的恢复点',
+          body: '项目 A 改用 Rust 的第一题先失败, 才收到新反馈; 下一题恢复正确。这比提前看反馈拿满分更可信。',
+          key: true,
+        },
+        {
+          title: '不要用总分掩盖旧能力丢失',
+          body: '版本化策略四阶段通过率为 50%、100%、50%、100%。直接追加策略的保持阶段为 0%; 静态规则保持旧 Python, 但学不会新 Rust。',
+        },
+        {
+          title: '这里改的是外部知识',
+          body: '复用 m20 的来源、作用域与版本审核。迁移和保持阶段只读; 学习期和显式规则变化才开放更新。没有训练模型权重。',
+        },
+      ],
+      links: [
+        { from: 'm20_memory_lifecycle/demo.py:VersionedMemory', to: 'full_learning_loop/demo.py:evaluate', body: '版本记忆放进跨任务时间轴, 将规则变化后的恢复与未变任务的保持分开评分。' },
+      ],
+      sourceRows: [
+        {
+          concept: 'Learner',
+          code: 'full_learning_loop/demo.py:Learner',
+          takeaway: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。',
+        },
+        {
+          concept: 'evaluate',
+          code: 'full_learning_loop/demo.py:evaluate',
+          takeaway: '规则变化应有一个可解释的恢复点',
+        },
+      ],
+      snippetTitle: '不让未来反馈进入当前行动',
+      snippet: 'action = learner.act(task.entity, task.scope)\npassed = action == task.expected\nrecords.append((action, passed))\n# 只有学习期或显式规则变化, 且评分已完成, 才开放更新\nif task.feedback and task.phase in {"learning", "change"}:\n    learner.observe(task.feedback)',
+      run: 'python -m llm_agent.full_learning_loop.demo',
+      source: ['llm_agent/full_learning_loop/demo.py:Learner', 'llm_agent/full_learning_loop/demo.py:evaluate'],
     },
   },
 }

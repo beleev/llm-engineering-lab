@@ -1,0 +1,61 @@
+/* 新实验复用 LabFrame, 只补状态时间轴和证据面板。 */
+.agent-experiment .trace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.agent-experiment .trace button {
+  text-align: left;
+  min-width: 100px;
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+}
+.agent-experiment .trace button.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-experiment .trace button.good {
+  border-color: var(--left);
+}
+.agent-experiment .trace button.bad {
+  border-color: var(--danger);
+}
+.agent-experiment .detail {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.agent-experiment .detail p {
+  margin: 6px 0;
+}
+.agent-experiment .meter {
+  display: flex;
+  height: 24px;
+  margin: 8px 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+}
+.agent-experiment .meter span {
+  background: var(--accent);
+  min-width: 0;
+}
+.agent-experiment label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.agent-experiment select {
+  max-width: 100%;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px;
+}
