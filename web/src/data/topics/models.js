@@ -17,7 +17,7 @@ const topic = {
   ],
   pages: {
     'models-mtp': {
-      widgets: ['AttnMaskLab', 'MtpLab'],
+      widgets: ['MtpLab'],
       title: 'SWA · MTP · 混合线性 — 三种给 Transformer 减负的改法',
       subtitle: '读完这章, 你看一个新模型时能马上分辨它动了哪一处:\n- 把 mask 裁窄了 (Mistral)?\n- 让每个位置多预测几步 (MTP)?\n- 还是把装历史的容器换掉了 (Qwen3-Next)?',
       tldr: '- SWA: 不新增任何类, 只换一张 mask。KV cache 从 $O(T)$ 封顶到 $O(W)$。\n- MTP: 用共享 lm_head 的级联模块, 每个位置的监督从 1 份变成 K+1 份。推理时还白送一份投机解码草稿。\n- 混合线性 (Qwen3-Next): 用固定大小的状态矩阵代替 KV cache。每 4 层留 1 层全注意力兜底。',
@@ -501,4 +501,7 @@ for (const [route, rows] of Object.entries(supplements)) {
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
 }
+
+// 审查后的主讲职责与前置链接。
+topic.pages["models-mtp"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
 export default topic

@@ -16,8 +16,5 @@ const labs = {
   'train-eval': ['TrainPassKLab', 'TrainJudgeLab'],
 }
 
-for (const route of [
-  "train-model-parallel",
-  "train-collectives-loop"
-]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+for (const route of ["train-model-parallel"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
 export default labs

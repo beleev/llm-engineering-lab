@@ -373,7 +373,7 @@
       "title": "知识编辑：改对一个事实，伤到多少邻居",
       "module": "llm_finetune.run_finetune.knowledge_edit.demo",
       "routes": [
-        "finetune-sft"
+        "finetune-knowledge-update"
       ],
       "modes": [
         {
@@ -426,7 +426,7 @@
       "title": "隐私：记忆提取、DP 与参数遗忘",
       "module": "llm_finetune.run_finetune.privacy_unlearning.demo",
       "routes": [
-        "agent-memory-privacy"
+        "finetune-knowledge-update"
       ],
       "modes": [
         {
@@ -896,7 +896,7 @@
       "title": "形式证明与科学假设：三种正确",
       "module": "llm_agent.m51_formal_science.demo",
       "routes": [
-        "agent-programmatic-actions"
+        "agent-verifiable-reasoning"
       ],
       "modes": [
         {
@@ -1246,7 +1246,7 @@
       "title": "工具学习：从候选调用到训练数据",
       "module": "llm_agent.m53_tool_data.demo",
       "routes": [
-        "agent-tools-permissions"
+        "agent-agent-training"
       ],
       "modes": [
         {

@@ -156,3 +156,10 @@ QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采�
 | [隐私：记忆提取、DP 与参数遗忘](run_finetune/privacy_unlearning/README.md) | 拒绝复述某条记录不代表模型没有记住它；攻击没成功，也不等于已经证明隐私安全。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [模型交付包与独立进程一致性](run_finetune/artifact_delivery/README.md)
+- [异步 rollout、策略版本与概率校正](run_finetune/async_rollout/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

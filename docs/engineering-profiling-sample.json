@@ -1,0 +1,36 @@
+{
+  "eager": {
+    "device": "cpu",
+    "torch": "2.15.0+cpu",
+    "python": "3.13.5",
+    "threads": 1,
+    "warmup": 3,
+    "repeats": 7,
+    "median_ms": 0.025688670575618744,
+    "min_ms": 0.020535197108983994,
+    "max_ms": 0.0615888275206089,
+    "logical_flops": 1056768,
+    "aten_calls": 6,
+    "mm_calls": 1,
+    "cpu_self_us": 925.9850000000001,
+    "allocation_bytes": 65536,
+    "gpu_peak_bytes": null
+  },
+  "fused": {
+    "device": "cpu",
+    "torch": "2.15.0+cpu",
+    "python": "3.13.5",
+    "threads": 1,
+    "warmup": 3,
+    "repeats": 7,
+    "median_ms": 0.029940158128738403,
+    "min_ms": 0.024045351892709732,
+    "max_ms": 0.03142328932881355,
+    "logical_flops": 1056768,
+    "aten_calls": 7,
+    "mm_calls": 1,
+    "cpu_self_us": 319.21899999999994,
+    "allocation_bytes": 32768,
+    "gpu_peak_bytes": null
+  }
+}

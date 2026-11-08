@@ -1,8 +1,21 @@
-# M09 — MCP: 工具活在另一个进程里
+# M09 — MCP 2025-06-18: 工具活在另一个进程里
 
 [![MCP — 一次外部工具调用的完整报文 llm_agent/m09](../../docs/screenshots/agent-mcp-1.png)](https://beleev.github.io#/agent/mcp)
 
 [打开相关交互实验：MCP — 一次外部工具调用的完整报文 llm_agent/m09](https://beleev.github.io#/agent/mcp)
+
+## 版本边界
+
+本模块固定 **2025-06-18 stdio 教学配置**，只实现旧版 tools 子集，不是当前所有 MCP 实现的通用报文模板。
+
+| 配置 | 版本声明 | 启动与发现 | 状态与授权 |
+| --- | --- | --- | --- |
+| 本模块 2025-06-18 | initialize.protocolVersion | initialize → initialized → tools/list | 本地子进程；环境凭据与执行权限分开 |
+| 2026-07-28 | 每个请求的 _meta；HTTP 同时使用 MCP-Protocol-Version | server/discover 可提前发现支持版本；没有旧 initialize 握手 | HTTP 不再使用协议级会话；业务状态通过显式参数表达 |
+
+新版可执行对照、未知版本拒绝和本机 HTTP 资源端授权实验见 [m55_mcp_versions](../m55_mcp_versions/README.md)。授权本身是可选能力；启用 HTTP 授权时检查 audience、有效期与 scope，不能把 HTTP OAuth 流程搬到 stdio。旧客户端收到非固定版本会终止初始化并清理子进程。
+
+依据：[官方版本说明](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)、[授权适用范围](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)。
 
 ## 直觉
 
@@ -97,7 +110,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m llm_agent.m09_mcp.demo
 ## 与真实系统的差距
 
 - 只实现了 tools。MCP 规范还有 resources、prompts、sampling、roots、elicitation, 以及 ping、进度、取消、`tools/list` 分页, 这里都没有。
-- 只有 stdio 传输。没有 Streamable HTTP, 因而也没有 OAuth 授权、会话管理、断线重连。
+- 本模块只有 stdio 传输。HTTP 资源端授权反例另见 m55；这里没有 OAuth 登录或断线重连。会话描述需区分协议版本，不能套用于 2026-07-28。
 - 没有真正的能力协商: 客户端发空的 `capabilities`, 不检查 server 返回的 `protocolVersion` 和 `capabilities`; 不处理 `notifications/tools/list_changed`, 工具清单在启动时读一次就固定了。
 - 严格的一问一答, 一把锁串行化所有请求:
   - 请求 id 在锁内取号, 迟到的旧响应按 id 丢弃, stdout 上的非 JSON 行报 `MCPError`。

@@ -73,3 +73,7 @@ python -m llm_agent.m48_safety_governance.demo
 检索内容属于不可信数据。权限来自用户授权和服务端策略，不能由工具返回内容扩大。
 
 </details>
+
+## 章节归属与证据范围
+
+执行权限的案例不能替代模型有害输出评测。正常/有害配对、攻击家族留出、群体切片分别需要独立证据；发布门槛与回滚的可运行例子见 [m56_release_loop](../m56_release_loop/README.md)。

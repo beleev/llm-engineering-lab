@@ -1,7 +1,7 @@
 """按学习路径顺序跑完所有默认 demo。每个 demo 都用 assert 自检, 任何断言失败都会让本脚本非零退出。
 
 m15 (真实模型) 需要可选依赖和 API key, 不在此列: python -m llm_agent.m15_claude_api.demo
-排除它还有一个原因: 环境里有 key 时 m15 会发真实请求并计费。这里列出的 demo 都不联网。
+排除它还有一个原因: 环境里有 key 时 m15 会发真实请求并计费。这里列出的 demo 不访问外网；m55 只访问本机临时 HTTP 端点。
 默认路径使用标准库与 numpy。--with-training 还运行 m32 / m37 / m44 / m45 / m46 的 CPU 训练，需要 torch。
 """
 
@@ -67,6 +67,9 @@ DEMOS = [
     "llm_agent.m51_formal_science.demo",
     "llm_agent.m52_domain_workflows.demo",
     "llm_agent.m53_tool_data.demo",
+    "llm_agent.m54_document_lifecycle.demo",
+    "llm_agent.m55_mcp_versions.demo",
+    "llm_agent.m56_release_loop.demo",
 ]
 
 

@@ -18,9 +18,5 @@ const labs = {
   'infer-multi-replica-routing': ['InferRouterLab'],
 }
 
-for (const route of [
-  "infer-scheduler",
-  "infer-multi-replica-routing",
-  "infer-engine"
-]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+for (const route of ["infer-multi-replica-routing"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
 export default labs

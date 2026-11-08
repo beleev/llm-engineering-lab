@@ -53,7 +53,7 @@ def main(base):
             expect(lab.locator('.source .err')).to_have_count(0)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         assert not errors,errors
-        print(f'PASS: 7 组、{checked} 次条件/主题/视口组合；15 个章节入口；4 个多模态入口；源码可展开；无 JS 错误')
+        print(f'PASS: 7 组、{checked} 次条件/主题/视口组合；{sum(len(e["routes"]) for e in RECORDS["entries"])} 个章节入口；4 个多模态入口；源码可展开；无 JS 错误')
         browser.close()
 
 if __name__=='__main__':

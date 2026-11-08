@@ -6,7 +6,7 @@
   <details class="source" :open="open" @toggle="onToggle">
     <summary>
       <span class="toggle"><span class="caret" aria-hidden="true">▸</span> {{ isOpen ? '收起' : '展开真源码' }}</span>
-      <span class="mono">{{ parsed.path }}</span>
+      <span class="mono source-path">{{ parsed.path }}</span>
       <span v-if="parsed.symbol" class="sym mono">· {{ parsed.symbol }}</span>
       <span v-if="data?.start" class="lines mono">L{{ data.start }}–{{ data.end }}</span>
     </summary>
@@ -43,6 +43,8 @@ watch(() => props.src, () => { data.value = null; if (props.open) fetchIt() }, {
 .source { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; margin-top: 10px; background: var(--bg-elev); }
 .source summary { cursor: pointer; font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .source summary::-webkit-details-marker { display: none; }
+.source summary > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.source-path { white-space: normal; }
 .source[open] summary { margin-bottom: 8px; }
 .toggle { color: var(--accent); white-space: nowrap; }
 .caret { display: inline-block; transition: transform 0.15s; }

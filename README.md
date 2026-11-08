@@ -16,7 +16,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
 - 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
-- 配套 **交互式 Web 教程**：六阶段、26 个主题组、111 个章节入口、182 个实验入口，384 道章末自测，248 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
+- 配套 **交互式 Web 教程**：六阶段、26 个主题组、113 个章节入口、175 个实验入口，393 道章末自测，248 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -33,7 +33,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 阶段 4 · llm_finetune    SFT / LoRA / QLoRA / DoRA / DPO / KTO / SimPO / ORPO / RM / PRM / PPO / GRPO 及变体
                           / IPO / RLAIF / 在线偏好 / Prompt-Prefix-Adapter / 知识编辑 / DP 与遗忘 / 蒸馏
     ↓
-阶段 5 · llm_infer       31 个推理模块 (含推理图、剪枝融合、端侧预算与服务容量) + 真分页的 mini-vLLM 引擎
+阶段 5 · llm_infer       32 个推理模块 (含推理图、剪枝融合、端侧预算与服务容量) + 真分页的 mini-vLLM 引擎
     ↓
 阶段 6 · llm_agent       Agent 循环 / 工具 / 权限 / 上下文工程 / Hook / Skill / MCP / 子智能体 / 护栏 / 评测
                           / RAG 联合目标 / Computer use / A2A / 记忆 / 验收恢复 / 学习世界模型 / 代码与形式验证
@@ -49,11 +49,28 @@ Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：
 
 ### 知识覆盖与新增实验
 
+本次内容整理保留六阶段与 26 个二级主题：六组重复回放集中到各自主讲页，其他章节用说明与跳转连接；温度和掩码基础实验各保留一个完整入口。知识更新与可验证推理整理为两个三级专题。
+
+新增 **6 组工程实验、31 个条件**：
+
+| 主讲章节 | 可运行内容 |
+| --- | --- |
+| 选型与落盘 | [交付包、新进程加载与错误配置拒绝](llm_finetune/run_finetune/artifact_delivery/README.md) |
+| RAG | [文档解析、权限、索引更新与引用失效](llm_agent/m54_document_lifecycle/README.md) |
+| MCP | [旧新报文对照、本机 HTTP 与授权反例](llm_agent/m55_mcp_versions/README.md) |
+| GRPO 进阶 | [策略版本、队列背压与重要性校正](llm_finetune/run_finetune/async_rollout/README.md) |
+| 评测套件 | [切片门槛、小流量回放与发布回滚](llm_agent/m56_release_loop/README.md) |
+| 算子与调度开销 | [真实 CPU profiler 与选做 CUDA 测量](llm_infer/m32_profiling/README.md) |
+
+新增流程默认使用小模型或固定夹具；MCP HTTP 仅在本机运行。网页明确区分实测、确定性模拟与执行记录回放，不把它们作为真实大模型或生产服务的能力证明。
+
 [六阶段知识复查](docs/knowledge-audit.md) 与 [九项补充验收](docs/knowledge-completion.md) 保留前期发现与修复。研究方向长图的 [原始审计](docs/image-knowledge-audit.md) 固定在 `23f1c93`；后续 **11 个方向、45 个主题、90 条原差距**的处理见 [补充覆盖与边界](docs/research-completion.md)。原审计保留历史状态，不把当时的“缺失”误当作当前结果。
 
-按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。Agent 模块现扩展到 m53，保留真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+2026-11-08 的 [内容重叠与关键缺口审查](docs/tutorial-overlap-gap-audit.md) 区分重复实验入口、跨阶段递进和未串通的工程流程，并给出章节归属及验收建议。原报告保留发现时的基线；逐项落实、运行结果和生产边界见 [工程补全与整理记录](docs/engineering-completion.md)。
 
-本轮新增 **25 组实验、76 个对照条件、25 道自测和 20 条术语**，继续归入原有三级章节；没有新增二级主题组。
+按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。Agent 模块现扩展到 m56，保留真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+
+研究方向长图补充共 **25 组实验、76 个对照条件、25 道自测和 20 条术语**，继续归入原有三级章节；没有新增二级主题组。
 
 | 学习位置 | 新增内容与阅读入口 |
 | --- | --- |
@@ -87,7 +104,15 @@ python -m llm_agent.run_all --with-training  # 加上五个 torch 训练扩展
 cd llm_basic && python gradcheck.py && python train.py && python sample.py "ROMEO:"
 ```
 
-只跑本轮研究补充与证据检查（CPU；不调用模型 API）：
+只跑工程补全与内容一致性检查：
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-engineering-completion.py --check
+python scripts/check-engineering-coverage.py
+pytest tests/test_engineering_completion.py
+```
+
+研究方向补充与证据检查（CPU；不调用模型 API）：
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python scripts/run-research-completion.py

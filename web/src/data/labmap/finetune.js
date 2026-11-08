@@ -18,7 +18,5 @@ const labs = {
   'finetune-ppo': ['FtGaeLab', 'FtPpoCriticLab'],
 }
 
-for (const route of [
-  "finetune-sft"
-]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+for (const route of ["finetune-sft"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
 export default labs

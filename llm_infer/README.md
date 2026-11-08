@@ -8,7 +8,7 @@
 
 ## 概览
 
-> 用几千行 numpy（零 GPU 依赖）讲清楚业界主流的 LLM 推理优化技术：31 个模块 + 1 个 mini-engine。
+> 用几千行 numpy（零 GPU 依赖）讲清楚业界主流的 LLM 推理优化技术：31 个原理模块 + 1 个 PyTorch profiler 模块 + 1 个 mini-engine。
 > 每个模块独立可跑，也能组合成一个完整的 mini-engine。
 
 ---
@@ -230,3 +230,9 @@ python -m llm_infer.run_all
 | [端侧预算：能放下、能跑快、能持续吗](m31_edge_budget/README.md) | 手机上能加载模型只是第一关。上下文缓存、功率和持续运行后的降频都可能成为瓶颈。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [真实 CPU profiler 与可选 CUDA 计时](m32_profiling/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

@@ -19,7 +19,7 @@ export const chapterGroups = {
     group('validation', '评测与完整训练', 'train-eval train-collectives-loop'),
   ],
   finetune: [
-    group('adaptation', '监督微调与参数适配', 'finetune-sft finetune-lora finetune-qlora finetune-dora'),
+    group('adaptation', '监督微调与参数适配', 'finetune-sft finetune-lora finetune-qlora finetune-dora finetune-knowledge-update'),
     group('preference', '偏好与奖励建模', 'finetune-dpo finetune-simpo-orpo finetune-rlaif finetune-prm'),
     group('rl', '强化学习与蒸馏', 'finetune-rlhf finetune-ppo finetune-grpo-variants finetune-rlvr finetune-onpolicy-distill'),
     group('delivery', '模型合并与落盘', 'finetune-merge finetune-runs'),
@@ -32,7 +32,7 @@ export const chapterGroups = {
   ],
   agent: [
     group('foundations', '循环、规划与系统选择', 'agent-loop agent-planning agent-system-design'),
-    group('tools', '工具、协议与安全', 'agent-tools-permissions agent-extensibility agent-mcp agent-tool-discovery agent-guardrails agent-programmatic-actions'),
+    group('tools', '工具、协议与安全', 'agent-tools-permissions agent-extensibility agent-mcp agent-tool-discovery agent-guardrails agent-programmatic-actions agent-verifiable-reasoning'),
     group('memory', '上下文与记忆管理', 'agent-context-memory agent-context-engineering agent-prompt-caching agent-context-cost agent-memory-lifecycle agent-memory-privacy'),
     group('knowledge', '检索与知识组织', 'agent-rag agent-evidence-chain agent-knowledge-organization agent-vector-index'),
     group('runtime', '运行时与多智能体协作', 'agent-state-subagents agent-runtime-reliability agent-async-runtime agent-a2a agent-orchestrator agent-collaboration agent-agent-society'),

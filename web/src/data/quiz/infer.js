@@ -450,6 +450,17 @@ const researchQuestions = {
       ],
       "answer": 0,
       "why": "零值只改变数值。要节省实际工作，需要删除维度或使用支持相应稀疏格式的算子。"
+    },
+    {
+      "q": "两版 FLOPs 相同，能否仅据此认定耗时相同？",
+      "options": [
+        "不能，调用开销、访存和并行都影响耗时",
+        "能，硬件耗时始终与逻辑 FLOPs 成正比",
+        "能，只要输入和输出的张量形状相同",
+        "不能，因为 FLOPs 完全不能解释任何性能"
+      ],
+      "answer": 0,
+      "why": "CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。"
     }
   ],
   "infer-engine": [

@@ -350,7 +350,7 @@ loss = -logsigmoid(z).mean()      # DPO / SimPO 共用的外壳`,
 
     // ───────────────────────── RM · GRPO · 蒸馏 ─────────────────────────
     'finetune-rlhf': {
-      widgets: ['GrpoLab', 'SoftmaxTempLab'],
+      widgets: ['GrpoLab'],
       title: 'RM · GRPO · 蒸馏 — 从偏好到能力迁移',
       subtitle: '三件事: 标注有噪声时 RM 最多学到多大分差、GRPO 的 baseline 从哪来、蒸馏的 KL 项为什么要乘 $T^2$。',
       tldr: '- RM: 把 "A 比 B 好" 学成一个能随时调用的标量分, 留出集偏好准确率 0.549 → 0.930。\n- GRPO: PPO 要另训一个 critic 网络来估 "这道题平均能得几分", 当 baseline 用。GRPO 用同题 G 条回复的组内均值顶替它, 把 critic 整个省掉。\n- 蒸馏: 用温度软化的 teacher 分布, 给 student 比硬标签密得多的监督。',
@@ -930,5 +930,79 @@ for (const [route, rows] of Object.entries(supplements)) {
     page.points.push({ title, body })
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
+}
+
+// 审查后的主讲职责与前置链接。
+topic.chapters.push({"route": "finetune-knowledge-update", "label": "知识更新 · 编辑、隐私与遗忘", "hint": "先区分改参数、改检索文档和删除个人记忆，再讨论怎样验证目标变化与能力保持。"})
+topic.pages["finetune-knowledge-update"] = {
+  "title": "知识更新 · 编辑、隐私与遗忘",
+  "subtitle": "先区分改参数、改检索文档和删除个人记忆，再讨论怎样验证目标变化与能力保持。",
+  "tldr": "SFT 学任务分布；知识编辑针对特定事实，要求目标命中、改写泛化、邻域保持和关联推理分别验收。局部编辑成功不等于模型整体知识可靠更新。",
+  "question": "目标事实改对之后，怎样判断改写问题、无关事实和关联推理是否仍然可靠？",
+  "code": "llm_finetune/run_finetune/knowledge_edit/demo.py · llm_finetune/run_finetune/privacy_unlearning/demo.py",
+  "points": [
+    {
+      "title": "编辑和 SFT 的目标不同",
+      "body": "SFT 学任务分布；知识编辑针对特定事实，要求目标命中、改写泛化、邻域保持和关联推理分别验收。局部编辑成功不等于模型整体知识可靠更新。"
+    },
+    {
+      "title": "删除数据不等于参数遗忘",
+      "body": "原文、索引和缓存删除改变应用存储；参数遗忘试图降低训练样本的影响。要比较遗忘集、保持集和重训参照，不能用目标题答错一次代替遗忘证据。"
+    },
+    {
+      "title": "差分隐私与遗忘不是同一保证",
+      "body": "训练时 DP 限制单个样本对输出分布的影响；训练后遗忘处理既有影响。玩具噪声实验不提供完整隐私会计或共享模型的用户级删除保证。"
+    },
+    {
+      "title": "怎样验收",
+      "body": "目标事实改对之后，怎样判断改写问题、无关事实和关联推理是否仍然可靠？"
+    }
+  ],
+  "links": [],
+  "sourceRows": [
+    {
+      "concept": "实验与反例",
+      "code": "llm_finetune/run_finetune/knowledge_edit/demo.py:experiment",
+      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+    },
+    {
+      "concept": "实验与反例",
+      "code": "llm_finetune/run_finetune/privacy_unlearning/demo.py:experiment",
+      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+    }
+  ],
+  "snippetTitle": "先固定要改什么，再检查没有改什么",
+  "snippet": "result = experiment(mode)\n# 同时检查目标变化、无关任务保持与独立验证\nprint(result[\"metrics\"])",
+  "source": [
+    "llm_finetune/run_finetune/knowledge_edit/demo.py:experiment",
+    "llm_finetune/run_finetune/privacy_unlearning/demo.py:experiment"
+  ],
+  "run": "python -m llm_finetune.run_finetune.knowledge_edit.demo"
+}
+topic.pages["finetune-runs"].points.push({"title": "模型交付：新进程里还是同一个模型吗", "body": "权重相同而 tokenizer 或模板不同，读到的输入就不同。交付要保存模型解释输入和生成输出所需的全部约定。 交付包包含架构、权重、词表与特殊 token、模板、生成参数、基座标识和量化格式。恢复训练还需要优化器与 RNG；推理交付则必须证明新进程解释输入的方式一致。"})
+topic.pages["finetune-grpo-variants"].points.push({"title": "异步 RL：样本来自哪一版策略", "body": "训练器更新了策略，不会让队列里已经采出的答案自动变成新策略样本。 rollout 固定采样时策略版本和行为 logp；权重同步只影响新任务。队列容量限制积压，过期拒收限制偏移，取消要回收任务计数。"})
+topic.pages["finetune-sft"].related = [{"route": "agent-trajectory-learning", "label": "RFT：当前策略采样 → 验证筛选 → SFT", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-knowledge-update", "label": "知识编辑：改对一个事实，伤到多少邻居", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
+topic.pages["finetune-rlhf"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
+topic.pages["finetune-knowledge-update"].related = [{"route": "agent-memory-privacy", "label": "应用记忆的删除", "reason": "先区分数据记录删除与模型参数遗忘。"}]
+topic.pages["finetune-knowledge-update"].evolution = {
+  "title": "先区分更新对象，再谈保持",
+  "subtitle": "目标事实、应用数据和模型参数需要不同的验收",
+  "steps": [
+    {
+      "name": "替换文档",
+      "pain": "知识变了，但应用仍在检索旧内容",
+      "fix": "先版本化更新原文与索引，并让旧缓存失效"
+    },
+    {
+      "name": "局部参数编辑",
+      "pain": "只更新文档不能改变模型内已有的参数知识",
+      "fix": "定向修改后测原问、改写、邻域与关联事实"
+    },
+    {
+      "name": "遗忘与保持",
+      "pain": "删除训练记录不会自动消除参数中的影响",
+      "fix": "用遗忘集、保持集和重训参照分别验证"
+    }
+  ]
 }
 export default topic

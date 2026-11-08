@@ -77,3 +77,7 @@ python -m llm_finetune.run_finetune.privacy_unlearning.demo
 ## 原始资料
 
 - [zCDP](https://arxiv.org/abs/1605.02065)
+
+## 章节归属与证据范围
+
+网页主讲入口为微调阶段“知识更新”。个人记忆页只负责应用记录的同意、过期与删除，再链接到本专题；本实验不提供共享模型的用户级删除保证或完整 DP 隐私会计。

@@ -72,3 +72,7 @@ python -m llm_finetune.run_finetune.knowledge_edit.demo
 ## 原始资料
 
 - [ROME](https://arxiv.org/abs/2202.05262)
+
+## 章节归属与证据范围
+
+网页主讲入口为“知识更新 · 编辑、隐私与遗忘”。SFT 页保留区别与跳转；目标编辑成功不代表关联推理已更新，保留集也不能只放与编辑点无关的简单样本。

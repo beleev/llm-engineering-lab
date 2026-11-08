@@ -1,0 +1,554 @@
+{
+  "date": "2026-11-08",
+  "baseline": "04fb92f5e39b2c516fe545601270c7158fa1592a",
+  "scope": {
+    "data_driven_pages": 100,
+    "quiz_routes": 111,
+    "quiz_questions": 384,
+    "exact_prose_fields": [
+      "subtitle",
+      "tldr",
+      "question",
+      "points[].body"
+    ],
+    "exact_prose_min_normalized_chars": 46,
+    "limitations": "静态索引全量扫描与候选相关实现精读；不代表逐行审计所有实现，也没有重跑所有实验或生产验证。"
+  },
+  "overlap": {
+    "pages": 100,
+    "exact_prose_repetitions": [
+      {
+        "excerpt": "m22固定模型和全局batch，比较DP×TP×PP。先验证rank网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP重叠和PP气泡。Roofline比较算力与访存上限；MFU是代价模型估计，不是硬件实测。TP增加可能省内存却降低吞吐。",
+        "occurrences": [
+          {
+            "route": "train-model-parallel",
+            "field": "points[3] 多维配置要一起算"
+          },
+          {
+            "route": "train-collectives-loop",
+            "field": "points[4] 多维配置要一起算"
+          }
+        ]
+      }
+    ],
+    "similarity_candidates": [
+      {
+        "a": "train-model-parallel",
+        "b": "train-pipeline-schedules",
+        "score": 0.167
+      },
+      {
+        "a": "train-model-parallel",
+        "b": "train-collectives-loop",
+        "score": 0.155
+      },
+      {
+        "a": "finetune-dpo",
+        "b": "finetune-simpo-orpo",
+        "score": 0.128
+      },
+      {
+        "a": "train-precision-stability",
+        "b": "train-low-precision",
+        "score": 0.115
+      },
+      {
+        "a": "finetune-simpo-orpo",
+        "b": "finetune-runs",
+        "score": 0.107
+      },
+      {
+        "a": "models-gptoss",
+        "b": "infer-attention-sinks",
+        "score": 0.097
+      },
+      {
+        "a": "finetune-lora",
+        "b": "finetune-dora",
+        "score": 0.089
+      },
+      {
+        "a": "agent-state-subagents",
+        "b": "agent-context-engineering",
+        "score": 0.081
+      },
+      {
+        "a": "train-moe-seq",
+        "b": "infer-moe-serving",
+        "score": 0.08
+      },
+      {
+        "a": "train-batch-ddp",
+        "b": "train-collectives-loop",
+        "score": 0.079
+      },
+      {
+        "a": "finetune-dpo",
+        "b": "finetune-rlhf",
+        "score": 0.079
+      },
+      {
+        "a": "agent-tools-permissions",
+        "b": "agent-mcp",
+        "score": 0.078
+      },
+      {
+        "a": "infer-decode-control",
+        "b": "infer-tree-speculation",
+        "score": 0.076
+      },
+      {
+        "a": "agent-loop",
+        "b": "agent-mcp",
+        "score": 0.076
+      },
+      {
+        "a": "train-batch-ddp",
+        "b": "train-model-parallel",
+        "score": 0.075
+      },
+      {
+        "a": "train-memory",
+        "b": "train-collectives-loop",
+        "score": 0.074
+      },
+      {
+        "a": "models-generation",
+        "b": "infer-kv-footprint",
+        "score": 0.073
+      },
+      {
+        "a": "train-moe-seq",
+        "b": "train-ulysses",
+        "score": 0.073
+      },
+      {
+        "a": "finetune-lora",
+        "b": "finetune-runs",
+        "score": 0.071
+      },
+      {
+        "a": "basic-backward",
+        "b": "finetune-rlhf",
+        "score": 0.069
+      },
+      {
+        "a": "agent-loop",
+        "b": "agent-state-subagents",
+        "score": 0.065
+      },
+      {
+        "a": "finetune-dpo",
+        "b": "finetune-ppo",
+        "score": 0.063
+      },
+      {
+        "a": "finetune-rlhf",
+        "b": "finetune-ppo",
+        "score": 0.063
+      },
+      {
+        "a": "finetune-prm",
+        "b": "infer-test-time-compute",
+        "score": 0.063
+      },
+      {
+        "a": "models-generation",
+        "b": "infer-kv-memory",
+        "score": 0.062
+      },
+      {
+        "a": "infer-scheduler",
+        "b": "infer-engine",
+        "score": 0.059
+      },
+      {
+        "a": "models-dsa",
+        "b": "infer-sparse-decode",
+        "score": 0.058
+      },
+      {
+        "a": "basic-forward",
+        "b": "basic-backward",
+        "score": 0.057
+      },
+      {
+        "a": "train-low-precision",
+        "b": "infer-quant-awq",
+        "score": 0.057
+      },
+      {
+        "a": "finetune-grpo-variants",
+        "b": "finetune-ppo",
+        "score": 0.057
+      }
+    ],
+    "reused_replays": [
+      {
+        "kind": "knowledge",
+        "id": "rft",
+        "title": "RFT：当前策略采样 → 验证筛选 → SFT",
+        "routes": [
+          "finetune-sft",
+          "agent-trajectory-learning",
+          "agent-agent-training"
+        ],
+        "module": "llm_finetune/run_finetune/rft/train_rft.py",
+        "proposed_primary_route": "agent-trajectory-learning"
+      },
+      {
+        "kind": "knowledge",
+        "id": "stream",
+        "title": "流式消息：什么时候可以执行工具",
+        "routes": [
+          "agent-runtime-reliability",
+          "agent-async-runtime",
+          "agent-full-loop"
+        ],
+        "module": "llm_agent/m15_claude_api/stream_demo.py",
+        "proposed_primary_route": "agent-async-runtime"
+      },
+      {
+        "kind": "knowledge",
+        "id": "trace",
+        "title": "一次任务里的并行、重试与取消",
+        "routes": [
+          "agent-eval-suite",
+          "agent-evals"
+        ],
+        "module": "llm_agent/m31_eval_suite/trace_demo.py",
+        "proposed_primary_route": "agent-eval-suite"
+      },
+      {
+        "kind": "knowledge",
+        "id": "retrieval",
+        "title": "语义表示、索引与重排分别错在哪里",
+        "routes": [
+          "agent-rag",
+          "agent-vector-index"
+        ],
+        "module": "llm_agent/m45_semantic_retrieval/demo.py",
+        "proposed_primary_route": "agent-vector-index"
+      },
+      {
+        "kind": "knowledge",
+        "id": "parallel",
+        "title": "DP×TP×PP：显存与时间一起算",
+        "routes": [
+          "train-model-parallel",
+          "train-collectives-loop"
+        ],
+        "module": "llm_train/m22_parallel_budget/demo.py",
+        "proposed_primary_route": "train-model-parallel"
+      },
+      {
+        "kind": "knowledge",
+        "id": "capacity",
+        "title": "到达率上升后，排队会发生什么",
+        "routes": [
+          "infer-scheduler",
+          "infer-multi-replica-routing",
+          "infer-engine"
+        ],
+        "module": "llm_infer/m28_service_capacity/demo.py",
+        "proposed_primary_route": "infer-multi-replica-routing"
+      }
+    ],
+    "repeated_quiz": []
+  },
+  "additional_reused_widgets": [
+    {
+      "component": "SoftmaxTempLab",
+      "placements": [
+        "basic-optim-sample",
+        "finetune-rlhf",
+        "infer-decode-control"
+      ]
+    },
+    {
+      "component": "AttnMaskLab",
+      "placements": [
+        "web/src/views/Attention.vue",
+        "models-mtp",
+        "infer-kv-memory"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "G1",
+      "priority": "P0",
+      "title": "训练产物到推理加载的完整交付约定",
+      "routes": [
+        "finetune-runs",
+        "infer-engine"
+      ],
+      "evidence": [
+        "llm_finetune/run_finetune/lora/train_lora.py",
+        "llm_train/m08_checkpoint_resume/README.md",
+        "web/src/data/topics/finetune.js"
+      ],
+      "existing": "已经有训练断点恢复、LoRA 状态提取与合并前后 logits 一致性、chat template 等独立内容。",
+      "missing": "尚未找到把权重、架构配置、tokenizer、特殊 token、聊天模板、生成参数、adapter 基座版本及量化元数据一起打包，再交给独立推理进程验证的教学链路。能继续训练与能正确交付推理是两个验收目标。",
+      "acceptance": [
+        "用已有小模型导出版本化 manifest，记录文件哈希、基座和模板标识。",
+        "新进程加载，固定输入逐层核对 token IDs、logits 容差、greedy 输出；量化产物单独定义误差容限。",
+        "故意替换 tokenizer、模板或 adapter 基座，必须明确拒绝或指出不匹配，不能静默给出不同答案。"
+      ],
+      "sources": [
+        {
+          "title": "Transformers Models：模型配置与保存加载",
+          "url": "https://huggingface.co/docs/transformers/main_classes/model"
+        },
+        {
+          "title": "Transformers GenerationConfig：生成行为也需要配置",
+          "url": "https://huggingface.co/docs/transformers/main_classes/text_generation"
+        }
+      ]
+    },
+    {
+      "id": "G2",
+      "priority": "P0",
+      "title": "原始文档到可更新、可授权、可追溯的检索库",
+      "routes": [
+        "agent-rag",
+        "agent-vector-index",
+        "agent-memory-privacy"
+      ],
+      "evidence": [
+        "llm_agent/m16_rag/README.md",
+        "llm_agent/m43_vector_index/README.md",
+        "llm_agent/m45_semantic_retrieval/demo.py",
+        "llm_agent/m42_memory_privacy/demo.py"
+      ],
+      "existing": "已有 chunk/retrieval、ANN、学习语义表示、重排；个人记忆已经在检索前按 tenant/user/topic 限定范围，并实现原文、索引、缓存删除。",
+      "missing": "这些能力尚未串成原始 HTML/PDF/表格解析、版面/OCR 边界、来源页码或偏移、父子 chunk、embedding 版本与索引快照的完整流程。还缺权限过滤接入 ANN、文档更新或撤权后索引和答案缓存失效、引用定位回原文的联合反例。",
+      "acceptance": [
+        "固定带表格的文档，保留 source_id/version/page 或 offset/parent_id；解析失败不得伪造空成功。",
+        "两租户分别检索；对比 ANN 前过滤与后过滤的召回影响，任何返回和引用都不得泄漏无权文档。",
+        "修改、删除或撤权后重放相同问题，旧 chunk、旧引用和缓存答案均不可继续生效；embedding 版本不兼容时显式重建或拒绝混用。"
+      ],
+      "sources": [
+        {
+          "title": "Unstructured：原始文档到结构化元素",
+          "url": "https://docs.unstructured.io/open-source/core-functionality/partitioning"
+        },
+        {
+          "title": "Azure AI Search：向量过滤位置会影响召回",
+          "url": "https://learn.microsoft.com/en-us/azure/search/vector-search-filters"
+        }
+      ]
+    },
+    {
+      "id": "G3",
+      "priority": "P0 版本说明；P1 网络实验",
+      "title": "MCP 的协议版本边界与 HTTP 授权",
+      "routes": [
+        "agent-mcp",
+        "agent-tools-permissions"
+      ],
+      "evidence": [
+        "llm_agent/core/mcp.py",
+        "llm_agent/m09_mcp/server.py",
+        "llm_agent/m09_mcp/README.md",
+        "web/src/components/labs/AgentMcpLab.vue",
+        "web/src/data/topics/agent.js"
+      ],
+      "existing": "当前客户端、服务端和网页示例固定使用 2025-06-18 的 initialize 握手；README 已说明 tools-only、stdio，以及没有 HTTP/OAuth 等边界。旧版本教学本身可以保留。",
+      "missing": "截至本次检查，官方 2026-07-28 修订已移除 initialize/initialized 握手及 HTTP 协议会话，改用请求元数据和 server/discover。现有叙述需要显式标注历史协议配置，并给出版本对照；不能只修改日期字符串。HTTP 授权是另一个缺少实验的层次。",
+      "acceptance": [
+        "在正文、实验和 README 同步标明 2025-06-18 教学配置，说明与 2026-07-28 的差异及不支持范围。",
+        "增加两个明确版本的报文约定测试，未知版本不得静默按旧报文解析。",
+        "可选本地 HTTP 端点覆盖错误 audience、过期凭据、权限不足、取消与超时；明确 OAuth 授权是可选能力，不能把 HTTP 授权流程强加给 stdio。"
+      ],
+      "sources": [
+        {
+          "title": "MCP 2026-07-28 变更说明",
+          "url": "https://modelcontextprotocol.io/specification/2026-07-28/changelog"
+        },
+        {
+          "title": "MCP HTTP Authorization 的适用范围",
+          "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization"
+        }
+      ]
+    },
+    {
+      "id": "G4",
+      "priority": "P1",
+      "title": "异步 RL 的 rollout 与训练器之间的数据约定",
+      "routes": [
+        "finetune-grpo-variants",
+        "agent-agent-training"
+      ],
+      "evidence": [
+        "llm_finetune/methods/grpo.py",
+        "llm_finetune/run_finetune/online_preference/demo.py",
+        "web/src/data/topics/finetune.js"
+      ],
+      "existing": "GRPO 已有采样时 old_logp、温度一致性、重要性比率和裁剪，也明确说明 DAPO 的部分边界；在线偏好学习也有实验。",
+      "missing": "尚缺 rollout 与更新并行时的 policy_version、权重同步、队列背压、样本过期、取消回收，以及生成引擎与训练引擎概率不一致的联合处理。不能把这里表述成“没有重要性采样”。",
+      "acceptance": [
+        "用两个策略版本和队列构造固定延迟，记录行为策略版本、采样概率和消费版本。",
+        "比较无校正、重要性校正、过期拒收，报告偏差、有效样本量及吞吐代价；说明裁剪并不保证无偏。",
+        "队列满、任务取消、权重切换均不混淆样本归属。CPU 模拟足以验证机制，真实多 GPU 接入单列选做。"
+      ],
+      "sources": [
+        {
+          "title": "TRL Asynchronous GRPO（官方列为 Experimental）",
+          "url": "https://huggingface.co/docs/trl/async_grpo_trainer"
+        }
+      ]
+    },
+    {
+      "id": "G5",
+      "priority": "P1",
+      "title": "评测、发布门槛、线上质量与回滚串成一次流程",
+      "routes": [
+        "agent-eval-suite",
+        "agent-system-design"
+      ],
+      "evidence": [
+        "llm_agent/m13_evals/diagnostics.py",
+        "llm_agent/m31_eval_suite/trace_demo.py",
+        "llm_agent/m48_safety_governance/README.md",
+        "llm_infer/m28_service_capacity/demo.py"
+      ],
+      "existing": "已有配对 bootstrap、trace/span、评测集、延迟和 goodput、版本管理，以及治理 README 中的小流量验收和回滚概念。",
+      "missing": "尚缺一次完整的 model/prompt/index/tool-config 变更：离线门槛通过后进行影子或小流量验证，再由质量、安全、成本和延迟共同触发回滚，并把失败样本带回隔离的回归集。",
+      "acceptance": [
+        "同一组固定请求对比旧版/候选版；让候选版平均分提升但某个重要切片下降，发布门槛应识别。",
+        "模拟线上延迟或质量漂移并触发回滚，能够追溯当时的模型、提示、索引与工具版本。",
+        "反馈延迟与缺失单独计数；回流样本去重并保持训练/验证/最终测试隔离。复用已有统计和 trace，避免再建一套评测基础设施。"
+      ],
+      "sources": [
+        {
+          "title": "MLflow：Regression Testing and CI/CD",
+          "url": "https://mlflow.org/docs/latest/genai/eval-monitor/regression-testing/"
+        },
+        {
+          "title": "MLflow：从开发评测到生产监控",
+          "url": "https://mlflow.org/docs/latest/genai/eval-monitor/"
+        }
+      ]
+    },
+    {
+      "id": "G6",
+      "priority": "P2 可选进阶",
+      "title": "从代价模型到真实 profiler 与基准测量",
+      "routes": [
+        "train-model-parallel",
+        "infer-compute",
+        "infer-engine"
+      ],
+      "evidence": [
+        "llm_train/m22_parallel_budget/README.md",
+        "llm_infer/core/utils.py",
+        "llm_infer/m12_cuda_graph/graph.py"
+      ],
+      "existing": "已有时间计数、通信/显存/Roofline 模型，并清楚区分模拟读数与硬件实测。",
+      "missing": "未找到 torch.profiler 或系统化 benchmark 教学，缺少把预测瓶颈与算子 trace、host 开销、峰值内存相互验证的入口。这是工程深度选做，不应使零 GPU 主线依赖 GPU。",
+      "acceptance": [
+        "CPU profiler 示例记录 warmup、重复测量和环境，解释总时间与算子时间为何不同。",
+        "GPU 选做再讲同步、异步拷贝、峰值显存及 kernel trace，不拿 CPU 或模拟结果宣称 GPU 加速比。"
+      ],
+      "sources": [
+        {
+          "title": "PyTorch Profiler 官方教程",
+          "url": "https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html"
+        },
+        {
+          "title": "Stanford CS336 2025：Systems 作业包含 profiling 与 benchmark",
+          "url": "https://cs336.stanford.edu/spring2025/"
+        }
+      ]
+    }
+  ],
+  "valid_progression": [
+    [
+      "KV cache",
+      "models-generation → infer-kv-memory / infer-kv-footprint → agent-prompt-caching",
+      "模型状态、分页布局、架构容量和 API 前缀成本分别讲；统一术语和前置链接。"
+    ],
+    [
+      "MoE",
+      "模型路由 → train-moe-seq → infer-moe-serving",
+      "路由与负载均衡损失、训练通信、在线服务调度是不同目标。"
+    ],
+    [
+      "低精度",
+      "train-precision-stability / train-low-precision → finetune-qlora → 推理量化",
+      "区分训练数值稳定性、冻结量化基座上的梯度路径、推理存储与算子支持。"
+    ],
+    [
+      "记忆",
+      "agent-context-memory / agent-context-engineering / agent-memory-lifecycle / agent-memory-privacy",
+      "分别回答存什么、上下文怎样压缩、版本冲突怎样处理、谁能读和怎样删除。"
+    ],
+    [
+      "评测",
+      "train-eval → agent-evals → agent-eval-suite",
+      "基础模型指标、任务终态与轨迹、版本化套件各有职责；重复 trace 卡可合并。"
+    ],
+    [
+      "流水线并行",
+      "train-model-parallel → train-pipeline-schedules",
+      "入口介绍 PP 与预算；后者保留 1F1B、交错与气泡推演，减少重复铺垫。"
+    ]
+  ],
+  "ownership_issues": [
+    [
+      "knowledge_edit → finetune-sft",
+      "模型知识编辑不同于常规 SFT；在现有微调分组内标明独立专题及前置条件，SFT 正文只留区别与入口。"
+    ],
+    [
+      "privacy_unlearning → agent-memory-privacy",
+      "应用记录删除与模型参数遗忘分层展示；该页以同意/过期/删除为主，参数遗忘链接到微调专题。"
+    ],
+    [
+      "tool_data → agent-tools-permissions",
+      "Toolformer 风格训练数据筛选的主讲解移向 agent-agent-training；权限页保留运行时校验。"
+    ],
+    [
+      "formal_science → agent-programmatic-actions",
+      "形式证明与科学验证不等同于行动适配器；放进同组独立三级专题或明确子节，并补前置知识链接。"
+    ],
+    [
+      "safety_governance → agent-guardrails",
+      "执行权限、模型有害输出、群体评测、发布治理分清各自证据，不能用一个 allowlist 实验代表四者。"
+    ]
+  ],
+  "evidence_sha256": {
+    "llm_agent/core/mcp.py": "3b9e6e1717f7835967feb16b194770ea5244185a9a89474d0099cae433a9a162",
+    "llm_agent/m09_mcp/README.md": "98c6048d4b21b72f4a1bf319385cfea4035b26a534e5a52b70cc46c38b9f90b0",
+    "llm_agent/m09_mcp/server.py": "ce4a65851269f248d381d19e26a097d0b309202f8f6011ff4b7228bd955b1a8e",
+    "llm_agent/m13_evals/diagnostics.py": "45afc7165e72ede7587bd5205db1d8e944231bebac66be2c11be27d8c296897c",
+    "llm_agent/m16_rag/README.md": "20a78094c2d5aa6a418810959174aa9dcb612f135bf672eee67dbc41794caac3",
+    "llm_agent/m31_eval_suite/trace_demo.py": "38b756e31b55c9d82dc4f4c9ee12cbf6f8169b2063301446b12ee93e0e347dcc",
+    "llm_agent/m42_memory_privacy/demo.py": "ed903e4294999ff1d1448c7002bd0cbab64a4b83566af18b913f1b6dbd23baa5",
+    "llm_agent/m43_vector_index/README.md": "0060f07fb83d53a1c80c2bdc673982e3083dc44ef85371ee06c293db95083c58",
+    "llm_agent/m45_semantic_retrieval/demo.py": "be403460ecd7e73d9beb72edce8c471761853d70e904f52e79c029cb46c27f20",
+    "llm_agent/m48_safety_governance/README.md": "b9bb486d81e7a470fc0f88c4c4a96e90db332ca2a16f6daced7b010b12fd37bf",
+    "llm_finetune/methods/grpo.py": "aae657257b43eb6dd101fa1f87c16620dde835150d253d1ebe67326063a5c567",
+    "llm_finetune/run_finetune/lora/train_lora.py": "70928038ceb9f9b4de827fe023ace5ec0310d7d6768375e39b128fb82da5c0fe",
+    "llm_finetune/run_finetune/online_preference/demo.py": "964c0e4019348eec7e1baf1d45a92dadc0bd2554d3407c88b4529aba2a0c5ba3",
+    "llm_infer/core/utils.py": "56f7ed1b8da1661e029c172f450d7a9efde97a967547051f15257502e121a817",
+    "llm_infer/m12_cuda_graph/graph.py": "7b4fb48de2f4c667cb49faa05abf012e1c910899e2956d3725f1da5646a95618",
+    "llm_infer/m28_service_capacity/demo.py": "cddaef27f569763160fcee7ae20772b2b444956c8622e94cb698d485db097972",
+    "llm_train/m08_checkpoint_resume/README.md": "633d79ff71f7de58dc876556464695bcfe4f0731db884b4c3941b3969d930baf",
+    "llm_train/m22_parallel_budget/README.md": "d84e1cef304a61ea0d8403d8459da8b630652e2cd5ff895108edc0b3467ca926",
+    "web/src/components/labs/AgentMcpLab.vue": "09ee6a58417e1790ca77c68878b2c39af5273f649e7dba9ceabbf174fad30a41",
+    "web/src/components/labs/AttnMaskLab.vue": "29999817cc430e6bc12a0d24de0a559e579c9e9e0dee5482a95ea22a07668633",
+    "web/src/components/labs/SoftmaxTempLab.vue": "9cb4848aef6d0ab8412a9499093d84a3387c12d75840d2e8b81587308f05f7f2",
+    "web/src/data/knowledge-completion.json": "250d4c2597da0545502a1f27dc8c6bf6fe08dc98e7838d1471346a71935318b6",
+    "web/src/data/research-completion.json": "b805cb7a44d1746f50931bbabe6ce582deb8f9bc1d79069cbf1a6d6bab5c6b05",
+    "web/src/data/topics/agent.js": "3c7b4f3eeb8c051161a515c2a520a47264f5db471e7a530e4d899431a3143e39",
+    "web/src/data/topics/finetune.js": "3848852649aa0568b170818b36e572aeb50fc5c36c29a27f433741d43351c779",
+    "web/src/data/topics/train.js": "ddda82b4d4cf03fe5c8e169ca3270da26098784aea82807c20a8a91e5cb3a32f",
+    "web/src/views/Attention.vue": "c14f9c722ff43b1bf7251dd8faa39953ca90e3646459b8833f7b4c78617734c4"
+  },
+  "resolution": {
+    "report": "docs/engineering-completion.md",
+    "validation": "docs/engineering-completion-validation.md",
+    "scope": "原始发现和证据摘要按 04fb92f 保留；修订验收见新报告"
+  }
+}

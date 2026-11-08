@@ -37,7 +37,7 @@ export default function courseCatalog() {
         }
       }
       // 一个回放组件可能在同章渲染多组 LabFrame；目录计数按实际组数。
-      for (const [file, component] of [['knowledge-completion.json', 'KnowledgeCompletionLab'], ['research-completion.json', 'ResearchCompletionLab']]) {
+      for (const [file, component] of [['knowledge-completion.json', 'KnowledgeCompletionLab'], ['research-completion.json', 'ResearchCompletionLab'], ['engineering-completion.json', 'EngineeringCompletionLab']]) {
         const path = join(src, 'data', file)
         this.addWatchFile(path)
         for (const entry of JSON.parse(readFileSync(path, 'utf8')).entries) {
@@ -63,7 +63,7 @@ export default function courseCatalog() {
         .map(([key, value]) => `export const ${key} = ${JSON.stringify(value)}`).join('\n')
     },
     handleHotUpdate({ file, server }) {
-      if (!file.startsWith(src) || (!/\/(data\/(topics|quiz)|views)\//.test(file) && !/\/data\/(research|knowledge)-completion\.json$/.test(file))) return
+      if (!file.startsWith(src) || (!/\/(data\/(topics|quiz)|views)\//.test(file) && !/\/data\/(research|knowledge|engineering)-completion\.json$/.test(file))) return
       const mod = server.moduleGraph.getModuleById(resolved)
       if (mod) server.moduleGraph.invalidateModule(mod)
       server.ws.send({ type: 'full-reload' })

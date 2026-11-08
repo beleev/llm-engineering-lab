@@ -22,7 +22,7 @@ const topic = {
   pages: {
     // ---------------- 主线五章 ---------------- //
     'infer-kv-memory': {
-      widgets: ['AttnMaskLab'],
+      widgets: [],
       title: 'KV 与缓存内存 · 推理优化从"别重算"开始',
       subtitle: '读完你能算出一张卡同时放得下多少条序列, 并说清分页到底买到了什么。',
       tldr: '- KV cache: 因果 mask 下旧 token 的 K/V 不会因新 token 到来而改变, 存下来就别再算。累计过一遍模型的 token 数从 688 掉到 37 (18.6×)。\n- 分页: 省下的算力换成了显存压力, 于是把 KV 切成定长 block 用页表管。分页不让 attention 变快, 它买的是显存利用率。',
@@ -132,7 +132,7 @@ for _ in range(max_new - 1):
     },
 
     'infer-decode-control': {
-      widgets: ['SoftmaxTempLab'],
+      widgets: [],
       title: '解码加速与采样 · 更少 target 调用, 更可控的分布',
       subtitle: '读完你能解释"小模型先猜"为什么不让输出变差, 以及采样参数顺序为什么会改结果。',
       tldr: 'decode 每步只出 1 个 token, 却要把整份权重读一遍, 算力大量闲着。\n投机解码: 便宜的 draft 连猜 $K$ 个, target 一次 forward 验 $K+1$ 个槽位, 输出分布一点不变。\n- greedy: 逐位比 argmax。\n- 采样: 用 rejection sampling。\n采样这一侧是 logits 上的一串后处理, 顺序会改结果。',
@@ -1042,4 +1042,11 @@ for (const [route, rows] of Object.entries(supplements)) {
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
 }
+
+// 审查后的主讲职责与前置链接。
+topic.pages["infer-compute"].points.push({"title": "性能实测：模型估算与 profiler 怎样对照", "body": "FLOPs 相同不代表执行时间相同。真正的算子调用、分配与 host 开销需要测出来。 先 warmup，再独立计时，再采 profiler。记录 Python/PyTorch、设备、线程数和重复次数；网页展示稳定事件计数，机器相关耗时在 CLI 的 JSON 中保留。"})
+topic.pages["infer-scheduler"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-runs", "label": "模型交付与独立进程加载", "reason": "服务接收的是可解释的产物，不只是权重文件。"}]
+topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
+topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
 export default topic

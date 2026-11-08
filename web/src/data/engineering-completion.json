@@ -1,0 +1,927 @@
+{
+  "source_digest": "366e7158dcaeaeb6a65d0a0e6c388036746954818a2aed6b0453b02c21e19127",
+  "kind": "Python 实际执行记录回放。切换条件读取预先计算的结果，浏览器不训练模型或调用 API。",
+  "entries": [
+    {
+      "id": "artifact",
+      "title": "模型交付：新进程里还是同一个模型吗",
+      "module": "llm_finetune/run_finetune/artifact_delivery/demo.py",
+      "routes": [
+        "finetune-runs"
+      ],
+      "audit_ids": [
+        "G1"
+      ],
+      "modes": [
+        {
+          "id": "float",
+          "label": "完整 FP32"
+        },
+        {
+          "id": "int8",
+          "label": "int8 反量化"
+        },
+        {
+          "id": "tokenizer",
+          "label": "词表错配"
+        },
+        {
+          "id": "template",
+          "label": "模板错配"
+        },
+        {
+          "id": "base",
+          "label": "基座错配"
+        }
+      ],
+      "intuition": "权重相同而 tokenizer 或模板不同，读到的输入就不同。交付要保存模型解释输入和生成输出所需的全部约定。",
+      "principles": [
+        "交付包包含架构、权重、词表与特殊 token、模板、生成参数、基座标识和量化格式。恢复训练还需要优化器与 RNG；推理交付则必须证明新进程解释输入的方式一致。",
+        "本例训练同一个小 LLaMA，再在新 Python 进程加载。FP32 比 token、logits 与 greedy 输出；int8 单独记录反量化误差，不把它说成整数算子加速。",
+        "摘要只防损坏，不能认证来源。实验在改词表后重新计算文件摘要，仍由可信 manifest 中的语义约定拒绝。真实 adapter 还需绑定基座权重摘要；跨引擎的误差门槛要用校准输入验证。"
+      ],
+      "protocol": "用已有小模型导出版本化 manifest，记录文件哈希、基座和模板标识。；新进程加载，固定输入逐层核对 token IDs、logits 容差、greedy 输出；量化产物单独定义误差容限。；故意替换 tokenizer、模板或 adapter 基座，必须明确拒绝或指出不匹配，不能静默给出不同答案。",
+      "challenge": {
+        "ask": "同一权重换了词表顺序，文件摘要也更新了，能直接上线吗？",
+        "answer": "摘要只防损坏，不能认证来源。实验在改词表后重新计算文件摘要，仍由可信 manifest 中的语义约定拒绝。真实 adapter 还需绑定基座权重摘要；跨引擎的误差门槛要用校准输入验证。"
+      },
+      "quiz": {
+        "q": "同一权重换了词表顺序，文件摘要也更新了，能直接上线吗？",
+        "options": [
+          "可以，只要所有文件的摘要正确",
+          "不行，还要匹配输入解释与基座约定",
+          "可以，词表次序不会改变模型输入",
+          "不行，因为模型权重不能跨进程使用"
+        ],
+        "answer": 1,
+        "why": "摘要只防损坏，不能认证来源。实验在改词表后重新计算文件摘要，仍由可信 manifest 中的语义约定拒绝。真实 adapter 还需绑定基座权重摘要；跨引擎的误差门槛要用校准输入验证。"
+      },
+      "references": [
+        {
+          "title": "Transformers Models：模型配置与保存加载",
+          "url": "https://huggingface.co/docs/transformers/main_classes/model"
+        },
+        {
+          "title": "Transformers GenerationConfig：生成行为也需要配置",
+          "url": "https://huggingface.co/docs/transformers/main_classes/text_generation"
+        }
+      ],
+      "run": "python -m llm_finetune.run_finetune.artifact_delivery.demo",
+      "conditions": [
+        {
+          "id": "float",
+          "label": "完整 FP32",
+          "metrics": {
+            "加载拒绝": false,
+            "token 一致": true,
+            "greedy 一致": true,
+            "logits 最大误差": 0.0
+          },
+          "steps": [
+            "训练 25 步后导出权重和完整配置。",
+            "独立 Python 进程校验文件与语义约定，再执行同一输入。",
+            "通过：token、logits 与 greedy 输出对照。"
+          ],
+          "note": "拒绝时误差显示 0 代表未运行推理；int8 是反量化后的误差实验，没有整数算子加速。manifest 需由可信渠道提供；签名、真实 adapter 基座指纹与跨引擎容差属于部署扩展。"
+        },
+        {
+          "id": "int8",
+          "label": "int8 反量化",
+          "metrics": {
+            "加载拒绝": false,
+            "token 一致": true,
+            "greedy 一致": true,
+            "logits 最大误差": 0.008654
+          },
+          "steps": [
+            "训练 25 步后导出权重和完整配置。",
+            "独立 Python 进程校验文件与语义约定，再执行同一输入。",
+            "通过：token、logits 与 greedy 输出对照。"
+          ],
+          "note": "拒绝时误差显示 0 代表未运行推理；int8 是反量化后的误差实验，没有整数算子加速。manifest 需由可信渠道提供；签名、真实 adapter 基座指纹与跨引擎容差属于部署扩展。"
+        },
+        {
+          "id": "tokenizer",
+          "label": "词表错配",
+          "metrics": {
+            "加载拒绝": true,
+            "token 一致": false,
+            "greedy 一致": false,
+            "logits 最大误差": 0.0
+          },
+          "steps": [
+            "训练 25 步后导出权重和完整配置。",
+            "独立 Python 进程校验文件与语义约定，再执行同一输入。",
+            "拒绝：tokenizer"
+          ],
+          "note": "拒绝时误差显示 0 代表未运行推理；int8 是反量化后的误差实验，没有整数算子加速。manifest 需由可信渠道提供；签名、真实 adapter 基座指纹与跨引擎容差属于部署扩展。"
+        },
+        {
+          "id": "template",
+          "label": "模板错配",
+          "metrics": {
+            "加载拒绝": true,
+            "token 一致": false,
+            "greedy 一致": false,
+            "logits 最大误差": 0.0
+          },
+          "steps": [
+            "训练 25 步后导出权重和完整配置。",
+            "独立 Python 进程校验文件与语义约定，再执行同一输入。",
+            "拒绝：template"
+          ],
+          "note": "拒绝时误差显示 0 代表未运行推理；int8 是反量化后的误差实验，没有整数算子加速。manifest 需由可信渠道提供；签名、真实 adapter 基座指纹与跨引擎容差属于部署扩展。"
+        },
+        {
+          "id": "base",
+          "label": "基座错配",
+          "metrics": {
+            "加载拒绝": true,
+            "token 一致": false,
+            "greedy 一致": false,
+            "logits 最大误差": 0.0
+          },
+          "steps": [
+            "训练 25 步后导出权重和完整配置。",
+            "独立 Python 进程校验文件与语义约定，再执行同一输入。",
+            "拒绝：base"
+          ],
+          "note": "拒绝时误差显示 0 代表未运行推理；int8 是反量化后的误差实验，没有整数算子加速。manifest 需由可信渠道提供；签名、真实 adapter 基座指纹与跨引擎容差属于部署扩展。"
+        }
+      ]
+    },
+    {
+      "id": "documents",
+      "title": "文档生命周期：旧答案什么时候必须失效",
+      "module": "llm_agent/m54_document_lifecycle/demo.py",
+      "routes": [
+        "agent-rag"
+      ],
+      "audit_ids": [
+        "G2"
+      ],
+      "modes": [
+        {
+          "id": "prefilter",
+          "label": "先过滤权限"
+        },
+        {
+          "id": "postfilter",
+          "label": "后过滤权限"
+        },
+        {
+          "id": "update",
+          "label": "文档更新"
+        },
+        {
+          "id": "revoke",
+          "label": "撤销权限"
+        },
+        {
+          "id": "delete",
+          "label": "删除文档"
+        },
+        {
+          "id": "embedding",
+          "label": "编码器换版"
+        }
+      ],
+      "intuition": "检索正确不仅是找到相似文本，还要确认此刻有权读、版本仍有效、答案能回到原文。",
+      "principles": [
+        "HTML 的段落和表格行保留原始字符偏移，chunk 带 source/version/parent 与 embedding 版本。PDF 解析要保留页码和坐标；扫描件还需 OCR 置信度与版面顺序，不能把失败文件当成空成功。",
+        "前过滤在合法集合内找候选；后过滤先取 top-k，再删无权项，可能丢掉本应返回的合法项。两者最终返回都要校验权限，原文、引用和缓存也要遵守同一个范围。",
+        "更新先完成解析，再替换索引快照；撤权和删除清空缓存。引用读取时再次核对版本及授权，历史引用也会失效。更换编码器不能把不兼容向量混入旧索引。"
+      ],
+      "protocol": "固定带表格的文档，保留 source_id/version/page 或 offset/parent_id；解析失败不得伪造空成功。；两租户分别检索；对比 ANN 前过滤与后过滤的召回影响，任何返回和引用都不得泄漏无权文档。；修改、删除或撤权后重放相同问题，旧 chunk、旧引用和缓存答案均不可继续生效；embedding 版本不兼容时显式重建或拒绝混用。",
+      "challenge": {
+        "ask": "权限后过滤没有泄露文档，为什么仍可能找不到答案？",
+        "answer": "更新先完成解析，再替换索引快照；撤权和删除清空缓存。引用读取时再次核对版本及授权，历史引用也会失效。更换编码器不能把不兼容向量混入旧索引。"
+      },
+      "quiz": {
+        "q": "权限后过滤没有泄露文档，为什么仍可能找不到答案？",
+        "options": [
+          "无权近邻占了候选名额，合法项被挤掉",
+          "只要权限校验通过，检索召回必然完整",
+          "ANN 的距离值只能在权限过滤后计算",
+          "后过滤天然比前过滤拥有更高的召回"
+        ],
+        "answer": 0,
+        "why": "更新先完成解析，再替换索引快照；撤权和删除清空缓存。引用读取时再次核对版本及授权，历史引用也会失效。更换编码器不能把不兼容向量混入旧索引。"
+      },
+      "references": [
+        {
+          "title": "Unstructured：原始文档到结构化元素",
+          "url": "https://docs.unstructured.io/open-source/core-functionality/partitioning"
+        },
+        {
+          "title": "Azure AI Search：向量过滤位置会影响召回",
+          "url": "https://learn.microsoft.com/en-us/azure/search/vector-search-filters"
+        }
+      ],
+      "run": "python -m llm_agent.m54_document_lifecycle.demo",
+      "conditions": [
+        {
+          "id": "prefilter",
+          "label": "先过滤权限",
+          "metrics": {
+            "返回片段": 1,
+            "越权返回": 0,
+            "旧引用失效": false,
+            "embedding 拒绝": false,
+            "当前文档版本": 1
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 prefilter；结果为 退款天数 12",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        },
+        {
+          "id": "postfilter",
+          "label": "后过滤权限",
+          "metrics": {
+            "返回片段": 0,
+            "越权返回": 0,
+            "旧引用失效": false,
+            "embedding 拒绝": false,
+            "当前文档版本": 1
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 postfilter；结果为 空，不能使用旧缓存补答",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        },
+        {
+          "id": "update",
+          "label": "文档更新",
+          "metrics": {
+            "返回片段": 1,
+            "越权返回": 0,
+            "旧引用失效": true,
+            "embedding 拒绝": false,
+            "当前文档版本": 2
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 update；结果为 退款天数 15",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        },
+        {
+          "id": "revoke",
+          "label": "撤销权限",
+          "metrics": {
+            "返回片段": 0,
+            "越权返回": 0,
+            "旧引用失效": true,
+            "embedding 拒绝": false,
+            "当前文档版本": 1
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 revoke；结果为 空，不能使用旧缓存补答",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        },
+        {
+          "id": "delete",
+          "label": "删除文档",
+          "metrics": {
+            "返回片段": 0,
+            "越权返回": 0,
+            "旧引用失效": true,
+            "embedding 拒绝": false,
+            "当前文档版本": 0
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 delete；结果为 空，不能使用旧缓存补答",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        },
+        {
+          "id": "embedding",
+          "label": "编码器换版",
+          "metrics": {
+            "返回片段": 1,
+            "越权返回": 0,
+            "旧引用失效": false,
+            "embedding 拒绝": true,
+            "当前文档版本": 1
+          },
+          "steps": [
+            "先建立 A/B 两租户与表格原文，A 的旧答案为 退款天数 12。",
+            "执行 embedding；结果为 退款天数 12",
+            "快照重新加载后查询一致；引用携带 source/version/parent/offset 并在读取时再次校验权限。"
+          ],
+          "note": "两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。"
+        }
+      ]
+    },
+    {
+      "id": "mcp_versions",
+      "title": "MCP：旧握手、新报文与资源端授权",
+      "module": "llm_agent/m55_mcp_versions/demo.py",
+      "routes": [
+        "agent-mcp"
+      ],
+      "audit_ids": [
+        "G3"
+      ],
+      "modes": [
+        {
+          "id": "legacy",
+          "label": "2025 stdio"
+        },
+        {
+          "id": "modern",
+          "label": "2026 HTTP"
+        },
+        {
+          "id": "unknown",
+          "label": "未知版本"
+        },
+        {
+          "id": "audience",
+          "label": "错误受众"
+        },
+        {
+          "id": "expired",
+          "label": "凭据过期"
+        },
+        {
+          "id": "scope",
+          "label": "权限不足"
+        },
+        {
+          "id": "cancel",
+          "label": "执行取消"
+        },
+        {
+          "id": "timeout",
+          "label": "执行超时"
+        }
+      ],
+      "intuition": "同名协议会修订，旧握手和新请求不能只靠改日期互换。工具权限与 HTTP 凭据校验也分属不同层。",
+      "principles": [
+        "m09/core 固定 2025-06-18：initialize → initialized。2026-07-28 改为逐请求 _meta 携带版本与能力，HTTP 同时带 MCP-Protocol-Version；server/discover 返回 supportedVersions。未知版本返回 -32022。 HTTP 还镜像 Mcp-Method 与 Mcp-Name；请求头和正文不一致返回 400/-32020，未知版本返回 400/-32022，未知方法返回 404/-32601。",
+        "授权对 MCP 实现是可选能力；支持 HTTP 授权时遵循资源端约定。stdio 使用环境凭据，不照搬 HTTP OAuth 流程。本地服务用服务端登记的 opaque token 演示 audience、过期和 scope，未实现登录或令牌签发。",
+        "取消与截止时间要进入工具执行器。关闭连接不证明副作用已撤销；本实验在提交点之前检测停止条件。网络断连、幂等与任务恢复参见异步运行时。"
+      ],
+      "protocol": "在正文、实验和 README 同步标明 2025-06-18 教学配置，说明与 2026-07-28 的差异及不支持范围。；增加两个明确版本的报文约定测试，未知版本不得静默按旧报文解析。；可选本地 HTTP 端点覆盖错误 audience、过期凭据、权限不足、取消与超时；明确 OAuth 授权是可选能力，不能把 HTTP 授权流程强加给 stdio。",
+      "challenge": {
+        "ask": "把旧 initialize 里的日期改成新协议，是否完成迁移？",
+        "answer": "取消与截止时间要进入工具执行器。关闭连接不证明副作用已撤销；本实验在提交点之前检测停止条件。网络断连、幂等与任务恢复参见异步运行时。"
+      },
+      "quiz": {
+        "q": "把旧 initialize 里的日期改成新协议，是否完成迁移？",
+        "options": [
+          "是，协议只按日期选择服务器版本",
+          "否，还需迁移报文形态和能力约定",
+          "是，HTTP 会自动补齐所有新字段",
+          "否，新协议完全不再支持工具调用"
+        ],
+        "answer": 1,
+        "why": "取消与截止时间要进入工具执行器。关闭连接不证明副作用已撤销；本实验在提交点之前检测停止条件。网络断连、幂等与任务恢复参见异步运行时。"
+      },
+      "references": [
+        {
+          "title": "MCP 2026-07-28 变更说明",
+          "url": "https://modelcontextprotocol.io/specification/2026-07-28/changelog"
+        },
+        {
+          "title": "MCP HTTP Authorization 的适用范围",
+          "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization"
+        },
+        {
+          "title": "MCP Streamable HTTP：请求头校验与状态码",
+          "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http"
+        }
+      ],
+      "run": "python -m llm_agent.m55_mcp_versions.demo",
+      "conditions": [
+        {
+          "id": "legacy",
+          "label": "2025 stdio",
+          "metrics": {
+            "HTTP 状态": "不适用",
+            "协议或授权拒绝": false,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "真实子进程 stdio：initialize → initialized → tools/list。",
+            "固定旧协议 2025-06-18，发现 2 个工具。"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "modern",
+          "label": "2026 HTTP",
+          "metrics": {
+            "HTTP 状态": "200",
+            "协议或授权拒绝": false,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"id\": 1, \"jsonrpc\": \"2.0\", \"result\": {\"_meta\": {\"io.modelcontextprotocol/serverInfo\": {\"name\": \"lab-http-resource\", \"version\": \"1\"}}, \"resultType\": \"complete\", \"tools\": [{\"description\": \"Return text without side effects\", \"inputSchema\": {\"properties\": {\"text\": {\"type\": \"string\"}}, \"required\": [\"text\"], \"type\": \"object\"}, \"name\": \"echo\"}]}}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "unknown",
+          "label": "未知版本",
+          "metrics": {
+            "HTTP 状态": "400",
+            "协议或授权拒绝": true,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"error\": {\"code\": -32022, \"data\": {\"requested\": \"1900-01-01\", \"supported\": [\"2026-07-28\"]}, \"message\": \"Unsupported protocol version\"}, \"id\": 1, \"jsonrpc\": \"2.0\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "audience",
+          "label": "错误受众",
+          "metrics": {
+            "HTTP 状态": "401",
+            "协议或授权拒绝": true,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"error\": \"invalid_token\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "expired",
+          "label": "凭据过期",
+          "metrics": {
+            "HTTP 状态": "401",
+            "协议或授权拒绝": true,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"error\": \"invalid_token\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "scope",
+          "label": "权限不足",
+          "metrics": {
+            "HTTP 状态": "403",
+            "协议或授权拒绝": true,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"error\": \"insufficient_scope\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "cancel",
+          "label": "执行取消",
+          "metrics": {
+            "HTTP 状态": "200",
+            "协议或授权拒绝": false,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"execution\": \"cancelled\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        },
+        {
+          "id": "timeout",
+          "label": "执行超时",
+          "metrics": {
+            "HTTP 状态": "200",
+            "协议或授权拒绝": false,
+            "取消/超时后提交": 0
+          },
+          "steps": [
+            "实际请求本机 HTTP 端点；协议版本 2026-07-28 放在请求元数据及 header 中。",
+            "{\"execution\": \"deadline\"}"
+          ],
+          "note": "HTTP 资源端真实运行于 loopback，固定时钟和 opaque 凭据用于授权反例；未实现 OAuth 登录、令牌签发、SSE 或完整互操作认证。取消/超时检验工具执行层的合作停止，不等于网络断连自动撤销副作用。stdio 的环境凭据与 HTTP 授权流程分开。"
+        }
+      ]
+    },
+    {
+      "id": "async_rollout",
+      "title": "异步 RL：样本来自哪一版策略",
+      "module": "llm_finetune/run_finetune/async_rollout/demo.py",
+      "routes": [
+        "finetune-grpo-variants"
+      ],
+      "audit_ids": [
+        "G4"
+      ],
+      "modes": [
+        {
+          "id": "uncorrected",
+          "label": "直接使用旧样本"
+        },
+        {
+          "id": "corrected",
+          "label": "重要性校正"
+        },
+        {
+          "id": "clipped",
+          "label": "裁剪权重"
+        },
+        {
+          "id": "stale",
+          "label": "拒收过期样本"
+        }
+      ],
+      "intuition": "训练器更新了策略，不会让队列里已经采出的答案自动变成新策略样本。",
+      "principles": [
+        "rollout 固定采样时策略版本和行为 logp；权重同步只影响新任务。队列容量限制积压，过期拒收限制偏移，取消要回收任务计数。",
+        "枚举两个动作按行为分布计算期望：目标奖励为 0.8，直接用旧分布得到 0.2。重要性校正恢复期望，但有效样本比例降低；裁剪减少极端权重，同时引入偏差。",
+        "实际生成引擎的温度、精度或 logits 处理可能与训练器不同。分母必须是实际采样分布，不能用当前模型重算的概率替代。此处是确定性事件顺序重放，不提供异步吞吐结论。"
+      ],
+      "protocol": "用两个策略版本和队列构造固定延迟，记录行为策略版本、采样概率和消费版本。；比较无校正、重要性校正、过期拒收，报告偏差、有效样本量及吞吐代价；说明裁剪并不保证无偏。；队列满、任务取消、权重切换均不混淆样本归属。CPU 模拟足以验证机制，真实多 GPU 接入单列选做。",
+      "challenge": {
+        "ask": "权重同步后，队列中的旧 rollout 应该怎样处理？",
+        "answer": "实际生成引擎的温度、精度或 logits 处理可能与训练器不同。分母必须是实际采样分布，不能用当前模型重算的概率替代。此处是确定性事件顺序重放，不提供异步吞吐结论。"
+      },
+      "quiz": {
+        "q": "权重同步后，队列中的旧 rollout 应该怎样处理？",
+        "options": [
+          "保留行为版本与概率，再校正或按规则拒收",
+          "把旧记录的版本号统一修改成当前策略版本",
+          "删除行为概率，并用当前模型概率直接替代",
+          "只要当前奖励变高，就忽略所有采样分布差异"
+        ],
+        "answer": 0,
+        "why": "实际生成引擎的温度、精度或 logits 处理可能与训练器不同。分母必须是实际采样分布，不能用当前模型重算的概率替代。此处是确定性事件顺序重放，不提供异步吞吐结论。"
+      },
+      "references": [
+        {
+          "title": "TRL Asynchronous GRPO（官方列为 Experimental）",
+          "url": "https://huggingface.co/docs/trl/async_grpo_trainer"
+        }
+      ],
+      "run": "python -m llm_finetune.run_finetune.async_rollout.demo",
+      "conditions": [
+        {
+          "id": "uncorrected",
+          "label": "直接使用旧样本",
+          "metrics": {
+            "旧样本接纳": true,
+            "奖励期望": 0.2,
+            "目标期望": 0.8,
+            "相对 ESS": 1.0,
+            "背压次数": 1,
+            "未回收任务": 0
+          },
+          "steps": [
+            "rollout v1 进入容量为 2 的队列；同步后新任务使用 v3，旧记录仍保存 v1。",
+            "旧任务状态 accepted；取消任务不参与更新；新任务行为概率为 0.8。",
+            "枚举两种动作，按行为分布计算期望与重要性权重；不混入采样噪声。"
+          ],
+          "note": "这是异步执行顺序的确定性重放，不是多 GPU 吞吐实测。ESS 是有效样本比例；裁剪会引入偏差。拒收时期望 0 表示没有更新，不能解释成策略奖励降为零。引擎温度与数值精度差异应保留实际行为 logp，不能用训练器重算值替换。"
+        },
+        {
+          "id": "corrected",
+          "label": "重要性校正",
+          "metrics": {
+            "旧样本接纳": true,
+            "奖励期望": 0.8,
+            "目标期望": 0.8,
+            "相对 ESS": 0.3077,
+            "背压次数": 1,
+            "未回收任务": 0
+          },
+          "steps": [
+            "rollout v1 进入容量为 2 的队列；同步后新任务使用 v3，旧记录仍保存 v1。",
+            "旧任务状态 accepted；取消任务不参与更新；新任务行为概率为 0.8。",
+            "枚举两种动作，按行为分布计算期望与重要性权重；不混入采样噪声。"
+          ],
+          "note": "这是异步执行顺序的确定性重放，不是多 GPU 吞吐实测。ESS 是有效样本比例；裁剪会引入偏差。拒收时期望 0 表示没有更新，不能解释成策略奖励降为零。引擎温度与数值精度差异应保留实际行为 logp，不能用训练器重算值替换。"
+        },
+        {
+          "id": "clipped",
+          "label": "裁剪权重",
+          "metrics": {
+            "旧样本接纳": true,
+            "奖励期望": 0.24,
+            "目标期望": 0.8,
+            "相对 ESS": 0.968,
+            "背压次数": 1,
+            "未回收任务": 0
+          },
+          "steps": [
+            "rollout v1 进入容量为 2 的队列；同步后新任务使用 v3，旧记录仍保存 v1。",
+            "旧任务状态 accepted；取消任务不参与更新；新任务行为概率为 0.8。",
+            "枚举两种动作，按行为分布计算期望与重要性权重；不混入采样噪声。"
+          ],
+          "note": "这是异步执行顺序的确定性重放，不是多 GPU 吞吐实测。ESS 是有效样本比例；裁剪会引入偏差。拒收时期望 0 表示没有更新，不能解释成策略奖励降为零。引擎温度与数值精度差异应保留实际行为 logp，不能用训练器重算值替换。"
+        },
+        {
+          "id": "stale",
+          "label": "拒收过期样本",
+          "metrics": {
+            "旧样本接纳": false,
+            "奖励期望": 0.0,
+            "目标期望": 0.8,
+            "相对 ESS": 0.0,
+            "背压次数": 1,
+            "未回收任务": 0
+          },
+          "steps": [
+            "rollout v1 进入容量为 2 的队列；同步后新任务使用 v3，旧记录仍保存 v1。",
+            "旧任务状态 stale；取消任务不参与更新；新任务行为概率为 0.8。",
+            "枚举两种动作，按行为分布计算期望与重要性权重；不混入采样噪声。"
+          ],
+          "note": "这是异步执行顺序的确定性重放，不是多 GPU 吞吐实测。ESS 是有效样本比例；裁剪会引入偏差。拒收时期望 0 表示没有更新，不能解释成策略奖励降为零。引擎温度与数值精度差异应保留实际行为 logp，不能用训练器重算值替换。"
+        }
+      ]
+    },
+    {
+      "id": "release",
+      "title": "评测到发布：均分变好，为什么仍要回滚",
+      "module": "llm_agent/m56_release_loop/demo.py",
+      "routes": [
+        "agent-eval-suite"
+      ],
+      "audit_ids": [
+        "G5"
+      ],
+      "modes": [
+        {
+          "id": "slice",
+          "label": "关键切片退化"
+        },
+        {
+          "id": "quality",
+          "label": "线上质量下降"
+        },
+        {
+          "id": "latency",
+          "label": "尾延迟超标"
+        },
+        {
+          "id": "cost",
+          "label": "成本超标"
+        },
+        {
+          "id": "safety",
+          "label": "安全回归"
+        },
+        {
+          "id": "healthy",
+          "label": "健康候选"
+        }
+      ],
+      "intuition": "一次发布改变了模型、提示、索引或工具，就需要知道变好了什么、伤害了谁，以及怎样恢复旧版本。",
+      "principles": [
+        "离线同时检查均分、配对 bootstrap 与关键切片。小样本区间仅说明当前夹具；真实验收还需代表性任务、预先设定门槛和统计功效，不能反复挑显著结果。",
+        "版本由 model/prompt/index/tools 共同确定。固定请求回放模拟灰度，质量、p95、安全与成本任一越界触发回滚；缺反馈先等待，不能当成成功。",
+        "失败样本按输入去重后进入回归集，并排除受保护训练/验证/测试集合。生产还要做实体级去重、隐私处理、标签审核与分布漂移监测，回流数据不能直接污染最终测试。"
+      ],
+      "protocol": "同一组固定请求对比旧版/候选版；让候选版平均分提升但某个重要切片下降，发布门槛应识别。；模拟线上延迟或质量漂移并触发回滚，能够追溯当时的模型、提示、索引与工具版本。；反馈延迟与缺失单独计数；回流样本去重并保持训练/验证/最终测试隔离。复用已有统计和 trace，避免再建一套评测基础设施。",
+      "challenge": {
+        "ask": "候选均分更高，但关键业务切片更差，应该怎样发布？",
+        "answer": "失败样本按输入去重后进入回归集，并排除受保护训练/验证/测试集合。生产还要做实体级去重、隐私处理、标签审核与分布漂移监测，回流数据不能直接污染最终测试。"
+      },
+      "quiz": {
+        "q": "候选均分更高，但关键业务切片更差，应该怎样发布？",
+        "options": [
+          "按预先设定的切片门槛拦截并诊断",
+          "忽略切片差异，均分就是唯一验收标准",
+          "先替换最终测试集再计算一次提升",
+          "只要错误数不大，就立即替换全部流量"
+        ],
+        "answer": 0,
+        "why": "失败样本按输入去重后进入回归集，并排除受保护训练/验证/测试集合。生产还要做实体级去重、隐私处理、标签审核与分布漂移监测，回流数据不能直接污染最终测试。"
+      },
+      "references": [
+        {
+          "title": "MLflow：Regression Testing and CI/CD",
+          "url": "https://mlflow.org/docs/latest/genai/eval-monitor/regression-testing/"
+        },
+        {
+          "title": "MLflow：从开发评测到生产监控",
+          "url": "https://mlflow.org/docs/latest/genai/eval-monitor/"
+        }
+      ],
+      "run": "python -m llm_agent.m56_release_loop.demo",
+      "conditions": [
+        {
+          "id": "slice",
+          "label": "关键切片退化",
+          "metrics": {
+            "离线通过": false,
+            "线上回滚": false,
+            "活动版本": "0ba6aad826f1",
+            "失败回归样本": 0,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": false, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.2, 0.75], \"slice_ok\": false}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        },
+        {
+          "id": "quality",
+          "label": "线上质量下降",
+          "metrics": {
+            "离线通过": true,
+            "线上回滚": true,
+            "活动版本": "0ba6aad826f1",
+            "失败回归样本": 2,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": true, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.3, 0.7], \"slice_ok\": true}",
+            "{\"active\": \"a1f094f7c16c\", \"event\": \"canary\", \"traffic_fraction\": 0.1}",
+            "{\"active\": \"a1f094f7c16c\", \"cost\": 0.01, \"event\": \"hold\", \"missing\": 1, \"p95\": 120, \"pending\": 9, \"quality\": null, \"safety\": 0}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.01, \"event\": \"rollback\", \"missing\": 1, \"p95\": 120, \"pending\": 1, \"quality\": 0.625, \"safety\": 0}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        },
+        {
+          "id": "latency",
+          "label": "尾延迟超标",
+          "metrics": {
+            "离线通过": true,
+            "线上回滚": true,
+            "活动版本": "0ba6aad826f1",
+            "失败回归样本": 0,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": true, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.3, 0.7], \"slice_ok\": true}",
+            "{\"active\": \"a1f094f7c16c\", \"event\": \"canary\", \"traffic_fraction\": 0.1}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.01, \"event\": \"rollback\", \"missing\": 1, \"p95\": 500, \"pending\": 9, \"quality\": null, \"safety\": 0}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.01, \"event\": \"rollback\", \"missing\": 1, \"p95\": 500, \"pending\": 1, \"quality\": 1.0, \"safety\": 0}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        },
+        {
+          "id": "cost",
+          "label": "成本超标",
+          "metrics": {
+            "离线通过": true,
+            "线上回滚": true,
+            "活动版本": "0ba6aad826f1",
+            "失败回归样本": 0,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": true, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.3, 0.7], \"slice_ok\": true}",
+            "{\"active\": \"a1f094f7c16c\", \"event\": \"canary\", \"traffic_fraction\": 0.1}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.029000000000000005, \"event\": \"rollback\", \"missing\": 1, \"p95\": 120, \"pending\": 9, \"quality\": null, \"safety\": 0}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.029000000000000005, \"event\": \"rollback\", \"missing\": 1, \"p95\": 120, \"pending\": 1, \"quality\": 1.0, \"safety\": 0}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        },
+        {
+          "id": "safety",
+          "label": "安全回归",
+          "metrics": {
+            "离线通过": true,
+            "线上回滚": true,
+            "活动版本": "0ba6aad826f1",
+            "失败回归样本": 0,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": true, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.3, 0.7], \"slice_ok\": true}",
+            "{\"active\": \"a1f094f7c16c\", \"event\": \"canary\", \"traffic_fraction\": 0.1}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.01, \"event\": \"rollback\", \"missing\": 1, \"p95\": 120, \"pending\": 9, \"quality\": null, \"safety\": 1}",
+            "{\"active\": \"0ba6aad826f1\", \"cost\": 0.01, \"event\": \"rollback\", \"missing\": 1, \"p95\": 120, \"pending\": 1, \"quality\": 1.0, \"safety\": 1}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        },
+        {
+          "id": "healthy",
+          "label": "健康候选",
+          "metrics": {
+            "离线通过": true,
+            "线上回滚": false,
+            "活动版本": "a1f094f7c16c",
+            "失败回归样本": 0,
+            "缺失反馈": 1,
+            "待到达反馈": 1
+          },
+          "steps": [
+            "{\"active\": \"0ba6aad826f1\", \"allowed\": true, \"delta\": 0.5, \"event\": \"offline\", \"interval\": [0.3, 0.7], \"slice_ok\": true}",
+            "{\"active\": \"a1f094f7c16c\", \"event\": \"canary\", \"traffic_fraction\": 0.1}",
+            "{\"active\": \"a1f094f7c16c\", \"cost\": 0.01, \"event\": \"hold\", \"missing\": 1, \"p95\": 120, \"pending\": 9, \"quality\": null, \"safety\": 0}",
+            "{\"active\": \"a1f094f7c16c\", \"cost\": 0.01, \"event\": \"promote\", \"missing\": 1, \"p95\": 120, \"pending\": 1, \"quality\": 1.0, \"safety\": 0}"
+          ],
+          "note": "固定请求回放模拟 10% 灰度，没有操作真实流量。复用配对 bootstrap；平均提升不能抵消关键切片退化。回归样本按规范化文本去重并排除受保护集合，仍需实体级去重和隐私审核；延迟反馈与缺失分别计数。"
+        }
+      ]
+    },
+    {
+      "id": "profiling",
+      "title": "性能实测：模型估算与 profiler 怎样对照",
+      "module": "llm_infer/m32_profiling/demo.py",
+      "routes": [
+        "infer-compute"
+      ],
+      "audit_ids": [
+        "G6"
+      ],
+      "modes": [
+        {
+          "id": "eager",
+          "label": "matmul 后加 bias"
+        },
+        {
+          "id": "fused",
+          "label": "addmm"
+        }
+      ],
+      "intuition": "FLOPs 相同不代表执行时间相同。真正的算子调用、分配与 host 开销需要测出来。",
+      "principles": [
+        "先 warmup，再独立计时，再采 profiler。记录 Python/PyTorch、设备、线程数和重复次数；网页展示稳定事件计数，机器相关耗时在 CLI 的 JSON 中保留。",
+        "正向分配字节之和不等于峰值内存，ATen 调用也不等于 GPU kernel 数。self 时间排除了子调用，不能把嵌套事件时间或异步 CPU/GPU 时间直接相加。",
+        "CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。"
+      ],
+      "protocol": "CPU profiler 示例记录 warmup、重复测量和环境，解释总时间与算子时间为何不同。；GPU 选做再讲同步、异步拷贝、峰值显存及 kernel trace，不拿 CPU 或模拟结果宣称 GPU 加速比。",
+      "challenge": {
+        "ask": "两版 FLOPs 相同，能否仅据此认定耗时相同？",
+        "answer": "CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。"
+      },
+      "quiz": {
+        "q": "两版 FLOPs 相同，能否仅据此认定耗时相同？",
+        "options": [
+          "不能，调用开销、访存和并行都影响耗时",
+          "能，硬件耗时始终与逻辑 FLOPs 成正比",
+          "能，只要输入和输出的张量形状相同",
+          "不能，因为 FLOPs 完全不能解释任何性能"
+        ],
+        "answer": 0,
+        "why": "CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。"
+      },
+      "references": [
+        {
+          "title": "PyTorch Profiler 官方教程",
+          "url": "https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html"
+        },
+        {
+          "title": "Stanford CS336 2025：Systems 作业包含 profiling 与 benchmark",
+          "url": "https://cs336.stanford.edu/spring2025/"
+        }
+      ],
+      "run": "python -m llm_infer.m32_profiling.demo",
+      "conditions": [
+        {
+          "id": "eager",
+          "label": "matmul 后加 bias",
+          "metrics": {
+            "矩阵乘调用": 1,
+            "ATen 调用": 6,
+            "逻辑 FLOPs": 1056768,
+            "CPU 分配字节": 65536
+          },
+          "steps": [
+            "真正执行 torch.profiler，记录算子、形状和内存事件。",
+            "先 warmup 3 次，再独立计时 7 次；耗时与环境由命令行 JSON 输出，网页不固化机器相关速度。",
+            "eager 输出与 x@w+b 在固定容差内一致；事件数不等于 GPU kernel 数。"
+          ],
+          "note": "CPU 分配字节是正向分配事件之和，不是峰值驻留内存。profiler 会扰动耗时，计时与采样分开；CPU self 时间排除子事件但不能直接与异步 GPU 总时间相加。CUDA 选做会同步后计时并记录峰值显存；本次默认只测 CPU。"
+        },
+        {
+          "id": "fused",
+          "label": "addmm",
+          "metrics": {
+            "矩阵乘调用": 1,
+            "ATen 调用": 7,
+            "逻辑 FLOPs": 1056768,
+            "CPU 分配字节": 32768
+          },
+          "steps": [
+            "真正执行 torch.profiler，记录算子、形状和内存事件。",
+            "先 warmup 3 次，再独立计时 7 次；耗时与环境由命令行 JSON 输出，网页不固化机器相关速度。",
+            "fused 输出与 x@w+b 在固定容差内一致；事件数不等于 GPU kernel 数。"
+          ],
+          "note": "CPU 分配字节是正向分配事件之和，不是峰值驻留内存。profiler 会扰动耗时，计时与采样分开；CPU self 时间排除子事件但不能直接与异步 GPU 总时间相加。CUDA 选做会同步后计时并记录峰值显存；本次默认只测 CPU。"
+        }
+      ]
+    }
+  ]
+}

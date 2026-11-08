@@ -9,6 +9,16 @@
       :code="page.code"
     />
 
+    <nav v-if="page.related?.length" class="card related-topics" aria-label="前置知识与相关实验">
+      <p class="related-title">前置知识与相关实验</p>
+      <ul>
+        <li v-for="link in page.related" :key="link.route + link.label">
+          <RouterLink :to="{ name: link.route }">{{ link.label }} →</RouterLink>
+          <p>{{ link.reason }}</p>
+        </li>
+      </ul>
+    </nav>
+
     <!-- 这门技术从哪来: 根问题 → 每一步补上一步的窟窿 → 本章实现的那一步 -->
     <EvolutionChain
       v-if="evolution"
@@ -20,7 +30,7 @@
     <section v-if="hasLabs" class="section">
       <h2>先动手</h2>
       <p class="lead">
-        拖一下滑杆, 右边的数字会跟着动。看懂哪个数字被什么牵着走, 下面的字就好读了。
+        切换条件或调整参数，观察结果怎样变化。执行记录回放会单独说明；先看对照，再读下面的原理。
       </p>
       <LabMount />
     </section>
@@ -182,6 +192,11 @@ const topicRef = (ref) => {
 </script>
 
 <style scoped>
+.related-topics { margin: 20px 0; }
+.related-title { font-weight: 600; margin-bottom: 10px; }
+.related-topics ul { padding-left: 20px; }
+.related-topics li { margin: 10px 0; overflow-wrap: anywhere; }
+.related-topics li p { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
 .point-card h3 {
   margin-bottom: 6px;
 }

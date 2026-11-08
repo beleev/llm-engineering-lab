@@ -17,15 +17,15 @@
 - **原理优先**: 默认"模型"是 `RuleBasedLLM` (关键词规则), 行为完全确定 —— 所以每个 demo 都能用 `assert` 证明自己声称的行为, 而不是无条件打印 OK。
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
 - **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
-- **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
+- **安全可跑**: `ShellTool` 只模拟、永不执行; 不访问外网，m55 使用本机 HTTP; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
 - **基础模块零依赖**: 原基础模块用 stdlib，研究补充使用 numpy。`--with-training` 加入 m32 / m37 / m44 / m45 / m46 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 运行
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 51 个默认 demo，使用标准库与 numpy
-python -m llm_agent.run_all --with-training # 加入 4 个 CPU 训练扩展, 共 48 个
+python -m llm_agent.run_all                 # 54 个默认 demo，使用标准库与 numpy
+python -m llm_agent.run_all --with-training # 加入 5 个 CPU 训练扩展, 共 59 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
 
@@ -187,3 +187,11 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | [工具学习：从候选调用到训练数据](m53_tool_data/README.md) | 工具调用执行成功，不代表值得教给模型。训练数据应保留能帮助后续预测的调用，并计算额外成本。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [文档入库、来源定位、权限与更新删除](m54_document_lifecycle/README.md)
+- [MCP 旧新版本对照与 HTTP 资源端授权](m55_mcp_versions/README.md)
+- [切片门槛、线上质量与版本回滚](m56_release_loop/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

@@ -1,4 +1,4 @@
-// 研究补充归入既有三级章节；正文与证据只在打开实验时加载。
+// 每组完整实验只有一个主讲入口。
 export default {
   "train-data-packing": [
     "ResearchCompletionLab"
@@ -18,10 +18,7 @@ export default {
   "finetune-rlaif": [
     "ResearchCompletionLab"
   ],
-  "finetune-sft": [
-    "ResearchCompletionLab"
-  ],
-  "agent-memory-privacy": [
+  "finetune-knowledge-update": [
     "ResearchCompletionLab"
   ],
   "infer-test-time-compute": [
@@ -48,7 +45,7 @@ export default {
   "agent-coding-agent": [
     "ResearchCompletionLab"
   ],
-  "agent-programmatic-actions": [
+  "agent-verifiable-reasoning": [
     "ResearchCompletionLab"
   ],
   "agent-eval-suite": [
@@ -69,7 +66,7 @@ export default {
   "attention": [
     "ResearchCompletionLab"
   ],
-  "agent-tools-permissions": [
+  "agent-agent-training": [
     "ResearchCompletionLab"
   ]
 }

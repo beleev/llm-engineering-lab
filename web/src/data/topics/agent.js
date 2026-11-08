@@ -3408,4 +3408,84 @@ for (const [route, rows] of Object.entries(supplements)) {
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
 }
+
+// 审查后的主讲职责与前置链接。
+topic.chapters.push({"route": "agent-verifiable-reasoning", "label": "可验证推理 · 形式证明与科学检验", "hint": "行动生成负责提出候选；独立检查器决定候选能支持多强的结论。"})
+topic.pages["agent-verifiable-reasoning"] = {
+  "title": "可验证推理 · 形式证明与科学检验",
+  "subtitle": "行动生成负责提出候选；独立检查器决定候选能支持多强的结论。",
+  "tldr": "给定公理、推理规则和形式化命题，检查证明每一步是否合法。自然语言说“证明了”不算；小型命题系统也不等于完整 Lean 或通用数学验证。",
+  "question": "候选结论看起来合理时，检查器应该根据什么拒绝缺步骤、错规则或偷看答案的推导？",
+  "code": "llm_agent/m51_formal_science/demo.py",
+  "points": [
+    {
+      "title": "形式证明有明确边界",
+      "body": "给定公理、推理规则和形式化命题，检查证明每一步是否合法。自然语言说“证明了”不算；小型命题系统也不等于完整 Lean 或通用数学验证。"
+    },
+    {
+      "title": "科学假设需要留出检验",
+      "body": "拟合观测、提出假设和预测未见数据分开。搜索器不能反复读取最终验收集；测试通过只支持约定范围内的结论。"
+    },
+    {
+      "title": "与程序化行动的区别",
+      "body": "程序化行动把意图变成可执行操作；本章处理操作或推理之后证据是否足够。需要同时理解命题、证明规则和独立验收。"
+    },
+    {
+      "title": "怎样验收",
+      "body": "候选结论看起来合理时，检查器应该根据什么拒绝缺步骤、错规则或偷看答案的推导？"
+    }
+  ],
+  "links": [],
+  "sourceRows": [
+    {
+      "concept": "实验与反例",
+      "code": "llm_agent/m51_formal_science/demo.py:experiment",
+      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+    }
+  ],
+  "snippetTitle": "先固定要改什么，再检查没有改什么",
+  "snippet": "result = experiment(mode)\n# 同时检查目标变化、无关任务保持与独立验证\nprint(result[\"metrics\"])",
+  "source": [
+    "llm_agent/m51_formal_science/demo.py:experiment"
+  ],
+  "run": "python -m llm_agent.m51_formal_science.demo"
+}
+topic.pages["agent-rag"].points.push({"title": "文档生命周期：旧答案什么时候必须失效", "body": "检索正确不仅是找到相似文本，还要确认此刻有权读、版本仍有效、答案能回到原文。 HTML 的段落和表格行保留原始字符偏移，chunk 带 source/version/parent 与 embedding 版本。PDF 解析要保留页码和坐标；扫描件还需 OCR 置信度与版面顺序，不能把失败文件当成空成功。"})
+topic.pages["agent-mcp"].points.push({"title": "MCP：旧握手、新报文与资源端授权", "body": "同名协议会修订，旧握手和新请求不能只靠改日期互换。工具权限与 HTTP 凭据校验也分属不同层。 m09/core 固定 2025-06-18：initialize → initialized。2026-07-28 改为逐请求 _meta 携带版本与能力，HTTP 同时带 MCP-Protocol-Version；server/discover 返回 supportedVersions。未知版本返回 -32022。"})
+topic.pages["agent-eval-suite"].points.push({"title": "评测到发布：均分变好，为什么仍要回滚", "body": "一次发布改变了模型、提示、索引或工具，就需要知道变好了什么、伤害了谁，以及怎样恢复旧版本。 离线同时检查均分、配对 bootstrap 与关键切片。小样本区间仅说明当前夹具；真实验收还需代表性任务、预先设定门槛和统计功效，不能反复挑显著结果。"})
+topic.pages['agent-mcp'].subtitle = 'm09 固定 2025-06-18 stdio 教学配置；本章另对照 2026-07-28 的逐请求元数据和 HTTP 授权。两个版本的报文不能混用。'
+topic.pages['agent-guardrails'].points.push({title:'四层证据分开看',body:'执行权限由服务端授权决定；模型有害输出需配对正常任务与攻击家族留出；群体差异需足够样本和切片；治理还要责任、记录、监控和回滚。四个 allowlist 案例只验证执行层，不代替其余三层。'})
+topic.pages["agent-agent-training"].related = [{"route": "agent-trajectory-learning", "label": "RFT：当前策略采样 → 验证筛选 → SFT", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-grpo-variants", "label": "异步 rollout 与策略版本", "reason": "Agent 轨迹被用于 RL 时，保留产生轨迹的行为策略和概率。"}]
+topic.pages["agent-runtime-reliability"].related = [{"route": "agent-async-runtime", "label": "流式消息：什么时候可以执行工具", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-full-loop"].related = [{"route": "agent-async-runtime", "label": "流式消息：什么时候可以执行工具", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-evals"].related = [{"route": "agent-eval-suite", "label": "一次任务里的并行、重试与取消", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-rag"].related = [{"route": "agent-vector-index", "label": "语义表示、索引与重排分别错在哪里", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-memory-privacy"].related = [{"route": "finetune-knowledge-update", "label": "隐私：记忆提取、DP 与参数遗忘", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}, {"route": "agent-rag", "label": "检索库的撤权与删除", "reason": "个人记忆删除的相同约束如何进入文档索引。"}]
+topic.pages["agent-programmatic-actions"].related = [{"route": "agent-verifiable-reasoning", "label": "形式证明与科学假设：三种正确", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
+topic.pages["agent-tools-permissions"].related = [{"route": "agent-agent-training", "label": "工具学习：从候选调用到训练数据", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
+topic.pages["agent-verifiable-reasoning"].related = [{"route": "agent-completion-verification", "label": "完成条件与独立验收", "reason": "形式验证需要显式命题、规则和检查器；先掌握成功标准不能由执行者自行改写。"}]
+topic.pages["agent-vector-index"].related = [{"route": "agent-rag", "label": "文档来源与索引生命周期", "reason": "ANN 的输入来自文档解析与版本化入库；更新、撤权还要联动引用和缓存。"}]
+topic.pages["agent-system-design"].related = [{"route": "agent-eval-suite", "label": "发布门槛与回滚", "reason": "系统选择之后，还要验证变更是否值得发布并能恢复。"}]
+topic.pages["agent-guardrails"].related = [{"route": "agent-eval-suite", "label": "安全回归与发布治理", "reason": "执行权限、模型安全评测、群体差异与发布责任各需独立证据。"}]
+topic.pages["agent-verifiable-reasoning"].evolution = {
+  "title": "候选到证据",
+  "subtitle": "模型会提出推导，但提出不等于成立",
+  "steps": [
+    {
+      "name": "生成候选",
+      "pain": "语言流畅的推导也可能跳步或循环论证",
+      "fix": "把结论、前提和每一步规则明确写出来"
+    },
+    {
+      "name": "独立检查",
+      "pain": "生成器给自己打分会沿用原来的错误",
+      "fix": "用固定公理与规则检查形式证明或程序证书"
+    },
+    {
+      "name": "留出检验",
+      "pain": "在看过的观测上成立，不代表新预测可靠",
+      "fix": "科学假设另用未参与搜索的数据验证"
+    }
+  ]
+}
 export default topic

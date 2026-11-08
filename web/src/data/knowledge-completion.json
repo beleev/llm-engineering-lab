@@ -1,5 +1,5 @@
 {
-  "source_digest": "2a097a855d25b6be0f88dbb529af86c783380eccbbe719d08cdb37b5ceb43abe",
+  "source_digest": "f00898724b62a347bb87afc92d280e607d720a9a172e099af72473b95947cd78",
   "kind": "Python 执行记录回放；切换条件读取预先运行的结果，不在浏览器训练或调用 API。",
   "entries": [
     {
@@ -56,9 +56,7 @@
       "module": "llm_finetune/run_finetune/rft/train_rft.py",
       "run": "python -m llm_finetune.run_finetune.rft.train_rft",
       "routes": [
-        "finetune-sft",
-        "agent-trajectory-learning",
-        "agent-agent-training"
+        "agent-trajectory-learning"
       ],
       "challenge": {
         "ask": "候选全失败时，RFT 应如何更新？",
@@ -141,9 +139,7 @@
       "module": "llm_agent/m15_claude_api/stream_demo.py",
       "run": "python -m llm_agent.m15_claude_api.stream_demo",
       "routes": [
-        "agent-runtime-reliability",
-        "agent-async-runtime",
-        "agent-full-loop"
+        "agent-async-runtime"
       ],
       "challenge": {
         "ask": "第一条工具参数已经拼完，能立刻执行吗？",
@@ -196,8 +192,7 @@
       "module": "llm_agent/m31_eval_suite/trace_demo.py",
       "run": "python -m llm_agent.m31_eval_suite.trace_demo",
       "routes": [
-        "agent-eval-suite",
-        "agent-evals"
+        "agent-eval-suite"
       ],
       "challenge": {
         "ask": "为什么三个模型 attempt 不等于三次逻辑请求？",
@@ -272,7 +267,6 @@
       "module": "llm_agent/m45_semantic_retrieval/demo.py",
       "run": "python -m llm_agent.m45_semantic_retrieval.demo",
       "routes": [
-        "agent-rag",
         "agent-vector-index"
       ],
       "challenge": {
@@ -373,8 +367,7 @@
       "module": "llm_train/m22_parallel_budget/demo.py",
       "run": "python -m llm_train.m22_parallel_budget.demo",
       "routes": [
-        "train-model-parallel",
-        "train-collectives-loop"
+        "train-model-parallel"
       ],
       "challenge": {
         "ask": "参数占用减半，训练一定更快吗？",
@@ -500,9 +493,7 @@
       "module": "llm_infer/m28_service_capacity/demo.py",
       "run": "python -m llm_infer.m28_service_capacity.demo",
       "routes": [
-        "infer-scheduler",
-        "infer-multi-replica-routing",
-        "infer-engine"
+        "infer-multi-replica-routing"
       ],
       "challenge": {
         "ask": "拒绝更多请求换来更低 p99，能直接宣布服务更好吗？",

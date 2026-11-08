@@ -933,11 +933,7 @@ const supplements = {
     }
   ],
   "train-collectives-loop": [
-    {
-      "title": "多维配置要一起算",
-      "body": "m22 固定模型和全局 batch，比较 DP×TP×PP。先验证 rank 网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP 重叠和 PP 气泡。Roofline 比较算力与访存上限；MFU 是代价模型估计，不是硬件实测。TP 增加可能省内存却降低吞吐。",
-      "source": "llm_train/m22_parallel_budget/demo.py:estimate"
-    }
+    {"title":"通信语义进入训练循环", "body":"本章关注 collective 的参与 rank、张量布局与调用顺序：reduce-scatter 后每个 rank 只持有自己的分片，all-gather 恢复完整视图。预算估算集中在模型并行章；这里用实际同步和恢复断言检查循环是否正确。", "source":null}
   ]
 }
 for (const [route, rows] of Object.entries(supplements)) {
@@ -948,4 +944,8 @@ for (const [route, rows] of Object.entries(supplements)) {
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
 }
+
+// 审查后的主讲职责与前置链接。
+topic.pages["train-collectives-loop"].related = [{"route": "train-model-parallel", "label": "DP×TP×PP：显存与时间一起算", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["train-model-parallel"].related = [{"route": "infer-compute", "label": "从代价模型到 profiler", "reason": "预算估算帮助选配置；算子 trace 与真实计时验证实际瓶颈。"}]
 export default topic

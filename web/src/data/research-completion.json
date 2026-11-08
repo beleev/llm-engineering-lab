@@ -1,5 +1,5 @@
 {
-  "source_digest": "8f7ae5d4e5f9e633c4a283ea28e617bdb3a5dadd63c35b737617dab0dec4fe80",
+  "source_digest": "ab4561ff6db62374888ba38a5dae1fb64d7cd882698f2e1c5a73c2ae043f0a05",
   "kind": "Python 实际执行记录回放。切换条件读取预先计算的结果，浏览器不训练模型或调用 API。",
   "entries": [
     {
@@ -792,7 +792,7 @@
       "title": "知识编辑：改对一个事实，伤到多少邻居",
       "module": "llm_finetune/run_finetune/knowledge_edit/demo.py",
       "routes": [
-        "finetune-sft"
+        "finetune-knowledge-update"
       ],
       "modes": [
         {
@@ -896,7 +896,7 @@
       "title": "隐私：记忆提取、DP 与参数遗忘",
       "module": "llm_finetune/run_finetune/privacy_unlearning/demo.py",
       "routes": [
-        "agent-memory-privacy"
+        "finetune-knowledge-update"
       ],
       "modes": [
         {
@@ -1938,7 +1938,7 @@
       "title": "形式证明与科学假设：三种正确",
       "module": "llm_agent/m51_formal_science/demo.py",
       "routes": [
-        "agent-programmatic-actions"
+        "agent-verifiable-reasoning"
       ],
       "modes": [
         {
@@ -2723,7 +2723,7 @@
       "title": "工具学习：从候选调用到训练数据",
       "module": "llm_agent/m53_tool_data/demo.py",
       "routes": [
-        "agent-tools-permissions"
+        "agent-agent-training"
       ],
       "modes": [
         {

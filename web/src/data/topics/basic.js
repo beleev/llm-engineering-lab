@@ -280,4 +280,6 @@ for (const [route, rows] of Object.entries(supplements)) {
     if (source) page.source = [...new Set([].concat(page.source || [], source))]
   }
 }
+
+// 审查后的主讲职责与前置链接。
 export default topic

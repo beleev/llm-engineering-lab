@@ -45,15 +45,5 @@ const labs = {
   'agent-learning-loop': ['AgentLearningLab'],
 }
 
-for (const route of [
-  "agent-trajectory-learning",
-  "agent-agent-training",
-  "agent-runtime-reliability",
-  "agent-async-runtime",
-  "agent-full-loop",
-  "agent-eval-suite",
-  "agent-evals",
-  "agent-rag",
-  "agent-vector-index"
-]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+for (const route of ["agent-trajectory-learning", "agent-async-runtime", "agent-eval-suite", "agent-vector-index"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
 export default labs

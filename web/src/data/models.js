@@ -849,3 +849,11 @@ export function findModel(id) {
 // 章节正文全部住在 data/topics/<stage>.js, 这里只汇总。
 // 这个文件只留结构性数据: 阶段、章节目录、模块表、模型时间轴。
 export { topicPages } from './topics/index.js'
+
+// 工程流程复查后的可运行模块；三级章节保持在既有主题组内。
+inferModules.push({ id: 'm32', name: 'Profiler', concept: '真实 CPU 事件与可选 GPU 计时', link: 'warmup、重复测量、分配与同步', file: 'llm_infer/m32_profiling/demo.py' })
+agentModules.push(
+  { id: 'm54', name: 'Document Lifecycle', concept: '来源、权限与索引版本', link: '更新、撤权、删除与引用失效', file: 'llm_agent/m54_document_lifecycle/demo.py' },
+  { id: 'm55', name: 'MCP Versions', concept: '旧 stdio 与新 HTTP 配置', link: '版本拒绝与资源端授权', file: 'llm_agent/m55_mcp_versions/demo.py' },
+  { id: 'm56', name: 'Release Loop', concept: '评测门槛到发布回滚', link: '关键切片、反馈覆盖与失败回流', file: 'llm_agent/m56_release_loop/demo.py' },
+)
