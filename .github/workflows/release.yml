@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  publish:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, tomllib
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v\d+\.\d+\.\d+', tag), tag
+          version = tag[1:]
+          assert tomllib.loads(Path('pyproject.toml').read_text())['project']['version'] == version
+          for name in ('web/package.json', 'web/package-lock.json'):
+              data = json.loads(Path(name).read_text())
+              assert data['version'] == version
+              if 'packages' in data:
+                  assert data['packages']['']['version'] == version
+          assert f'__version__ = "{version}"' in Path('llm_models/__init__.py').read_text()
+          assert f'version: {version}' in Path('CITATION.cff').read_text().splitlines()
+          assert Path(f'docs/releases/{tag}.md').read_text().startswith(f'# {tag} ')
+          PY
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --latest

@@ -2,7 +2,7 @@
 
 A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments, interactive visualizations, and replayable execution evidence across six learning stages. The tutorial text is primarily in Chinese.
 
-[在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.0.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.0.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
+[在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.1.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.1.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
 
 | 训练：拖动参数，看流水线气泡 | 推理：KV cache 少算了多少 | Agent：单步看工具调用 |
 | --- | --- | --- |

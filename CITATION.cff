@@ -4,8 +4,8 @@ title: "LLM Engineering Lab"
 type: software
 authors:
   - name: "LLM Engineering Lab contributors"
-version: 1.0.0
-date-released: 2026-09-29
+version: 1.1.0
+date-released: 2026-11-08
 url: "https://beleev.github.io/llm-engineering-lab/"
 repository-code: "https://github.com/beleev/llm-engineering-lab"
 license: MIT

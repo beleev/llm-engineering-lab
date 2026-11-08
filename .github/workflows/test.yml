@@ -3,7 +3,9 @@ name: Tests
 # 每次 push / PR: 跑所有教学 demo 的冒烟测试, 并确认 Web 教程能构建。
 on:
   push:
+    branches: ["**"]
   pull_request:
+  workflow_call:
 
 jobs:
   python:
