@@ -83,7 +83,3 @@ python -m llm_agent.m25_trajectory_learning.demo
 已验证样本筛选和标签生成机制。实验构造并重放数据, 没有进行模型训练或能力泛化评估。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter8.md#L610)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。

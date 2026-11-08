@@ -2,7 +2,7 @@
 
 [![多智能体 · 独立审查与共享冲突](../../docs/screenshots/agent-collaboration-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/collaboration)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/collaboration)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/collaboration)
 
 ## 直觉
 
@@ -70,7 +70,3 @@ python -m llm_agent.m30_collaboration.demo
 只能汇总意见, 不能补出新事实。相关错误不能当独立抽样。纠错需要新证据、不同方法或独立验收。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 10 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter10.md#L194)。模型、指标与脚本为本仓库的教学实现, 边界如上。

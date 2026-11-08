@@ -1,5 +1,5 @@
 {
-  "source_digest": "62cf2e0b955b2ea2639fe99c11374b6537285ac56ca4d79cb6b667669ca00bb4",
+  "source_digest": "ce3ee15c12701b2f6d8c2e6e46cf160080ba037de57b9ae871e4f6b28ca808e4",
   "kind": "Python 实际执行记录回放。切换条件读取预先计算的结果，浏览器不训练模型或调用 API。",
   "entries": [
     {
@@ -22,12 +22,6 @@
           "id": "active",
           "label": "验证集选域"
         }
-      ],
-      "audit_ids": [
-        "1.1",
-        "1.2",
-        "1.4",
-        "3.1"
       ],
       "intuition": "数据选择是在预算内决定下一步学什么。容易的样本有助于起步，但一直重复容易样本，会把预算花在已经学会的部分。",
       "principles": [
@@ -54,6 +48,12 @@
         "why": "主动策略额外计算候选梯度与验证损失。样本预算相同只控制了一种资源，不能据此宣布总算力公平。"
       },
       "references": [],
+      "topic_ids": [
+        "1.1",
+        "1.2",
+        "1.4",
+        "3.1"
+      ],
       "run": "python -m llm_train.m23_data_curriculum.demo",
       "conditions": [
         {
@@ -139,10 +139,6 @@
           "label": "偏置过滤"
         }
       ],
-      "audit_ids": [
-        "1.3",
-        "3.1"
-      ],
       "intuition": "生成得更多，不一定知道得更多。小概率事实一旦没有被采到，下一代模型可能再也生成不出来。",
       "principles": [
         "实验从六类真实分布开始，每代采样并重新估计概率。重复 32 个种子报告总变差距离和尾部消失次数，区分单次随机波动与系统性退化。",
@@ -168,6 +164,10 @@
         "why": "偏置过滤会系统性删除低频类别；即使混入真实样本，也无法恢复被同一过滤器再次删除的尾部。"
       },
       "references": [],
+      "topic_ids": [
+        "1.3",
+        "3.1"
+      ],
       "run": "python -m llm_train.m24_synthetic_feedback.demo",
       "conditions": [
         {
@@ -244,13 +244,6 @@
           "label": "选择性回答"
         }
       ],
-      "audit_ids": [
-        "3.4",
-        "5.4",
-        "9.1",
-        "9.2",
-        "10.4"
-      ],
       "intuition": "准确率告诉你答对多少，校准告诉你“有多确定”是否可信。二者要分开测。",
       "principles": [
         "可靠性图把置信度分桶，对照平均置信度与准确率；ECE 是桶差的加权绝对值，依赖分桶。Brier 对每个样本的概率误差平方求均值，同时反映校准与区分能力。温度缩放应在独立校准集拟合。",
@@ -275,6 +268,13 @@
         "why": "选择性回答改变了被评价的样本集合。coverage 与 risk 必须成对报告，并检查某些群体是否被过度拒答。"
       },
       "references": [],
+      "topic_ids": [
+        "3.4",
+        "5.4",
+        "9.1",
+        "9.2",
+        "10.4"
+      ],
       "run": "python -m llm_train.m25_reliability_metrics.demo",
       "conditions": [
         {
@@ -366,10 +366,6 @@
           "label": "翻译标签偏差"
         }
       ],
-      "audit_ids": [
-        "11.4",
-        "10.4"
-      ],
       "intuition": "同样一句意思，不同语言可能消耗不同数量的 token；同样一份数据预算，也可能几乎没有训练到低资源语言。",
       "principles": [
         "实验实际采样双语短语并估计类别，分别比较按规模、按语言均衡和错误翻译标签。简化分词器计算相同语义的 token 膨胀，预算应按 token 而非句数对齐。",
@@ -394,6 +390,10 @@
         "why": "翻译数据可能带来标签和语境偏差。均衡采样只调整训练分布，不能代替原生语言的独立验收。"
       },
       "references": [],
+      "topic_ids": [
+        "11.4",
+        "10.4"
+      ],
       "run": "python -m llm_train.m26_multilingual.demo",
       "conditions": [
         {
@@ -478,9 +478,6 @@
           "label": "IPO"
         }
       ],
-      "audit_ids": [
-        "3.2"
-      ],
       "intuition": "成对标签说 A 比 B 好，并没有要求把 B 的概率压到零。IPO 用有限的相对概率间隔作为优化目标。",
       "principles": [
         "定义 h 为 chosen/rejected 的策略对数概率差减去参考模型的相同差。IPO 最小化 (h−1/(2β))²；在这个目标下，超过目标间隔也会被拉回。DPO 的 logistic 目标对可分偏好仍会推动间隔增大。",
@@ -508,6 +505,9 @@
           "title": "IPO 原论文",
           "url": "https://arxiv.org/abs/2310.12036"
         }
+      ],
+      "topic_ids": [
+        "3.2"
       ],
       "run": "python -m llm_finetune.run_finetune.ipo.demo",
       "conditions": [
@@ -568,9 +568,6 @@
           "label": "LoRA"
         }
       ],
-      "audit_ids": [
-        "3.5"
-      ],
       "intuition": "冻结基座并不意味着只能改提示词。四种方法把可训练参数放在不同位置，影响梯度路径和部署代价。",
       "principles": [
         "Prompt Tuning 学输入 embedding，再经过冻结的注意力投影；Prefix Tuning 直接提供每层的 K/V 前缀，真实多层模型需逐层注入。本例在同一单层基座比较两条路径。",
@@ -602,6 +599,9 @@
           "title": "Prompt Tuning",
           "url": "https://aclanthology.org/2021.emnlp-main.243/"
         }
+      ],
+      "topic_ids": [
+        "3.5"
       ],
       "run": "python -m llm_finetune.run_finetune.peft_comparison.demo",
       "conditions": [
@@ -692,11 +692,6 @@
           "label": "正确性优先"
         }
       ],
-      "audit_ids": [
-        "3.2",
-        "3.5",
-        "10.1"
-      ],
       "intuition": "策略变了，采到的回答也会变。持续学习需要重新收集偏好，同时防止把“用户爱听”学成“事实可以错”。",
       "principles": [
         "本例从当前策略采样回答对，按反馈选择 chosen/rejected，再实际执行单 token DPO 梯度。中途改变一个用户的长短偏好，比较离线数据与在线更新。",
@@ -720,6 +715,11 @@
         "why": "反馈可能把讨好、冗长或自信当成正确。应把事实核验与风格偏好拆开，并在独立样本上检查。"
       },
       "references": [],
+      "topic_ids": [
+        "3.2",
+        "3.5",
+        "10.1"
+      ],
       "run": "python -m llm_finetune.run_finetune.online_preference.demo",
       "conditions": [
         {
@@ -808,9 +808,6 @@
           "label": "约束邻域"
         }
       ],
-      "audit_ids": [
-        "5.4"
-      ],
       "intuition": "改参数里的事实不像改数据库的一行。共享表示会让一次更新影响相似实体、别名和关联事实。",
       "principles": [
         "线性记忆 W 将键映射到值，秩一更新 ΔW=u vᵀ 让目标键命中新值。加入邻域协方差约束可减少保护键上的变化，但目标与邻居高度重合时存在冲突。",
@@ -838,6 +835,9 @@
           "title": "ROME",
           "url": "https://arxiv.org/abs/2202.05262"
         }
+      ],
+      "topic_ids": [
+        "5.4"
       ],
       "run": "python -m llm_finetune.run_finetune.knowledge_edit.demo",
       "conditions": [
@@ -912,9 +912,6 @@
           "label": "删除并核对重训"
         }
       ],
-      "audit_ids": [
-        "10.3"
-      ],
       "intuition": "拒绝复述某条记录不代表模型没有记住它；攻击没成功，也不等于已经证明隐私安全。",
       "principles": [
         "合成 one-hot 键让线性模型实际记住记录值；查询可提取它们。成员推断用固定损失阈值区分训练与非训练记录，同时报告 TPR/FPR，而非仅报告攻击准确率。",
@@ -943,6 +940,9 @@
           "title": "zCDP",
           "url": "https://arxiv.org/abs/1605.02065"
         }
+      ],
+      "topic_ids": [
+        "10.3"
       ],
       "run": "python -m llm_finetune.run_finetune.privacy_unlearning.demo",
       "conditions": [
@@ -1023,12 +1023,6 @@
           "label": "图去重"
         }
       ],
-      "audit_ids": [
-        "4.1",
-        "4.2",
-        "4.3",
-        "4.4"
-      ],
       "intuition": "多写几步不一定更会推理。搜索改善的是候选空间和验证机会，前提是状态和验证器定义正确。",
       "principles": [
         "CoT 提示请求模型输出中间步骤；CoT 监督训练改变参数分布；RL 依据奖励更新策略。三者不能仅因为输出都有解释就混为一谈。",
@@ -1053,6 +1047,12 @@
         "why": "状态等价取决于任务。剩余预算、动作历史、权限等也可能影响未来可行解，不能只用表面数字作键。"
       },
       "references": [],
+      "topic_ids": [
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4"
+      ],
       "run": "python -m llm_infer.m29_reasoning_graph.demo",
       "conditions": [
         {
@@ -1129,11 +1129,6 @@
           "label": "删除通道"
         }
       ],
-      "audit_ids": [
-        "2.1",
-        "8.2",
-        "8.3"
-      ],
       "intuition": "权重变成零，稠密矩阵乘仍可能照算。想加速，要让执行器真的跳过这些工作。",
       "principles": [
         "非结构化剪枝把小权重置零；若仍走 dense GEMM，算子形状与 MAC 数不变。结构化剪枝删除通道，改变矩阵形状，才能在普通 dense 实现中减少运算。",
@@ -1158,6 +1153,11 @@
         "why": "零值只改变数值。要节省实际工作，需要删除维度或使用支持相应稀疏格式的算子。"
       },
       "references": [],
+      "topic_ids": [
+        "2.1",
+        "8.2",
+        "8.3"
+      ],
       "run": "python -m llm_infer.m30_pruning_fusion.demo",
       "conditions": [
         {
@@ -1237,9 +1237,6 @@
           "label": "热降频"
         }
       ],
-      "audit_ids": [
-        "8.4"
-      ],
       "intuition": "手机上能加载模型只是第一关。上下文缓存、功率和持续运行后的降频都可能成为瓶颈。",
       "principles": [
         "总内存包括权重、KV cache、工作区和运行时。量化权重不自动量化 KV；长上下文下，缓存可能吞掉原本省下的内存。",
@@ -1264,6 +1261,9 @@
         "why": "只有权重部分按位宽缩小，缓存、工作区与运行时开销仍然存在。"
       },
       "references": [],
+      "topic_ids": [
+        "8.4"
+      ],
       "run": "python -m llm_infer.m31_edge_budget.demo",
       "conditions": [
         {
@@ -1353,9 +1353,6 @@
           "label": "别名改写"
         }
       ],
-      "audit_ids": [
-        "5.1"
-      ],
       "intuition": "检索器选错文档时，只训练生成器可能让它背答案；让答案损失影响检索，才有机会改进证据选择。",
       "principles": [
         "边缘似然 p(a|q)=Σd p(d|q) p(a|q,d)。对负对数反传，检索概率获得来自答案正确性的梯度；固定生成器可隔离该路径，两侧共同训练则允许两组参数一起变化。",
@@ -1384,6 +1381,9 @@
           "title": "RAG 原论文",
           "url": "https://arxiv.org/abs/2005.11401"
         }
+      ],
+      "topic_ids": [
+        "5.1"
       ],
       "run": "python -m llm_agent.m46_joint_rag.demo",
       "conditions": [
@@ -1502,10 +1502,6 @@
           "label": "检索后阅读"
         }
       ],
-      "audit_ids": [
-        "2.3",
-        "5.2"
-      ],
       "intuition": "模型能接收很长输入，不代表能稳定利用中间的一小段证据。理论可达、检索命中和正确组合是三件事。",
       "principles": [
         "固定问题和答案，移动证据到头/中/尾，再交叉长度、干扰量和单/双证据。对真实模型应比较答案、证据引用和逐跳支持，而非仅测一个 needle。",
@@ -1533,6 +1529,10 @@
           "title": "Lost in the Middle",
           "url": "https://arxiv.org/abs/2307.03172"
         }
+      ],
+      "topic_ids": [
+        "2.3",
+        "5.2"
       ],
       "run": "python -m llm_agent.m47_context_utilization.demo",
       "conditions": [
@@ -1619,13 +1619,6 @@
           "label": "服务端权限"
         }
       ],
-      "audit_ids": [
-        "1.1",
-        "9.1",
-        "10.1",
-        "10.2",
-        "10.4"
-      ],
       "intuition": "正常文档可以讨论攻击，恶意文档也可以不含攻击关键词。权限需要依据可信的用户授权，而不是文档措辞。",
       "principles": [
         "模型越狱试图改变模型回答边界；间接注入通过网页、PDF、邮件、图片或工具返回影响系统行为。分别建立威胁模型、受保护资产与成功判据，不能只测同一组关键词。",
@@ -1650,6 +1643,13 @@
         "why": "检索内容属于不可信数据。权限来自用户授权和服务端策略，不能由工具返回内容扩大。"
       },
       "references": [],
+      "topic_ids": [
+        "1.1",
+        "9.1",
+        "10.1",
+        "10.2",
+        "10.4"
+      ],
       "run": "python -m llm_agent.m48_safety_governance.demo",
       "conditions": [
         {
@@ -1738,10 +1738,6 @@
           "label": "漂移后反馈"
         }
       ],
-      "audit_ids": [
-        "6.3",
-        "7.4"
-      ],
       "intuition": "世界模型根据动作预测下一步；控制器还需要在预测出错后重新观察。能生成连贯视频，并不等于能控制真实世界。",
       "principles": [
         "用 120 条转移样本拟合 x_next=A x+B a，再枚举有界动作做一步 MPC。部署时改变执行器增益，比较相信预测状态的开环和每步使用实际观测的闭环。",
@@ -1766,6 +1762,10 @@
         "why": "反馈用实际观测修正状态估计和规划，减少持续依赖错误预测；但不能保证模型和控制器在所有环境都稳定。"
       },
       "references": [],
+      "topic_ids": [
+        "6.3",
+        "7.4"
+      ],
       "run": "python -m llm_agent.m49_learned_world.demo",
       "conditions": [
         {
@@ -1854,9 +1854,6 @@
           "label": "硬编码与假测试"
         }
       ],
-      "audit_ids": [
-        "11.1"
-      ],
       "intuition": "一个函数通过测试，不等于整个仓库的行为正确。接口单位变了，调用方也必须理解同一个约定。",
       "principles": [
         "案例把折扣接口从百分数改为小数。只修改定义会让账单计算出错；完整补丁同步调用方。独立验证器使用候选无法修改的测试，检查多个价格与折扣组合。",
@@ -1881,6 +1878,9 @@
         "why": "验证器与候选写权限分离，测试输入覆盖多个未硬编码情形。候选自报成功不构成验收证据。"
       },
       "references": [],
+      "topic_ids": [
+        "11.1"
+      ],
       "run": "python -m llm_agent.m50_repository_verification.demo",
       "conditions": [
         {
@@ -1954,11 +1954,6 @@
           "label": "独立验证"
         }
       ],
-      "audit_ids": [
-        "4.2",
-        "4.4",
-        "11.2"
-      ],
       "intuition": "一个数算对了、一个命题证出来了、一条现实规律成立了，依赖的是不同证据。",
       "principles": [
         "最小证明内核只接受假设和 modus ponens：已有 P 与 P→Q 才能推出 Q。每条引用必须指向更早的合法证明，拒绝未来引用和负索引，不能把自然语言“显然”当证据。",
@@ -1983,6 +1978,11 @@
         "why": "证明保证结论在形式系统与公理下成立；现实系统是否满足这些假设，需要独立观测与实验。"
       },
       "references": [],
+      "topic_ids": [
+        "4.2",
+        "4.4",
+        "11.2"
+      ],
       "run": "python -m llm_agent.m51_formal_science.demo",
       "conditions": [
         {
@@ -2056,9 +2056,6 @@
           "label": "显式复核"
         }
       ],
-      "audit_ids": [
-        "11.3"
-      ],
       "intuition": "专业任务的错误往往不是句子不通，而是引用了过期规则、错误地域或不适用的人群。",
       "principles": [
         "用完全虚构的医疗、法律、金融资料测试地域、日期、版本和证据过滤。找不到适用证据就拒绝作确定判断；专家复核状态来自外部记录，不能由模型自己宣称。",
@@ -2083,6 +2080,9 @@
         "why": "引用存在不代表适用。地域、日期、版本、人群与证据支持关系都必须核对，高风险结论还需要约定的复核流程。"
       },
       "references": [],
+      "topic_ids": [
+        "11.3"
+      ],
       "run": "python -m llm_agent.m52_domain_workflows.demo",
       "conditions": [
         {
@@ -2165,9 +2165,6 @@
           "label": "稀疏自编码器"
         }
       ],
-      "audit_ids": [
-        "9.4"
-      ],
       "intuition": "某个激活能预测答案，可能只是旁观者。要说明它参与决策，需要改变它并观察输出是否改变。",
       "principles": [
         "线性探针从表示预测标签，测的是信息可读出性。实验构造两个相关通道，但输出只依赖其中一个；破坏输入后分别恢复通道，比较输出恢复量。",
@@ -2196,6 +2193,9 @@
           "title": "稀疏自编码器与单义性",
           "url": "https://www.transformer-circuits.pub/2023/monosemantic-features/index.html"
         }
+      ],
+      "topic_ids": [
+        "9.4"
       ],
       "run": "python -m llm_models.run_models.foundation.interpretability.demo",
       "conditions": [
@@ -2279,9 +2279,6 @@
           "label": "歧义拒答"
         }
       ],
-      "audit_ids": [
-        "7.1"
-      ],
       "intuition": "看到图像 token，不代表已经读对文字或理解坐标轴。任务级检查要把感知错误和推理错误分开。",
       "principles": [
         "本例从像素计算 5×3 字形距离完成小词表 OCR，从柱形图像读取高度、数量和左右位置；遮挡与混合字形检验拒答门限。所有结果来自像素运算，不是读取答案字段。",
@@ -2305,6 +2302,9 @@
         "why": "数值提取只是一步；单位、尺度、图例和问题约束决定数值应如何解释。"
       },
       "references": [],
+      "topic_ids": [
+        "7.1"
+      ],
       "run": "python -m llm_models.run_models.multimodal.vision_tasks.demo",
       "conditions": [
         {
@@ -2399,10 +2399,6 @@
           "label": "粗量化重建"
         }
       ],
-      "audit_ids": [
-        "7.2",
-        "7.3"
-      ],
       "intuition": "语音系统要处理连续的声音和时间，而不仅是转写后的文字。压缩、延迟和噪声会改变可用信息。",
       "principles": [
         "从合成波形做分帧、窗函数、STFT、Mel 滤波与 log 压缩，实际计算帧时间戳。采样率约束可表达频率，重采样需防混叠；帧中心时间与可用输出时间不能混淆。",
@@ -2427,6 +2423,10 @@
         "why": "音频 token 需要 codec 解码及缓冲播放。模型时间、首包时间和可听见时间应分别记录。"
       },
       "references": [],
+      "topic_ids": [
+        "7.2",
+        "7.3"
+      ],
       "run": "python -m llm_models.run_models.multimodal.audio_pipeline.demo",
       "conditions": [
         {
@@ -2509,10 +2509,6 @@
           "label": "内容被篡改"
         }
       ],
-      "audit_ids": [
-        "7.3",
-        "10.3"
-      ],
       "intuition": "单帧漂亮不代表视频连贯；检测到水印，也不代表画面内容真实。",
       "principles": [
         "生成任务分开检查提示遵循、局部编辑保持、身份一致、运动连续与镜头控制。相机移动和物体移动会混淆，需在固定背景/相机轨迹的对照里测运动。",
@@ -2537,6 +2533,10 @@
         "why": "签名验证内容与签署者关系及完整性，不能替代现实证据核查。"
       },
       "references": [],
+      "topic_ids": [
+        "7.3",
+        "10.3"
+      ],
       "run": "python -m llm_models.run_models.generative.media_evaluation.demo",
       "conditions": [
         {
@@ -2637,9 +2637,6 @@
           "label": "先块后细节"
         }
       ],
-      "audit_ids": [
-        "2.3"
-      ],
       "intuition": "摘要能连接前后两段，却不一定能还原原来的细节。结构连通和信息保存需要分别证明。",
       "principles": [
         "对八个块做精确位置问答：全量保留读取所有单元；递归压缩仅保留块均值；分层路径先用块 ID 路由，再读块内位置。",
@@ -2663,6 +2660,9 @@
         "why": "压缩映射可能把不同输入映到同一个状态。应构造摘要碰撞，检查任务所需细节是否被保存。"
       },
       "references": [],
+      "topic_ids": [
+        "2.3"
+      ],
       "run": "python -m llm_models.run_models.foundation.hierarchical_memory.demo",
       "conditions": [
         {
@@ -2739,9 +2739,6 @@
           "label": "提高成本门槛"
         }
       ],
-      "audit_ids": [
-        "6.1"
-      ],
       "intuition": "工具调用执行成功，不代表值得教给模型。训练数据应保留能帮助后续预测的调用，并计算额外成本。",
       "principles": [
         "Toolformer 式路径先提出插入位置与参数，执行工具，再比较有无工具输出时后续 token 的损失，只保留有收益的调用。工具结果必须作为观察插入，不能伪装成用户授权。",
@@ -2765,6 +2762,9 @@
         "why": "工具成功只是执行层事实。数据筛选还要衡量预测收益、任务正确性、权限和资源成本。"
       },
       "references": [],
+      "topic_ids": [
+        "6.1"
+      ],
       "run": "python -m llm_agent.m53_tool_data.demo",
       "conditions": [
         {

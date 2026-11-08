@@ -1,4 +1,4 @@
-"""章节归并：旧链接、段落锚点、进度迁移、扩展内容与新实验的真实浏览器回归。"""
+"""章节导航：路由别名、段落锚点、进度迁移与实验的真实浏览器回归。"""
 import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -60,5 +60,5 @@ with sync_playwright() as p:
     Path('/tmp/consolidation-ui.json').write_text(json.dumps({'alias_theme_viewport_cases':len(checked),'supplements':3,'errors':errors,'http':http},ensure_ascii=False,indent=2))
     page.goto(BASE+'#/finetune/lora#dora',wait_until='networkidle')
     page.screenshot(path='/tmp/consolidation-mobile.png',full_page=False)
-    print(f'PASS: {len(checked)} 旧链接/主题/宽度组合，3 个迁入段落，进度迁移与前进后退')
+    print(f'PASS: {len(checked)} 旧链接/主题/宽度组合，3 个进阶段落，进度迁移与前进后退')
     browser.close()

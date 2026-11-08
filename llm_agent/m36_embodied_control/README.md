@@ -2,7 +2,7 @@
 
 [![具身控制 · 反馈与模拟偏差](../../docs/screenshots/agent-embodied-control-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/embodied-control)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/embodied-control)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/embodied-control)
 
 ## 直觉
 
@@ -63,7 +63,3 @@ python -m llm_agent.m36_embodied_control.demo
 不能, 真实条件可能超出训练范围。随机化覆盖有限分布, 真实观测误差、延迟与动力学还需独立验收。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 6 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter6.md#L585)。模型、指标与脚本为本仓库的教学实现, 边界如上。

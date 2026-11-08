@@ -1,4 +1,4 @@
-"""验证长图条目无遗漏、证据路径/函数存在，网页条件与清单一致。"""
+"""验证研究主题索引、证据路径、函数与网页实验条件。"""
 from pathlib import Path
 import ast
 import json
@@ -6,19 +6,17 @@ import json
 ROOT = Path(__file__).resolve().parents[1]
 
 def main():
-    audit=json.loads((ROOT/'docs/image-knowledge-audit.json').read_text())['items']
-    closure=json.loads((ROOT/'docs/research-completion-coverage.json').read_text())['items']
+    topics=json.loads((ROOT/'docs/research-completion-coverage.json').read_text())['items']
     entries=json.loads((ROOT/'docs/research-completion-manifest.json').read_text())['entries']
     records=json.loads((ROOT/'web/src/data/research-completion.json').read_text())['entries']
     assert len({e['id'] for e in entries})==len(entries)
-    assert len({e['id'] for e in closure})==len(closure)==45
-    assert {e['id'] for e in audit}=={e['id'] for e in closure}
-    old={e['id']:e for e in audit};by_id={e['id']:e for e in entries};replays={e['id']:e for e in records}
-    for row in closure:
-        assert row['original_gaps']==old[row['id']]['gaps'],row['id']
+    assert len({e['id'] for e in topics})==len(topics)==45
+    topic_ids={e['id'] for e in topics};by_id={e['id']:e for e in entries};replays={e['id']:e for e in records}
+    for row in topics:
+        assert row['scope'],row['id']
         assert row['protocol'] and row['evidence'],row['id']
         for path in row['evidence']:assert (ROOT/path).is_file(),path
-        for key in row['new_entries']:assert row['id'] in by_id[key]['audit_ids'],(row['id'],key)
+        for key in row['experiments']:assert row['id'] in by_id[key]['topic_ids'],(row['id'],key)
     for e in entries:
         path=ROOT/(e['module'].replace('.','/')+'.py')
         tree=ast.parse(path.read_text())
@@ -34,7 +32,7 @@ def main():
             for key,value in condition['metrics'].items():
                 row='| '+key+' | '+json.dumps(value,ensure_ascii=False)+' |'
                 assert row in section,(e['id'],condition['id'],key)
-        assert set(e['audit_ids']) <= old.keys()
-    print(f'PASS: {len(closure)} 原图主题 / {sum(len(r["original_gaps"]) for r in closure)} 条原差距逐项有去向；{len(entries)} 实验入口和文档一致')
+        assert set(e['topic_ids']) <= topic_ids
+    print(f'PASS: {len(topics)} 研究主题 / {sum(len(r["scope"]) for r in topics)} 项检查维度与边界；{len(entries)} 实验入口和文档一致')
 
 if __name__=='__main__':main()

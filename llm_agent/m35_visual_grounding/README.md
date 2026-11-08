@@ -2,7 +2,7 @@
 
 [![视觉操作 · 截图、定位与核对](../../docs/screenshots/agent-visual-grounding-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/visual-grounding)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/visual-grounding)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/visual-grounding)
 
 ## 直觉
 
@@ -75,7 +75,3 @@ python -m llm_agent.m35_visual_grounding.browser
 核对当前对象和动作授权之后。几何定位不能证明业务对象与权限。导航后的核对是独立验收步骤。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 6 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter6.md#L460)。模型、指标与脚本为本仓库的教学实现, 边界如上。

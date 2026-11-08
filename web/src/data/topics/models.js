@@ -157,7 +157,7 @@ c_kv = cat([cache["c_kv"], c_new]); k, v = k_up(c_kv), v_up(c_kv)  # MLA`,
         { concept: 'YaRN 分段', code: 'gamma = ((rotations - beta_slow) / (beta_fast - beta_slow)).clamp(0, 1)', takeaway: '$r = L\\cdot\\theta/2\\pi$ 是训练期转过的圈数; $\\gamma=1$ 原样外推, $\\gamma=0$ 按 PI 内插。' },
         { concept: '温度补偿', code: '0.1 * math.log(factor) + 1.0', takeaway: '上下文变长后 softmax 的分母项变多、分布变平。用 mscale 把 logit 放大一点补回来: s=4 时 mscale = 1.1386, logits ×1.2965。' },
       ],
-      snippetTitle: '两处改动各只有几行',
+      snippetTitle: 'QK-Norm 与 YaRN 的实现',
       snippet: `# QK-Norm: RoPE 之前, 对每个 head 的 q / k 归一化
 q = q_norm(q)            # RMSNorm over head_dim, 带可学增益 g
 k = k_norm(k)
@@ -479,7 +479,7 @@ image = decoder(f_hat + upsample(codebook[indices[-1]], H))
   },
 }
 
-// 补齐现有页的教学链条，保持路由和三级目录不变。
+// 机制实验的原理、运行入口与源码引用。
 const supplements = {
   "models-mtp": [
     {
@@ -534,7 +534,7 @@ topic.pages['models-dsa'].links.find(l => l.from.includes('掩码实验台')).fr
 
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 
-// 补充段落只保留本主题的源码与骨架，避免把搬走的讲解再次整段展示。
+// 进阶段落按主题选择源码与骨架。
 const qk = topic.pages.attention.sections[0]
 const swa = topic.pages.attention.sections[1]
 const yarn = topic.pages.position.sections[0]

@@ -1,4 +1,4 @@
-"""新 Agent 实验台的浏览器验收 (可选依赖 playwright)。
+"""Agent 实验台的浏览器验收 (可选依赖 playwright)。
 
 先在 web/ 启动 npm run dev; 再从仓库根运行:
     python web/scripts/check-agent-ui.py

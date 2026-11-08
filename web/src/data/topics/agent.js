@@ -153,13 +153,7 @@ const coveragePages = {
         "body": "默认策略读取标签和返回值; 提示对照是固定语法解释器。\n没有联网 MCP、向量工具搜索或真实模型提示胜率。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 4 章",
-        "to": "llm_agent/m26_tool_discovery",
-        "body": "来源固定为 dbc046eb 的第 4 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "Spec",
@@ -250,13 +244,7 @@ const coveragePages = {
         "body": "数据是人工构造的三元组; 不含自然语言实体抽取、真实语义嵌入或自动社区发现。\n实验比较表示方法, 不宣称完整复现论文算法。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 3 章",
-        "to": "llm_agent/m27_knowledge_organization",
-        "body": "来源固定为 dbc046eb 的第 3 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "current_facts",
@@ -339,13 +327,7 @@ const coveragePages = {
         "body": "策略是固定修复器, 只接受三个预审算术表达式。\n临时目录与路径围栏不是 OS 沙箱, 不支持运行任意不可信生成代码。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 5 章",
-        "to": "llm_agent/m28_coding_agent",
-        "body": "来源固定为 dbc046eb 的第 5 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "Workspace",
@@ -430,13 +412,7 @@ const coveragePages = {
         "body": "真实 asyncio 与磁盘 SQLite, 但没有网络分区、分布式租约或进程强杀测试。\n重开的是账本, 不是自动恢复任意 Python 调用栈。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 6 章",
-        "to": "llm_agent/m29_async_runtime",
-        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "Journal",
@@ -513,13 +489,7 @@ const coveragePages = {
         "body": "规则 worker 提案与固定证据审查, 未证明真实多模型的独立性。\n并发取消和 A2A 协议分别见 m29 与 m18。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 10 章",
-        "to": "llm_agent/m30_collaboration",
-        "body": "来源固定为 dbc046eb 的第 10 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "SharedPlan",
@@ -598,13 +568,7 @@ const coveragePages = {
         "body": "小型规则用户、人工预设校准标签, 没有开展真实人工评审或线上 A/B。\n调用数来自执行, 延迟与费用不编造。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 7 章",
-        "to": "llm_agent/m31_eval_suite",
-        "body": "来源固定为 dbc046eb 的第 7 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "UserSimulator",
@@ -697,13 +661,7 @@ const coveragePages = {
         "body": "真实 CPU 小 LLaMA 权重更新, 但只有四个符号动作。\n不是通用自然语言 Agent 训练基准; 不报告无证据的 RL 泛化收益。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 8 章",
-        "to": "llm_agent/m32_agent_training",
-        "body": "来源固定为 dbc046eb 的第 8 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "rollout",
@@ -798,13 +756,7 @@ const coveragePages = {
         "body": "规则提案器与本地文件发布, 不是自主生成任意自然语言 Skill。\n逐文件 replace 不构成跨文件原子事务, 并发发布需额外版本锁。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 9 章",
-        "to": "llm_agent/m33_skill_evolution",
-        "body": "来源固定为 dbc046eb 的第 9 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "propose",
@@ -889,13 +841,7 @@ const coveragePages = {
         "body": "VAD 使用合成波形, ASR 与 TTS 事件是预设夹具。\n没有调用声学识别或合成模型; 重点是全双工和代际状态, 模型结构另见多模态阶段。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 6 章",
-        "to": "llm_agent/m34_voice_interaction",
-        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "voice_activity",
@@ -966,13 +912,7 @@ const coveragePages = {
         "body": "真实浏览器夹具没有联网, 定位靠特定颜色而非通用视觉语言模型。\n不会声称可操作任意站点、桌面或手机。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 6 章",
-        "to": "llm_agent/m35_visual_grounding",
-        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "locate",
@@ -1049,13 +989,7 @@ const coveragePages = {
         "body": "一维离散动力学模拟, 没有真实机器人、接触力学或训练 VLA。\n安全边界只在给定增益范围与精确观测假设下成立。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 6 章",
-        "to": "llm_agent/m36_embodied_control",
-        "body": "来源固定为 dbc046eb 的第 6 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "rollout",
@@ -1120,13 +1054,7 @@ const coveragePages = {
         "body": "训练真实更新权重, 但语料只有固定符号映射。\n探测衡量已知映射保持, 不称为未见知识泛化或真实长上下文训练。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 8 章",
-        "to": "llm_agent/m37_midtraining",
-        "body": "来源固定为 dbc046eb 的第 8 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "probe",
@@ -1203,13 +1131,7 @@ const coveragePages = {
         "body": "受限四则表达式与本地 HTML/SVG, 不执行任意 Python、JavaScript 或第三方 Skill 脚本。\n它展示表示方式, 不衡量通用生成质量。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 5 章",
-        "to": "llm_agent/m38_programmatic_actions",
-        "body": "来源固定为 dbc046eb 的第 5 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "calculate",
@@ -1292,13 +1214,7 @@ const coveragePages = {
         "body": "固定发现树与两个程序策略, 没有在线自动写代码或复现论文规模实验。\n先验只是给定信号, 不假装是模型置信度。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 9 章",
-        "to": "llm_agent/m39_meta_optimization",
-        "body": "来源固定为 dbc046eb 的第 9 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "ReplayWorld",
@@ -1373,13 +1289,7 @@ const coveragePages = {
         "body": "规则策略的重复囚徒困境, 没有 LLM 社会仿真、真实市场或人类行为推断。\n结论只属于给定收益矩阵和策略。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 10 章",
-        "to": "llm_agent/m40_agent_society",
-        "body": "来源固定为 dbc046eb 的第 10 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "action",
@@ -1462,13 +1372,7 @@ const coveragePages = {
         "body": "任务路由与费用是明确的教学模型; KV 反例使用标量因果混合, 不代替真实 Transformer 精度和性能测试。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 1 章",
-        "to": "llm_agent/m41_system_design",
-        "body": "来源固定为 dbc046eb 的第 1 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "choose",
@@ -1549,13 +1453,7 @@ const coveragePages = {
         "body": "内存中的合成个人信息, 没有生产身份认证、加密或备份删除。\n说明数据生命周期, 不宣称满足某项法律或平台合规要求。"
       }
     ],
-    "links": [
-      {
-        "from": "ai-agent-book 第 3 章",
-        "to": "llm_agent/m42_memory_privacy",
-        "body": "来源固定为 dbc046eb 的第 3 章; 逐节映射见 docs/agent-book-coverage.md。机制按本库的可复现实验重写, 不沿用外部收益数字。"
-      }
-    ],
+    "links": [],
     "sourceRows": [
       {
         "concept": "MemoryService",
@@ -1661,13 +1559,7 @@ const coveragePages = {
     "snippetTitle": "固定基线, 再比较条件",
     "snippet": "from llm_agent.m43_vector_index.demo import experiment\n\nfor mode in ('exact', 'tree', 'graph'):\n    print(mode, experiment(mode))",
     "run": "python -m llm_agent.m43_vector_index.demo",
-    "links": [
-      {
-        "from": "ai-agent-book 第 3 章",
-        "to": "m43_vector_index",
-        "body": "对应固定书版本的机制, 逐节对照见 docs/agent-book-coverage.md。"
-      }
-    ]
+    "links": []
   },
   "agent-self-distillation": {
     "title": "在轨自蒸馏 · 特权信息与部署边界",
@@ -1748,13 +1640,7 @@ const coveragePages = {
     "snippetTitle": "固定基线, 再比较条件",
     "snippet": "from llm_agent.m44_self_distillation.demo import experiment\n\nfor mode in ('before', 'no-hint', 'privileged'):\n    print(mode, experiment(mode))",
     "run": "python -m llm_agent.m44_self_distillation.demo",
-    "links": [
-      {
-        "from": "ai-agent-book 第 8 章",
-        "to": "m44_self_distillation",
-        "body": "对应固定书版本的机制, 逐节对照见 docs/agent-book-coverage.md。"
-      }
-    ]
+    "links": []
   }
 }
 
@@ -1946,7 +1832,7 @@ def matches(rule, call):
         },
         {
           title: 'idf 让罕见词说了算',
-          body: '关键词计数会让一篇凑满 how / the / model 的 FAQ 排第一。\n$\\mathrm{idf} = \\ln\\left(1 + \\tfrac{N - \\mathrm{df} + 0.5}{\\mathrm{df} + 0.5}\\right)$ 修正它:\n- 几乎每篇都有的词: 权重趋近 0 (the 只有 0.33)。\n- 罕见词: 主导排序 (fragmentation 是 1.79)。\n工具名和 schema 都不变, 还是 search_docs。这次升级对 loop 和模型完全透明。',
+          body: '关键词计数会让一篇凑满 how / the / model 的 FAQ 排第一。\n$\\mathrm{idf} = \\ln\\left(1 + \\tfrac{N - \\mathrm{df} + 0.5}{\\mathrm{df} + 0.5}\\right)$ 修正它:\n- 几乎每篇都有的词: 权重趋近 0 (the 只有 0.33)。\n- 罕见词: 主导排序 (fragmentation 是 1.79)。\n工具名和 schema 都不变, 还是 search_docs。检索实现通过统一接口接入 loop 和模型。',
         },
       ],
       links: [
@@ -3330,7 +3216,7 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
   },
 }
 
-// 补齐现有页的教学链条，保持路由和三级目录不变。
+// 机制实验的原理、运行入口与源码引用。
 const supplements = {
   "agent-rag": [
     {
@@ -3342,7 +3228,7 @@ const supplements = {
   "agent-vector-index": [
     {
       "title": "索引正确不等于表示有语义",
-      "body": "固定二维向量验证索引；新增 m45 用真实参数训练补表示层。exact 与分区近似使用同一组向量，才能隔离索引误差。编号映射为未知词时向量可能完全相同，应补精确词面约束。",
+      "body": "固定二维向量验证索引；m45 用真实参数训练表示层。exact 与分区近似使用同一组向量，才能隔离索引误差。编号映射为未知词时向量可能完全相同，应补精确词面约束。",
       "source": "llm_agent/m45_semantic_retrieval/demo.py:Encoder"
     }
   ],

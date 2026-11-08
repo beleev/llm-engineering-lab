@@ -1,4 +1,4 @@
-"""验收工程补全的主讲入口、文档、引用和反例，不用关键字命中充当完成。"""
+"""验收工程实验的主讲入口、文档、引用和反例，不用关键字命中充当完成。"""
 from pathlib import Path
 import json
 import subprocess
@@ -15,7 +15,7 @@ for(const s of [...stages,'research','engineering'])for(const [r,n] of Object.en
 console.log(JSON.stringify({pages,quizzes,labs}));
 """
     web=json.loads(subprocess.check_output(['node','--input-type=module','-e',js],cwd=ROOT,text=True))
-    assert {g for e in manifest for g in e['audit_ids']}=={f'G{i}' for i in range(1,7)} | {f'K{i}' for i in range(1,4)}
+    assert {g for e in manifest for g in e['topic_ids']}=={f'G{i}' for i in range(1,7)} | {f'K{i}' for i in range(1,4)}
     assert len(manifest)==len(records)==9
     replay_routes=set()
     for e,r in zip(manifest,records):

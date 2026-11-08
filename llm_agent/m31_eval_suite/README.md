@@ -2,7 +2,7 @@
 
 [![评估体系 · 用户环境与裁判校准](../../docs/screenshots/agent-eval-suite-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/eval-suite)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/eval-suite)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/eval-suite)
 
 ## 直觉
 
@@ -83,10 +83,6 @@ python -m llm_agent.m31_eval_suite.demo
 不能, 任务分布已经改变。固定测试分布和分层指标才能区分机制改善与题目变简单。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 7 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter7.md#L162)。模型、指标与脚本为本仓库的教学实现, 边界如上。
 
 ## Trace / span：把一次任务的等待时间还原出来
 

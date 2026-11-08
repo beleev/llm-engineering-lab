@@ -45,11 +45,11 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 各包首页统一为「概览 → 运行 → 模块与阅读顺序 → 实现说明 → 边界」。
 
-Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：首错诊断、记忆更新、完成验收、重试与取消、上下文净成本、多跳证据、轨迹学习和四阶段改进评估。
+Agent 的阅读路线见 [从执行到验证与改进](docs/agent-extensions.md)：首错诊断、记忆更新、完成验收、重试与取消、上下文净成本、多跳证据、轨迹学习和四阶段改进评估。
 
-### 知识覆盖与新增实验
+### 知识覆盖与实验
 
-本次内容整理保留六阶段与 26 个二级主题：五对章节合并，QK-Norm / YaRN 分别归入注意力与位置编码，SWA / 混合线性结构也按原理重归属。旧链接仍跳到对应段落；旧自测成绩归档，合并后的章节需重新验收。六组重复回放集中到各自主讲页，其他章节用说明与跳转连接；温度和掩码基础实验各保留一个完整入口。知识更新与可验证推理整理为两个三级专题。
+教程按六阶段、26 个主题组组织。每项实验在主讲章节完整展示，相关章节提供跳转。QK-Norm 与 SWA 在注意力章，YaRN 在位置编码章；LoRA/DoRA、缓存与上下文成本、编排与协作、记忆生命周期与隐私分别在同一主题内学习。
 
 工程实验现有 **9 组、49 个条件**：
 
@@ -65,19 +65,15 @@ Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：
 | 会话持久化与恢复 | [版本迁移、权限重验与提交后强退恢复](llm_agent/m57_checkpoint_migration/README.md) |
 | 前缀缓存 | [可信共享域、模型/adapter 身份与错误命中](llm_infer/m34_cache_identity/README.md) |
 
-新增流程默认使用小模型或固定夹具；MCP HTTP 仅在本机运行。网页明确区分实测、确定性模拟与执行记录回放，不把它们作为真实大模型或生产服务的能力证明。
+工程流程默认使用小模型或固定夹具；MCP HTTP 仅在本机运行。网页明确区分实测、确定性模拟与执行记录回放，不把它们作为真实大模型或生产服务的能力证明。
 
-[六阶段知识复查](docs/knowledge-audit.md) 与 [九项补充验收](docs/knowledge-completion.md) 保留前期发现与修复。研究方向长图的 [原始审计](docs/image-knowledge-audit.md) 固定在 `23f1c93`；后续 **11 个方向、45 个主题、90 条原差距**的处理见 [补充覆盖与边界](docs/research-completion.md)。原审计保留历史状态，不把当时的“缺失”误当作当前结果。
+[机制实验指南](docs/knowledge-completion.md) 介绍多轮模板、trace/span、RFT、流式工具调用、语义检索、多维并行和服务容量。[研究主题与验证边界](docs/research-completion.md) 按 45 个主题列出实验、阅读入口与适用范围；[工程实验指南](docs/engineering-completion.md) 介绍交付、索引生命周期、协议、调度和恢复。
 
-2026-11-08 的 [内容重叠与关键缺口审查](docs/tutorial-overlap-gap-audit.md) 区分重复实验入口、跨阶段递进和未串通的工程流程，并给出章节归属及验收建议。原报告保留发现时的基线；逐项落实、运行结果和生产边界见 [工程补全与整理记录](docs/engineering-completion.md)。
+Agent 包包含工具执行、异步任务、代码修复、CPU 小模型训练与可选浏览器验证，模块目录见 [Agent 首页](llm_agent/README.md)。
 
-本轮 [章节归并审查](docs/tutorial-consolidation-audit.md) 的逐项落实见 [归并与边界实验验收](docs/tutorial-consolidation-completion.md)。新增三组实验分别是确定性服务量模拟、真实磁盘与进程恢复、真实缓存键/指纹检查；不把它们描述为 GPU 调度实测或完整分布式隔离。
+研究实验包括 **25 组实验、76 个对照条件**，按知识主题分布在六阶段教程中。
 
-按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。Agent 模块现扩展到 m57，保留真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
-
-研究方向长图补充共 **25 组实验、76 个对照条件、25 道自测和 20 条术语**，继续归入原有三级章节；没有新增二级主题组。
-
-| 学习位置 | 新增内容与阅读入口 |
+| 学习位置 | 内容与阅读入口 |
 | --- | --- |
 | 数据与评测 | [课程与主动选域](llm_train/m23_data_curriculum/README.md)、[多代合成反馈](llm_train/m24_synthetic_feedback/README.md)、[校准/拒答/人工评价](llm_train/m25_reliability_metrics/README.md)、[多语言](llm_train/m26_multilingual/README.md) |
 | 微调与对齐 | [IPO](llm_finetune/run_finetune/ipo/README.md)、[四类 PEFT](llm_finetune/run_finetune/peft_comparison/README.md)、[在线偏好](llm_finetune/run_finetune/online_preference/README.md)、[知识编辑](llm_finetune/run_finetune/knowledge_edit/README.md)、[隐私与遗忘](llm_finetune/run_finetune/privacy_unlearning/README.md) |
@@ -86,7 +82,7 @@ Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：
 | Agent 与知识 | [RAG 联合目标](llm_agent/m46_joint_rag/README.md)、[有效上下文](llm_agent/m47_context_utilization/README.md)、[安全与治理](llm_agent/m48_safety_governance/README.md)、[工具数据筛选](llm_agent/m53_tool_data/README.md) |
 | 行动与验收 | [学习世界模型](llm_agent/m49_learned_world/README.md)、[仓库级代码验证](llm_agent/m50_repository_verification/README.md)、[形式证明与科学验证](llm_agent/m51_formal_science/README.md)、[专业领域工作流](llm_agent/m52_domain_workflows/README.md) |
 
-这些补充包含实际梯度更新、采样、像素/波形计算和独立进程验收，也包含明确标注的预算模型。网页按钮切换的是 **Python 实际运行记录**，不会现场训练或调用 API。真实大模型泛化、多机 GPU 性能、真实机器人与领域上线效果尚未据此验证；不能把教学闭环当成这些能力的完成证明。
+这些实验包含实际梯度更新、采样、像素/波形计算和独立进程验收，也包含明确标注的预算模型。网页按钮切换的是 **Python 实际运行记录**，不会现场训练或调用 API。真实大模型泛化、多机 GPU 性能、真实机器人与领域上线效果尚未据此验证；不能把教学闭环当成这些能力的完成证明。
 
 ## 安装与运行
 
@@ -109,7 +105,7 @@ python -m llm_agent.run_all --with-training  # 加上五个 torch 训练扩展
 cd llm_basic && python gradcheck.py && python train.py && python sample.py "ROMEO:"
 ```
 
-只跑工程补全与内容一致性检查：
+工程实验与内容一致性检查：
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-engineering-completion.py --check
@@ -117,7 +113,7 @@ python scripts/check-engineering-coverage.py
 pytest tests/test_engineering_completion.py tests/test_curriculum_consolidation.py
 ```
 
-研究方向补充与证据检查（CPU；不调用模型 API）：
+研究实验与证据检查（CPU；不调用模型 API）：
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python scripts/run-research-completion.py
@@ -125,7 +121,7 @@ python scripts/check-research-coverage.py
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-research-completion.py --check
 ```
 
-修改实验后先重新导出 `web/scripts/export-research-completion.py`，核对各模块 README 中的结果，再运行 `--check`。旧的 `export-knowledge-completion.py` 摘要覆盖全仓库 Python，Python 源码变化后也要重新导出。浏览器回归命令见 [补充验证记录](docs/research-completion-validation.md)。
+修改实验后先重新导出 `web/scripts/export-research-completion.py`，核对各模块 README 中的结果，再运行 `--check`。`export-knowledge-completion.py` 摘要覆盖全仓库 Python，Python 源码变化后也要重新导出。浏览器回归命令见 [验证指南](docs/validation.md)。
 
 单个模块：
 
@@ -157,7 +153,7 @@ npm run check:consolidation  # 章节归属、旧链接与进度迁移
 npm run build
 ```
 
-本轮归并验证记录见 [验收数据](docs/tutorial-consolidation-validation.json)：Python 测试 299 项通过，39 项慢速训练测试未运行；源码引用、公式、自测和生产构建检查通过。六个阶段总览的「按主题阅读」目录与后续卡片已统一留白，并验证了亮/暗主题、桌面/窄屏、展开/收起的 48 种组合。
+验证范围与浏览器检查命令见 [验证指南](docs/validation.md)。
 
 ## 技术覆盖
 
@@ -372,7 +368,3 @@ npm run build
 ## License
 
 MIT
-
-## 六阶段教学链条补充
-
-[九项补齐记录](docs/knowledge-completion.md) 汇总多轮模板、trace/span、RFT、流式适配器、语义检索、多维并行、服务容量、多模态入口与感受野的证据及边界。保持原六阶段、26 个二级主题；新增实验并入现有三级页面。

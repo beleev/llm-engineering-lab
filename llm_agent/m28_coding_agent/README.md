@@ -2,7 +2,7 @@
 
 [![Coding Agent · 修改、测试与修复](../../docs/screenshots/agent-coding-agent-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/coding-agent)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/coding-agent)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/coding-agent)
 
 ## 直觉
 
@@ -63,7 +63,3 @@ python -m llm_agent.m28_coding_agent.demo
 回滚候选并报告验收未通过。完成由环境判断。预算和原始测试不能因为模型坚持完成而失效。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 5 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter5.md#L13)。模型、指标与脚本为本仓库的教学实现, 边界如上。

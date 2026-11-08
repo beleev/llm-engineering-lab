@@ -2,7 +2,7 @@
 
 [![异步运行 · 事件、取消与恢复](../../docs/screenshots/agent-async-runtime-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/async-runtime)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/async-runtime)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/async-runtime)
 
 ## 直觉
 
@@ -81,7 +81,3 @@ python -m llm_agent.m29_async_runtime.demo
 仍存在, 补偿需要另一个操作。取消停止未来动作, 不撤销过去提交。补偿要有自己的授权和审计。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 6 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter6.md#L29)。模型、指标与脚本为本仓库的教学实现, 边界如上。

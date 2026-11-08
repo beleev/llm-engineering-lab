@@ -2,7 +2,7 @@
 
 [![知识组织 · 树状摘要与关系图](../../docs/screenshots/agent-knowledge-organization-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/knowledge-organization)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/knowledge-organization)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/knowledge-organization)
 
 ## 直觉
 
@@ -81,7 +81,3 @@ python -m llm_agent.m27_knowledge_organization.demo
 还要检索负责人关系及其来源。全局汇总和关系证据解决不同问题。摘要里未出现的关系不能凭结构补出来。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 3 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L424)。模型、指标与脚本为本仓库的教学实现, 边界如上。

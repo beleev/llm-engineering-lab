@@ -2,7 +2,7 @@
 
 [![元优化 · 发现树与回放](../../docs/screenshots/agent-meta-optimization-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/meta-optimization)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/meta-optimization)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/meta-optimization)
 
 ## 直觉
 
@@ -64,7 +64,3 @@ python -m llm_agent.m39_meta_optimization.demo
 不能, 还要新任务验证和回滚点。离线树覆盖有限, 策略可过拟合旧分支结构。新任务是独立检验。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 9 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter9.md#L256)。模型、指标与脚本为本仓库的教学实现, 边界如上。

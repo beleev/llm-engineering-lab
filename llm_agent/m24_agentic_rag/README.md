@@ -82,7 +82,3 @@ TF-IDF 与确定性查询规划, 不测神经检索或通用 Agent 自主规划�
 返回证据不足并保留缺失来源。预算与证据约束同时成立; 不能拿其他对象或旧版本凑答案。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L542)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。

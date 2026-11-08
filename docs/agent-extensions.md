@@ -1,6 +1,6 @@
 # Agent 扩展阅读：从执行到验证与改进
 
-新内容默认归入扩展层, 不增加原主线的必读章节。先学 m13 的终态与过程评估, 再按需要进入下列实验。
+这些专题属于扩展阅读。先学 m13 的终态与过程评估, 再按需要进入下列实验。
 
 | 模块 | 读完能解释什么 |
 |---|---|
@@ -14,8 +14,6 @@
 
 每个模块都有对照、可失败断言和边界说明。网页用相同机制重算, `tests/test_agent_extensions.py` 核对控制项覆盖范围内的 Python / JavaScript 数字。诊断轨迹由 `python web/scripts/export-agent-evidence.py` 从真实教学 Agent 导出。
 
-来源索引见各模块延伸阅读。书中原则按本库的标准库、固定输入、单概念实验方式重新实现, 不直接搬运依赖栈或实验收益数字。
-
 ## 验证方式
 
 ```bash
@@ -25,7 +23,7 @@ python -m pytest tests/test_agent_extensions.py
 env -u ANTHROPIC_API_KEY OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m pytest
 ```
 
-网页沿用 `web/package.json` 中的 source、math、quiz、evolution、build 和 bundle 检查。浏览器验收另需可选开发工具, 不加入 Agent 运行依赖:
+网页使用 `web/package.json` 中的 source、math、quiz、evolution、build 和 bundle 检查。浏览器验收另需可选开发工具, 不加入 Agent 运行依赖:
 
 ```bash
 python -m pip install playwright
@@ -35,10 +33,10 @@ python web/scripts/check-agent-ui.py
 # 要更新真实截图时, 再加 --screenshots
 ```
 
-脚本检查 8 个路由上的 9 个新实验台, 覆盖 select 全选项、关键数值、滑杆与按钮的键盘操作、390px 窄屏、明暗主题和直接刷新。截图见 [章节预览](screenshots/README.md)。
+脚本检查 8 个路由上的 9 个实验台, 覆盖 select 全选项、关键数值、滑杆与按钮的键盘操作、390px 窄屏、明暗主题和直接刷新。截图见 [章节预览](screenshots/README.md)。
 
 训练桥接当前交付的是可验证数据、偏好对与过程标签, 并未训练权重; 费用与调度时间均明确标成模型值。
 
-## 全书范围继续扩展
+## Agent 专题
 
-m26–m44 的逐节对照、实际执行层次与研究边界见 [知识覆盖表](agent-book-coverage.md)。其中 m32 / m37 / m44 使用仓库已有 PyTorch 依赖实际训练, 其余新增默认 demo 使用标准库。m35 的 Chromium 验收需单独安装可选 playwright 与 pillow。
+m26–m44 涵盖工具发现、知识组织、代码修复、异步运行、协作、评测、训练、交互与系统设计，入口见 [Agent 目录](../llm_agent/README.md)。m32 / m37 / m44 使用 PyTorch 训练小模型，其余专题的默认 demo 使用标准库。m35 的 Chromium 验证需单独安装可选 playwright 与 pillow。

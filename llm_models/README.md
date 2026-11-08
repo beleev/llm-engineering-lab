@@ -162,11 +162,11 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 
 ## 图文与语音的阅读入口
 
-[多模态学习路线](../docs/multimodal-learning-path.md) 串起现有 CLIP、Qwen2-VL、Whisper、Omni 的输入、连接方式、loss、信息流断言与实现边界。网页入口在本阶段总览，沿用已有代码。
+[多模态学习路线](../docs/multimodal-learning-path.md) 串起现有 CLIP、Qwen2-VL、Whisper、Omni 的输入、连接方式、loss、信息流断言与实现边界。网页入口在本阶段总览。
 
-## 研究方向补充
+## 研究实验
 
-这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+这些模块按主题组织。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
 
 | 模块 | 关注的问题 |
 | --- | --- |
@@ -176,4 +176,4 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 | [媒体生成：一致性、水印与来源](run_models/generative/media_evaluation/README.md) | 单帧漂亮不代表视频连贯；检测到水印，也不代表画面内容真实。 |
 | [递归记忆与分层读取：压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 摘要能连接前后两段，却不一定能还原原来的细节。结构连通和信息保存需要分别证明。 |
 
-全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。

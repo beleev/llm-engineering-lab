@@ -2,7 +2,7 @@
 
 [![智能体社会 · 激励与重复博弈](../../docs/screenshots/agent-agent-society-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/agent-society)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-society)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-society)
 
 ## 直觉
 
@@ -70,7 +70,3 @@ python -m llm_agent.m40_agent_society.demo
 不一定, 总收益和违规也要检查。局部激励可能与公共目标冲突。重复互动和机制设计会改变这种关系。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 10 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter10.md#L581)。模型、指标与脚本为本仓库的教学实现, 边界如上。

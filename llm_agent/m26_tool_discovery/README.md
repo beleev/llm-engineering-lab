@@ -2,7 +2,7 @@
 
 [![工具发现 · 按需加载与提示设计](../../docs/screenshots/agent-tool-discovery-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/tool-discovery)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/tool-discovery)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/tool-discovery)
 
 ## 直觉
 
@@ -75,7 +75,3 @@ python -m llm_agent.m26_tool_discovery.demo
 启动时列全工具不等于按任务加载。协议枚举与模型可见范围是两件事。运行中发现能力后仍须经过版本和权限检查。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 4 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter4.md#L133)。模型、指标与脚本为本仓库的教学实现, 边界如上。
