@@ -2,7 +2,7 @@
 
 [![向量索引 · 精确扫描与近似搜索](../../docs/screenshots/agent-vector-index-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/vector-index)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md)
+[Agent 目录](../README.md)
 
 ## 直觉
 
@@ -91,10 +91,6 @@ python -m llm_agent.m43_vector_index.demo
 同语料同度量的精确最近邻。先固定嵌入、语料与度量, 才能隔离索引的召回和成本。
 
 </details>
-
-## 延伸阅读
-
-[ai-agent-book 第 3 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L286)。
 
 ## 表示与索引分开验收
 

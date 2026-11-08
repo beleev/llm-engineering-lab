@@ -24,7 +24,7 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.on('response',lambda r:http.append((r.url,r.status)) if r.status>=400 else None)
         page.goto(base,wait_until='networkidle')
-        # 本轮路由包含 attention 等无阶段前缀的页面；全站路径在计数阶段从侧栏读取。
+        # 实验路由包含 attention 等无阶段前缀的页面；全站路径在计数阶段从侧栏读取。
         checked=0
         selected=[] if counts_only else [e for e in records['entries'] if entry_id is None or e['id']==entry_id]
         if entry_id:assert selected,entry_id

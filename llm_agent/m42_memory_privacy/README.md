@@ -2,7 +2,7 @@
 
 [![个人记忆 · 同意、过期与删除](../../docs/screenshots/agent-memory-privacy-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/memory-privacy)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/memory-privacy)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/memory-privacy)
 
 ## 直觉
 
@@ -67,7 +67,3 @@ python -m llm_agent.m42_memory_privacy.demo
 不算, 派生数据仍可能泄露内容。遗忘需要沿数据派生关系清理。保留审计时应避免重新保存被删除的正文。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 3 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L15)。模型、指标与脚本为本仓库的教学实现, 边界如上。

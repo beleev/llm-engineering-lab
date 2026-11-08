@@ -1,4 +1,4 @@
-// 保留原章完整教材作为进阶段落；目录、正文、题库各自使用同一归属映射。
+// 按主题组合进阶段落；目录、正文、题库使用同一归属映射。
 import { chapterAliases } from '../data/chapterAliases.js'
 
 export function mergePage(topic, from, to, title, labNames) {

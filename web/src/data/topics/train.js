@@ -838,7 +838,7 @@ valid = doc[1:] == doc[:-1]                      # 3. 不跨篇预测`,
         { concept: '单遍 + 退火到 D', code: 'm19_scaling_laws/demo.py:train', takeaway: '每步取新样本, cosine 周期等于本次数据量。这正是 Chinchilla 对 Kaplan 的修正。' },
         { concept: 'SP vs μP', code: 'm20_mup/demo.py:init_and_lrs', takeaway: '两种参数化的全部差别是三处 /m: 输出层初始化的标准差, 隐藏层的 lr, 输出层的 lr。' },
       ],
-      snippetTitle: '算力最优与 μP 的全部改动',
+      snippetTitle: '算力最优与 μP 的实现',
       snippet: `# 固定 C = 6ND, 把 D = C/(6N) 代入 L(N, D) 求最小
 a = beta / (alpha + beta)                     # 本例 0.511; 论文指数给 0.45
 G = (alpha * A / (beta * B)) ** (1 / (alpha + beta))
@@ -926,7 +926,7 @@ def judge_swap(qa, qb):
   },
 }
 
-// 补齐现有页的教学链条，保持路由和三级目录不变。
+// 机制实验的原理、运行入口与源码引用。
 const supplements = {
   "train-model-parallel": [
     {

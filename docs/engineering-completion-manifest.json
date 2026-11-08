@@ -1,5 +1,5 @@
 {
-  "scope": "G1–G6 工程补全与 K1–K3 章节复核：每项保留一个主讲入口和可执行反例",
+  "scope": "工程实验的主讲入口、执行条件与反例",
   "entries": [
     {
       "id": "artifact",
@@ -7,9 +7,6 @@
       "module": "llm_finetune.run_finetune.artifact_delivery.demo",
       "routes": [
         "finetune-runs"
-      ],
-      "audit_ids": [
-        "G1"
       ],
       "modes": [
         {
@@ -64,6 +61,9 @@
           "title": "Transformers GenerationConfig：生成行为也需要配置",
           "url": "https://huggingface.co/docs/transformers/main_classes/text_generation"
         }
+      ],
+      "topic_ids": [
+        "G1"
       ]
     },
     {
@@ -72,9 +72,6 @@
       "module": "llm_agent.m54_document_lifecycle.demo",
       "routes": [
         "agent-rag"
-      ],
-      "audit_ids": [
-        "G2"
       ],
       "modes": [
         {
@@ -133,6 +130,9 @@
           "title": "Azure AI Search：向量过滤位置会影响召回",
           "url": "https://learn.microsoft.com/en-us/azure/search/vector-search-filters"
         }
+      ],
+      "topic_ids": [
+        "G2"
       ]
     },
     {
@@ -141,9 +141,6 @@
       "module": "llm_agent.m55_mcp_versions.demo",
       "routes": [
         "agent-mcp"
-      ],
-      "audit_ids": [
-        "G3"
       ],
       "modes": [
         {
@@ -214,6 +211,9 @@
           "title": "MCP Streamable HTTP：请求头校验与状态码",
           "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http"
         }
+      ],
+      "topic_ids": [
+        "G3"
       ]
     },
     {
@@ -222,9 +222,6 @@
       "module": "llm_finetune.run_finetune.async_rollout.demo",
       "routes": [
         "finetune-grpo-variants"
-      ],
-      "audit_ids": [
-        "G4"
       ],
       "modes": [
         {
@@ -271,6 +268,9 @@
           "title": "TRL Asynchronous GRPO（官方列为 Experimental）",
           "url": "https://huggingface.co/docs/trl/async_grpo_trainer"
         }
+      ],
+      "topic_ids": [
+        "G4"
       ]
     },
     {
@@ -279,9 +279,6 @@
       "module": "llm_agent.m56_release_loop.demo",
       "routes": [
         "agent-eval-suite"
-      ],
-      "audit_ids": [
-        "G5"
       ],
       "modes": [
         {
@@ -340,6 +337,9 @@
           "title": "MLflow：从开发评测到生产监控",
           "url": "https://mlflow.org/docs/latest/genai/eval-monitor/"
         }
+      ],
+      "topic_ids": [
+        "G5"
       ]
     },
     {
@@ -348,9 +348,6 @@
       "module": "llm_infer.m32_profiling.demo",
       "routes": [
         "infer-compute"
-      ],
-      "audit_ids": [
-        "G6"
       ],
       "modes": [
         {
@@ -393,6 +390,9 @@
           "title": "Stanford CS336 2025：Systems 作业包含 profiling 与 benchmark",
           "url": "https://cs336.stanford.edu/spring2025/"
         }
+      ],
+      "topic_ids": [
+        "G6"
       ]
     },
     {
@@ -408,9 +408,6 @@
       "protocol": "固定两租户到达轨迹，比较 FIFO、固定优先级、公平轮转和配额；核对请求终态守恒、B 租户完成数、A 队列上限及每租户 goodput。",
       "routes": [
         "infer-scheduler"
-      ],
-      "audit_ids": [
-        "K1"
       ],
       "modes": [
         {
@@ -450,6 +447,9 @@
           "title": "vLLM 调度策略与预算",
           "url": "https://docs.vllm.ai/en/latest/api/vllm/config/scheduler/"
         }
+      ],
+      "topic_ids": [
+        "K1"
       ]
     },
     {
@@ -465,9 +465,6 @@
       "protocol": "保存 v1 暂停任务，交给 v2 执行器；验证字段默认值、节点/字段/工具不兼容拒绝、授权撤销、新旧流程差异，以及外部提交后强退恢复只有一笔副作用。",
       "routes": [
         "agent-state-subagents"
-      ],
-      "audit_ids": [
-        "K2"
       ],
       "modes": [
         {
@@ -519,6 +516,9 @@
           "title": "LangGraph 持久任务兼容性",
           "url": "https://docs.langchain.com/oss/python/langgraph/backward-compatibility"
         }
+      ],
+      "topic_ids": [
+        "K2"
       ]
     },
     {
@@ -534,9 +534,6 @@
       "protocol": "先由 A 身份写缓存，再改租户、模型/adapter 版本或身份声明；核对命中与正确性，同域可复用，跨域不共享，错误版本不能静默返回旧值。",
       "routes": [
         "infer-prefix-radix"
-      ],
-      "audit_ids": [
-        "K3"
       ],
       "modes": [
         {
@@ -588,6 +585,9 @@
           "title": "vLLM 多租户缓存边界",
           "url": "https://docs.vllm.ai/en/latest/usage/security/"
         }
+      ],
+      "topic_ids": [
+        "K3"
       ]
     }
   ]

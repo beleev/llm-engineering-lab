@@ -2,7 +2,7 @@
 
 [![在轨自蒸馏 · 特权信息与部署边界](../../docs/screenshots/agent-self-distillation-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/self-distillation)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md)
+[Agent 目录](../README.md)
 
 ## 直觉
 
@@ -79,7 +79,3 @@ python -m llm_agent.m44_self_distillation.demo
 移除答案通道并独立测试效果。训练侧特权条件不能泄漏到部署或测试决策。
 
 </details>
-
-## 延伸阅读
-
-[ai-agent-book 第 8 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter8.md#L711)。

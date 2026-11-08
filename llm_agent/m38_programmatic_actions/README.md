@@ -2,7 +2,7 @@
 
 [![程序化行动 · 规则、适配器与生成界面](../../docs/screenshots/agent-programmatic-actions-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/programmatic-actions)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/programmatic-actions)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/programmatic-actions)
 
 ## 直觉
 
@@ -70,7 +70,3 @@ python -m llm_agent.m38_programmatic_actions.demo
 错误会稳定复现, 仍需规则验收。可重复执行不是语义正确性。测试既要看程序行为, 也要验证规则适用范围。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 5 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter5.md#L351)。模型、指标与脚本为本仓库的教学实现, 边界如上。

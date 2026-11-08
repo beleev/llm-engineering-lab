@@ -81,7 +81,3 @@ python -m llm_agent.m23_context_cache.demo
 固定假设下的模拟费用单位数。这是本地费用模型计算的数, 不是 API 账单或延迟测量。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter2.md#L1028)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。

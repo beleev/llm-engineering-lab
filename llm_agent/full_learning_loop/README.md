@@ -81,7 +81,3 @@ python -m llm_agent.full_learning_loop.demo
 读取已有规则, 不写入测试答案。本实验在迁移和保持阶段禁用更新, 避免边测试边泄漏答案。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/chapter9/self-evolution-eval/harness.py#L9)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。

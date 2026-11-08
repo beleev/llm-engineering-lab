@@ -1,4 +1,4 @@
-"""新增专题的真实浏览器验收与截图。先在 web 启动 Vite。"""
+"""Agent 专题的真实浏览器验收与截图。先在 web 启动 Vite。"""
 from __future__ import annotations
 import argparse
 import json
@@ -32,9 +32,10 @@ def run(base, screenshots=False):
         try:
             for route, row in data.items():
                 page.goto(base + "#/agent/" + route.removeprefix("agent-"))
-                expect(page.locator(".page-title")).to_have_text(row["title"])
                 lab = page.locator(".agent-coverage-lab")
                 expect(lab).to_be_visible()
+                expect(lab.locator(".lab-head h3")).to_contain_text(row["title"])
+                assert page.locator(".link-card").evaluate_all("cards => cards.every(card => card.querySelector('.link-row'))"), route
                 assert page.locator(".katex-error").count() == 0
                 assert page.locator(".codeblock pre").first.inner_text().strip()
                 for case in row["cases"]:

@@ -48,7 +48,7 @@
       </div>
     </section>
 
-    <section class="section">
+    <section v-if="page.links?.length" class="section">
       <h2>它接在哪</h2>
       <p class="lead">
         没有哪个技术是凭空出现的。左边是它替换掉的东西, 右边是它后来被用在哪。

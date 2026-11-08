@@ -324,7 +324,7 @@ const router = createRouter({
     if (to.hash) {
       await nextTick()
       await document.fonts.ready
-      // 等异步实验完成布局，再定位迁入段落，防止加载后锚点被顶走。
+      // 等异步实验完成布局，再定位目标段落，防止加载后锚点被顶走。
       for (let i = 0; i < 600; i++) {
         if (router.currentRoute.value.fullPath !== to.fullPath) return false
         const ready = document.getElementById(decodeURIComponent(to.hash.slice(1)))

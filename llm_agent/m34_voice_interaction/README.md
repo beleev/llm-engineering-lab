@@ -2,7 +2,7 @@
 
 [![语音交互 · 打断与快慢响应](../../docs/screenshots/agent-voice-interaction-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/voice-interaction)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/voice-interaction)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/voice-interaction)
 
 ## 直觉
 
@@ -74,7 +74,3 @@ VAD 使用合成波形, ASR 与 TTS 事件是预设夹具。没有调用声学�
 旧结果可能重新进入播放队列。打断必须贯穿任务、结果和输出队列。只操作播放器不足以丢弃迟到事件。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 6 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter6.md#L307)。模型、指标与脚本为本仓库的教学实现, 边界如上。

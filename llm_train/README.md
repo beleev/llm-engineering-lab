@@ -109,13 +109,13 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 读完后再看真实框架, 可以把名词映射到几条主线:
 **batch 怎么切、层怎么切、状态怎么切、序列怎么切、数用几位存、通信怎么走、坏 step 怎么恢复。**
 
-## 多维并行预算补充
+## 多维并行预算
 
 [m22](m22_parallel_budget/README.md) 把 DP×TP×PP、rank 网格、状态/激活显存、α/β 通信、重叠和 Roofline/MFU 放入同一代价模型。它不启动真实多进程或测量硬件吞吐。
 
-## 研究方向补充
+## 研究实验
 
-这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+这些模块按主题组织。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
 
 | 模块 | 关注的问题 |
 | --- | --- |
@@ -124,4 +124,4 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | [可靠性：校准、拒答与人工评价](m25_reliability_metrics/README.md) | 准确率告诉你答对多少，校准告诉你“有多确定”是否可信。二者要分开测。 |
 | [多语言：采样、分词与翻译偏差](m26_multilingual/README.md) | 同样一句意思，不同语言可能消耗不同数量的 token；同样一份数据预算，也可能几乎没有训练到低资源语言。 |
 
-全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。

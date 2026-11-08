@@ -1,4 +1,4 @@
-// 旧书签保持可达；目录只列主讲章。锚点定位到原章节迁入的段落。
+// 路由别名指向主讲章的对应段落，目录只展示规范路由。
 export const chapterAliases = {
   'train-low-precision': { route: 'train-precision-stability', anchor: 'block-scale' },
   'finetune-dora': { route: 'finetune-lora', anchor: 'dora' },
@@ -9,8 +9,8 @@ export const chapterAliases = {
 }
 export const canonicalChapter = route => chapterAliases[route]?.route || route
 
-// 合并后题数和教学范围改变，旧成绩不能直接换算成新章“全部掌握”。
-// 保留原成绩供追溯，清掉受影响目标成绩，让用户重新自测。
+// 不同课程版本的题目与范围不等价，自测成绩按版本隔离。
+// 版本不匹配的成绩存入归档，当前章节需要独立完成自测。
 export function migrateProgress(saved) {
   const state = { ...saved, visited: { ...(saved.visited || {}) }, quiz: { ...(saved.quiz || {}) },
     archivedQuiz: { ...(saved.archivedQuiz || {}) } }

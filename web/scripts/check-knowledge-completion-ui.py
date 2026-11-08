@@ -1,4 +1,4 @@
-"""核对新增回放全部条件、源码展开、多模态入口及窄屏交互。先启动 Vite。"""
+"""核对机制实验回放全部条件、源码展开、多模态入口及窄屏交互。先启动 Vite。"""
 import argparse
 import json
 from pathlib import Path

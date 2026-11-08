@@ -1,6 +1,6 @@
 import { chapterLabels } from './chapterLabels.js'
-// 二级主题决定阅读顺序；三级章节沿用原 route，已有链接和学习进度不变。
-// 新增章节必须明确归组，避免悄悄回到一长串平铺目录。
+// 二级主题决定阅读顺序；三级章节通过 route 关联正文、链接和学习进度。
+// 每个章节必须明确归属一个主题组。
 const group = (id, title, routes) => ({ id, title, routes: routes.split(' ') })
 export const chapterGroups = {
   basic: [

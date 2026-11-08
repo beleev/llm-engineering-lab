@@ -143,9 +143,9 @@ QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采�
 
 [Chat Template](run_finetune/chat_template/README.md) 补消息→token→多轮监督；[RFT](run_finetune/rft/README.md) 在同一小 LLaMA 上对比示范 SFT、筛选采样后 SFT、在线 RL，报告任务保留偏差。
 
-## 研究方向补充
+## 研究实验
 
-这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+这些模块按主题组织。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
 
 | 模块 | 关注的问题 |
 | --- | --- |
@@ -155,11 +155,11 @@ QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采�
 | [知识编辑：改对一个事实，伤到多少邻居](run_finetune/knowledge_edit/README.md) | 改参数里的事实不像改数据库的一行。共享表示会让一次更新影响相似实体、别名和关联事实。 |
 | [隐私：记忆提取、DP 与参数遗忘](run_finetune/privacy_unlearning/README.md) | 拒绝复述某条记录不代表模型没有记住它；攻击没成功，也不等于已经证明隐私安全。 |
 
-全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。
 
-## 工程流程补充
+## 工程流程
 
 - [模型交付包与独立进程一致性](run_finetune/artifact_delivery/README.md)
 - [异步 rollout、策略版本与概率校正](run_finetune/async_rollout/README.md)
 
-网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。实验内容与边界见 [工程实验指南](../docs/engineering-completion.md)。

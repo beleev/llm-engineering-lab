@@ -83,7 +83,3 @@ python -m llm_agent.m20_memory_lifecycle.demo
 方便追溯修改, 并重建生效视图。证据、版本与索引各司其职; 回滚改变生效状态, 不抹去曾经发生的输入。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter3.md#L505)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。

@@ -263,7 +263,7 @@ for _ in range(max_new_tokens):
   },
 }
 
-// 补齐现有页的教学链条，保持路由和三级目录不变。
+// 机制实验的原理、运行入口与源码引用。
 const supplements = {
   "basic-forward": [
     {

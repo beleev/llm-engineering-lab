@@ -2,7 +2,7 @@
 
 [![中期训练 · 新知识与旧能力](../../docs/screenshots/agent-midtraining-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/midtraining)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/midtraining)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/midtraining)
 
 ## 直觉
 
@@ -67,7 +67,3 @@ python -m llm_agent.m37_midtraining.demo
 新知识适应伴随旧能力遗忘。不同数据分布的能力必须分开测。混合语料、正则、回放和早停需要用保持指标验收。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 8 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter8.md#L26)。模型、指标与脚本为本仓库的教学实现, 边界如上。

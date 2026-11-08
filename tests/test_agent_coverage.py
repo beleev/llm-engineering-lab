@@ -1,4 +1,4 @@
-"""新的机制边界检查: 不以只跑通或复写实现证明正确。"""
+"""Agent 机制边界检查: 不以只跑通或复写实现证明正确。"""
 from dataclasses import replace
 import importlib
 import json
@@ -265,7 +265,7 @@ def test_nontraining_replay_is_actual_execution_not_handwritten_scores():
 
 
 def test_coverage_index_points_to_existing_knowledge():
-    runpy.run_path(str(ROOT / "scripts/check-agent-book-coverage.py"))["check"]()
+    runpy.run_path(str(ROOT / "scripts/check-agent-coverage.py"))["check"]()
 
 
 def test_async_completion_cancel_race_and_early_failure_unblock_waiter(tmp_path):

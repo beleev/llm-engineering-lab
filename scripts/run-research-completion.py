@@ -1,4 +1,4 @@
-"""一次运行长图补充的全部 CPU 实验；不访问模型 API。"""
+"""一次运行全部研究主题 CPU 实验；不访问模型 API。"""
 from pathlib import Path
 import importlib
 import json

@@ -2,7 +2,7 @@
 
 [![Agent 训练 · 轨迹到参数更新](../../docs/screenshots/agent-agent-training-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/agent-training)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-training)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-training)
 
 ## 直觉
 
@@ -96,7 +96,3 @@ SFT 和 RL 留出得分都满分, 能说明 RL 更强吗?
 不能, 只能说明当前测试未退化。参数更新与任务收益是两件事。当前任务已饱和, 需要更有区分力且独立的测试才能比较能力。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 8 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter8.md#L482)。模型、指标与脚本为本仓库的教学实现, 边界如上。

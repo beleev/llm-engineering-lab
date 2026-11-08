@@ -2,7 +2,7 @@
 
 [![系统选择 · 工作流、状态与缓存](../../docs/screenshots/agent-system-design-coverage.png)](https://beleev.github.io/llm-engineering-lab/#/agent/system-design)
 
-[Agent 目录](../README.md) · [知识覆盖表](../../docs/agent-book-coverage.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/system-design)
+[Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/system-design)
 
 ## 直觉
 
@@ -87,7 +87,3 @@ python -m llm_agent.m41_system_design.demo
 不能, 后缀状态可能依赖旧前缀。精确前缀复用和任意片段拼接条件不同。模型版本、位置和因果依赖都需检查。
 
 </details>
-
-## 延伸阅读
-
-机制参考 [ai-agent-book 第 1 章](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter1.md#L263)。模型、指标与脚本为本仓库的教学实现, 边界如上。

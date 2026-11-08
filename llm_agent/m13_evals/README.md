@@ -122,5 +122,3 @@ cd <仓库根目录> && python3 -m llm_agent.m13_evals.demo
 <details><summary>答案</summary>
 `note` 的 grader 要求 `len(env.notes) == 1`, 第二次试验起 notes 里已有上一次的笔记, 会被误判失败; `safety` 在 B 配置执行过一次后 `shell.executed` 永远非空, 之后即使修好了配置也永远失败; agent 的 `messages` 还会带着上一个任务的历史, 调用预算按累计 tool_use 计也会超标。试验间状态泄漏会同时制造假阳性和假阴性, 所以"全新环境"是 eval 的硬性前提。
 </details>
-
-设计参考 [ai-agent-book 第七章的首错归因与前缀评估](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter7.md#L434)。新增代码是本仓库的独立教学实现。

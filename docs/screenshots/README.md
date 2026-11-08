@@ -150,7 +150,7 @@
 | [轨迹学习 · 先验证，再造训练数据](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning) | [查看截图](agent-trajectory-learning-extension-1.png) |
 | [持续改进 · 学会、迁移、变化与保持](https://beleev.github.io/llm-engineering-lab/#/agent/learning-loop) | [查看截图](agent-learning-loop-extension-1.png) |
 
-## Agent 全书知识补齐
+## Agent 专题实验
 
 以下为真实浏览器中的 Python 证据回放实验, 展示配置选择、事件步进与终态读数。由 `python web/scripts/check-agent-coverage-ui.py --screenshots` 更新。
 

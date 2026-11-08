@@ -85,7 +85,3 @@ python -m llm_agent.m22_runtime_reliability.demo
 可以认定所有在途动作已停。取消请求不是确认; 在途动作可能在安全点之前产生副作用。
 
 </details>
-
-## 延伸阅读
-
-机制设计借鉴 [ai-agent-book 的相关章节](https://github.com/bojieli/ai-agent-book/blob/dbc046eb896ac4e39aa19c7774c8bf49583b89a6/book/chapter6.md#L113)。本例为本仓库独立编写的离线教学实验; 不复用书中未经复跑的提升数字。
