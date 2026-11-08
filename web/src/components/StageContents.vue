@@ -28,6 +28,8 @@ const groups = computed(() => stage.value.groups.map((g) => ({ ...g, chapters: g
 </script>
 
 <style scoped>
+/* 后面可能直接接演进卡片；与普通 section 使用相同的段落间距。 */
+.stage-contents { margin-bottom: 36px; }
 .topic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .topic-group { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); }
 summary { padding: 14px; cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.6; }
