@@ -1,5 +1,5 @@
 {
-  "scope": "内容审查 G1–G6 的最小可验证工程流程；生产扩展边界单独说明",
+  "scope": "G1–G6 工程补全与 K1–K3 章节复核：每项保留一个主讲入口和可执行反例",
   "entries": [
     {
       "id": "artifact",
@@ -392,6 +392,201 @@
         {
           "title": "Stanford CS336 2025：Systems 作业包含 profiling 与 benchmark",
           "url": "https://cs336.stanford.edu/spring2025/"
+        }
+      ]
+    },
+    {
+      "id": "tenant_scheduling",
+      "title": "多租户调度：总体吞吐会掩盖谁的等待",
+      "module": "llm_infer.m33_tenant_scheduling.demo",
+      "intuition": "连续的大租户请求可能让小租户长期等不到服务。按租户看等待、超时和 goodput，才能发现总吞吐藏住的问题。",
+      "principles": [
+        "全局队列容量限制总资源；租户配额限制单个调用方的占用，两者不是同一个约束。固定优先级在持续高优先级负载下可能饿死其他请求。",
+        "公平轮转以等成本服务量子分配机会；长请求在自己的租户队列继续，不阻止另一租户获得一个量子。真实 token 的代价不相同，需结合 prefill/decode、KV 和预算估计。",
+        "goodput 按租户统计满足端到端 SLO 的完成数，并除以包含排空期的观测时间；同时报告超时、拒绝与队列峰值。有限轨迹的结果不证明任意负载下公平。"
+      ],
+      "protocol": "固定两租户到达轨迹，比较 FIFO、固定优先级、公平轮转和配额；核对请求终态守恒、B 租户完成数、A 队列上限及每租户 goodput。",
+      "routes": [
+        "infer-scheduler"
+      ],
+      "audit_ids": [
+        "K1"
+      ],
+      "modes": [
+        {
+          "id": "fifo",
+          "label": "先进先出"
+        },
+        {
+          "id": "priority",
+          "label": "固定优先级"
+        },
+        {
+          "id": "fair",
+          "label": "公平轮转"
+        },
+        {
+          "id": "quota",
+          "label": "公平与配额"
+        }
+      ],
+      "quiz": {
+        "q": "总体吞吐提高，但 B 租户请求全超时，能认为服务改进了吗？",
+        "options": [
+          "能，总吞吐已足以代表每位用户体验",
+          "不能，还需分租户检查等待、超时和 SLO",
+          "能，只要 A 租户的队列没有溢出",
+          "不能，因为多租户服务必须完全禁用批处理"
+        ],
+        "answer": 1,
+        "why": "全局队列容量限制总资源；租户配额限制单个调用方的占用，两者不是同一个约束。固定优先级在持续高优先级负载下可能饿死其他请求。"
+      },
+      "challenge": {
+        "ask": "总体吞吐提高，但 B 租户请求全超时，能认为服务改进了吗？",
+        "answer": "全局队列容量限制总资源；租户配额限制单个调用方的占用，两者不是同一个约束。固定优先级在持续高优先级负载下可能饿死其他请求。"
+      },
+      "references": [
+        {
+          "title": "vLLM 调度策略与预算",
+          "url": "https://docs.vllm.ai/en/latest/api/vllm/config/scheduler/"
+        }
+      ]
+    },
+    {
+      "id": "checkpoint_migration",
+      "title": "任务恢复：旧检查点遇到新代码",
+      "module": "llm_agent.m57_checkpoint_migration.demo",
+      "intuition": "能读回旧消息不等于能继续旧任务。恢复前要核对状态格式、流程版本、工具约定和当前权限；已提交的动作还要查收据。",
+      "principles": [
+        "schema_version 决定如何读取持久状态；新增可选字段可补默认值，丢失必填字段、未知节点与不兼容工具约定应在副作用前拒绝。",
+        "flow_version 决定业务规则。新版代码不能静默改变旧任务承诺，也不能让旧任务继承已经撤销的权限；兼容性和执行授权分别检查。",
+        "外部服务提交与本地检查点是两个事务。实验在中间真正退出子进程；重启后核对稳定操作键和参数，使用已有收据完成本地状态，不重复入账。"
+      ],
+      "protocol": "保存 v1 暂停任务，交给 v2 执行器；验证字段默认值、节点/字段/工具不兼容拒绝、授权撤销、新旧流程差异，以及外部提交后强退恢复只有一笔副作用。",
+      "routes": [
+        "agent-state-subagents"
+      ],
+      "audit_ids": [
+        "K2"
+      ],
+      "modes": [
+        {
+          "id": "compatible",
+          "label": "兼容迁移"
+        },
+        {
+          "id": "new-flow",
+          "label": "新业务版本"
+        },
+        {
+          "id": "bad-node",
+          "label": "节点已移除"
+        },
+        {
+          "id": "bad-schema",
+          "label": "缺必填字段"
+        },
+        {
+          "id": "bad-tool",
+          "label": "工具约定变更"
+        },
+        {
+          "id": "revoked",
+          "label": "权限已撤销"
+        },
+        {
+          "id": "crash",
+          "label": "外部提交后强退"
+        }
+      ],
+      "quiz": {
+        "q": "升级代码后旧任务仍能反序列化，是否就可以直接继续？",
+        "options": [
+          "可以，JSON 能读说明流程语义也兼容",
+          "可以，旧检查点中的审批永久有效",
+          "不行，还需核对节点、业务版本、工具与权限",
+          "不行，所有旧任务都只能删除后重来"
+        ],
+        "answer": 2,
+        "why": "schema_version 决定如何读取持久状态；新增可选字段可补默认值，丢失必填字段、未知节点与不兼容工具约定应在副作用前拒绝。"
+      },
+      "challenge": {
+        "ask": "升级代码后旧任务仍能反序列化，是否就可以直接继续？",
+        "answer": "schema_version 决定如何读取持久状态；新增可选字段可补默认值，丢失必填字段、未知节点与不兼容工具约定应在副作用前拒绝。"
+      },
+      "references": [
+        {
+          "title": "LangGraph 持久任务兼容性",
+          "url": "https://docs.langchain.com/oss/python/langgraph/backward-compatibility"
+        }
+      ]
+    },
+    {
+      "id": "cache_identity",
+      "title": "缓存身份：相同 token 不一定能复用",
+      "module": "llm_infer.m34_cache_identity.demo",
+      "intuition": "KV 的身份不仅是 token，还包含解释这些 token 的模型与输入约定。命中更快，也可能泄露其他租户是否使用过某个前缀。",
+      "principles": [
+        "缓存键绑定授权共享域、不可变模型标识、adapter 标识及 token 前缀；多模态还需要绑定内容摘要。仅同 token 无法证明 KV 相同。",
+        "共享域由可信身份网关决定。客户端声明的租户或 salt 不能覆盖鉴权结果；同域可复用，跨域隔离需要明确的命名空间。",
+        "salt 减少特定缓存侧信道风险，不提供服务进程、网络或显存隔离。命中/未命中的合成代价仅展示泄露渠道，不能报告成真实攻击率。"
+      ],
+      "protocol": "先由 A 身份写缓存，再改租户、模型/adapter 版本或身份声明；核对命中与正确性，同域可复用，跨域不共享，错误版本不能静默返回旧值。",
+      "routes": [
+        "infer-prefix-radix"
+      ],
+      "audit_ids": [
+        "K3"
+      ],
+      "modes": [
+        {
+          "id": "shared",
+          "label": "跨租户共用"
+        },
+        {
+          "id": "isolated",
+          "label": "隔离命名空间"
+        },
+        {
+          "id": "reuse",
+          "label": "同域复用"
+        },
+        {
+          "id": "legacy-version",
+          "label": "忽略版本"
+        },
+        {
+          "id": "model",
+          "label": "模型版本变化"
+        },
+        {
+          "id": "adapter",
+          "label": "adapter 变化"
+        },
+        {
+          "id": "spoof",
+          "label": "伪造租户声明"
+        }
+      ],
+      "quiz": {
+        "q": "相同 token 命中了另一个 adapter 计算出的 KV，是否可以复用？",
+        "options": [
+          "可以，token 一样就保证中间表示一样",
+          "可以，命中率越高说明模型结果越准确",
+          "不可以，adapter 不同会改变模型计算约定",
+          "不可以，任何前缀缓存都必须每次重新计算"
+        ],
+        "answer": 2,
+        "why": "缓存键绑定授权共享域、不可变模型标识、adapter 标识及 token 前缀；多模态还需要绑定内容摘要。仅同 token 无法证明 KV 相同。"
+      },
+      "challenge": {
+        "ask": "相同 token 命中了另一个 adapter 计算出的 KV，是否可以复用？",
+        "answer": "缓存键绑定授权共享域、不可变模型标识、adapter 标识及 token 前缀；多模态还需要绑定内容摘要。仅同 token 无法证明 KV 相同。"
+      },
+      "references": [
+        {
+          "title": "vLLM 多租户缓存边界",
+          "url": "https://docs.vllm.ai/en/latest/usage/security/"
         }
       ]
     }

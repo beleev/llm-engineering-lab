@@ -28,11 +28,11 @@ export default function courseCatalog() {
           }
           extraChapters[mod.stage] = mod.chapters || []
           for (const [route, page] of Object.entries(mod.pages || {})) {
-            const parts = [page.subtitle, page.tldr, page.question,
+            const parts = [page.subtitle, page.tldr, page.question, JSON.stringify(page.sections || []),
               ...(page.points || []).flatMap((p) => [p.title, p.body]),
               ...(page.links || []).map((l) => l.body),
               ...(page.sourceRows || []).map((r) => r.takeaway), page.snippet]
-            pageStats[route] = { chars: textLen(parts.filter(Boolean).join(' ')), widgets: page.widgets || [] }
+            pageStats[route] = { chars: textLen(parts.filter(Boolean).join(' ')), widgets: [...(page.widgets || []), ...(page.sections || []).flatMap(s => s.labNames || [])] }
           }
         }
       }

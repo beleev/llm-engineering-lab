@@ -1,3 +1,5 @@
+import consolidationQuestions from '../consolidationQuestions.js'
+import { mergeQuiz } from '../../utils/consolidate.js'
 const coverageQuiz = {
   "agent-tool-discovery": [
     {
@@ -1222,3 +1224,7 @@ const researchQuestions = {
 }
 for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
+
+mergeQuiz(quiz)
+
+for (const [route, questions] of Object.entries(consolidationQuestions)) if (route.startsWith('agent-')) quiz[route] = [...(quiz[route] || []), ...questions]

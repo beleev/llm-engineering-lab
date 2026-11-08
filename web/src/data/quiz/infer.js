@@ -1,3 +1,4 @@
+import consolidationQuestions from '../consolidationQuestions.js'
 // 阶段 5 · llm_infer 自测题 (每章 3 题; 错误选项都是常见误解)
 const quiz = {
   infer: [
@@ -479,3 +480,5 @@ const researchQuestions = {
 }
 for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
+
+for (const [route, questions] of Object.entries(consolidationQuestions)) if (route.startsWith('infer-')) quiz[route] = [...(quiz[route] || []), ...questions]

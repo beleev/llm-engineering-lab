@@ -857,3 +857,9 @@ agentModules.push(
   { id: 'm55', name: 'MCP Versions', concept: '旧 stdio 与新 HTTP 配置', link: '版本拒绝与资源端授权', file: 'llm_agent/m55_mcp_versions/demo.py' },
   { id: 'm56', name: 'Release Loop', concept: '评测门槛到发布回滚', link: '关键切片、反馈覆盖与失败回流', file: 'llm_agent/m56_release_loop/demo.py' },
 )
+
+inferModules.push(
+  { id: 'm33', name: 'Tenant Scheduling', concept: '公平性与容量分别验收', link: 'FIFO、优先级、服务量子与租户配额', file: 'llm_infer/m33_tenant_scheduling/demo.py' },
+  { id: 'm34', name: 'Cache Identity', concept: '同 token 不保证同 KV', link: '可信共享域、模型与 adapter 版本', file: 'llm_infer/m34_cache_identity/demo.py' },
+)
+agentModules.push({ id: 'm57', name: 'Checkpoint Migration', concept: '旧状态遇到新代码', link: '格式、业务版本、权限与收据', file: 'llm_agent/m57_checkpoint_migration/demo.py' })

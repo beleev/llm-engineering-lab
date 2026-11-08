@@ -48,7 +48,7 @@ const route = useRoute()
 const selected = reactive({})
 const entries = computed(() => props.records.entries.filter(entry => entry.routes.includes(route.name)))
 const current = entry => entry.conditions.find(condition => condition.id === selected[entry.id]) || entry.conditions[0]
-const format = value => Array.isArray(value) ? value.map(format).join(', ') : typeof value === 'boolean' ? (value ? '是' : '否') : value
+const format = value => value == null ? '不适用' : Array.isArray(value) ? value.map(format).join(', ') : typeof value === 'boolean' ? (value ? '是' : '否') : value
 </script>
 
 <style scoped>

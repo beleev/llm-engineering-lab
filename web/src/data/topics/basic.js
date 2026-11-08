@@ -1,3 +1,4 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
 // 阶段 1 · llm_basic: 四个章节的完整页面定义。章节目录登记在 data/models.js 的 basicChapters, 所以这里 chapters 为空。
 const topic = {
   stage: 'basic',
@@ -283,3 +284,5 @@ for (const [route, rows] of Object.entries(supplements)) {
 
 // 审查后的主讲职责与前置链接。
 export default topic
+
+canonicalizeRelated(topic)

@@ -12,7 +12,7 @@ with sync_playwright() as p:
     page.goto(BASE,wait_until='networkidle')
     routes=page.evaluate("Object.fromEntries(document.querySelector('#app').__vue_app__.config.globalProperties.$router.getRoutes().map(r=>[r.name,r.path]))")
     checked=[]
-    for route in ['finetune-sft','agent-memory-privacy','agent-programmatic-actions','agent-tools-permissions','agent-runtime-reliability','agent-evals','train-collectives-loop','infer-scheduler','infer-decode-control','models-mtp','finetune-knowledge-update','agent-verifiable-reasoning']:
+    for route in ['finetune-sft','agent-memory-lifecycle','agent-programmatic-actions','agent-tools-permissions','agent-runtime-reliability','agent-evals','train-collectives-loop','infer-scheduler','infer-decode-control','models-mtp','finetune-knowledge-update','agent-verifiable-reasoning']:
         page.goto(BASE+'#'+routes[route],wait_until='networkidle')
         page.wait_for_function("r=>document.querySelector('#app').__vue_app__.config.globalProperties.$route.name===r",arg=route)
         expect(page.locator('.page-title')).to_have_text(TITLES[route])

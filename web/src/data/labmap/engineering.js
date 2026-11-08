@@ -1,5 +1,5 @@
-// 每组完整实验只有一个主讲入口。
-export default {
+// 每个实验保留一个主讲入口；分段顺序由正文决定。
+const map = {
   "finetune-runs": [
     "EngineeringCompletionLab"
   ],
@@ -19,3 +19,8 @@ export default {
     "EngineeringCompletionLab"
   ]
 }
+
+map['infer-scheduler'] = ['EngineeringCompletionLab']
+map['agent-state-subagents'] = ['EngineeringCompletionLab']
+map['infer-prefix-radix'] = ['EngineeringCompletionLab']
+export default map

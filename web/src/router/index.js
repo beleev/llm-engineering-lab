@@ -1,4 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { nextTick } from 'vue'
+import { chapterAliases } from '@/data/chapterAliases.js'
 import { extraChapters, loadTopics } from '@/data/topics/index.js'
 import { loadQuiz } from '@/data/quiz/index.js'
 import { stageBy, stages, chapterByRoute } from '@/data/models.js'
@@ -309,11 +311,32 @@ for (const s of stages) {
   }
 }
 
+for (const [name, alias] of Object.entries(chapterAliases)) {
+  routes.push({ name, path: '/' + name.replace('-', '/'), redirect: to => ({ name: alias.route, hash: to.hash || '#' + alias.anchor, query: to.query }) })
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [...routes, notFound],
   // 浏览器后退 / 前进时回到离开时的位置 (从术语表返回, 还在刚才读的那一段); 点链接进新页面才回顶部
-  scrollBehavior: (to, from, saved) => saved || { top: 0 },
+  scrollBehavior: async (to, from, saved) => {
+    if (saved) return saved
+    if (to.hash) {
+      await nextTick()
+      await document.fonts.ready
+      // 等异步实验完成布局，再定位迁入段落，防止加载后锚点被顶走。
+      for (let i = 0; i < 600; i++) {
+        if (router.currentRoute.value.fullPath !== to.fullPath) return false
+        const ready = document.getElementById(decodeURIComponent(to.hash.slice(1)))
+          && !document.querySelector('.page-enter-active, .page-leave-active, .lab-placeholder[aria-busy="true"]')
+        if (ready) break
+        await new Promise(requestAnimationFrame)
+      }
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      return { el: to.hash, top: 24 }
+    }
+    return { top: 0 }
+  },
 })
 
 // 导航完成前加载当前阶段的数据, 深链接刷新和跨阶段切换走同一条路径。

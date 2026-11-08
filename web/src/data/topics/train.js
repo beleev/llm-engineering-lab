@@ -1,3 +1,6 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
+import { chapterLabels } from '../chapterLabels.js'
+import { mergePage } from '../../utils/consolidate.js'
 // 阶段 3 · llm_train 的全部章节页 (完整定义)。
 // 数字全部取自对应 demo 的实际输出, 改 Python 后请重新核对。
 // points 里 key: true 的那一条 = 这一章只让人记住一句话时, 记这句。
@@ -949,3 +952,16 @@ for (const [route, rows] of Object.entries(supplements)) {
 topic.pages["train-collectives-loop"].related = [{"route": "train-model-parallel", "label": "DP×TP×PP：显存与时间一起算", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
 topic.pages["train-model-parallel"].related = [{"route": "infer-compute", "label": "从代价模型到 profiler", "reason": "预算估算帮助选配置；算子 trace 与真实计时验证实际瓶颈。"}]
 export default topic
+
+mergePage(topic, 'train-low-precision', 'train-precision-stability', '进阶 · block scale 与 FP4', ["TrainBlockScaleLab"])
+
+topic.pages['train-precision-stability'].title = '低精度训练 · 稳定性、缩放与 FP4'
+topic.pages['train-precision-stability'].tldr = '先保证小梯度和小更新没有消失，再讨论位宽与缩放粒度。本章实现用 FP32 master 累积更新；这是一种训练配方，不是所有实现的必要条件。'
+const precision = topic.pages['train-precision-stability']
+precision.points[1].body = precision.points[1].body.replace('更新本身永远落在 fp32 master 上', '本章的更新落在 fp32 master 上')
+precision.sections[0].points[0].body = '一个 block 由 amax 决定 scale。outlier 会挤压邻居的有效精度；前面的 FP8 实验已展示这一点。FP4 网格只有 ±{0.5,1,1.5,2,3,4,6}，非零幅值范围只有 12 倍，因此更依赖小 block。'
+topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = 'PP 按层切分，stage 边界传递激活。micro-batch 的执行顺序影响在途激活与空等时间；气泡公式、时间线和通信代价集中在「1F1B 与交错调度」。'
+
+for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
+
+canonicalizeRelated(topic)

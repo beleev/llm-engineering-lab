@@ -1,0 +1,536 @@
+{
+  "baseline": "fe70ee9",
+  "date": "2026-11-08",
+  "status": "completed",
+  "resolved": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "O1",
+    "O2",
+    "O3",
+    "K1",
+    "K2",
+    "K3"
+  ],
+  "counts": {
+    "stages": 6,
+    "secondary_groups": 26,
+    "tertiary_chapters": 101,
+    "entries_with_overviews": 107,
+    "labs": 178,
+    "questions": 396,
+    "engineering_groups": 9,
+    "engineering_conditions": 49
+  },
+  "python": {
+    "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m pytest",
+    "passed": 299,
+    "slow_deselected": 39,
+    "seconds": 454.68
+  },
+  "static": {
+    "sources": 331,
+    "math": 1457,
+    "evolution_pages": 96,
+    "quiz_questions": 396,
+    "chapter_aliases": 6,
+    "agent_book_headings": 287,
+    "research_themes": 45,
+    "research_mappings": 90
+  },
+  "exports": {
+    "engineering": "9 groups / 49 conditions match",
+    "research": "25 groups / 76 conditions match",
+    "knowledge": "7 groups / 30 conditions match"
+  },
+  "browser": {
+    "engineering": {
+      "scope": "full",
+      "groups": 9,
+      "conditions": 49,
+      "viewport_theme_conditions": 294,
+      "routes": [
+        {
+          "path": "/basic",
+          "labs": 0
+        },
+        {
+          "path": "/basic/data",
+          "labs": 2
+        },
+        {
+          "path": "/basic/forward",
+          "labs": 1
+        },
+        {
+          "path": "/basic/backward",
+          "labs": 2
+        },
+        {
+          "path": "/basic/optim-sample",
+          "labs": 2
+        },
+        {
+          "path": "/models",
+          "labs": 2
+        },
+        {
+          "path": "/attention",
+          "labs": 3
+        },
+        {
+          "path": "/position",
+          "labs": 1
+        },
+        {
+          "path": "/blocks",
+          "labs": 3
+        },
+        {
+          "path": "/models/generation",
+          "labs": 1
+        },
+        {
+          "path": "/models/dsa",
+          "labs": 1
+        },
+        {
+          "path": "/models/mamba",
+          "labs": 2
+        },
+        {
+          "path": "/models/swa-mtp",
+          "labs": 1
+        },
+        {
+          "path": "/moe",
+          "labs": 0
+        },
+        {
+          "path": "/models/moe-balance",
+          "labs": 1
+        },
+        {
+          "path": "/models/gptoss",
+          "labs": 2
+        },
+        {
+          "path": "/diffusion",
+          "labs": 1
+        },
+        {
+          "path": "/models/llada",
+          "labs": 1
+        },
+        {
+          "path": "/models/var",
+          "labs": 1
+        },
+        {
+          "path": "/train",
+          "labs": 0
+        },
+        {
+          "path": "/train/data-packing",
+          "labs": 5
+        },
+        {
+          "path": "/train/scaling",
+          "labs": 2
+        },
+        {
+          "path": "/train/batch-ddp",
+          "labs": 1
+        },
+        {
+          "path": "/train/model-parallel",
+          "labs": 3
+        },
+        {
+          "path": "/train/pipeline-schedules",
+          "labs": 1
+        },
+        {
+          "path": "/train/moe-seq-parallel",
+          "labs": 3
+        },
+        {
+          "path": "/train/ulysses",
+          "labs": 1
+        },
+        {
+          "path": "/train/memory",
+          "labs": 2
+        },
+        {
+          "path": "/train/precision-stability",
+          "labs": 2
+        },
+        {
+          "path": "/train/lr-schedule",
+          "labs": 1
+        },
+        {
+          "path": "/train/muon",
+          "labs": 2
+        },
+        {
+          "path": "/train/eval",
+          "labs": 3
+        },
+        {
+          "path": "/train/collectives-loop",
+          "labs": 1
+        },
+        {
+          "path": "/finetune",
+          "labs": 0
+        },
+        {
+          "path": "/finetune/sft",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/lora",
+          "labs": 3
+        },
+        {
+          "path": "/finetune/qlora",
+          "labs": 1
+        },
+        {
+          "path": "/finetune/knowledge-update",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/dpo",
+          "labs": 3
+        },
+        {
+          "path": "/finetune/simpo-orpo",
+          "labs": 1
+        },
+        {
+          "path": "/finetune/rlaif",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/prm",
+          "labs": 1
+        },
+        {
+          "path": "/finetune/rlhf-grpo-distill",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/ppo",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/grpo-variants",
+          "labs": 4
+        },
+        {
+          "path": "/finetune/rlvr",
+          "labs": 1
+        },
+        {
+          "path": "/finetune/onpolicy-distill",
+          "labs": 2
+        },
+        {
+          "path": "/finetune/merge",
+          "labs": 1
+        },
+        {
+          "path": "/finetune/runs",
+          "labs": 2
+        },
+        {
+          "path": "/infer",
+          "labs": 0
+        },
+        {
+          "path": "/infer/kv-memory",
+          "labs": 2
+        },
+        {
+          "path": "/infer/prefix-radix",
+          "labs": 2
+        },
+        {
+          "path": "/infer/kv-footprint",
+          "labs": 1
+        },
+        {
+          "path": "/infer/attention-sinks",
+          "labs": 1
+        },
+        {
+          "path": "/infer/kv-offload",
+          "labs": 1
+        },
+        {
+          "path": "/infer/decode-control",
+          "labs": 3
+        },
+        {
+          "path": "/infer/structured-output",
+          "labs": 1
+        },
+        {
+          "path": "/infer/tree-speculation",
+          "labs": 1
+        },
+        {
+          "path": "/infer/test-time-compute",
+          "labs": 3
+        },
+        {
+          "path": "/infer/compute",
+          "labs": 4
+        },
+        {
+          "path": "/infer/quant-awq",
+          "labs": 3
+        },
+        {
+          "path": "/infer/sparse-decode",
+          "labs": 1
+        },
+        {
+          "path": "/infer/scheduler",
+          "labs": 4
+        },
+        {
+          "path": "/infer/moe-serving",
+          "labs": 1
+        },
+        {
+          "path": "/infer/multi-replica-routing",
+          "labs": 2
+        },
+        {
+          "path": "/infer/engine",
+          "labs": 2
+        },
+        {
+          "path": "/agent",
+          "labs": 0
+        },
+        {
+          "path": "/agent/loop",
+          "labs": 1
+        },
+        {
+          "path": "/agent/planning",
+          "labs": 1
+        },
+        {
+          "path": "/agent/system-design",
+          "labs": 1
+        },
+        {
+          "path": "/agent/tools-permissions",
+          "labs": 1
+        },
+        {
+          "path": "/agent/extensibility",
+          "labs": 2
+        },
+        {
+          "path": "/agent/mcp",
+          "labs": 2
+        },
+        {
+          "path": "/agent/tool-discovery",
+          "labs": 1
+        },
+        {
+          "path": "/agent/guardrails",
+          "labs": 2
+        },
+        {
+          "path": "/agent/programmatic-actions",
+          "labs": 1
+        },
+        {
+          "path": "/agent/verifiable-reasoning",
+          "labs": 1
+        },
+        {
+          "path": "/agent/context-memory",
+          "labs": 1
+        },
+        {
+          "path": "/agent/context-engineering",
+          "labs": 2
+        },
+        {
+          "path": "/agent/prompt-caching",
+          "labs": 2
+        },
+        {
+          "path": "/agent/memory-lifecycle",
+          "labs": 2
+        },
+        {
+          "path": "/agent/rag",
+          "labs": 3
+        },
+        {
+          "path": "/agent/evidence-chain",
+          "labs": 1
+        },
+        {
+          "path": "/agent/knowledge-organization",
+          "labs": 1
+        },
+        {
+          "path": "/agent/vector-index",
+          "labs": 2
+        },
+        {
+          "path": "/agent/state-subagents",
+          "labs": 2
+        },
+        {
+          "path": "/agent/runtime-reliability",
+          "labs": 2
+        },
+        {
+          "path": "/agent/async-runtime",
+          "labs": 2
+        },
+        {
+          "path": "/agent/a2a",
+          "labs": 1
+        },
+        {
+          "path": "/agent/orchestrator",
+          "labs": 2
+        },
+        {
+          "path": "/agent/agent-society",
+          "labs": 1
+        },
+        {
+          "path": "/agent/completion-verification",
+          "labs": 1
+        },
+        {
+          "path": "/agent/evals",
+          "labs": 2
+        },
+        {
+          "path": "/agent/eval-suite",
+          "labs": 4
+        },
+        {
+          "path": "/agent/trajectory-learning",
+          "labs": 2
+        },
+        {
+          "path": "/agent/agent-training",
+          "labs": 2
+        },
+        {
+          "path": "/agent/midtraining",
+          "labs": 1
+        },
+        {
+          "path": "/agent/self-distillation",
+          "labs": 1
+        },
+        {
+          "path": "/agent/learning-loop",
+          "labs": 1
+        },
+        {
+          "path": "/agent/skill-evolution",
+          "labs": 1
+        },
+        {
+          "path": "/agent/meta-optimization",
+          "labs": 1
+        },
+        {
+          "path": "/agent/coding-agent",
+          "labs": 2
+        },
+        {
+          "path": "/agent/computer-use",
+          "labs": 1
+        },
+        {
+          "path": "/agent/visual-grounding",
+          "labs": 2
+        },
+        {
+          "path": "/agent/voice-interaction",
+          "labs": 2
+        },
+        {
+          "path": "/agent/embodied-control",
+          "labs": 2
+        },
+        {
+          "path": "/agent/full-loop",
+          "labs": 1
+        }
+      ],
+      "lab_entries": 178,
+      "js_errors": [],
+      "http_errors": []
+    },
+    "aliases_and_migration": {
+      "alias_theme_viewport_cases": 36,
+      "supplements": 3,
+      "errors": [],
+      "http": []
+    },
+    "outlines": {
+      "keyboard_edges": true,
+      "routes": 12,
+      "viewport_theme_cases": 72,
+      "failures": [],
+      "js_errors": [],
+      "http_errors": []
+    },
+    "navigation": {
+      "routes": 107,
+      "themes": 2,
+      "errors": []
+    },
+    "related_links": {
+      "routes": 12,
+      "source_path_width_pages": 6
+    },
+    "source_command_wrapping": {
+      "width": 320,
+      "routes": [
+        "finetune-lora",
+        "agent-state-subagents",
+        "infer-scheduler"
+      ],
+      "status": "passed"
+    }
+  },
+  "build": {
+    "status": "passed",
+    "initial_js_kb": 190.45
+  },
+  "scope_notes": [
+    "旧成绩归档，不换算新章掌握度",
+    "服务调度是 tick 代价模型",
+    "缓存返回的是确定性教学指纹",
+    "检查点演示真实子进程强退，但没有分布式租约",
+    "完整慢训练套件未运行"
+  ]
+}

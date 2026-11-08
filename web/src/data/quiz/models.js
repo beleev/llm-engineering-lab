@@ -1,3 +1,4 @@
+import { mergeQuiz } from '../../utils/consolidate.js'
 // 阶段 2 · llm_models 自测题 (含手写总览页 models / attention / position / blocks / moe / diffusion)
 const quiz = {
   models: [
@@ -408,3 +409,12 @@ const researchQuestions = {
 }
 for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
+
+quiz.position = [...(quiz.position || []), ...quiz['models-qknorm-yarn'].filter(q => q.q.includes('YaRN'))]
+quiz['models-qknorm-yarn'] = quiz['models-qknorm-yarn'].filter(q => !q.q.includes('YaRN'))
+const architecture = quiz['models-mtp']
+quiz.attention = [...(quiz.attention || []), ...architecture.filter(q => q.q.includes('滑窗') || q.q.includes('滑动窗口'))]
+quiz['models-mamba'] = [...(quiz['models-mamba'] || []), ...architecture.filter(q => q.q.includes('DeltaNet'))]
+quiz['models-mtp'] = architecture.filter(q => q.q.includes('MTP'))
+
+mergeQuiz(quiz)

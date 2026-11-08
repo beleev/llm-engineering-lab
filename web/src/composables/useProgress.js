@@ -1,12 +1,13 @@
 // 学习进度: 打开过哪些章、自测最好答对几道、选的阅读档位。只存在本机 localStorage, 不上传。
 import { reactive, watch } from 'vue'
+import { migrateProgress } from '@/data/chapterAliases.js'
 
 const KEY = 'llm-progress'
 const load = () => {
   try { return JSON.parse(localStorage.getItem(KEY)) || {} } catch (_) { return {} }
 }
-const saved = load()
-const state = reactive({ visited: saved.visited || {}, quiz: saved.quiz || {}, last: saved.last || null, level: saved.level || 'all' })
+const saved = migrateProgress(load())
+const state = reactive({ visited: saved.visited || {}, quiz: saved.quiz || {}, last: saved.last || null, level: saved.level || 'all', archivedQuiz: saved.archivedQuiz || {}, curriculumVersion: 2 })
 
 watch(state, (s) => {
   try { localStorage.setItem(KEY, JSON.stringify(s)) } catch (_) { /* 隐私模式下静默降级 */ }
@@ -31,6 +32,6 @@ export function useProgress() {
     quizOf: (route) => state.quiz[route] || null,
     isMastered: (route) => { const q = state.quiz[route]; return !!q && q.correct === q.total },
     setLevel(l) { state.level = l },
-    reset() { state.visited = {}; state.quiz = {}; state.last = null },
+    reset() { state.visited = {}; state.quiz = {}; state.archivedQuiz = {}; state.last = null },
   }
 }

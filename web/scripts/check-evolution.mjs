@@ -12,6 +12,7 @@ const bad = []
 for (const f of readdirSync(dir).filter((f) => f.endsWith('.js') && f !== 'index.js')) {
   const pages = (await import(pathToFileURL(join(dir, f)))).default.pages || {}
   for (const [route, page] of Object.entries(pages)) {
+    if (['attention', 'position'].includes(route)) continue // 主讲链在手写视图中
     total++
     const e = page.evolution, where = `${f} › ${route}`
     if (!e) { bad.push(`✗ ${where}: 没有 evolution`); continue }

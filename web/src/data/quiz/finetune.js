@@ -1,3 +1,4 @@
+import { mergeQuiz } from '../../utils/consolidate.js'
 // 阶段 4 · llm_finetune 自测题: 每章 3 题, 考取舍与"为什么", 错误选项是常见误解。
 const quiz = {
   finetune: [
@@ -520,3 +521,5 @@ const researchQuestions = {
 }
 for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
+
+mergeQuiz(quiz)

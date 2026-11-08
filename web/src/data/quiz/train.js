@@ -1,3 +1,4 @@
+import { mergeQuiz } from '../../utils/consolidate.js'
 // 阶段 3 · llm_train 自测题。每章 3 题, 考取舍和"为什么", 错误选项都是常见误解。
 const quiz = {
   train: [
@@ -378,3 +379,5 @@ const researchQuestions = {
 }
 for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
 export default quiz
+
+mergeQuiz(quiz)

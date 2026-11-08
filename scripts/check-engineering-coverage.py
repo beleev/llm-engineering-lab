@@ -15,8 +15,8 @@ for(const s of [...stages,'research','engineering'])for(const [r,n] of Object.en
 console.log(JSON.stringify({pages,quizzes,labs}));
 """
     web=json.loads(subprocess.check_output(['node','--input-type=module','-e',js],cwd=ROOT,text=True))
-    assert {g for e in manifest for g in e['audit_ids']}=={f'G{i}' for i in range(1,7)}
-    assert len(manifest)==len(records)==6
+    assert {g for e in manifest for g in e['audit_ids']}=={f'G{i}' for i in range(1,7)} | {f'K{i}' for i in range(1,4)}
+    assert len(manifest)==len(records)==9
     replay_routes=set()
     for e,r in zip(manifest,records):
         assert len(e['routes'])==1
@@ -45,6 +45,6 @@ console.log(JSON.stringify({pages,quizzes,labs}));
         assert placements==([owner] if owner else []),(component,placements)
     counts={p['title']:[] for p in web['pages']['train-model-parallel']['points']}
     assert not any(p['title']=='多维配置要一起算' for p in web['pages']['train-collectives-loop']['points'])
-    print(f'PASS: G1–G6 / {len(records)} 组 / {sum(len(e["conditions"]) for e in records)} 条件；主入口、文档、自测与关联链接一致')
+    print(f'PASS: G1–G6 + K1–K3 / {len(records)} 组 / {sum(len(e["conditions"]) for e in records)} 条件；主入口、文档、自测与关联链接一致')
 
 if __name__=='__main__':main()

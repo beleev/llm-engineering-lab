@@ -32,7 +32,7 @@
       <p class="lead">
         切换条件或调整参数，观察结果怎样变化。执行记录回放会单独说明；先看对照，再读下面的原理。
       </p>
-      <LabMount />
+      <LabMount :names="primaryLabs" />
     </section>
 
     <section class="section">
@@ -120,6 +120,8 @@
       </div>
     </section>
 
+    <TopicSupplement v-for="section in page.sections || []" :key="section.id" :section="section" />
+
     <QuizCard />
 
     <!-- 上一章 / 下一章由组件自己从 learningPath 推, 这里不用传 -->
@@ -132,6 +134,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import TopicSupplement from '@/components/TopicSupplement.vue'
 import { useRoute } from 'vue-router'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
@@ -158,9 +161,11 @@ const evolution = computed(() => {
   const steps = e.steps.map((s, i) => ({ color: EVO_COLORS[i % EVO_COLORS.length], ...s }))
   return { ...e, title: e.title ? `演进逻辑链 · ${e.title}` : '', steps }
 })
-const hasLabs = computed(() =>
-  (page.value?.widgets?.length || 0) + (labMap[route.name]?.length || 0) > 0
-)
+const primaryLabs = computed(() => {
+  const extra = new Set((page.value?.sections || []).flatMap(s => s.labNames || []))
+  return [...new Set([...(page.value?.widgets || []), ...(labMap[route.name] || [])])].filter(n => !extra.has(n))
+})
+const hasLabs = computed(() => primaryLabs.value.length > 0)
 const sources = computed(() => [].concat(page.value?.source || []))
 
 const stageCode = computed(() => stageBy[route.meta.stage]?.code || '')
@@ -192,6 +197,7 @@ const topicRef = (ref) => {
 </script>
 
 <style scoped>
+.hint code.inline { white-space: normal; overflow-wrap: anywhere; }
 .related-topics { margin: 20px 0; }
 .related-title { font-weight: 600; margin-bottom: 10px; }
 .related-topics ul { padding-left: 20px; }

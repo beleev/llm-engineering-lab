@@ -8,6 +8,7 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 def display(v):
+    if v is None:return "不适用"
     if isinstance(v,list):return ', '.join(display(x) for x in v)
     if isinstance(v,bool):return '是' if v else '否'
     if isinstance(v,float):return format(Decimal(str(v)).normalize(),'f')
@@ -77,7 +78,7 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
             count=page.locator('section.lab, section.architecture-lab').count()
             counts.append({'path':path,'labs':count})
             if index%20==0:print(f'counted {index+1}/{len(links)} routes',flush=True)
-        assert len(links)==len({link['href'] for link in links}) and len(links)>=111,len(links)
+        assert len(links)==len({link['href'] for link in links}) and len(links)==107,len(links)
         assert not errors and not http,(errors,http)
         report={'scope':'counts-only' if counts_only else 'full','groups':len(records['entries']),'conditions':sum(len(e['conditions']) for e in records['entries']),
                 'viewport_theme_conditions':checked,'routes':counts,'lab_entries':sum(x['labs'] for x in counts),'js_errors':errors,'http_errors':http}

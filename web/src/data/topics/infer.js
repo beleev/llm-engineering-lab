@@ -1,3 +1,4 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
 // 阶段 5 · llm_infer 章节内容。
 // 本文件持有本阶段全部 16 章的完整 page 对象。
 // 贯穿全阶段的一条主线: decode 是带宽瓶颈, 不是算力瓶颈 ——
@@ -1050,3 +1051,11 @@ topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", 
 topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
 topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
 export default topic
+
+topic.pages["infer-scheduler"].points.push({"title": "多租户调度：总体吞吐会掩盖谁的等待", "body": "连续的大租户请求可能让小租户长期等不到服务。按租户看等待、超时和 goodput，才能发现总吞吐藏住的问题。\n公平轮转以等成本服务量子分配机会；长请求在自己的租户队列继续，不阻止另一租户获得一个量子。真实 token 的代价不相同，需结合 prefill/decode、KV 和预算估计。"})
+topic.pages["infer-scheduler"].source.push("llm_infer/m33_tenant_scheduling/demo.py:experiment")
+
+topic.pages["infer-prefix-radix"].points.push({"title": "缓存身份：相同 token 不一定能复用", "body": "KV 的身份不仅是 token，还包含解释这些 token 的模型与输入约定。命中更快，也可能泄露其他租户是否使用过某个前缀。\n共享域由可信身份网关决定。客户端声明的租户或 salt 不能覆盖鉴权结果；同域可复用，跨域隔离需要明确的命名空间。"})
+topic.pages["infer-prefix-radix"].source.push("llm_infer/m34_cache_identity/demo.py:experiment")
+
+canonicalizeRelated(topic)

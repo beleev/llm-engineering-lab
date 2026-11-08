@@ -1,3 +1,6 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
+import { chapterLabels } from '../chapterLabels.js'
+import { mergePage } from '../../utils/consolidate.js'
 // 阶段 4 · llm_finetune 的全部章节 (15 章)。
 // 每章都写全 StageTopic 要渲染的字段。
 // source 只写真实存在的 def / class —— npm run check:sources 会逐条校验。
@@ -1006,3 +1009,16 @@ topic.pages["finetune-knowledge-update"].evolution = {
   ]
 }
 export default topic
+
+mergePage(topic, 'finetune-dora', 'finetune-lora', '进阶 · DoRA 的幅值与方向', ["FtDoraLab"])
+
+topic.pages['finetune-lora'].title = '参数高效微调 · LoRA 与 DoRA'
+topic.pages['finetune-lora'].subtitle = '先理解低秩增量与初始化，再读进阶部分的幅值/方向解耦。冲刺路线读完 LoRA 即可。'
+topic.pages['finetune-lora'].points[2].body = topic.pages['finetune-lora'].points[2].body.replace('它站不住。', '本次 copy → sort、300 步实验没有观察到这一点，不能外推到所有任务与训练配置。')
+topic.pages['finetune-knowledge-update'].points[0].body = '先确定修改对象：文档变化走检索更新；用户信息删除走外部记忆治理；参数中的指定事实才进入知识编辑实验。编辑后分别检查目标事实、改写问法和邻近事实，不能用一个命中率替代所有验收。'
+
+for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
+
+canonicalizeRelated(topic)
+
+topic.pages['finetune-lora'].tldr = topic.pages['finetune-lora'].tldr.replace('不省的: 训练步数。', '本实验未节省训练步数: ')

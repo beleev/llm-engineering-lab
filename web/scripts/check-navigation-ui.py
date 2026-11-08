@@ -56,6 +56,7 @@ def run(base):
         page.on('pageerror', lambda e: errors.append(str(e)))
         try:
             page.goto(base, wait_until='networkidle')
+            expect(page.locator('.sidebar .leaf')).to_have_count(101)
             chapters = page.locator('.sidebar .overview, .sidebar .leaf').evaluate_all("""links => links.map(a=>({
               href:a.getAttribute('href'), number:a.querySelector('.idx').textContent,
             }))""")

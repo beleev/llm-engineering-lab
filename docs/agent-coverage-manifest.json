@@ -71,7 +71,7 @@
   },
   {
     "module": "m30_collaboration",
-    "route": "agent-collaboration",
+    "route": "agent-orchestrator",
     "title": "多智能体 · 独立审查与共享冲突",
     "book_chapter": 10,
     "book_line": 194,
@@ -271,7 +271,7 @@
   },
   {
     "module": "m42_memory_privacy",
-    "route": "agent-memory-privacy",
+    "route": "agent-memory-lifecycle",
     "title": "个人记忆 · 同意、过期与删除",
     "book_chapter": 3,
     "book_line": 15,

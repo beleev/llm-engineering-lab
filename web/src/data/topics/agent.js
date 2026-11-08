@@ -1,3 +1,6 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
+import { chapterLabels } from '../chapterLabels.js'
+import { mergePage } from '../../utils/consolidate.js'
 const coverageChapters = [
   {
     "route": "agent-tool-discovery",
@@ -3489,3 +3492,47 @@ topic.pages["agent-verifiable-reasoning"].evolution = {
   ]
 }
 export default topic
+
+mergePage(topic, 'agent-context-cost', 'agent-prompt-caching', '摘要的净成本与质量', ["AgentContextCostLab"])
+
+mergePage(topic, 'agent-collaboration', 'agent-orchestrator', '协作拓扑、冲突与独立证据', ["AgentCoverageLab"])
+
+mergePage(topic, 'agent-memory-privacy', 'agent-memory-lifecycle', '授权、过期与删除', ["AgentCoverageLab"])
+
+topic.pages['agent-prompt-caching'].title = '上下文缓存与成本 · 从前缀复用到摘要账单'
+topic.pages['agent-prompt-caching'].sections[0].points = topic.pages['agent-prompt-caching'].sections[0].points.filter(p => p.title !== '动态状态放哪会影响前缀')
+topic.pages['agent-orchestrator'].title = '多智能体编排与协作 · 预算、共享状态与证据'
+const state = topic.pages['agent-state-subagents']
+const subagentPoint = state.points.pop()
+topic.pages['agent-orchestrator'].points.unshift(subagentPoint)
+state.title = '会话持久化与恢复 · 消息、权限与版本'
+state.tldr = '消息日志恢复对话上下文，执行状态决定任务从哪里继续。权限在恢复时重新建立；检查点还必须与新代码的状态格式和业务版本兼容。'
+state.related = [...(state.related || []), { route: 'agent-orchestrator', label: '子 Agent 的上下文与委托', reason: '子级隔离和多智能体协作集中在同一主讲章。' }]
+const runtime = topic.pages['agent-runtime-reliability']
+runtime.points = runtime.points.filter(p => p.title !== '取消不等于回滚')
+runtime.related = [...(runtime.related || []), { route: 'agent-async-runtime', label: '取消请求、确认与 generation', reason: '取消时序与提交后的副作用由真实 asyncio 实验解释。' }]
+const memory = topic.pages['agent-memory-lifecycle']
+memory.title = '长期记忆治理 · 证据、更新、授权与删除'
+const privacy = memory.sections[0]
+topic.pages['agent-context-memory'].points.push(privacy.points.shift())
+privacy.points = privacy.points.filter(p => p.title !== '后台整理需要冲突策略')
+memory.points[0].body += '\n后台整理也遵守同一证据与版本规则；访问频率不是事实正确性的证明。'
+topic.pages['agent-verifiable-reasoning'].points[0].body = '形式检查器接收公理、规则和待证命题，逐步核对推导。可以通过一个合法证明与一个非法推导作对照；自然语言结论和实际可检查的证明对象需要分开。'
+
+for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
+
+topic.pages["agent-state-subagents"].points.push({"title": "任务恢复：旧检查点遇到新代码", "body": "能读回旧消息不等于能继续旧任务。恢复前要核对状态格式、流程版本、工具约定和当前权限；已提交的动作还要查收据。\nflow_version 决定业务规则。新版代码不能静默改变旧任务承诺，也不能让旧任务继承已经撤销的权限；兼容性和执行授权分别检查。"})
+topic.pages["agent-state-subagents"].source.push("llm_agent/m57_checkpoint_migration/demo.py:experiment")
+
+const persistence = topic.pages['agent-state-subagents']
+const orchestration = topic.pages['agent-orchestrator']
+orchestration.sourceRows.push(...persistence.sourceRows.filter(r => r.concept === '隔离委托'))
+persistence.sourceRows = persistence.sourceRows.filter(r => r.concept !== '隔离委托')
+persistence.source = persistence.source.filter(s => !s.includes('subagents.py'))
+persistence.links = persistence.links.filter(l => !l.from.includes('DelegateTool'))
+persistence.snippet = persistence.snippet.split('# 子智能体')[0]
+persistence.snippetTitle = '恢复上下文，重新建立权限'
+persistence.evolution.steps = persistence.evolution.steps.filter(s => !/子智能体|子 agent|委托/.test(s.name))
+topic.pages['agent-async-runtime'].related = [...(topic.pages['agent-async-runtime'].related || []), { route: 'agent-state-subagents', label: '跨版本检查点与强退恢复', reason: '执行状态不能只靠重新打开账本恢复；这里看实际进程故障的对照。' }]
+
+canonicalizeRelated(topic)

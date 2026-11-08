@@ -87,7 +87,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 51 个 demo，加 `--with-training` 后共 56 个（m15 在线 demo 仍需主动开启）。
+新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 55 个 demo，加 `--with-training` 后共 60 个（m15 在线 demo 仍需主动开启）。
 
 ## 实现说明
 
@@ -193,5 +193,6 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 - [文档入库、来源定位、权限与更新删除](m54_document_lifecycle/README.md)
 - [MCP 旧新版本对照与 HTTP 资源端授权](m55_mcp_versions/README.md)
 - [切片门槛、线上质量与版本回滚](m56_release_loop/README.md)
+- [检查点版本迁移、权限重验与提交后强退恢复](m57_checkpoint_migration/README.md)
 
 网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

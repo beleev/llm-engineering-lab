@@ -234,5 +234,7 @@ python -m llm_infer.run_all
 ## 工程流程补充
 
 - [真实 CPU profiler 与可选 CUDA 计时](m32_profiling/README.md)
+- [租户公平轮转、配额与 goodput](m33_tenant_scheduling/README.md)
+- [缓存身份、adapter 版本和可信共享域](m34_cache_identity/README.md)
 
 网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

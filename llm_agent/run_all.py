@@ -70,6 +70,7 @@ DEMOS = [
     "llm_agent.m54_document_lifecycle.demo",
     "llm_agent.m55_mcp_versions.demo",
     "llm_agent.m56_release_loop.demo",
+    "llm_agent.m57_checkpoint_migration.demo",
 ]
 
 
