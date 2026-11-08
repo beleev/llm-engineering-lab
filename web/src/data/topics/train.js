@@ -1,7 +1,10 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
+import { chapterLabels } from '../chapterLabels.js'
+import { mergePage } from '../../utils/consolidate.js'
 // 阶段 3 · llm_train 的全部章节页 (完整定义)。
 // 数字全部取自对应 demo 的实际输出, 改 Python 后请重新核对。
 // points 里 key: true 的那一条 = 这一章只让人记住一句话时, 记这句。
-export default {
+const topic = {
   stage: 'train',
   chapters: [
     { route: 'train-pipeline-schedules', label: '1F1B 与交错调度', hint: '气泡公式、在途激活、interleaved 1F1B' },
@@ -922,3 +925,43 @@ def judge_swap(qa, qb):
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "train-model-parallel": [
+    {
+      "title": "多维配置要一起算",
+      "body": "m22 固定模型和全局 batch，比较 DP×TP×PP。先验证 rank 网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP 重叠和 PP 气泡。Roofline 比较算力与访存上限；MFU 是代价模型估计，不是硬件实测。TP 增加可能省内存却降低吞吐。",
+      "source": "llm_train/m22_parallel_budget/demo.py:estimate"
+    }
+  ],
+  "train-collectives-loop": [
+    {"title":"通信语义进入训练循环", "body":"本章关注 collective 的参与 rank、张量布局与调用顺序：reduce-scatter 后每个 rank 只持有自己的分片，all-gather 恢复完整视图。预算估算集中在模型并行章；这里用实际同步和恢复断言检查循环是否正确。", "source":null}
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+
+// 审查后的主讲职责与前置链接。
+topic.pages["train-collectives-loop"].related = [{"route": "train-model-parallel", "label": "DP×TP×PP：显存与时间一起算", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["train-model-parallel"].related = [{"route": "infer-compute", "label": "从代价模型到 profiler", "reason": "预算估算帮助选配置；算子 trace 与真实计时验证实际瓶颈。"}]
+export default topic
+
+mergePage(topic, 'train-low-precision', 'train-precision-stability', '进阶 · block scale 与 FP4', ["TrainBlockScaleLab"])
+
+topic.pages['train-precision-stability'].title = '低精度训练 · 稳定性、缩放与 FP4'
+topic.pages['train-precision-stability'].tldr = '先保证小梯度和小更新没有消失，再讨论位宽与缩放粒度。本章实现用 FP32 master 累积更新；这是一种训练配方，不是所有实现的必要条件。'
+const precision = topic.pages['train-precision-stability']
+precision.points[1].body = precision.points[1].body.replace('更新本身永远落在 fp32 master 上', '本章的更新落在 fp32 master 上')
+precision.sections[0].points[0].body = '一个 block 由 amax 决定 scale。outlier 会挤压邻居的有效精度；前面的 FP8 实验已展示这一点。FP4 网格只有 ±{0.5,1,1.5,2,3,4,6}，非零幅值范围只有 12 倍，因此更依赖小 block。'
+topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = 'PP 按层切分，stage 边界传递激活。micro-batch 的执行顺序影响在途激活与空等时间；气泡公式、时间线和通信代价集中在「1F1B 与交错调度」。'
+
+for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
+
+canonicalizeRelated(topic)

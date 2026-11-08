@@ -28,7 +28,7 @@
       </defs>
       <line v-for="e in edges" :key="e.id" :x1="e.x1" :y1="e.y1" :x2="e.x2" :y2="e.y2" class="edge" :class="{ taken: e.taken }" marker-end="url(#a2a-arrow)" />
       <line v-if="flash" :x1="POS[flash.from].x" :y1="POS[flash.from].y" :x2="POS[flash.to].x" :y2="POS[flash.to].y" class="edge bad" />
-      <g v-for="(p, s) in POS" :key="s" class="node" :class="{ now: s === state, bad: flash && flash.to === s, term: !TRANSITIONS[s].length, seen: path.includes(s) }"
+      <g v-for="(p, s) in POS" :key="s" class="node focus-inset" :class="{ now: s === state, bad: flash && flash.to === s, term: !TRANSITIONS[s].length, seen: path.includes(s) }"
         tabindex="0" role="button" :aria-label="`转移到 ${s}`" @click="tryMove(s)" @keydown.enter="tryMove(s)">
         <rect :x="p.x - 50" :y="p.y - 15" width="100" height="30" rx="15" />
         <text :x="p.x" :y="p.y + 4" text-anchor="middle">{{ s }}</text>

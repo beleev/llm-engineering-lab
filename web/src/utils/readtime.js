@@ -3,7 +3,7 @@
 //   手写视图的章节 → 构建时读取 .vue, 浏览器只下载统计结果
 // 按每分钟 300 字算 (技术文, 比小说慢), 每个实验台另加 4 分钟动手时间。
 import { agentModules, inferModules, stageBy, trainModules, timeline } from '@/data/models.js'
-import { pageStats, viewStats } from 'virtual:course-catalog'
+import { pageStats, viewStats, replayStats } from 'virtual:course-catalog'
 import { labMap } from '@/data/labMap.js'
 
 const CHARS_PER_MIN = 300
@@ -46,17 +46,17 @@ const cache = new Map()
 /** 这一章挂了几个实验台 (含手写视图里直接 import 的)。 */
 export function labsOf(route) {
   const view = VIEW_OF[route]
-  return new Set([...(pageStats[route]?.widgets || []), ...(labMap[route] || [])]).size + (view ? viewLabs(view) : 0)
+  const names = new Set([...(pageStats[route]?.widgets || []), ...(labMap[route] || [])])
+  return [...names].reduce((n, name) => n + (replayStats[route]?.counts[name] || 1), 0) + (view ? viewLabs(view) : 0)
 }
 
 /** 某一章的粗估分钟数 (至少 2 分钟)。 */
 export function minutesOf(route) {
   if (cache.has(route)) return cache.get(route)
   const view = VIEW_OF[route]
-  const chars = (pageStats[route]?.chars || 0)
+  const chars = (pageStats[route]?.chars || 0) + (replayStats[route]?.chars || 0)
     + (view ? viewChars(view) + dataChars(route) : 0)
-  const labs = new Set([...(pageStats[route]?.widgets || []), ...(labMap[route] || [])]).size
-    + (view ? viewLabs(view) : 0)
+  const labs = labsOf(route)
   const m = Math.max(2, Math.round(chars / CHARS_PER_MIN) + labs * MIN_PER_LAB)
   cache.set(route, m)
   return m

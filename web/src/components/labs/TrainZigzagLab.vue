@@ -34,7 +34,7 @@
         />
       </svg>
 
-      <div class="side">
+      <div class="side lab-scroll">
         <div class="cells work" :style="{ gridTemplateColumns: `34px repeat(${D}, minmax(26px, 1fr))` }">
           <span />
           <button v-for="r in D" :key="r" type="button" class="rk mono" :class="{ active: focus === r - 1 }" @click="focus = focus === r - 1 ? -1 : r - 1">

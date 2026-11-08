@@ -1,5 +1,6 @@
+import { mergeQuiz } from '../../utils/consolidate.js'
 // 阶段 3 · llm_train 自测题。每章 3 题, 考取舍和"为什么", 错误选项都是常见误解。
-export default {
+const quiz = {
   train: [
     {
       q: '模型放得进单卡, 只是训练太慢。第一步该上哪种并行?',
@@ -319,3 +320,64 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "train-model-parallel": [
+    {
+      "q": "TP 增大后状态显存下降、吞吐也下降，哪个解释合理？",
+      "options": [
+        "更多小消息增加启动延迟与同步等待",
+        "并行卡数增加会必然降低浮点精度",
+        "参数切分自动使全局 batch 变成原来的两倍",
+        "TP 能省显存，所以测到的吞吐一定有误"
+      ],
+      "answer": 0,
+      "why": "显存、消息数和等待要一起算。Roofline/MFU 模型不是实测。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+// research-completion questions
+const researchQuestions = {
+  "train-data-packing": [
+    {
+      "q": "主动选域的训练样本数相同，就能称为算力公平吗？",
+      "options": [
+        "不能，因为主动学习必然更慢",
+        "可以，训练步数决定全部成本",
+        "不能，还要计入候选梯度评估",
+        "可以，只要测试集没有参与"
+      ],
+      "answer": 2,
+      "why": "主动策略额外计算候选梯度与验证损失。样本预算相同只控制了一种资源，不能据此宣布总算力公平。"
+    },
+    {
+      "q": "过滤后通过率很高，为什么稀有知识仍可能消失？",
+      "options": [
+        "通过率已经等价于留出集泛化质量",
+        "过滤器偏好高频模式，排除了尾部",
+        "只要加入真实数据，尾部就不会消失",
+        "合成数据在任何比例下都会完全崩溃"
+      ],
+      "answer": 1,
+      "why": "偏置过滤会系统性删除低频类别；即使混入真实样本，也无法恢复被同一过滤器再次删除的尾部。"
+    }
+  ],
+  "train-eval": [
+    {
+      "q": "拒答后准确率提高，最需要一起报告什么？",
+      "options": [
+        "报告覆盖率与群体风险切片",
+        "只报告拒答前的平均输出长度",
+        "报告自评置信度并省略标签",
+        "只报告保留下来的最优题型"
+      ],
+      "answer": 0,
+      "why": "选择性回答改变了被评价的样本集合。coverage 与 risk 必须成对报告，并检查某些群体是否被过度拒答。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
+export default quiz
+
+mergeQuiz(quiz)

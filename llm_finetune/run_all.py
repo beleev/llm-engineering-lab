@@ -5,10 +5,13 @@ import importlib
 import time
 
 # 顺序 = 学习路径。每个名字对应 run_finetune/<name>/train_<name>.py 里的 main()
-SCRIPTS = ["sft", "lora", "dora", "qlora", "merge", "rm", "prm", "dpo", "kto", "simpo_orpo", "rlaif", "ppo", "grpo", "distill", "on_policy_distill"]
+SCRIPTS = ["sft", "lora", "dora", "qlora", "merge", "rm", "prm", "dpo", "kto", "simpo_orpo", "rlaif", "ppo", "grpo", "rft", "distill", "on_policy_distill"]
 
 
 def main() -> None:
+    importlib.import_module("llm_finetune.run_finetune.chat_template.demo").main()
+    for name in ("ipo", "peft_comparison", "knowledge_edit", "privacy_unlearning", "online_preference"):
+        importlib.import_module(f"llm_finetune.run_finetune.{name}.demo").main()
     for name in SCRIPTS:
         t0 = time.perf_counter()
         print(f"\n{'#' * 20} {name} {'#' * 20}")

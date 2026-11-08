@@ -1,4 +1,7 @@
-"""MCP 客户端: 拉起一个 server 子进程, 把它的工具接进 ToolRegistry。
+"""MCP 2025-06-18 教学客户端: 拉起一个 server 子进程, 把它的工具接进 ToolRegistry。
+
+此处固定历史 stdio 配置，不代表 2026-07-28 的无握手协议。
+新版逐请求元数据、server/discover 和 HTTP 授权反例见 m55_mcp_versions。
 
 没有它: 每接一个外部系统都要在 agent 里手写一个 Tool 子类; 有了协议, 工具可以由别的进程、别的语言、别的团队提供。
 关键设计:
@@ -56,12 +59,18 @@ class MCPClient:
         # readline 没有超时参数; 用读线程 + 队列, server 卡死时 demo 不会跟着挂住
         threading.Thread(target=lambda: [self._lines.put(line) for line in self._proc.stdout], daemon=True).start()
         # 握手两步: initialize 是请求 (有 id, 要等响应); initialized 是通知 (没有 id, 不等响应)
-        self.server_info = self.request("initialize", {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "clientInfo": {"name": "llm_agent", "version": "0.1"},
-        })
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            self.server_info = self.request("initialize", {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "llm_agent", "version": "0.1"},
+            })
+            if self.server_info.get("protocolVersion") != "2025-06-18":
+                raise MCPError("本客户端只支持 2025-06-18 教学配置")
+            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except Exception:
+            self.close()
+            raise
 
     def _send(self, payload: Dict[str, Any]) -> None:
         """写一行 JSON 到 server 的 stdin。字符串里的换行符会被 json.dumps 转义, 一条消息只占一行。"""

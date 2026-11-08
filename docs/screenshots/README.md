@@ -133,3 +133,43 @@
 | [DeepSeek‑V3 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-deepseek_v3.png) |
 | [Qwen2‑VL 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-qwen2_vl.png) |
 | [DiT 模型结构与运行态](https://beleev.github.io/llm-engineering-lab/#/models) | [查看截图](architecture-dit.png) |
+
+## Agent 验证与改进扩展
+
+下列图片由浏览器验收脚本截取真实实验台, 不是示意图。
+
+| 章节 | 截图 |
+|---|---|
+| [首错诊断与轨迹回归](https://beleev.github.io/llm-engineering-lab/#/agent/evals) | [查看截图](agent-evals-extension-1.png) |
+| [记忆更新 · 来源、范围与版本](https://beleev.github.io/llm-engineering-lab/#/agent/memory-lifecycle) | [查看截图](agent-memory-lifecycle-extension-1.png) |
+| [完成验收 · 说完不等于做完](https://beleev.github.io/llm-engineering-lab/#/agent/completion-verification) | [查看截图](agent-completion-verification-extension-1.png) |
+| [故障恢复 · 重试、幂等与取消 · 重试](https://beleev.github.io/llm-engineering-lab/#/agent/runtime-reliability) | [查看截图](agent-runtime-reliability-extension-1.png) |
+| [故障恢复 · 重试、幂等与取消 · 取消](https://beleev.github.io/llm-engineering-lab/#/agent/runtime-reliability) | [查看截图](agent-runtime-reliability-extension-2.png) |
+| [上下文成本 · 压缩与缓存一起算](https://beleev.github.io/llm-engineering-lab/#/agent/context-cost) | [查看截图](agent-context-cost-extension-1.png) |
+| [检索证据 · 从相关到足够回答](https://beleev.github.io/llm-engineering-lab/#/agent/evidence-chain) | [查看截图](agent-evidence-chain-extension-1.png) |
+| [轨迹学习 · 先验证，再造训练数据](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning) | [查看截图](agent-trajectory-learning-extension-1.png) |
+| [持续改进 · 学会、迁移、变化与保持](https://beleev.github.io/llm-engineering-lab/#/agent/learning-loop) | [查看截图](agent-learning-loop-extension-1.png) |
+
+## Agent 全书知识补齐
+
+以下为真实浏览器中的 Python 证据回放实验, 展示配置选择、事件步进与终态读数。由 `python web/scripts/check-agent-coverage-ui.py --screenshots` 更新。
+
+- [工具发现 · 按需加载与提示设计](agent-tool-discovery-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/tool-discovery)
+- [知识组织 · 树状摘要与关系图](agent-knowledge-organization-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/knowledge-organization)
+- [Coding Agent · 修改、测试与修复](agent-coding-agent-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/coding-agent)
+- [异步运行 · 事件、取消与恢复](agent-async-runtime-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/async-runtime)
+- [多智能体 · 独立审查与共享冲突](agent-collaboration-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/collaboration)
+- [评估体系 · 用户环境与裁判校准](agent-eval-suite-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/eval-suite)
+- [Agent 训练 · 轨迹到参数更新](agent-agent-training-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-training)
+- [Skill 进化 · 提案、发布与整理](agent-skill-evolution-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/skill-evolution)
+- [语音交互 · 打断与快慢响应](agent-voice-interaction-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/voice-interaction)
+- [视觉操作 · 截图、定位与核对](agent-visual-grounding-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/visual-grounding)
+- [具身控制 · 反馈与模拟偏差](agent-embodied-control-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/embodied-control)
+- [中期训练 · 新知识与旧能力](agent-midtraining-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/midtraining)
+- [程序化行动 · 规则、适配器与生成界面](agent-programmatic-actions-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/programmatic-actions)
+- [元优化 · 发现树与回放](agent-meta-optimization-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/meta-optimization)
+- [智能体社会 · 激励与重复博弈](agent-agent-society-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/agent-society)
+- [系统选择 · 工作流、状态与缓存](agent-system-design-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/system-design)
+- [个人记忆 · 同意、过期与删除](agent-memory-privacy-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/memory-privacy)
+- [向量索引 · 精确扫描与近似搜索](agent-vector-index-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/vector-index)
+- [在轨自蒸馏 · 特权信息与部署边界](agent-self-distillation-coverage.png) · [打开实验](https://beleev.github.io/llm-engineering-lab/#/agent/self-distillation)

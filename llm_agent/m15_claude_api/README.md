@@ -35,7 +35,8 @@ to_api_messages(内部 transcript)
 
 ClaudeLLM.next(messages, tools)
   kwargs = {model, max_tokens=16000, messages} (+thinking=adaptive 若非 haiku, +system, +tools; tools 为空时沿用上次的)
-  response = client.messages.create(**kwargs)
+  stream = client.messages.create(**kwargs, stream=True)
+  response = MessageStream 累积到 message_stop 后得到完整 blocks
   stop_reason == "refusal"      → final("[模型拒绝了该请求]")        先看 stop_reason 再读 content
   raw = [block.model_dump(exclude_none=True) ...]
   stop_reason == "max_tokens"   → final + 截断提示 (即使含 tool_use 也不执行: 参数可能不完整)
@@ -89,10 +90,10 @@ pip install anthropic && export ANTHROPIC_API_KEY=... && python3 -m llm_agent.m1
 
 - 在线路径未经真实 API 验证 (见上方声明)。`model_dump` 出来的 block 能否原样被 API 接受需要实测; 压缩请求 (`summarize_with_llm` 传空工具列表) 会沿用上一次的 tools, 因为历史含 tool_use 时 API 要求必须声明 tools。
 - 未启用服务端 refusal fallbacks (需要 beta 端点与 `fallbacks` 参数): 这里只识别 `stop_reason == "refusal"`, 返回一句 `[模型拒绝了该请求]`。
-- 没有 streaming: 非流式 + `max_tokens=16000`, 长输出要等整段返回; 更大的 `max_tokens` 需要改用流式。
-- 没有 prompt caching: 每轮全价重发整个前缀。也没有用 `response.usage` 记账, `Agent.usage` 仍是字符估算。
-- 没有自定义重试、限流退避与按错误类型分类处理 (只有 SDK 自带的默认重试); 任何 API 异常都会直接抛出中断 loop。
-- `stop_reason` 只处理 refusal 与 max_tokens (截断时不执行任何工具调用); `pause_turn` 等未处理。
+- 默认流式，支持 on_text 回调；工具仍等整条消息闭合，见下方运行时实验。
+- 未主动配置 prompt caching；缓存 token 和其他服务端 usage 可接收。`Agent.usage` 是字符估算，实报在 `reported_usage`。
+- 适配器有有界重试和错误分类，SDK 重试关闭；已开始的流或不可重试错误仍会中断 loop。
+- 支持 end_turn/tool_use/stop_sequence/refusal/max_tokens；未知停止原因显式报错，pause_turn 未实现。
 - thinking 只有"adaptive 或不开"两档: 模型名含 haiku 时不发送 thinking 参数 (`claude-haiku-4-5` 用的是 `budget_tokens` 形式), 没有暴露 effort 等调节项。
 - 中途 system 消息一律降级为 user 文本; 部分新模型原生支持 messages 数组里的 system 角色, 这里没有利用。
 - 认证只认 `ANTHROPIC_API_KEY`, 比 SDK 自身支持的凭据来源更窄。
@@ -122,3 +123,15 @@ pip install anthropic && export ANTHROPIC_API_KEY=... && python3 -m llm_agent.m1
 <details><summary>答案</summary>
 包的卖点是零依赖、确定性、可断言。顶部导入会让任何导入 `claude_llm` 的代码在没装 SDK 时失败; 延迟导入后, 纯函数 `to_api_messages` 无需 SDK 即可导入和测试, 缺 SDK 或缺 key 时构造函数抛 `RuntimeError`, demo 捕获后打印跳过信息并正常退出, 不发任何网络请求。不进 `run_all` 是同一原则的另一半: 默认路径的结果不应依赖网络、费用和非确定的模型输出。
 </details>
+
+## 流式运行时补充：先闭合，再执行
+
+`python -m llm_agent.m15_claude_api.stream_demo` 使用注入客户端跑真实 ClaudeLLM 适配器，绝不访问网络。MessageStream 逐块拼接 text / thinking / signature / tool JSON，必须等 block_stop 和 message_stop 完整闭合才返回工具动作。累计 output_tokens 为 1→4→6，最终取 6 而不是 11；重复 tool id、非法 JSON、未闭合流一律拒绝。未知顶层通知可忽略，未知内容类型显式报错。
+
+仅对 408/429/部分 5xx、连接错误、超时在 message_start **之前**重试，默认最多两次，SDK 自带重试关闭；数值 Retry-After 最多等待 5 秒，否则指数退避加抖动。开始接收后断流不自动重发，已经展示的文本不能撤销，账单也不能假定为零。所有流在 finally 关闭。
+
+`last_usage` 是成功请求服务端实报；`last_attempts` 保留每次尝试和不完整记账标记。`Agent.usage` 继续保留字符估算，真实计数放在 `Agent.reported_usage`，两者不能相加。缓存读取/写入计数可接收，但本适配器未自动配置 cache_control。`on_text` 可展示增量文本，工具副作用仍必须等完整动作和权限门。
+
+[Claude 官方事件契约](https://platform.claude.com/docs/en/build-with-claude/streaming)。当前支持客户端 text/tool/thinking 内容子集，未覆盖服务端工具/所有扩展事件；没有跨请求限流器或全局调用时限。离线夹具通过不代表在线 API 验证通过。
+
+自测：断流前已经收到完整的第一条 tool JSON，可否立即执行？不能，整个消息可能缺第二条调用或在停止原因处失败。

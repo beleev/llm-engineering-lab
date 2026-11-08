@@ -1,10 +1,11 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
 // 阶段 5 · llm_infer 章节内容。
 // 本文件持有本阶段全部 16 章的完整 page 对象。
 // 贯穿全阶段的一条主线: decode 是带宽瓶颈, 不是算力瓶颈 ——
 // 所以几乎每一项优化都在省 KV 的"搬运"和"存储", 而不是省乘法。
 const I = 'llm_infer/'
 
-export default {
+const topic = {
   stage: 'infer',
   chapters: [
     { route: 'infer-prefix-radix', label: '前缀复用 · hash 与 radix', hint: '链式 block hash、radix tree、命中即跳过前向' },
@@ -22,7 +23,7 @@ export default {
   pages: {
     // ---------------- 主线五章 ---------------- //
     'infer-kv-memory': {
-      widgets: ['AttnMaskLab'],
+      widgets: [],
       title: 'KV 与缓存内存 · 推理优化从"别重算"开始',
       subtitle: '读完你能算出一张卡同时放得下多少条序列, 并说清分页到底买到了什么。',
       tldr: '- KV cache: 因果 mask 下旧 token 的 K/V 不会因新 token 到来而改变, 存下来就别再算。累计过一遍模型的 token 数从 688 掉到 37 (18.6×)。\n- 分页: 省下的算力换成了显存压力, 于是把 KV 切成定长 block 用页表管。分页不让 attention 变快, 它买的是显存利用率。',
@@ -132,7 +133,7 @@ for _ in range(max_new - 1):
     },
 
     'infer-decode-control': {
-      widgets: ['SoftmaxTempLab'],
+      widgets: [],
       title: '解码加速与采样 · 更少 target 调用, 更可控的分布',
       subtitle: '读完你能解释"小模型先猜"为什么不让输出变差, 以及采样参数顺序为什么会改结果。',
       tldr: 'decode 每步只出 1 个 token, 却要把整份权重读一遍, 算力大量闲着。\n投机解码: 便宜的 draft 连猜 $K$ 个, target 一次 forward 验 $K+1$ 个槽位, 输出分布一点不变。\n- greedy: 逐位比 argmax。\n- 采样: 用 rejection sampling。\n采样这一侧是 logits 上的一串后处理, 顺序会改结果。',
@@ -1009,3 +1010,52 @@ answer = beams[0][1][-1]`,
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "infer-scheduler": [
+    {
+      "title": "队列需要容量边界",
+      "body": "新增 m28 在固定长短请求分布下扫描到达率，比有界/无界队列。拒绝、超时、取消和完成分别统计；每种终态回收活跃资源。毫秒数来自代价模型，不能拿来配置真实 GPU 容量。",
+      "source": "llm_infer/m28_service_capacity/demo.py:simulate"
+    }
+  ],
+  "infer-multi-replica-routing": [
+    {
+      "title": "不要只报平均吞吐",
+      "body": "TTFT 含排队，ITL 看 token 间隔；p95/p99 仅在完成样本上统计，必须一起看未完成比例。goodput 是满足整套 SLO 的完成请求/观测时间；排空期也计入分母。",
+      "source": "llm_infer/m28_service_capacity/demo.py:experiment"
+    }
+  ],
+  "infer-engine": [
+    {
+      "title": "从机制正确到负载下可用",
+      "body": "模型吞吐、接收量与好吞吐不是同一个数。容量实验核对到达=完成+拒绝+超时+取消，结束占页为零。提高拒绝率可能让 p99 好看，不能因此宣称服务变好。",
+      "source": "llm_infer/m28_service_capacity/demo.py:simulate"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+
+// 审查后的主讲职责与前置链接。
+topic.pages["infer-compute"].points.push({"title": "性能实测：模型估算与 profiler 怎样对照", "body": "FLOPs 相同不代表执行时间相同。真正的算子调用、分配与 host 开销需要测出来。 先 warmup，再独立计时，再采 profiler。记录 Python/PyTorch、设备、线程数和重复次数；网页展示稳定事件计数，机器相关耗时在 CLI 的 JSON 中保留。"})
+topic.pages["infer-scheduler"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
+topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-runs", "label": "模型交付与独立进程加载", "reason": "服务接收的是可解释的产物，不只是权重文件。"}]
+topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
+topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
+export default topic
+
+topic.pages["infer-scheduler"].points.push({"title": "多租户调度：总体吞吐会掩盖谁的等待", "body": "连续的大租户请求可能让小租户长期等不到服务。按租户看等待、超时和 goodput，才能发现总吞吐藏住的问题。\n公平轮转以等成本服务量子分配机会；长请求在自己的租户队列继续，不阻止另一租户获得一个量子。真实 token 的代价不相同，需结合 prefill/decode、KV 和预算估计。"})
+topic.pages["infer-scheduler"].source.push("llm_infer/m33_tenant_scheduling/demo.py:experiment")
+
+topic.pages["infer-prefix-radix"].points.push({"title": "缓存身份：相同 token 不一定能复用", "body": "KV 的身份不仅是 token，还包含解释这些 token 的模型与输入约定。命中更快，也可能泄露其他租户是否使用过某个前缀。\n共享域由可信身份网关决定。客户端声明的租户或 salt 不能覆盖鉴权结果；同域可复用，跨域隔离需要明确的命名空间。"})
+topic.pages["infer-prefix-radix"].source.push("llm_infer/m34_cache_identity/demo.py:experiment")
+
+canonicalizeRelated(topic)

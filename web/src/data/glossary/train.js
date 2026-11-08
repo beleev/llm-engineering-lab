@@ -36,4 +36,11 @@ export default [
   t('pass@k 无偏估计', 'Unbiased pass@k', '采 n 个、c 个对, 按无放回挑 k 个算至少一个对的概率', '$k$=10: 朴素 0.5470 vs 真值 0.5864', 'train-eval'),
   t('测试集污染', 'Contamination', '测试题混进训练语料; n-gram 查得到原题, 查不到改写', '0.570 → 去污染 0.436 → 真实 0.300', 'train-eval'),
   t('位置偏差', 'Position Bias', 'LLM 裁判偏爱先出现的回答; 交换顺序各判一次消掉', '准确率 0.994/0.593 → 0.993/0.991', 'train-eval'),
+{
+  "term": "Roofline / MFU",
+  "aka": "性能上界 / 模型 FLOP 利用率",
+  "stage": "train",
+  "oneliner": "前者比较计算与带宽上界，后者比有效模型 FLOP 与总峰值预算；估算不能替代实测",
+  "route": "train-model-parallel"
+},
 ]

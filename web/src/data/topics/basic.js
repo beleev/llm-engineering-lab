@@ -1,5 +1,6 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
 // 阶段 1 · llm_basic: 四个章节的完整页面定义。章节目录登记在 data/models.js 的 basicChapters, 所以这里 chapters 为空。
-export default {
+const topic = {
   stage: 'basic',
   chapters: [],
   pages: {
@@ -261,3 +262,27 @@ for _ in range(max_new_tokens):
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "basic-forward": [
+    {
+      "title": "感受野：这个位置能从哪些输入取得信息",
+      "body": "感受野不是视力，而是一个输出能够依赖的输入范围。因果全注意力在位置 t 可连接 0 到 t；纯滑窗每层含当前位置 W 个 token，L 层上界是 1+L×(W−1)，再截到 t+1。W=8、L=4 是 29，不是 32。这是结构上限，不保证模型实际记住远处细节。",
+      "source": null
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+
+// 审查后的主讲职责与前置链接。
+export default topic
+
+canonicalizeRelated(topic)

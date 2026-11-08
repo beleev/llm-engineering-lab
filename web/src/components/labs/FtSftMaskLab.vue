@@ -130,7 +130,7 @@ const hoverText = computed(() => {
 </script>
 
 <style scoped>
-.grid { align-items: center; row-gap: 4px; }
+.grid { width: max-content; min-width: 100%; align-items: center; row-gap: 4px; }
 .rl { font-size: 11px; color: var(--text-dim); }
 .pos { font-size: 10px; color: var(--text-dim); text-align: center; }
 .tok { height: 30px; font-size: 12px; min-width: 0; }

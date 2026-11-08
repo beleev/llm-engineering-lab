@@ -9,7 +9,7 @@
               :aria-label="navOpen ? '关闭章节导航' : '打开章节导航'" @click="navOpen = !navOpen">{{ navOpen ? '✕' : '☰' }}</button>
       <span class="topbar-title">{{ route.meta.title || 'LLM 全栈教程' }}</span>
     </header>
-    <div class="backdrop" @click="navOpen = false" />
+    <div class="backdrop" @click="closeDrawer" />
 
     <!-- 窄屏抽屉关着时整个侧栏 inert: 看不见的 90 多个链接不进 Tab 顺序, 读屏也不读 -->
     <aside id="sidebar" class="sidebar" :inert="(narrow && !navOpen) || null">
@@ -39,7 +39,7 @@
         </a>
       </div>
 
-      <nav>
+      <nav @click="onNavClick">
         <!-- 阅读档位: 主干/冲刺时收起扩展章, 当前所在章始终可见 -->
         <div class="level-bar" role="group" aria-label="阅读档位">
           <button
@@ -98,21 +98,27 @@
                 <span>阶段总览</span>
               </router-link>
 
-              <!-- ready & 阶段内小标题 -->
-              <router-link
-                v-for="c in shown(s)"
-                :key="c.route"
-                :to="{ name: c.route }"
-                class="nav-link sub"
-              >
-                <span class="idx">{{ s.idx }}.{{ subIdx(s, c.route) }}</span>
-                <span class="chapter-label">
-                  <span class="tier-dot" :class="tierOf(c.route)" :title="TIER_META[tierOf(c.route)].desc">{{ isSprint(c.route) ? '★' : TIER_META[tierOf(c.route)].mark }}</span>
-                  {{ c.label }}
-                </span>
-                <span v-if="progress.isMastered(c.route)" class="mark done" title="自测全对">✓</span>
-                <span v-else-if="progress.isVisited(c.route)" class="mark" title="打开过这一章">已读</span>
-              </router-link>
+              <section v-for="g in shownGroups(s)" :key="g.id" class="nav-group">
+                <button type="button" class="group-toggle" :class="{ current: route.meta.groupId === g.id }"
+                        :aria-expanded="isGroupOpen(g.id)" :aria-controls="`group-${g.id}-nav`"
+                        @click="toggleGroup(g.id)">
+                  <span class="idx">{{ g.number }}</span>
+                  <span class="group-title">{{ g.title }}</span>
+                  <span class="group-count">{{ g.chapters.length }}</span>
+                  <span class="group-chevron" aria-hidden="true">{{ isGroupOpen(g.id) ? '▴' : '▾' }}</span>
+                </button>
+                <div v-show="isGroupOpen(g.id)" :id="`group-${g.id}-nav`" class="group-links">
+                  <router-link v-for="c in g.chapters" :key="c.route" :to="{ name: c.route }" class="nav-link sub leaf">
+                    <span class="idx">{{ c.number }}</span>
+                    <span class="chapter-label">
+                      <span class="tier-dot" :class="tierOf(c.route)" :title="TIER_META[tierOf(c.route)].desc">{{ isSprint(c.route) ? '★' : TIER_META[tierOf(c.route)].mark }}</span>
+                      {{ c.label }}
+                    </span>
+                    <span v-if="progress.isMastered(c.route)" class="mark done" title="自测全对">✓</span>
+                    <span v-else-if="progress.isVisited(c.route)" class="mark" title="打开过这一章">已读</span>
+                  </router-link>
+                </div>
+              </section>
 
               <p v-if="hiddenCount(s)" class="more-hint">
                 本档位外还有 {{ hiddenCount(s) }} 章, 切到「全部」可见
@@ -155,7 +161,10 @@
     <main id="main" ref="mainEl" class="main" tabindex="-1">
       <router-view v-slot="{ Component, route }">
         <div v-if="route.meta.chapter" class="breadcrumb">
-          {{ route.meta.chapter }} · {{ route.meta.title }}
+          <router-link v-if="route.meta.groupTitle" :to="{ name: route.meta.stage }">阶段 {{ route.meta.number.split('.')[0] }}</router-link>
+          <template v-else>{{ route.meta.chapter }}</template>
+          <template v-if="route.meta.groupTitle"> / {{ route.meta.groupTitle }} / {{ route.meta.number }}</template>
+          · {{ route.meta.title }}
           <span class="crumb-tier" :class="tierOf(route.name)">
             {{ isSprint(route.name) ? '★ 冲刺' : TIER_META[tierOf(route.name)].label }}
           </span>
@@ -170,7 +179,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { learningPath, stages } from '@/data/models.js'
 import { LEVELS, TIER_META, inLevel, isSprint, tierOf } from '@/data/tiers.js'
@@ -187,17 +196,28 @@ const navOpen = ref(false)
 const burger = ref(null)
 const mainEl = ref(null)
 const skipToMain = () => mainEl.value?.focus()
+const closeDrawer = () => {
+  navOpen.value = false
+  burger.value?.focus({ preventScroll: true })
+}
+const onNavClick = async (event) => {
+  if (!narrow.value || !navOpen.value || !event.target.closest('a[href]')) return
+  navOpen.value = false
+  await nextTick()
+  mainEl.value?.focus({ preventScroll: true })
+}
 // 侧栏是不是抽屉形态, 和 main.css 里的 900px 断点保持一致
 const narrowQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 900px)') : null
 const narrow = ref(!!narrowQuery?.matches)
 const onNarrow = (e) => { narrow.value = e.matches }
 const level = computed(() => progress.state.level)
 const levelNow = computed(() => LEVELS.find((l) => l.id === level.value) || LEVELS[LEVELS.length - 1])
-// 章节数的口径: learningPath 去掉序章 (home), 共 86 章
+// 章节数的口径: learningPath 去掉序章 (home)
 const chapters = learningPath.filter((p) => p.route !== 'home')
 const levelCount = (id) => chapters.filter((c) => inLevel(c.route, id)).length
 // 当前所在章即使不在档位里也要显示, 否则筛选会让人丢失位置
 const shown = (s) => (s.chapters || []).filter((c) => inLevel(c.route, level.value) || c.route === route.name)
+const shownGroups = (s) => s.groups.map((g) => ({ ...g, chapters: shown(g) })).filter((g) => g.chapters.length)
 const hiddenCount = (s) => (s.chapters || []).length - shown(s).length
 
 // ── 目录宽度: 可拖, 存本机 ──────────────────────────────────────────
@@ -219,7 +239,15 @@ const startResize = () => {
 }
 
 const readCount = computed(() => chapters.filter((p) => progress.isVisited(p.route)).length)
-watch(() => route.name, (name) => { progress.visit(name); navOpen.value = false }, { immediate: true })
+watch(() => route.name, async (name) => {
+  progress.visit(name)
+  const wasDrawerOpen = narrow.value && navOpen.value
+  navOpen.value = false
+  if (wasDrawerOpen) {
+    await nextTick()
+    mainEl.value?.focus({ preventScroll: true })
+  }
+}, { immediate: true })
 const resetProgress = () => {
   if (!window.confirm('清空已读记录和自测成绩? 阅读档位和主题不受影响。清空后找不回来。')) return
   progress.reset()
@@ -230,8 +258,7 @@ const resetProgress = () => {
 const { prev, next } = useChapterNav()
 const onKey = (e) => {
   if (e.key === 'Escape' && navOpen.value) {
-    navOpen.value = false
-    burger.value?.focus()         // 侧栏随即变 inert, 焦点要先挪出来
+    closeDrawer()                 // 侧栏随即变 inert，焦点回到打开按钮
     return
   }
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
@@ -254,8 +281,13 @@ onBeforeUnmount(() => {
   narrowQuery?.removeEventListener?.('change', onNarrow)
 })
 
-const subIdx = (stage, route) =>
-  (stage.chapters || []).findIndex(c => c.route === route) + 1
+const openGroups = ref({})
+const isGroupOpen = (id) => !!openGroups.value[id]
+const toggleGroup = (id) => { openGroups.value[id] = !isGroupOpen(id) }
+watch([() => route.name, level], () => {
+  const id = route.meta.groupId
+  if (id) openGroups.value[id] = true
+}, { immediate: true })
 
 const openStages = ref(Object.fromEntries(stages.map(s => [s.id, true])))
 const isStageOpen = (id) => openStages.value[id] !== false
@@ -264,12 +296,26 @@ const toggleStage = (id) => {
 }
 
 watch(
-  () => route.meta.stage,
-  (stage) => {
+  () => route.name,
+  () => {
+    const stage = route.meta.stage
     if (stage) openStages.value = { ...openStages.value, [stage]: true }
   },
   { immediate: true },
 )
+
+const revealCurrentChapter = async () => {
+  await nextTick()
+  if (narrow.value && !navOpen.value) return
+  const sidebar = document.getElementById('sidebar')
+  const active = sidebar?.querySelector('a[aria-current="page"]')
+  if (!active) return
+  const frame = sidebar.getBoundingClientRect(), row = active.getBoundingClientRect()
+  if (row.top < frame.top) sidebar.scrollTop += row.top - frame.top - 12
+  else if (row.bottom > frame.bottom) sidebar.scrollTop += row.bottom - frame.bottom + 12
+}
+watch([() => route.name, level, navOpen], revealCurrentChapter)
+onMounted(revealCurrentChapter)
 
 // ── 主题切换 ──────────────────────────────────────────────────────
 const THEME_KEY = 'llm-theme'
@@ -427,13 +473,46 @@ const toggleTheme = () => { theme.value = theme.value === 'dark' ? 'light' : 'da
   font-size: 12px;
   transition: transform 0.15s;
 }
-.nav-stage.open .chevron { transform: rotate(180deg); }
+.nav-stage.open > .stage-toggle .chevron { transform: rotate(180deg); }
 .stage-links {
   padding: 1px 0 5px;
 }
 .nav-link.sub { padding-left: 38px; font-size: 12.5px; }
 .nav-link.sub .idx { width: 34px; }
+.group-toggle, .nav-link.overview {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px 9px 38px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  text-align: left;
+  font-size: 12px;
+}
+.group-toggle { background: transparent; color: var(--text-muted); }
+.group-toggle:hover, .group-toggle.current { color: var(--text); background: var(--bg-card); }
+.group-toggle .idx, .nav-link.overview .idx {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px;
+}
+.group-toggle .idx { color: var(--text-dim); }
+.group-title { flex: 1; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.group-count, .group-chevron { flex-shrink: 0; font-size: 10px; color: var(--text-dim); }
+.nav-link.leaf { padding: 8px 14px 8px 47px; gap: 7px; font-size: 12px; }
+.nav-link.leaf .idx { width: 40px; flex: 0 0 40px; font-size: 10px; background: transparent; }
+/* 同时定义前景和底色，保证总览与三级编号在深浅主题下都有足够对比度。 */
+.nav-link.sub.router-link-active .idx { color: var(--text); background: var(--accent-soft); }
+.nav-link.leaf .chapter-label { overflow-wrap: anywhere; }
+.group-links { margin: 0 0 5px 0; }
 .nav-link.overview { color: var(--text); }
+.nav-link.overview.router-link-active { border-left-color: var(--accent); }
 .nav-link.disabled {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 24px;

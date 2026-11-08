@@ -32,6 +32,8 @@
       :next-step="nextChapter"
     />
 
+    <StageContents stage-id="models" />
+
     <EvolutionChain
       title="演进逻辑链 · 每次换架构, 都是被一种成本逼的"
       subtitle="根问题: 算力、显存和数据都有限, 模型却要吃更多文本、读更长上下文、生成得更快"
@@ -39,6 +41,7 @@
     />
 
     <ModelArchitectureLab />
+    <MultimodalPathLab />
 
     <section class="section">
       <h2>阶段 2 的阅读顺序</h2>
@@ -53,18 +56,7 @@
         </ol>
         <p>每一章的形状都一样: 上一代哪里疼, 这一代怎么止疼, 又引出了什么新疼。</p>
       </div>
-      <div class="grid grid-3">
-        <router-link
-          v-for="(c, i) in modelChapters"
-          :key="c.route"
-          :to="{ name: c.route }"
-          class="card chapter-card"
-        >
-          <div class="chapter-idx">2.{{ i + 1 }}</div>
-          <h3>{{ c.label }}</h3>
-          <p class="desc">{{ c.hint }}</p>
-        </router-link>
-      </div>
+
     </section>
 
     <section class="section">
@@ -133,6 +125,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import { computed } from 'vue'
@@ -140,8 +133,9 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
+import MultimodalPathLab from '@/components/labs/MultimodalPathLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { modelChapters, timeline, learningPath } from '@/data/models.js'
+import { timeline, learningPath } from '@/data/models.js'
 
 // 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
 const at = learningPath.findIndex((x) => x.route === 'models')
@@ -180,28 +174,6 @@ const sortedTimeline = computed(() =>
 </script>
 
 <style scoped>
-.chapter-card {
-  display: block;
-  position: relative;
-  color: inherit;
-  text-decoration: none;
-  transition: border-color 150ms ease-out, transform 150ms ease-out, box-shadow 150ms ease-out;
-}
-.chapter-card:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-  text-decoration: none;
-}
-.chapter-idx {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  color: var(--accent);
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 12px;
-}
-.chapter-card h3 { padding-right: 42px; margin-bottom: 8px; }
-
 table.models-table {
   width: 100%;
   border-collapse: collapse;

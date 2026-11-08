@@ -89,7 +89,7 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | Mixed precision FP16 / BF16 | yes | `m06`, `full_loop`; BF16 为模拟 |
 | Activation checkpointing | partial | `m07` 整段重算; 无选择性重算 |
 | Checkpoint / resume | partial | `m08` 单文件, `full_loop` 每 rank 分片; 无 resharding、无异步落盘 |
-| Collectives | partial | `m09`; 只计带宽项, 无延迟项 / 拓扑 / tree 算法 |
+| Collectives | partial | `m09` 带宽；`m22` 补启动延迟和通信次数；无拓扑 / tree 算法 |
 | LR schedule / clipping / NaN guard | yes | `m10` cosine + WSD |
 | Expert parallel (MoE) | partial | `m11` 前向, top-1; 无反向、无 top-k / shared expert |
 | Context parallel (Ring) | partial | `m12` 前向 + zigzag; 无反向 |
@@ -102,9 +102,26 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | FP8 training | partial | `m13` 假量化 + 线性回归消融; 无真实 FP8 GEMM、无 delayed scaling |
 | FP4 (MXFP4 / NVFP4) | partial | `m15` 仅量化误差, 未做 FP4 训练 |
 | Muon / MuonClip | partial | `m14` 玩具问题; 无分布式 Muon |
-| 多维并行组合 (3D/4D/5D) | no | 各维度单独演示, 未组合 |
-| 通信-计算重叠 | no | 单进程顺序执行 |
+| 多维并行组合 (3D/4D/5D) | partial | `m22` 组合 DP×TP×PP 的 rank 与代价预算；无真实组合执行 |
+| 通信-计算重叠 | partial | `m22` 建模 DP 重叠，不是设备上的异步通信执行 |
 | Real NCCL / 多进程 | no | 教学模拟 |
 
 读完后再看真实框架, 可以把名词映射到几条主线:
 **batch 怎么切、层怎么切、状态怎么切、序列怎么切、数用几位存、通信怎么走、坏 step 怎么恢复。**
+
+## 多维并行预算补充
+
+[m22](m22_parallel_budget/README.md) 把 DP×TP×PP、rank 网格、状态/激活显存、α/β 通信、重叠和 Roofline/MFU 放入同一代价模型。它不启动真实多进程或测量硬件吞吐。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [数据课程：相同样本数，学到的一样吗](m23_data_curriculum/README.md) | 数据选择是在预算内决定下一步学什么。容易的样本有助于起步，但一直重复容易样本，会把预算花在已经学会的部分。 |
+| [合成数据：多代反馈与长尾消失](m24_synthetic_feedback/README.md) | 生成得更多，不一定知道得更多。小概率事实一旦没有被采到，下一代模型可能再也生成不出来。 |
+| [可靠性：校准、拒答与人工评价](m25_reliability_metrics/README.md) | 准确率告诉你答对多少，校准告诉你“有多确定”是否可信。二者要分开测。 |
+| [多语言：采样、分词与翻译偏差](m26_multilingual/README.md) | 同样一句意思，不同语言可能消耗不同数量的 token；同样一份数据预算，也可能几乎没有训练到低资源语言。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。

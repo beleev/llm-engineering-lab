@@ -1,7 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { nextTick } from 'vue'
+import { chapterAliases } from '@/data/chapterAliases.js'
 import { extraChapters, loadTopics } from '@/data/topics/index.js'
 import { loadQuiz } from '@/data/quiz/index.js'
-import { stageBy, stages } from '@/data/models.js'
+import { stageBy, stages, chapterByRoute } from '@/data/models.js'
 
 // meta.stage 用于侧栏分组与面包屑; meta.title 是章节名, 显示在面包屑和标签页标题里。
 // 章节名以侧栏为准: 文件末尾会用 models.js 里的 label 覆盖这里的 title, 两边不会各说各的。
@@ -301,15 +303,40 @@ for (const s of stages) {
   const titles = [[s.route, s.title], ...(s.chapters || []).map((c) => [c.route, c.label])]
   for (const [name, title] of titles) {
     const r = routes.find((x) => x.name === name)
-    if (r) r.meta.title = title
+    if (r) {
+      r.meta.title = title
+      const chapter = chapterByRoute[name]
+      if (chapter) Object.assign(r.meta, { number: chapter.number, groupId: chapter.groupId, groupTitle: chapter.groupTitle })
+    }
   }
+}
+
+for (const [name, alias] of Object.entries(chapterAliases)) {
+  routes.push({ name, path: '/' + name.replace('-', '/'), redirect: to => ({ name: alias.route, hash: to.hash || '#' + alias.anchor, query: to.query }) })
 }
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [...routes, notFound],
   // 浏览器后退 / 前进时回到离开时的位置 (从术语表返回, 还在刚才读的那一段); 点链接进新页面才回顶部
-  scrollBehavior: (to, from, saved) => saved || { top: 0 },
+  scrollBehavior: async (to, from, saved) => {
+    if (saved) return saved
+    if (to.hash) {
+      await nextTick()
+      await document.fonts.ready
+      // 等异步实验完成布局，再定位迁入段落，防止加载后锚点被顶走。
+      for (let i = 0; i < 600; i++) {
+        if (router.currentRoute.value.fullPath !== to.fullPath) return false
+        const ready = document.getElementById(decodeURIComponent(to.hash.slice(1)))
+          && !document.querySelector('.page-enter-active, .page-leave-active, .lab-placeholder[aria-busy="true"]')
+        if (ready) break
+        await new Promise(requestAnimationFrame)
+      }
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      return { el: to.hash, top: 24 }
+    }
+    return { top: 0 }
+  },
 })
 
 // 导航完成前加载当前阶段的数据, 深链接刷新和跨阶段切换走同一条路径。

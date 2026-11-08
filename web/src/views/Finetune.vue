@@ -31,6 +31,8 @@
       :next-step="{ name: 'finetune-sft', label: '下一章 · SFT 数据与 loss' }"
     />
 
+    <StageContents stage-id="finetune" />
+
     <!-- ── 1. 三阶段 alignment 总览 ───────────────────────────── -->
     <section class="section">
       <h2>1. 三阶段 alignment 与 DPO 的塌缩</h2>
@@ -346,6 +348,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'

@@ -1,6 +1,26 @@
 // 阶段 6 · llm_agent 术语速查 (oneliner ≤ 40 字; number 给一个记得住的数字或公式)
 const S = 'agent'
 export default [
+  {"term": "在轨自蒸馏", "stage": "agent", "oneliner": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。", "route": "agent-self-distillation"},
+  {"term": "向量索引", "stage": "agent", "oneliner": "近似索引用更少的距离计算换召回率, 必须保留精确基准。", "route": "agent-vector-index"},
+  {"term": "工具发现", "stage": "agent", "oneliner": "先发现能力, 再加载经过版本核验的工具定义。", "route": "agent-tool-discovery"},
+  {"term": "知识组织", "stage": "agent", "oneliner": "树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。", "route": "agent-knowledge-organization"},
+  {"term": "Coding Agent", "stage": "agent", "oneliner": "读取、精确修改、运行测试和终态验收组成一次修复。", "route": "agent-coding-agent"},
+  {"term": "异步运行", "stage": "agent", "oneliner": "请求取消和确认停止之间有状态; 已提交的副作用仍然存在。", "route": "agent-async-runtime"},
+  {"term": "多智能体", "stage": "agent", "oneliner": "没有文本冲突不代表合并后满足共同约束。", "route": "agent-collaboration"},
+  {"term": "评估体系", "stage": "agent", "oneliner": "固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。", "route": "agent-eval-suite"},
+  {"term": "Agent 训练", "stage": "agent", "oneliner": "进入环境采样、计算奖励、更新参数, 再用隔离任务验收。", "route": "agent-agent-training"},
+  {"term": "Skill 进化", "stage": "agent", "oneliner": "先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。", "route": "agent-skill-evolution"},
+  {"term": "语音交互", "stage": "agent", "oneliner": "语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。", "route": "agent-voice-interaction"},
+  {"term": "视觉操作", "stage": "agent", "oneliner": "坐标属于一次观察, 提交前还要核对当前对象。", "route": "agent-visual-grounding"},
+  {"term": "具身控制", "stage": "agent", "oneliner": "动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。", "route": "agent-embodied-control"},
+  {"term": "中期训练", "stage": "agent", "oneliner": "中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。", "route": "agent-midtraining"},
+  {"term": "程序化行动", "stage": "agent", "oneliner": "程序让执行可重复, 但规则、数据接口和生成结果仍须验证。", "route": "agent-programmatic-actions"},
+  {"term": "元优化", "stage": "agent", "oneliner": "回放只能重组走过的分支; 学习搜索方法也需要独立测试。", "route": "agent-meta-optimization"},
+  {"term": "智能体社会", "stage": "agent", "oneliner": "个体奖励、公共目标和交互历史共同决定协作结果。", "route": "agent-agent-society"},
+  {"term": "系统选择", "stage": "agent", "oneliner": "按任务不确定性分配自主性, 按证据与预算约束执行。", "route": "agent-system-design"},
+  {"term": "个人记忆", "stage": "agent", "oneliner": "授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。", "route": "agent-memory-privacy"},
+
   { term: 'Agent loop', aka: '智能体主循环', stage: S, oneliner: '问模型 → 执行工具 → 结果回填 → 再问, 直到 final', number: '每次调用重发全部上下文: 累计 input $\\propto \\text{轮数}^2$', route: 'agent-loop' },
   { term: 'tool_use / tool_result', aka: 'content block', stage: S, oneliner: 'assistant 发 tool_use, 结果放进下一条 user 消息', number: '靠 id ↔ tool_use_id 配对, 缺一个 API 就 400', route: 'agent-loop' },
   { term: 'LLM 协议', aka: 'LLM Protocol', stage: S, oneliner: 'loop 对模型的全部要求: 一个无状态的 next()', number: 'next(messages, tools) → ModelAction', route: 'agent-loop' },
@@ -40,4 +60,19 @@ export default [
   { term: 'RRF', aka: 'Reciprocal Rank Fusion', stage: S, oneliner: '多路检索只按名次融合, 不管分数尺度', number: '$\\sum_r 1/(60 + \\mathrm{rank}_r)$', route: 'agent-rag' },
   { term: 'Rerank', aka: '重排 / cross-encoder', stage: S, oneliner: '只对前几名逐对精读、重新排序; 改名次, 不改召回', number: 'm16: resume 题 RRF 第 8 → rerank 第 1', route: 'agent-rag' },
   { term: 'recall@k / MRR', aka: '检索评测', stage: S, oneliner: '相关块进前 k 的比例 / 第一个相关块名次倒数的平均', number: 'hybrid+rerank: recall@1 0.95, MRR 0.96', route: 'agent-rag' },
+  { term: '记忆作用域', aka: 'memory scope', stage: 'agent', oneliner: '项目例外只覆盖对应对象和范围, 不改全局事实', route: 'agent-memory-lifecycle' },
+  { term: '完成验收', aka: 'completion verification', stage: 'agent', oneliner: '用环境证据确认完成, 失败后在预算内修复', route: 'agent-completion-verification' },
+  { term: '取消确认', aka: 'cancellation acknowledgement', stage: 'agent', oneliner: '执行器确认停机后才停止新动作, 已有副作用仍在', route: 'agent-runtime-reliability' },
+  { term: '压缩净成本', aka: 'net compaction cost', stage: 'agent', oneliner: '压缩后的输入加上摘要与缓存重建, 才是总成本', route: 'agent-context-cost' },
+  { term: '证据链完整性', aka: 'evidence completeness', stage: 'agent', oneliner: '引用既要支持答案, 也要支持对象和版本的对应关系', route: 'agent-evidence-chain' },
+  { term: '轨迹准入', aka: 'trajectory eligibility', stage: 'agent', oneliner: '验收通过的轨迹才进入学习数据, 猜中不等于合格', route: 'agent-trajectory-learning' },
+  { term: '旧能力保持', aka: 'retention evaluation', stage: 'agent', oneliner: '学习新规则后复测未变任务, 防止更新破坏已有能力', route: 'agent-learning-loop' },
+  { term: '首错定位', aka: 'first-error diagnosis', stage: S, oneliner: '找到轨迹首次违反验收条件的位置, 保存此前上下文', route: 'agent-evals' },
+{
+  "term": "Trace / Span",
+  "aka": "调用链 / 操作区间",
+  "stage": "agent",
+  "oneliner": "用父子关系连接任务、模型请求、尝试与工具；并行时长不能直接相加",
+  "route": "agent-eval-suite"
+},
 ]

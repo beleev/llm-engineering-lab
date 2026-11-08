@@ -3,7 +3,9 @@
 // 时间轴的三条主线: left (语言), eye (多模态理解), right (图像视频生成)
 
 import { extraChapters } from 'virtual:course-catalog'
+import { organizeStage } from './chapterGroups.js'
 
+// 收集原始章节；最终分组和阅读顺序由 chapterGroups.js 决定。
 // topics/*.js 追加的章节默认接在本阶段末尾 (压轴章之前); 写了 after: '某章 route' 的挪到那一章后面
 function place(list) {
   const out = list.filter((c) => !c.after)
@@ -155,13 +157,16 @@ export const stages = [
   },
 ]
 
+stages.forEach(organizeStage)
+export const chapterByRoute = Object.fromEntries(stages.flatMap((s) => s.chapters.map((c) => [c.route, c])))
+
 export const stageBy = Object.fromEntries(stages.map(s => [s.id, s]))
 
 export const learningPath = [
   { route: 'home', label: '主线总览' },
   ...stages.flatMap(s => [
     ...(s.route ? [{ route: s.route, label: `阶段 ${s.idx}.0 · 阶段总览` }] : []),
-    ...(s.chapters || []).map(c => ({ route: c.route, label: c.label })),
+    ...(s.chapters || []).map(c => ({ route: c.route, label: `${c.number} · ${c.label}`, groupId: c.groupId })),
   ]),
   { route: 'compare', label: '总览对照表' },
 ]
@@ -663,6 +668,55 @@ export const agentModules = [
     link: '一个 mini-Claude-Code-style harness',
     file: 'llm_agent/full_loop/demo.py',
   },
+  {
+    id: 'm20',
+    name: '记忆更新 · 来源、范围与版本',
+    concept: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。',
+    link: '查询先找项目, 再回退全局',
+    file: 'llm_agent/m20_memory_lifecycle/demo.py',
+  },
+  {
+    id: 'm21',
+    name: '完成验收 · 说完不等于做完',
+    concept: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。',
+    link: '把缺口交回执行者',
+    file: 'llm_agent/m21_completion_verification/demo.py',
+  },
+  {
+    id: 'm22',
+    name: '故障恢复 · 重试、幂等与取消',
+    concept: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。',
+    link: '幂等键绑定同一个操作',
+    file: 'llm_agent/m22_runtime_reliability/demo.py',
+  },
+  {
+    id: 'm23',
+    name: '上下文成本 · 压缩与缓存一起算',
+    concept: '比较净成本, 同时检查范围、否定和来源是否保留。',
+    link: '摘要也有账单',
+    file: 'llm_agent/m23_context_cache/demo.py',
+  },
+  {
+    id: 'm24',
+    name: '检索证据 · 从相关到足够回答',
+    concept: '别名、对象、版本与答案形成完整证据链, 才能输出结果。',
+    link: '两跳要有两段证据',
+    file: 'llm_agent/m24_agentic_rag/demo.py',
+  },
+  {
+    id: 'm25',
+    name: '轨迹学习 · 先验证，再造训练数据',
+    concept: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
+    link: '同一份轨迹生成三种数据',
+    file: 'llm_agent/m25_trajectory_learning/demo.py',
+  },
+  {
+    id: 'learning',
+    name: '持续改进 · 学会、迁移、变化与保持',
+    concept: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。',
+    link: '规则变化应有一个可解释的恢复点',
+    file: 'llm_agent/full_learning_loop/demo.py',
+  },
 ]
 
 
@@ -795,3 +849,17 @@ export function findModel(id) {
 // 章节正文全部住在 data/topics/<stage>.js, 这里只汇总。
 // 这个文件只留结构性数据: 阶段、章节目录、模块表、模型时间轴。
 export { topicPages } from './topics/index.js'
+
+// 工程流程复查后的可运行模块；三级章节保持在既有主题组内。
+inferModules.push({ id: 'm32', name: 'Profiler', concept: '真实 CPU 事件与可选 GPU 计时', link: 'warmup、重复测量、分配与同步', file: 'llm_infer/m32_profiling/demo.py' })
+agentModules.push(
+  { id: 'm54', name: 'Document Lifecycle', concept: '来源、权限与索引版本', link: '更新、撤权、删除与引用失效', file: 'llm_agent/m54_document_lifecycle/demo.py' },
+  { id: 'm55', name: 'MCP Versions', concept: '旧 stdio 与新 HTTP 配置', link: '版本拒绝与资源端授权', file: 'llm_agent/m55_mcp_versions/demo.py' },
+  { id: 'm56', name: 'Release Loop', concept: '评测门槛到发布回滚', link: '关键切片、反馈覆盖与失败回流', file: 'llm_agent/m56_release_loop/demo.py' },
+)
+
+inferModules.push(
+  { id: 'm33', name: 'Tenant Scheduling', concept: '公平性与容量分别验收', link: 'FIFO、优先级、服务量子与租户配额', file: 'llm_infer/m33_tenant_scheduling/demo.py' },
+  { id: 'm34', name: 'Cache Identity', concept: '同 token 不保证同 KV', link: '可信共享域、模型与 adapter 版本', file: 'llm_infer/m34_cache_identity/demo.py' },
+)
+agentModules.push({ id: 'm57', name: 'Checkpoint Migration', concept: '旧状态遇到新代码', link: '格式、业务版本、权限与收据', file: 'llm_agent/m57_checkpoint_migration/demo.py' })

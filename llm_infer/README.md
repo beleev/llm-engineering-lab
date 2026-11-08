@@ -8,7 +8,7 @@
 
 ## 概览
 
-> 用几千行 numpy（零 GPU 依赖）讲清楚业界主流的 LLM 推理优化技术：27 个模块 + 1 个 mini-engine。
+> 用几千行 numpy（零 GPU 依赖）讲清楚业界主流的 LLM 推理优化技术：31 个原理模块 + 1 个 PyTorch profiler 模块 + 1 个 mini-engine。
 > 每个模块独立可跑，也能组合成一个完整的 mini-engine。
 
 ---
@@ -214,3 +214,27 @@ python -m llm_infer.run_all
 | Cache-aware 多副本路由 | ✅ m27 | SGLang router 思路：最长前缀匹配 + balance 阈值 |
 
 ---
+
+## 从调度机制到服务容量
+
+[m28](m28_service_capacity/README.md) 扫描到达率，比较有界/无界队列的 TTFT/ITL 分位数、拒绝/超时、goodput 与取消后的资源回收。时间和页数是明确的代价模型。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [推理图：链、树、合并与逐步核验](m29_reasoning_graph/README.md) | 多写几步不一定更会推理。搜索改善的是候选空间和验证机会，前提是状态和验证器定义正确。 |
+| [剪枝与融合：零值不等于少做计算](m30_pruning_fusion/README.md) | 权重变成零，稠密矩阵乘仍可能照算。想加速，要让执行器真的跳过这些工作。 |
+| [端侧预算：能放下、能跑快、能持续吗](m31_edge_budget/README.md) | 手机上能加载模型只是第一关。上下文缓存、功率和持续运行后的降频都可能成为瓶颈。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [真实 CPU profiler 与可选 CUDA 计时](m32_profiling/README.md)
+- [租户公平轮转、配额与 goodput](m33_tenant_scheduling/README.md)
+- [缓存身份、adapter 版本和可信共享域](m34_cache_identity/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

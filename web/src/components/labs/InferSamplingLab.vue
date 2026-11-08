@@ -42,7 +42,7 @@
         <text v-if="hist.has(b.i)" :x="X0 + (r + 0.5) * BW" y="220" class="tag h">已出现</text>
         <text v-if="b.by" :x="X0 + (r + 0.5) * BW" y="234" class="tag" :class="b.by">{{ NAMES[b.by] }}</text>
       </g>
-      <g class="draggable" tabindex="0" role="slider" aria-label="拖动改变 top-k" :aria-valuenow="topK" aria-valuemin="0" aria-valuemax="16"
+      <g class="draggable focus-inset" tabindex="0" role="slider" aria-label="拖动改变 top-k" :aria-valuenow="topK" aria-valuemin="0" aria-valuemax="16"
         @pointerdown="start($event, { svg, onMove })"
         @keydown.left.prevent="topK = clamp((topK || V) - 1, 1, V)" @keydown.right.prevent="topK = topK && topK < V - 1 ? topK + 1 : 0">
         <rect :x="cutX - 8" y="4" width="16" height="190" class="grab" />

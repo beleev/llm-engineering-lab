@@ -12,13 +12,18 @@ const refs = [] // { ref, where }
 for (const f of readdirSync(topicsDir).filter((f) => f.endsWith('.js') && f !== 'index.js')) {
   const mod = (await import(pathToFileURL(join(topicsDir, f)))).default
   for (const [route, page] of Object.entries(mod.pages || {})) {
-    for (const ref of [].concat(page.source || [])) refs.push({ ref, where: `topics/${f} › ${route}` })
+    for (const ref of [page, ...(page.sections || [])].flatMap(part => [].concat(part.source || []))) refs.push({ ref, where: `topics/${f} › ${route}` })
   }
 }
 // models.js 依赖 Vite 的 import.meta.glob, node 里不能直接 import, 用正则取字面量
 const base = readFileSync(join(web, 'src/data/models.js'), 'utf8')
 for (const m of base.matchAll(/source:\s*\[([^\]]*)\]/g)) {
   for (const s of m[1].matchAll(/'([^']+)'/g)) refs.push({ ref: s[1], where: 'models.js' })
+}
+
+for (const file of ['knowledge-completion.json', 'research-completion.json', 'engineering-completion.json']) {
+  const data = JSON.parse(readFileSync(join(web, 'src/data', file), 'utf8'))
+  for (const entry of data.entries) refs.push({ ref: entry.module + ':experiment', where: `${file} › ${entry.id}` })
 }
 
 let bad = 0

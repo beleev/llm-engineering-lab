@@ -1,5 +1,6 @@
+import { mergeQuiz } from '../../utils/consolidate.js'
 // 阶段 2 · llm_models 自测题 (含手写总览页 models / attention / position / blocks / moe / diffusion)
-export default {
+const quiz = {
   models: [
     {
       q: '阶段 2 说 “几十种主流模型 = 少数零件的不同组合”。这些零件槽位指的是?',
@@ -301,3 +302,119 @@ export default {
     },
   ],
 }
+
+const completionQuestions = {
+  "models": [
+    {
+      "q": "CLIP 与视觉前缀语言模型主要区别是什么？",
+      "options": [
+        "CLIP 直接生成文本，视觉前缀只能做检索",
+        "CLIP 学对齐向量，视觉前缀条件生成文本",
+        "两者都无需训练就能理解任意新图片",
+        "两者都只用图像重建 loss 学到语言"
+      ],
+      "answer": 1,
+      "why": "CLIP 的对比相似度不是文本解码器；视觉前缀经过 projector 后参与语言生成。"
+    },
+    {
+      "q": "图像边长翻倍、patch 边长固定，patch 数怎样变化？",
+      "options": [
+        "变成 2 倍，完整注意力成本不变",
+        "变成 4 倍，前缀长度也相应增加",
+        "变成 8 倍，KV 总量自动降为一半",
+        "保持不变，只改变位置编码频率"
+      ],
+      "answer": 1,
+      "why": "二维网格两边各翻倍，patch 数四倍；总长度还需加文本和特殊 token。"
+    },
+    {
+      "q": "仓库 Whisper 脚本直接接收随机 mel，说明什么？",
+      "options": [
+        "已完成真实波形到文本的端到端识别",
+        "音频 codec 已将输出恢复为可听波形",
+        "验证模型通路，真实音频前处理另补",
+        "随机 mel 可取代真实语料评测准确率"
+      ],
+      "answer": 2,
+      "why": "波形处理、声学模型和真实识别质量是不同验收环节。"
+    },
+    {
+      "q": "Omni 的 Talker 在本仓库里输出什么？",
+      "options": [
+        "直接输出可播放且完成解码的波形",
+        "输出语音 codec logits，波形还需解码",
+        "只输出图文对齐用的归一化句向量",
+        "把未来语音标签直接写回 Thinker 输入"
+      ],
+      "answer": 1,
+      "why": "Thinker 隐状态条件化 Talker，当前没有真实 codec/声码器。"
+    }
+  ],
+  "models-mtp": [
+    {
+      "q": "W=8（含当前位置）、4 层纯滑窗，最后位置的感受野上界是？",
+      "options": [
+        "29，且不能据此保证有效利用全部信息",
+        "32，而且上下文长度必须固定等于 32",
+        "8，因为跨层不可能传递窗口外的信息",
+        "40，只要输入 40 个 token 就能完全利用"
+      ],
+      "answer": 0,
+      "why": "每层向左增加 W−1，总共 1+4×7=29；实际再截到 t+1。"
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(completionQuestions)) quiz[route] = [...(quiz[route] || []), ...rows]
+// research-completion questions
+const researchQuestions = {
+  "blocks": [
+    {
+      "q": "探针准确读出一个属性，为什么还不能断言模型使用它？",
+      "options": [
+        "因为只有注意力权重才有因果意义",
+        "因为 SAE 的重建误差必须先等于零",
+        "因为任何线性探针都无法读取信息",
+        "因为相关信息可能不影响最终输出"
+      ],
+      "answer": 3,
+      "why": "可读出性是相关证据。需要有控制的干预、消融与恢复来检验对实际输出的作用。"
+    }
+  ],
+  "diffusion": [
+    {
+      "q": "来源签名有效，能推出画面描述的事件真实发生吗？",
+      "options": [
+        "不能，签名核验完整性与签署关系",
+        "能，只要同时检测到数字水印",
+        "不能，签名无法检测任何字节变化",
+        "能，签名已经核验了现实世界"
+      ],
+      "answer": 0,
+      "why": "签名验证内容与签署者关系及完整性，不能替代现实证据核查。"
+    }
+  ],
+  "attention": [
+    {
+      "q": "两个序列有相同摘要，可以认为所有问题的答案相同吗？",
+      "options": [
+        "可以，只要摘要维度大于一个数",
+        "不可以，因为所有摘要都没有用处",
+        "可以，摘要相同意味着信息完全相同",
+        "不可以，摘要可能丢失顺序和细节"
+      ],
+      "answer": 3,
+      "why": "压缩映射可能把不同输入映到同一个状态。应构造摘要碰撞，检查任务所需细节是否被保存。"
+    }
+  ]
+}
+for (const [route, questions] of Object.entries(researchQuestions)) quiz[route] = [...(quiz[route] || []), ...questions]
+export default quiz
+
+quiz.position = [...(quiz.position || []), ...quiz['models-qknorm-yarn'].filter(q => q.q.includes('YaRN'))]
+quiz['models-qknorm-yarn'] = quiz['models-qknorm-yarn'].filter(q => !q.q.includes('YaRN'))
+const architecture = quiz['models-mtp']
+quiz.attention = [...(quiz.attention || []), ...architecture.filter(q => q.q.includes('滑窗') || q.q.includes('滑动窗口'))]
+quiz['models-mamba'] = [...(quiz['models-mamba'] || []), ...architecture.filter(q => q.q.includes('DeltaNet'))]
+quiz['models-mtp'] = architecture.filter(q => q.q.includes('MTP'))
+
+mergeQuiz(quiz)

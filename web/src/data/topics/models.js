@@ -1,9 +1,12 @@
+import { canonicalizeRelated } from '../../utils/consolidate.js'
+import { chapterLabels } from '../chapterLabels.js'
+import { mergePage } from '../../utils/consolidate.js'
 // 阶段 2 · llm_models 的扩展章节: 2024–2025 的新零件。每章一个 (或两个) 实验台, 挂载关系见 data/labmap/models.js。
 // models-mtp 的章节登记在 data/models.js 的 modelChapters 里, 所以不出现在这里的 chapters。
 const A = 'llm_models/layers/core/attention.py'
 const RUN = 'python -m llm_models.run_models'
 
-export default {
+const topic = {
   stage: 'models',
   chapters: [
     { route: 'models-generation', label: 'KV cache 生成', hint: '旧 token 的 K/V 不会变: prefill 一次, 之后每步只算 1 个' },
@@ -17,7 +20,7 @@ export default {
   ],
   pages: {
     'models-mtp': {
-      widgets: ['AttnMaskLab', 'MtpLab'],
+      widgets: ['MtpLab'],
       title: 'SWA · MTP · 混合线性 — 三种给 Transformer 减负的改法',
       subtitle: '读完这章, 你看一个新模型时能马上分辨它动了哪一处:\n- 把 mask 裁窄了 (Mistral)?\n- 让每个位置多预测几步 (MTP)?\n- 还是把装历史的容器换掉了 (Qwen3-Next)?',
       tldr: '- SWA: 不新增任何类, 只换一张 mask。KV cache 从 $O(T)$ 封顶到 $O(W)$。\n- MTP: 用共享 lm_head 的级联模块, 每个位置的监督从 1 份变成 K+1 份。推理时还白送一份投机解码草稿。\n- 混合线性 (Qwen3-Next): 用固定大小的状态矩阵代替 KV cache。每 4 层留 1 层全注意力兜底。',
@@ -34,7 +37,7 @@ export default {
       },
       code: 'llm_models/models/language_models/{mistral.py,mtp.py,qwen3_next.py} · llm_models/layers/sparse/linear_attention.py',
       points: [
-        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层的理论感受野 $\\approx L\\cdot W$ (Mistral 32 层 × 4096 ≈ 131K)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
+        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层理论感受野上界 $1+L(W-1)$，位置 t 再取不超过 t+1 (Mistral 32 层、W=4096 时为 131041)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
         { title: 'mask 即架构', body: '- 全因果: LLaMA\n- 带状: Mistral\n- 带状加 sink: GPT-OSS\n- top-k: DSA\nQKV 投影一行不改, 谁能看见谁全由 mask 决定。所以 Mistral 和 LLaMA 参数量完全相同 (demo: 都是 3,076,352)。', key: true },
         { title: '级联保因果', body: 'MTP 第 k 级在位置 i: 拼上真实 token $t_{i+k}$ 的 embedding → 过一个 Block → 预测 $t_{i+k+1}$。\n每深一级, 多看一个真 token、多预测一步, 因果链没断。\n总损失 $= \\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$。DeepSeek-V3 的 $\\lambda$ 取 0.3, 后期降到 0.1。' },
         { title: '状态替代缓存', body: 'Gated DeltaNet 是一种线性注意力: 不存历史 K/V, 只维护一个 Dh×Dh 的状态矩阵 (Dh 是每头维度)。\n- delta rule: 先擦掉 k 方向的旧值, 再写入新值。\n- α 门: 负责整体遗忘。\n它的 “cache” 与读了多少 token 无关。demo 里 T 从 8 涨到 32, 同类层加总的缓存元素数 (batch 2):\n- 注意力层 (共 2 层): 4096 → 16384。\n- delta 层 (共 6 层): 恒为 49152。\n代价是压缩有损。所以 Qwen3-Next 每 4 层留 1 层全注意力, 兜底精确召回。' },
@@ -475,3 +478,99 @@ image = decoder(f_hat + upsample(codebook[indices[-1]], H))
     },
   },
 }
+
+// 补齐现有页的教学链条，保持路由和三级目录不变。
+const supplements = {
+  "models-mtp": [
+    {
+      "title": "精确范围与实际能力分开",
+      "body": "纯因果滑窗、窗口 W 含当前位置、无 dilation 或全局通路时：位置 t 的可达输入数为 min(t+1, 1+L×(W−1))。L×W 只是大窗口近似。模型上下文上限和长距离检索成功率还需另测。",
+      "source": "llm_models/models/language_models/mistral.py:receptive_field"
+    }
+  ],
+  "models-gptoss": [
+    {
+      "title": "全局可达不等于有效利用",
+      "body": "交替全注意力可以建立远处信息通路，但训练分布、注意力权重和中间表示决定是否真正用上。下方滑窗实验展示可达范围，不展示长上下文任务准确率。",
+      "source": null
+    }
+  ]
+}
+for (const [route, rows] of Object.entries(supplements)) {
+  const page = topic.pages[route]
+  if (!page) throw new Error(`缺少补充章节: ${route}`)
+  for (const { title, body, source } of rows) {
+    page.points.push({ title, body })
+    if (source) page.source = [...new Set([].concat(page.source || [], source))]
+  }
+}
+
+// 审查后的主讲职责与前置链接。
+topic.pages["models-mtp"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
+export default topic
+
+const qkYarn = topic.pages['models-qknorm-yarn']
+const mixed = topic.pages['models-mtp']
+const supplement = (page, id, title, points, labNames) => ({ ...page, id, title, points, labNames, evolution: null, links: [], related: [], widgets: [] })
+topic.pages.attention = { sections: [
+  { ...supplement(qkYarn, 'qk-norm', 'QK-Norm · 控制注意力数值', qkYarn.points.slice(0, 2), ['ModelQkNormLab']), tldr: '在 RoPE 之前归一化 Q/K，分开观察方向与增益。' },
+  { ...supplement(mixed, 'swa', '滑窗与跨层感受野', [mixed.points[0], mixed.points[1], mixed.points[5]], []), tldr: '掩码实验台展示单层可见范围；这里追踪信息跨层传播，并区分可达范围与实际检索能力。' },
+] }
+topic.pages.position = { sections: [
+  { ...supplement(qkYarn, 'yarn', 'YaRN · 位置频率怎样外推', qkYarn.points.slice(2), ['ModelRopeScaleLab']), tldr: '按训练期旋转圈数调整频率；用 PI、NTK-aware 和 YaRN 比较局部区分与长距离外推。' },
+] }
+topic.pages['models-mamba'].sections = [
+  { ...supplement(mixed, 'linear-hybrid', '进阶 · DeltaNet 与混合线性架构', mixed.points.slice(3, 5), ['ModelLinearAttnLab']), tldr: 'DeltaNet 维护状态矩阵；它与 Mamba 的选择性状态空间机制不同，但都需要检验有损状态对精确召回的影响。' },
+]
+mixed.title = '多 token 预测 MTP · 训练目标与草稿生成'
+mixed.subtitle = '一处位置得到多个未来目标的监督；训练中的真 token 与推理时的草稿不能混淆。'
+mixed.tldr = '级联模块共享输出头，保持因果依赖；生成的草稿仍需推理端验证。'
+mixed.points = [mixed.points[2]]
+mixed.evolution = null
+mixed.related = [{ route: 'attention', label: '滑窗与跨层感受野', reason: '可见范围归注意力主章。' }, { route: 'models-mamba', label: '状态空间与混合线性架构', reason: '状态与 KV 的取舍放在同一学习路径。' }, { route: 'infer-tree-speculation', label: '草稿怎样被验证', reason: 'MTP 训练目标不替代解码时的验收。' }]
+delete topic.pages['models-qknorm-yarn']
+topic.chapters = topic.chapters.filter(c => c.route !== 'models-qknorm-yarn')
+topic.pages['models-dsa'].links.find(l => l.from.includes('掩码实验台')).from = 'attention · 掩码实验台'
+
+for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
+
+// 补充段落只保留本主题的源码与骨架，避免把搬走的讲解再次整段展示。
+const qk = topic.pages.attention.sections[0]
+const swa = topic.pages.attention.sections[1]
+const yarn = topic.pages.position.sections[0]
+const delta = topic.pages['models-mamba'].sections[0]
+qk.sourceRows = qkYarn.sourceRows.filter(r => /norm|logit|增益/i.test(r.concept + r.code))
+yarn.sourceRows = qkYarn.sourceRows.filter(r => !qk.sourceRows.includes(r))
+qk.source = qkYarn.source.filter(s => /[Nn]orm/.test(s))
+yarn.source = qkYarn.source.filter(s => !qk.source.includes(s))
+qk.snippet = 'q, k = q_norm(q), k_norm(k)\nq, k = rope(q, k)\nscores = q @ k.transpose(-1, -2) / sqrt(head_dim)'
+yarn.snippet = 'turns = train_length * inv_freq / (2 * pi)\n# 高频保持，低频按扩展倍率缩放，中频插值\ninv_freq = yarn_scale(inv_freq, turns, factor)'
+swa.sourceRows = mixed.sourceRows.filter(r => ['带状掩码', 'KV 上限'].includes(r.concept))
+delta.sourceRows = mixed.sourceRows.filter(r => ['delta rule', '混合排布'].includes(r.concept))
+swa.source = mixed.source.filter(s => s.includes('mistral'))
+delta.source = mixed.source.filter(s => s.includes('linear_attention'))
+swa.snippet = 'visible = (j <= i) & (j > i - window_size)\nreachable = min(position + 1, 1 + layers * (window_size - 1))'
+delta.snippet = 'state = alpha * (state - beta * outer(k, k @ state)) + beta * outer(k, v)\ny = q @ state  # 压缩有损；混合架构另保留全注意力层'
+mixed.sourceRows = mixed.sourceRows.filter(r => ['级联输入', '标签对齐'].includes(r.concept))
+mixed.source = mixed.source.filter(s => s.includes('/mtp.py'))
+mixed.links = mixed.links.filter(l => !l.from.includes('sliding'))
+mixed.snippet = mixed.snippet.slice(mixed.snippet.indexOf('# MTP'))
+mixed.snippetTitle = 'MTP 的监督与级联'
+mixed.code = 'llm_models/models/language_models/mtp.py'
+mixed.evolution = { title: '从下一 token 到级联监督', subtitle: '同一位置怎样得到更多未来监督', steps: [
+  { name: '下一 token', pain: '每个位置只有一个预测目标', fix: '主干预测紧接当前位置的 token' },
+  { name: '级联监督', pain: '多个头不能偷看自己的预测目标', fix: '逐级加入前一个真 token，预测再下一个位置' },
+  { name: '推理草稿', pain: '训练时有真 token，生成时没有', fix: '生成草稿后交给目标模型验证，不直接全收' },
+] }
+for (const route of ['attention', 'position']) Object.assign(topic.pages[route], { points: [], links: [], sourceRows: [], widgets: [] })
+
+canonicalizeRelated(topic)
+
+qk.source = ['llm_models/layers/core/attention.py:GroupedQueryAttention']
+qk.question = '除以 sqrt(d) 后，为什么还要控制 Q/K 的范数？'
+yarn.question = '长度外推时，局部区分与低频越界怎样分别验收？'
+swa.question = '每层只看最近 W 个位置，跨层可达范围为何不同于实际检索能力？'
+delta.question = '固定大小的状态矩阵省下了什么，又丢掉了什么？'
+mixed.question = '每级加入前一个真 token，为什么不等于泄露该级预测目标？'
+qk.related = [{ route: 'position', anchor: 'yarn', label: '继续看 YaRN 的频率外推' }]
+yarn.related = [{ route: 'attention', anchor: 'qk-norm', label: '对照 QK-Norm 的数值控制' }]

@@ -171,3 +171,7 @@ cd <仓库根目录> && python3 -m llm_agent.m19_prompt_caching.demo
 这时连 system 和工具定义这部分最贵、最稳定的前缀也要重写。system 末尾的断点是一个保底读点: 不管 messages 里发生什么, tools + system 这一段只要不变就能读到。
 
 </details>
+
+## 继续实验
+
+缓存与动态记忆、上下文压缩怎样相互影响? 见 [m23_context_cache](../m23_context_cache/README.md)。

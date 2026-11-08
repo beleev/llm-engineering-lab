@@ -52,7 +52,7 @@
       <line v-for="g in [0, 40, 80, 120, 160]" :key="g" :x1="g * sx" :x2="g * sx" y1="166" y2="172" class="tick" />
       <text v-for="g in [0, 40, 80, 120, 160]" :key="'t' + g" :x="Math.min(W - 2, Math.max(2, g * sx))" y="186" class="ax" :text-anchor="g === 0 ? 'start' : g === 160 ? 'end' : 'middle'">{{ g }} GiB</text>
       <g
-        class="draggable" tabindex="0" role="slider" aria-label="KV 显存预算" :aria-valuenow="budget" aria-valuemin="4" aria-valuemax="160"
+        class="draggable focus-inset" tabindex="0" role="slider" aria-label="KV 显存预算" :aria-valuenow="budget" aria-valuemin="4" aria-valuemax="160"
         @pointerdown="start($event, { svg, onMove: ({ x }) => (budget = clamp(Math.round(x / sx), 4, 160)) })"
         @keydown.left.prevent="budget = clamp(budget - 1, 4, 160)" @keydown.right.prevent="budget = clamp(budget + 1, 4, 160)"
       >

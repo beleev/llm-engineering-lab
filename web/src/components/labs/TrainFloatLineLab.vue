@@ -41,7 +41,7 @@
         <text :x="6" :y="rowY(i) + ROW / 2 + 9" class="frange">{{ f.minSub.toExponential(0) }} ~ {{ f.max.toExponential(1) }}</text>
       </g>
       <!-- ★ 可拖的数值 -->
-      <g class="draggable" tabindex="0" role="slider" aria-label="被考察的数值" :aria-valuenow="logV"
+      <g class="draggable focus-inset" tabindex="0" role="slider" aria-label="被考察的数值" :aria-valuenow="logV"
         @pointerdown="start($event, { svg, onMove: ({ x }) => (logV = clamp(pxInv(x), LO, HI)) })"
         @keydown.right.prevent="logV = Math.min(HI, logV + 0.25)" @keydown.left.prevent="logV = Math.max(LO, logV - 0.25)">
         <rect :x="px(logV) - 10" :y="0" width="20" :height="H - 18" fill="transparent" />

@@ -1,0 +1,2990 @@
+{
+  "agent-tool-discovery": {
+    "module": "m26_tool_discovery",
+    "route": "agent-tool-discovery",
+    "title": "工具发现 · 按需加载与提示设计",
+    "book_chapter": 4,
+    "book_line": 133,
+    "symbols": [
+      "Spec",
+      "Discover",
+      "prompt_trials",
+      "fidelity_check"
+    ],
+    "modes": [
+      "flat",
+      "discovery",
+      "poisoned"
+    ],
+    "sha256": "3063d7999f356365b1eff50691c32bb8d1f606238510244e34e22506d1946371",
+    "cases": [
+      {
+        "mode": "flat",
+        "metrics": [
+          {
+            "label": "查询完成",
+            "value": true
+          },
+          {
+            "label": "各轮可见工具",
+            "value": [
+              103,
+              103
+            ]
+          },
+          {
+            "label": "工具序列",
+            "value": [
+              "refund_status"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "模型请求 1",
+            "detail": "可见 Schema 数量 103",
+            "ok": false
+          },
+          {
+            "title": "模型请求 2",
+            "detail": "可见 Schema 数量 103",
+            "ok": false
+          },
+          {
+            "title": "终态",
+            "detail": "查询已执行",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "discovery",
+        "metrics": [
+          {
+            "label": "查询完成",
+            "value": true
+          },
+          {
+            "label": "各轮可见工具",
+            "value": [
+              1,
+              2,
+              2
+            ]
+          },
+          {
+            "label": "工具序列",
+            "value": [
+              "discover",
+              "refund_status"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "模型请求 1",
+            "detail": "可见 Schema 数量 1",
+            "ok": true
+          },
+          {
+            "title": "模型请求 2",
+            "detail": "可见 Schema 数量 2",
+            "ok": true
+          },
+          {
+            "title": "模型请求 3",
+            "detail": "可见 Schema 数量 2",
+            "ok": true
+          },
+          {
+            "title": "终态",
+            "detail": "查询已执行",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "poisoned",
+        "metrics": [
+          {
+            "label": "查询完成",
+            "value": false
+          },
+          {
+            "label": "各轮可见工具",
+            "value": [
+              1,
+              1
+            ]
+          },
+          {
+            "label": "工具序列",
+            "value": [
+              "discover"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "模型请求 1",
+            "detail": "可见 Schema 数量 1",
+            "ok": true
+          },
+          {
+            "title": "模型请求 2",
+            "detail": "可见 Schema 数量 1",
+            "ok": true
+          },
+          {
+            "title": "终态",
+            "detail": "版本核验失败, 未暴露被修改的描述",
+            "ok": false
+          }
+        ]
+      }
+    ]
+  },
+  "agent-knowledge-organization": {
+    "module": "m27_knowledge_organization",
+    "route": "agent-knowledge-organization",
+    "title": "知识组织 · 树状摘要与关系图",
+    "book_chapter": 3,
+    "book_line": 424,
+    "symbols": [
+      "current_facts",
+      "hierarchy",
+      "graph_path",
+      "dataset_insights"
+    ],
+    "modes": [
+      "flat",
+      "hierarchy",
+      "graph"
+    ],
+    "sha256": "4a08da5c98aa90d78b67efbf030825a7f0a82547ec913beceee738be0ffdf212",
+    "cases": [
+      {
+        "mode": "flat",
+        "metrics": [
+          {
+            "label": "产品列表",
+            "value": [
+              "Atlas"
+            ]
+          },
+          {
+            "label": "负责人",
+            "value": []
+          },
+          {
+            "label": "证据引用",
+            "value": [
+              "a"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "先处理版本",
+            "detail": "Atlas limit 的 v2 替换 v1; 原始证据保留",
+            "ok": true
+          },
+          {
+            "title": "全局问题",
+            "detail": "列出产品: ['Atlas']",
+            "ok": false
+          },
+          {
+            "title": "关系问题",
+            "detail": "Atlas → team → owner: []; 引用 ['a']",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "hierarchy",
+        "metrics": [
+          {
+            "label": "产品列表",
+            "value": [
+              "Atlas",
+              "Boreal"
+            ]
+          },
+          {
+            "label": "负责人",
+            "value": []
+          },
+          {
+            "label": "证据引用",
+            "value": [
+              "a",
+              "c"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "先处理版本",
+            "detail": "Atlas limit 的 v2 替换 v1; 原始证据保留",
+            "ok": true
+          },
+          {
+            "title": "全局问题",
+            "detail": "列出产品: ['Atlas', 'Boreal']",
+            "ok": true
+          },
+          {
+            "title": "关系问题",
+            "detail": "Atlas → team → owner: []; 引用 ['a', 'c']",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "graph",
+        "metrics": [
+          {
+            "label": "产品列表",
+            "value": []
+          },
+          {
+            "label": "负责人",
+            "value": [
+              "Lin"
+            ]
+          },
+          {
+            "label": "证据引用",
+            "value": [
+              "a",
+              "b"
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "先处理版本",
+            "detail": "Atlas limit 的 v2 替换 v1; 原始证据保留",
+            "ok": true
+          },
+          {
+            "title": "全局问题",
+            "detail": "列出产品: []",
+            "ok": false
+          },
+          {
+            "title": "关系问题",
+            "detail": "Atlas → team → owner: ['Lin']; 引用 ['a', 'b']",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-coding-agent": {
+    "module": "m28_coding_agent",
+    "route": "agent-coding-agent",
+    "title": "Coding Agent · 修改、测试与修复",
+    "book_chapter": 5,
+    "book_line": 13,
+    "symbols": [
+      "Workspace",
+      "ProjectTool",
+      "RepairPolicy"
+    ],
+    "modes": [
+      "one-shot",
+      "repair",
+      "budget"
+    ],
+    "sha256": "cd372cc3b186e22f018f1a481d224b1ae342d72471ea84bd91951a1417d82e66",
+    "cases": [
+      {
+        "mode": "one-shot",
+        "metrics": [
+          {
+            "label": "测试通过",
+            "value": false
+          },
+          {
+            "label": "模型调用数",
+            "value": 5
+          },
+          {
+            "label": "已回滚",
+            "value": true
+          }
+        ],
+        "trace": [
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "查找函数定义",
+            "detail": "{'file': 'pricing.py', 'line': 1, 'symbol': 'discounted'}",
+            "ok": true
+          },
+          {
+            "title": "读取目标文件",
+            "detail": "def discounted(total, percent):\n    return total * (1 - percent)",
+            "ok": true
+          },
+          {
+            "title": "精确修改",
+            "detail": "return total * (1 - percent) → return total",
+            "ok": false
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "回滚",
+            "detail": "验收未通过, 恢复原文件",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "repair",
+        "metrics": [
+          {
+            "label": "测试通过",
+            "value": true
+          },
+          {
+            "label": "模型调用数",
+            "value": 7
+          },
+          {
+            "label": "已回滚",
+            "value": false
+          }
+        ],
+        "trace": [
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "查找函数定义",
+            "detail": "{'file': 'pricing.py', 'line': 1, 'symbol': 'discounted'}",
+            "ok": true
+          },
+          {
+            "title": "读取目标文件",
+            "detail": "def discounted(total, percent):\n    return total * (1 - percent)",
+            "ok": true
+          },
+          {
+            "title": "精确修改",
+            "detail": "return total * (1 - percent) → return total",
+            "ok": false
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "精确修改",
+            "detail": "return total → return round(total * (1 - percent / 100), 2)",
+            "ok": true
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 3/3",
+            "ok": true
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 3/3",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "budget",
+        "metrics": [
+          {
+            "label": "测试通过",
+            "value": false
+          },
+          {
+            "label": "模型调用数",
+            "value": 4
+          },
+          {
+            "label": "已回滚",
+            "value": true
+          }
+        ],
+        "trace": [
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "查找函数定义",
+            "detail": "{'file': 'pricing.py', 'line': 1, 'symbol': 'discounted'}",
+            "ok": true
+          },
+          {
+            "title": "读取目标文件",
+            "detail": "def discounted(total, percent):\n    return total * (1 - percent)",
+            "ok": true
+          },
+          {
+            "title": "精确修改",
+            "detail": "return total * (1 - percent) → return total",
+            "ok": false
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "运行测试",
+            "detail": "通过 1/3",
+            "ok": false
+          },
+          {
+            "title": "回滚",
+            "detail": "验收未通过, 恢复原文件",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-async-runtime": {
+    "module": "m29_async_runtime",
+    "route": "agent-async-runtime",
+    "title": "异步运行 · 事件、取消与恢复",
+    "book_chapter": 6,
+    "book_line": 29,
+    "symbols": [
+      "Journal",
+      "Runtime",
+      "run_case"
+    ],
+    "modes": [
+      "complete",
+      "cancel-before",
+      "cancel-after"
+    ],
+    "sha256": "696d6a31c2e2fc0d21fdbbcfd8160c1a955d1166acbfd536aee519f215f5469b",
+    "cases": [
+      {
+        "mode": "complete",
+        "metrics": [
+          {
+            "label": "入账金额",
+            "value": 10
+          },
+          {
+            "label": "入账笔数",
+            "value": 1
+          },
+          {
+            "label": "输出块数",
+            "value": 2
+          }
+        ],
+        "trace": [
+          {
+            "title": "working",
+            "detail": "外部请求唤醒任务",
+            "ok": true
+          },
+          {
+            "title": "committed",
+            "detail": "SQLite 提交 10 元",
+            "ok": true
+          },
+          {
+            "title": "stream",
+            "detail": "已",
+            "ok": true
+          },
+          {
+            "title": "stream",
+            "detail": "处理",
+            "ok": true
+          },
+          {
+            "title": "completed",
+            "detail": "执行器已完成",
+            "ok": true
+          },
+          {
+            "title": "重开账本",
+            "detail": "恢复前后 10/10 元, 1 笔",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "cancel-before",
+        "metrics": [
+          {
+            "label": "入账金额",
+            "value": 0
+          },
+          {
+            "label": "入账笔数",
+            "value": 0
+          },
+          {
+            "label": "输出块数",
+            "value": 0
+          }
+        ],
+        "trace": [
+          {
+            "title": "working",
+            "detail": "外部请求唤醒任务",
+            "ok": true
+          },
+          {
+            "title": "cancel-request",
+            "detail": "用户打断, 旧 generation 作废",
+            "ok": true
+          },
+          {
+            "title": "cancel-ack",
+            "detail": "执行器确认停止; 先前提交不回滚",
+            "ok": true
+          },
+          {
+            "title": "重开账本",
+            "detail": "恢复前后 0/0 元, 0 笔",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "cancel-after",
+        "metrics": [
+          {
+            "label": "入账金额",
+            "value": 10
+          },
+          {
+            "label": "入账笔数",
+            "value": 1
+          },
+          {
+            "label": "输出块数",
+            "value": 0
+          }
+        ],
+        "trace": [
+          {
+            "title": "working",
+            "detail": "外部请求唤醒任务",
+            "ok": true
+          },
+          {
+            "title": "committed",
+            "detail": "SQLite 提交 10 元",
+            "ok": true
+          },
+          {
+            "title": "cancel-request",
+            "detail": "用户打断, 旧 generation 作废",
+            "ok": true
+          },
+          {
+            "title": "cancel-ack",
+            "detail": "执行器确认停止; 先前提交不回滚",
+            "ok": true
+          },
+          {
+            "title": "重开账本",
+            "detail": "恢复前后 10/10 元, 1 笔",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-orchestrator": {
+    "module": "m30_collaboration",
+    "route": "agent-orchestrator",
+    "title": "多智能体 · 独立审查与共享冲突",
+    "book_chapter": 10,
+    "book_line": 194,
+    "symbols": [
+      "SharedPlan",
+      "reviewed_answer"
+    ],
+    "modes": [
+      "file-only",
+      "revision",
+      "invariant"
+    ],
+    "sha256": "bbad1b45a3f4ca80bd73caa4ca9d3df4968b2fb1fba19f0fa391114089b8dde1",
+    "cases": [
+      {
+        "mode": "file-only",
+        "metrics": [
+          {
+            "label": "资源总量 / 上限 10",
+            "value": 12
+          },
+          {
+            "label": "接受提案数",
+            "value": 2
+          },
+          {
+            "label": "审查后答案",
+            "value": 20
+          }
+        ],
+        "trace": [
+          {
+            "title": "planner-cpu",
+            "detail": "申请 cpu=6; 接受=True; 当前 {'cpu': 6, 'gpu': 4}",
+            "ok": true
+          },
+          {
+            "title": "planner-gpu",
+            "detail": "申请 gpu=6; 接受=True; 当前 {'cpu': 6, 'gpu': 6}",
+            "ok": false
+          },
+          {
+            "title": "同质投票",
+            "detail": "三票同为 10; 独立读取 v2 得到 20",
+            "ok": false
+          },
+          {
+            "title": "提议—审查—修改",
+            "detail": "审查引入新证据, 不是再问同一个错误模型",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "revision",
+        "metrics": [
+          {
+            "label": "资源总量 / 上限 10",
+            "value": 10
+          },
+          {
+            "label": "接受提案数",
+            "value": 1
+          },
+          {
+            "label": "审查后答案",
+            "value": 20
+          }
+        ],
+        "trace": [
+          {
+            "title": "planner-cpu",
+            "detail": "申请 cpu=6; 接受=True; 当前 {'cpu': 6, 'gpu': 4}",
+            "ok": true
+          },
+          {
+            "title": "planner-gpu",
+            "detail": "申请 gpu=6; 接受=False; 当前 {'cpu': 6, 'gpu': 4}",
+            "ok": true
+          },
+          {
+            "title": "同质投票",
+            "detail": "三票同为 10; 独立读取 v2 得到 20",
+            "ok": false
+          },
+          {
+            "title": "提议—审查—修改",
+            "detail": "审查引入新证据, 不是再问同一个错误模型",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "invariant",
+        "metrics": [
+          {
+            "label": "资源总量 / 上限 10",
+            "value": 10
+          },
+          {
+            "label": "接受提案数",
+            "value": 1
+          },
+          {
+            "label": "审查后答案",
+            "value": 20
+          }
+        ],
+        "trace": [
+          {
+            "title": "planner-cpu",
+            "detail": "申请 cpu=6; 接受=True; 当前 {'cpu': 6, 'gpu': 4}",
+            "ok": true
+          },
+          {
+            "title": "planner-gpu",
+            "detail": "申请 gpu=6; 接受=False; 当前 {'cpu': 6, 'gpu': 4}",
+            "ok": true
+          },
+          {
+            "title": "同质投票",
+            "detail": "三票同为 10; 独立读取 v2 得到 20",
+            "ok": false
+          },
+          {
+            "title": "提议—审查—修改",
+            "detail": "审查引入新证据, 不是再问同一个错误模型",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-eval-suite": {
+    "module": "m31_eval_suite",
+    "route": "agent-eval-suite",
+    "title": "评估体系 · 用户环境与裁判校准",
+    "book_chapter": 7,
+    "book_line": 162,
+    "symbols": [
+      "UserSimulator",
+      "run_task",
+      "calibration"
+    ],
+    "modes": [
+      "baseline",
+      "no-clarify",
+      "full"
+    ],
+    "sha256": "941e3a2fabb5976543f6073fc177f06319dc1640194f2b2a0e3d5c076713a4fb",
+    "cases": [
+      {
+        "mode": "baseline",
+        "metrics": [
+          {
+            "label": "通过题数 / 总数 3",
+            "value": 1
+          },
+          {
+            "label": "工具和澄清调用",
+            "value": 3
+          },
+          {
+            "label": "裁判校准",
+            "value": {
+              "agreement": 0.25,
+              "tp": 1,
+              "fp": 2,
+              "fn": 1
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "clear",
+            "detail": "easy: user_turns=0, failure=None",
+            "ok": true
+          },
+          {
+            "title": "ambiguous",
+            "detail": "hard: user_turns=0, failure=wrong-object",
+            "ok": false
+          },
+          {
+            "title": "denied",
+            "detail": "safety: user_turns=0, failure=authorization",
+            "ok": false
+          },
+          {
+            "title": "裁判校准",
+            "detail": "固定标签一致率 0.25, 假阳性 2",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "no-clarify",
+        "metrics": [
+          {
+            "label": "通过题数 / 总数 3",
+            "value": 2
+          },
+          {
+            "label": "工具和澄清调用",
+            "value": 2
+          },
+          {
+            "label": "裁判校准",
+            "value": {
+              "agreement": 1.0,
+              "tp": 2,
+              "fp": 0,
+              "fn": 0
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "clear",
+            "detail": "easy: user_turns=0, failure=None",
+            "ok": true
+          },
+          {
+            "title": "ambiguous",
+            "detail": "hard: user_turns=0, failure=wrong-object",
+            "ok": false
+          },
+          {
+            "title": "denied",
+            "detail": "safety: user_turns=0, failure=None",
+            "ok": true
+          },
+          {
+            "title": "裁判校准",
+            "detail": "固定标签一致率 1.0, 假阳性 0",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "full",
+        "metrics": [
+          {
+            "label": "通过题数 / 总数 3",
+            "value": 3
+          },
+          {
+            "label": "工具和澄清调用",
+            "value": 3
+          },
+          {
+            "label": "裁判校准",
+            "value": {
+              "agreement": 1.0,
+              "tp": 2,
+              "fp": 0,
+              "fn": 0
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "clear",
+            "detail": "easy: user_turns=0, failure=None",
+            "ok": true
+          },
+          {
+            "title": "ambiguous",
+            "detail": "hard: user_turns=1, failure=None",
+            "ok": true
+          },
+          {
+            "title": "denied",
+            "detail": "safety: user_turns=0, failure=None",
+            "ok": true
+          },
+          {
+            "title": "裁判校准",
+            "detail": "固定标签一致率 1.0, 假阳性 0",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-agent-training": {
+    "module": "m32_agent_training",
+    "route": "agent-agent-training",
+    "title": "Agent 训练 · 轨迹到参数更新",
+    "book_chapter": 8,
+    "book_line": 482,
+    "symbols": [
+      "rollout",
+      "sft",
+      "online_update",
+      "training_run"
+    ],
+    "modes": [
+      "untrained",
+      "sft",
+      "rl"
+    ],
+    "sha256": "20785637d83580cd6c08d882726af3938985503584e19f4c741b17d03ea47cf9",
+    "cases": [
+      {
+        "mode": "untrained",
+        "metrics": [
+          {
+            "label": "留出通过率",
+            "value": 0.0
+          },
+          {
+            "label": "训练阶段",
+            "value": "untrained"
+          },
+          {
+            "label": "留出实体数",
+            "value": 16
+          }
+        ],
+        "trace": [
+          {
+            "title": "实体隔离",
+            "detail": "训练 entity-0..15; 留出 entity-32..47, 工具协议相同",
+            "ok": true
+          },
+          {
+            "title": "训练前",
+            "detail": "留出通过率 0%",
+            "ok": false
+          },
+          {
+            "title": "untrained",
+            "detail": "当前阶段留出通过率 0%",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "sft",
+        "metrics": [
+          {
+            "label": "留出通过率",
+            "value": 1.0
+          },
+          {
+            "label": "训练阶段",
+            "value": "sft"
+          },
+          {
+            "label": "留出实体数",
+            "value": 16
+          }
+        ],
+        "trace": [
+          {
+            "title": "实体隔离",
+            "detail": "训练 entity-0..15; 留出 entity-32..47, 工具协议相同",
+            "ok": true
+          },
+          {
+            "title": "训练前",
+            "detail": "留出通过率 0%",
+            "ok": false
+          },
+          {
+            "title": "sft",
+            "detail": "当前阶段留出通过率 100%",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "rl",
+        "metrics": [
+          {
+            "label": "留出通过率",
+            "value": 1.0
+          },
+          {
+            "label": "RL 参数变化 L1",
+            "value": 149.156801
+          },
+          {
+            "label": "SFT 末步损失",
+            "value": 0.002044
+          }
+        ],
+        "trace": [
+          {
+            "title": "实体隔离",
+            "detail": "训练 entity-0..15; 留出 entity-32..47, 工具协议相同",
+            "ok": true
+          },
+          {
+            "title": "训练前",
+            "detail": "留出通过率 0%",
+            "ok": false
+          },
+          {
+            "title": "rl",
+            "detail": "当前阶段留出通过率 100%",
+            "ok": true
+          },
+          {
+            "title": "在线采样更新",
+            "detail": "参数变化 L1=149.156801; 动作 ['lookup', 'answer:observed']",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-skill-evolution": {
+    "module": "m33_skill_evolution",
+    "route": "agent-skill-evolution",
+    "title": "Skill 进化 · 提案、发布与整理",
+    "book_chapter": 9,
+    "book_line": 56,
+    "symbols": [
+      "propose",
+      "SkillStore",
+      "curate"
+    ],
+    "modes": [
+      "global",
+      "scoped",
+      "rollback"
+    ],
+    "sha256": "d91218462a98301afe57c7dc3bfbd7680e2bf68660aee8e93c8de71e11ca713b",
+    "cases": [
+      {
+        "mode": "global",
+        "metrics": [
+          {
+            "label": "候选通过门禁",
+            "value": false
+          },
+          {
+            "label": "激活版本",
+            "value": 0
+          },
+          {
+            "label": "项目 A 的规则",
+            "value": "Python"
+          }
+        ],
+        "trace": [
+          {
+            "title": "从失败提案",
+            "detail": "{\"default\": \"Rust\", \"projects\": {}}",
+            "ok": true
+          },
+          {
+            "title": "迁移 / 保持 / 安全门",
+            "detail": "[True, False, False]",
+            "ok": false
+          },
+          {
+            "title": "发布与回滚",
+            "detail": "active=0, A=Python, B=Python",
+            "ok": true
+          },
+          {
+            "title": "离线整理",
+            "detail": "合并后 1 条, 归档 ['c']; 保留两条来源",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "scoped",
+        "metrics": [
+          {
+            "label": "候选通过门禁",
+            "value": true
+          },
+          {
+            "label": "激活版本",
+            "value": 1
+          },
+          {
+            "label": "项目 A 的规则",
+            "value": "Rust"
+          }
+        ],
+        "trace": [
+          {
+            "title": "从失败提案",
+            "detail": "{\"default\": \"Python\", \"projects\": {\"A\": \"Rust\"}}",
+            "ok": true
+          },
+          {
+            "title": "迁移 / 保持 / 安全门",
+            "detail": "[True, True, True]",
+            "ok": true
+          },
+          {
+            "title": "发布与回滚",
+            "detail": "active=1, A=Rust, B=Python",
+            "ok": true
+          },
+          {
+            "title": "离线整理",
+            "detail": "合并后 1 条, 归档 ['c']; 保留两条来源",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "rollback",
+        "metrics": [
+          {
+            "label": "候选通过门禁",
+            "value": true
+          },
+          {
+            "label": "激活版本",
+            "value": 0
+          },
+          {
+            "label": "项目 A 的规则",
+            "value": "Python"
+          }
+        ],
+        "trace": [
+          {
+            "title": "从失败提案",
+            "detail": "{\"default\": \"Python\", \"projects\": {\"A\": \"Rust\"}}",
+            "ok": true
+          },
+          {
+            "title": "迁移 / 保持 / 安全门",
+            "detail": "[True, True, True]",
+            "ok": true
+          },
+          {
+            "title": "发布与回滚",
+            "detail": "active=0, A=Python, B=Python",
+            "ok": true
+          },
+          {
+            "title": "离线整理",
+            "detail": "合并后 1 条, 归档 ['c']; 保留两条来源",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-voice-interaction": {
+    "module": "m34_voice_interaction",
+    "route": "agent-voice-interaction",
+    "title": "语音交互 · 打断与快慢响应",
+    "book_chapter": 6,
+    "book_line": 307,
+    "symbols": [
+      "voice_activity",
+      "experiment"
+    ],
+    "modes": [
+      "half",
+      "duplex",
+      "no-generation"
+    ],
+    "sha256": "a2ec0390510b54d78601f9c547b54e1f959a266deac13935b746548353a2a7c0",
+    "cases": [
+      {
+        "mode": "half",
+        "metrics": [
+          {
+            "label": "过期输出数",
+            "value": 0
+          },
+          {
+            "label": "会话代际",
+            "value": 1
+          },
+          {
+            "label": "接受用户打断",
+            "value": false
+          }
+        ],
+        "trace": [
+          {
+            "title": "0 ms · speech-start",
+            "detail": "generation=1; 接收 ",
+            "ok": true
+          },
+          {
+            "title": "100 ms · asr-partial",
+            "detail": "generation=1; 接收 查",
+            "ok": true
+          },
+          {
+            "title": "180 ms · asr-final",
+            "detail": "generation=1; 接收 查订单",
+            "ok": true
+          },
+          {
+            "title": "190 ms · fast-ack",
+            "detail": "generation=1; 接收 正在查",
+            "ok": true
+          },
+          {
+            "title": "220 ms · tts-echo",
+            "detail": "generation=1; 丢弃 ",
+            "ok": true
+          },
+          {
+            "title": "250 ms · speech-start",
+            "detail": "generation=1; 丢弃 ",
+            "ok": true
+          },
+          {
+            "title": "270 ms · tts-chunk",
+            "detail": "generation=1; 接收 旧结果",
+            "ok": true
+          },
+          {
+            "title": "300 ms · asr-final",
+            "detail": "generation=1; 丢弃 停止查询",
+            "ok": true
+          },
+          {
+            "title": "320 ms · slow-result",
+            "detail": "generation=1; 接收 订单已发货",
+            "ok": true
+          },
+          {
+            "title": "340 ms · tts-chunk",
+            "detail": "generation=1; 丢弃 已停止",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "duplex",
+        "metrics": [
+          {
+            "label": "过期输出数",
+            "value": 0
+          },
+          {
+            "label": "会话代际",
+            "value": 2
+          },
+          {
+            "label": "接受用户打断",
+            "value": true
+          }
+        ],
+        "trace": [
+          {
+            "title": "0 ms · speech-start",
+            "detail": "generation=1; 接收 ",
+            "ok": true
+          },
+          {
+            "title": "100 ms · asr-partial",
+            "detail": "generation=1; 接收 查",
+            "ok": true
+          },
+          {
+            "title": "180 ms · asr-final",
+            "detail": "generation=1; 接收 查订单",
+            "ok": true
+          },
+          {
+            "title": "190 ms · fast-ack",
+            "detail": "generation=1; 接收 正在查",
+            "ok": true
+          },
+          {
+            "title": "220 ms · tts-echo",
+            "detail": "generation=1; 丢弃 ",
+            "ok": true
+          },
+          {
+            "title": "250 ms · speech-start",
+            "detail": "generation=2; 接收 ",
+            "ok": true
+          },
+          {
+            "title": "270 ms · tts-chunk",
+            "detail": "generation=2; 丢弃 旧结果",
+            "ok": true
+          },
+          {
+            "title": "300 ms · asr-final",
+            "detail": "generation=2; 接收 停止查询",
+            "ok": true
+          },
+          {
+            "title": "320 ms · slow-result",
+            "detail": "generation=2; 丢弃 订单已发货",
+            "ok": true
+          },
+          {
+            "title": "340 ms · tts-chunk",
+            "detail": "generation=2; 接收 已停止",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "no-generation",
+        "metrics": [
+          {
+            "label": "过期输出数",
+            "value": 2
+          },
+          {
+            "label": "会话代际",
+            "value": 2
+          },
+          {
+            "label": "接受用户打断",
+            "value": true
+          }
+        ],
+        "trace": [
+          {
+            "title": "0 ms · speech-start",
+            "detail": "generation=1; 接收 ",
+            "ok": true
+          },
+          {
+            "title": "100 ms · asr-partial",
+            "detail": "generation=1; 接收 查",
+            "ok": true
+          },
+          {
+            "title": "180 ms · asr-final",
+            "detail": "generation=1; 接收 查订单",
+            "ok": true
+          },
+          {
+            "title": "190 ms · fast-ack",
+            "detail": "generation=1; 接收 正在查",
+            "ok": true
+          },
+          {
+            "title": "220 ms · tts-echo",
+            "detail": "generation=1; 丢弃 ",
+            "ok": true
+          },
+          {
+            "title": "250 ms · speech-start",
+            "detail": "generation=2; 接收 ",
+            "ok": true
+          },
+          {
+            "title": "270 ms · tts-chunk",
+            "detail": "generation=2; 接收 旧结果",
+            "ok": false
+          },
+          {
+            "title": "300 ms · asr-final",
+            "detail": "generation=2; 接收 停止查询",
+            "ok": true
+          },
+          {
+            "title": "320 ms · slow-result",
+            "detail": "generation=2; 接收 订单已发货",
+            "ok": false
+          },
+          {
+            "title": "340 ms · tts-chunk",
+            "detail": "generation=2; 接收 已停止",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-visual-grounding": {
+    "module": "m35_visual_grounding",
+    "route": "agent-visual-grounding",
+    "title": "视觉操作 · 截图、定位与核对",
+    "book_chapter": 6,
+    "book_line": 460,
+    "symbols": [
+      "locate",
+      "hit",
+      "experiment"
+    ],
+    "modes": [
+      "stale",
+      "refresh",
+      "verify"
+    ],
+    "sha256": "6a33cd87168e131566fd584655562b94741b0dd1a78ea362d4315500e3f15529",
+    "cases": [
+      {
+        "mode": "stale",
+        "metrics": [
+          {
+            "label": "当前对象",
+            "value": "other"
+          },
+          {
+            "label": "通过提交核对",
+            "value": false
+          },
+          {
+            "label": "错误提交",
+            "value": false
+          }
+        ],
+        "trace": [
+          {
+            "title": "观察",
+            "detail": "从截图定位绿色目标, 坐标 (29, 17)",
+            "ok": true
+          },
+          {
+            "title": "布局改变后点击",
+            "detail": "打开 other",
+            "ok": false
+          },
+          {
+            "title": "提交前核对",
+            "detail": "目标匹配=False",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "refresh",
+        "metrics": [
+          {
+            "label": "当前对象",
+            "value": "target"
+          },
+          {
+            "label": "通过提交核对",
+            "value": true
+          },
+          {
+            "label": "错误提交",
+            "value": false
+          }
+        ],
+        "trace": [
+          {
+            "title": "观察",
+            "detail": "从截图定位绿色目标, 坐标 (29, 52)",
+            "ok": true
+          },
+          {
+            "title": "布局改变后点击",
+            "detail": "打开 target",
+            "ok": true
+          },
+          {
+            "title": "提交前核对",
+            "detail": "目标匹配=True",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "verify",
+        "metrics": [
+          {
+            "label": "当前对象",
+            "value": "target"
+          },
+          {
+            "label": "通过提交核对",
+            "value": true
+          },
+          {
+            "label": "错误提交",
+            "value": false
+          }
+        ],
+        "trace": [
+          {
+            "title": "观察",
+            "detail": "从截图定位绿色目标, 坐标 (29, 17)",
+            "ok": true
+          },
+          {
+            "title": "布局改变后点击",
+            "detail": "打开 other",
+            "ok": false
+          },
+          {
+            "title": "核对对象后恢复",
+            "detail": "发现对象不符, 重新截图并点击 (29, 52)",
+            "ok": true
+          },
+          {
+            "title": "提交前核对",
+            "detail": "目标匹配=True",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-embodied-control": {
+    "module": "m36_embodied_control",
+    "route": "agent-embodied-control",
+    "title": "具身控制 · 反馈与模拟偏差",
+    "book_chapter": 6,
+    "book_line": 585,
+    "symbols": [
+      "rollout"
+    ],
+    "modes": [
+      "open-loop",
+      "feedback",
+      "robust"
+    ],
+    "sha256": "7abf656eb1c5f3df39ca62d0a23a5b694de23f30d25a10d0272682abdb6b80f7",
+    "cases": [
+      {
+        "mode": "open-loop",
+        "metrics": [
+          {
+            "label": "最坏终点误差",
+            "value": 0.8
+          },
+          {
+            "label": "越界域数量",
+            "value": 1
+          },
+          {
+            "label": "各域结果",
+            "value": [
+              {
+                "position": 0.6,
+                "error": 0.4,
+                "violated": false
+              },
+              {
+                "position": 1.0,
+                "error": 0.0,
+                "violated": false
+              },
+              {
+                "position": 1.8,
+                "error": 0.8,
+                "violated": true
+              }
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "控制步 1",
+            "detail": "action=0.200, position=0.360, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 2",
+            "detail": "action=0.200, position=0.720, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 3",
+            "detail": "action=0.200, position=1.080, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 4",
+            "detail": "action=0.200, position=1.440, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 5",
+            "detail": "action=0.200, position=1.800, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 6",
+            "detail": "action=0.000, position=1.800, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 7",
+            "detail": "action=0.000, position=1.800, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 8",
+            "detail": "action=0.000, position=1.800, gain=1.8",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "feedback",
+        "metrics": [
+          {
+            "label": "最坏终点误差",
+            "value": 0.02621
+          },
+          {
+            "label": "越界域数量",
+            "value": 1
+          },
+          {
+            "label": "各域结果",
+            "value": [
+              {
+                "position": 0.984,
+                "error": 0.016,
+                "violated": false
+              },
+              {
+                "position": 1.0,
+                "error": 0.0,
+                "violated": false
+              },
+              {
+                "position": 0.97379,
+                "error": 0.02621,
+                "violated": true
+              }
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "控制步 1",
+            "detail": "action=0.250, position=0.450, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 2",
+            "detail": "action=0.250, position=0.900, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 3",
+            "detail": "action=0.100, position=1.080, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 4",
+            "detail": "action=-0.080, position=0.936, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 5",
+            "detail": "action=0.064, position=1.051, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 6",
+            "detail": "action=-0.051, position=0.959, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 7",
+            "detail": "action=0.041, position=1.033, gain=1.8",
+            "ok": false
+          },
+          {
+            "title": "控制步 8",
+            "detail": "action=-0.033, position=0.974, gain=1.8",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "robust",
+        "metrics": [
+          {
+            "label": "最坏终点误差",
+            "value": 0.09604
+          },
+          {
+            "label": "越界域数量",
+            "value": 0
+          },
+          {
+            "label": "各域结果",
+            "value": [
+              {
+                "position": 0.90396,
+                "error": 0.09604,
+                "violated": false
+              },
+              {
+                "position": 0.99219,
+                "error": 0.00781,
+                "violated": false
+              },
+              {
+                "position": 1.0,
+                "error": 0.0,
+                "violated": false
+              }
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "控制步 1",
+            "detail": "action=0.250, position=0.450, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 2",
+            "detail": "action=0.250, position=0.900, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 3",
+            "detail": "action=0.050, position=0.990, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 4",
+            "detail": "action=0.005, position=0.999, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 5",
+            "detail": "action=0.001, position=1.000, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 6",
+            "detail": "action=0.000, position=1.000, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 7",
+            "detail": "action=0.000, position=1.000, gain=1.8",
+            "ok": true
+          },
+          {
+            "title": "控制步 8",
+            "detail": "action=0.000, position=1.000, gain=1.8",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-midtraining": {
+    "module": "m37_midtraining",
+    "route": "agent-midtraining",
+    "title": "中期训练 · 新知识与旧能力",
+    "book_chapter": 8,
+    "book_line": 26,
+    "symbols": [
+      "probe",
+      "continue_training",
+      "training_run"
+    ],
+    "modes": [
+      "base",
+      "domain-only",
+      "replay"
+    ],
+    "sha256": "dd2aac7c2564a54f16e891a13baebda546159b50a72a23c2dd4b5f7e3e180c2f",
+    "cases": [
+      {
+        "mode": "base",
+        "metrics": [
+          {
+            "label": "旧域正确率",
+            "value": 1.0
+          },
+          {
+            "label": "新域正确率",
+            "value": 0.0
+          }
+        ],
+        "trace": [
+          {
+            "title": "原始能力",
+            "detail": "旧域知识正确率 100%",
+            "ok": true
+          },
+          {
+            "title": "新域训练",
+            "detail": "新域正确率 0%; 模式 base",
+            "ok": false
+          },
+          {
+            "title": "保持检查",
+            "detail": "旧域正确率 100%; 总 loss 不代替保持指标",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "domain-only",
+        "metrics": [
+          {
+            "label": "旧域正确率",
+            "value": 0.0
+          },
+          {
+            "label": "新域正确率",
+            "value": 1.0
+          }
+        ],
+        "trace": [
+          {
+            "title": "原始能力",
+            "detail": "旧域知识正确率 100%",
+            "ok": true
+          },
+          {
+            "title": "新域训练",
+            "detail": "新域正确率 100%; 模式 domain-only",
+            "ok": true
+          },
+          {
+            "title": "保持检查",
+            "detail": "旧域正确率 0%; 总 loss 不代替保持指标",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "replay",
+        "metrics": [
+          {
+            "label": "旧域正确率",
+            "value": 1.0
+          },
+          {
+            "label": "新域正确率",
+            "value": 1.0
+          }
+        ],
+        "trace": [
+          {
+            "title": "原始能力",
+            "detail": "旧域知识正确率 100%",
+            "ok": true
+          },
+          {
+            "title": "新域训练",
+            "detail": "新域正确率 100%; 模式 replay",
+            "ok": true
+          },
+          {
+            "title": "保持检查",
+            "detail": "旧域正确率 100%; 总 loss 不代替保持指标",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-programmatic-actions": {
+    "module": "m38_programmatic_actions",
+    "route": "agent-programmatic-actions",
+    "title": "程序化行动 · 规则、适配器与生成界面",
+    "book_chapter": 5,
+    "book_line": 351,
+    "symbols": [
+      "calculate",
+      "adapt",
+      "make_ui",
+      "make_svg"
+    ],
+    "modes": [
+      "naive",
+      "validated",
+      "rejected"
+    ],
+    "sha256": "4a0c227ec4bf3210d0b46565acf6e1d70ce2cf6b5467a9ec86875b168d41bd19",
+    "cases": [
+      {
+        "mode": "naive",
+        "metrics": [
+          {
+            "label": "折扣结果",
+            "value": -900
+          },
+          {
+            "label": "表达式通过检查",
+            "value": true
+          },
+          {
+            "label": "各项验收",
+            "value": [
+              true,
+              false,
+              true,
+              true
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "表达为程序",
+            "detail": "total * (1 - percent)",
+            "ok": true
+          },
+          {
+            "title": "业务验收",
+            "detail": "期望 90, 实际 -900",
+            "ok": false
+          },
+          {
+            "title": "生成界面与媒体",
+            "detail": "用户字符串被转义; SVG 文本节点不作为脚本执行",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "validated",
+        "metrics": [
+          {
+            "label": "折扣结果",
+            "value": 90.0
+          },
+          {
+            "label": "表达式通过检查",
+            "value": true
+          },
+          {
+            "label": "各项验收",
+            "value": [
+              true,
+              true,
+              true,
+              true
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "表达为程序",
+            "detail": "total * (1 - percent / 100)",
+            "ok": true
+          },
+          {
+            "title": "业务验收",
+            "detail": "期望 90, 实际 90.0",
+            "ok": true
+          },
+          {
+            "title": "生成界面与媒体",
+            "detail": "用户字符串被转义; SVG 文本节点不作为脚本执行",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "rejected",
+        "metrics": [
+          {
+            "label": "折扣结果",
+            "value": null
+          },
+          {
+            "label": "表达式通过检查",
+            "value": false
+          },
+          {
+            "label": "各项验收",
+            "value": [
+              false,
+              false,
+              true,
+              true
+            ]
+          }
+        ],
+        "trace": [
+          {
+            "title": "表达为程序",
+            "detail": "__import__('os').system('echo unsafe')",
+            "ok": false
+          },
+          {
+            "title": "业务验收",
+            "detail": "期望 90, 实际 None",
+            "ok": false
+          },
+          {
+            "title": "生成界面与媒体",
+            "detail": "用户字符串被转义; SVG 文本节点不作为脚本执行",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-meta-optimization": {
+    "module": "m39_meta_optimization",
+    "route": "agent-meta-optimization",
+    "title": "元优化 · 发现树与回放",
+    "book_chapter": 9,
+    "book_line": 256,
+    "symbols": [
+      "ReplayWorld",
+      "search"
+    ],
+    "modes": [
+      "breadth",
+      "prior",
+      "selected"
+    ],
+    "sha256": "e1c4b700a1737b48a00f7e50d7b18a35cbf1ab67d45dc4f9cb16647a034a9bfd",
+    "cases": [
+      {
+        "mode": "breadth",
+        "metrics": [
+          {
+            "label": "搜索策略",
+            "value": "breadth"
+          },
+          {
+            "label": "新树最优分数",
+            "value": 0.95
+          },
+          {
+            "label": "展开节点数",
+            "value": 3
+          }
+        ],
+        "trace": [
+          {
+            "title": "离线选策略",
+            "detail": "训练回放 {'breadth': 0.8, 'prior': 0.9}; 采用 breadth",
+            "ok": true
+          },
+          {
+            "title": "展开 root",
+            "detail": "揭示 score=0; 当前最优=0.0",
+            "ok": false
+          },
+          {
+            "title": "展开 a",
+            "detail": "揭示 score=0.1; 当前最优=0.1",
+            "ok": false
+          },
+          {
+            "title": "展开 b",
+            "detail": "揭示 score=0.95; 当前最优=0.95",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "prior",
+        "metrics": [
+          {
+            "label": "搜索策略",
+            "value": "prior"
+          },
+          {
+            "label": "新树最优分数",
+            "value": 0.2
+          },
+          {
+            "label": "展开节点数",
+            "value": 3
+          }
+        ],
+        "trace": [
+          {
+            "title": "离线选策略",
+            "detail": "训练回放 {'breadth': 0.8, 'prior': 0.9}; 采用 prior",
+            "ok": true
+          },
+          {
+            "title": "展开 root",
+            "detail": "揭示 score=0; 当前最优=0.0",
+            "ok": false
+          },
+          {
+            "title": "展开 a",
+            "detail": "揭示 score=0.1; 当前最优=0.1",
+            "ok": false
+          },
+          {
+            "title": "展开 c",
+            "detail": "揭示 score=0.2; 当前最优=0.2",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "selected",
+        "metrics": [
+          {
+            "label": "搜索策略",
+            "value": "prior"
+          },
+          {
+            "label": "新树最优分数",
+            "value": 0.2
+          },
+          {
+            "label": "展开节点数",
+            "value": 3
+          }
+        ],
+        "trace": [
+          {
+            "title": "离线选策略",
+            "detail": "训练回放 {'breadth': 0.8, 'prior': 0.9}; 采用 prior",
+            "ok": true
+          },
+          {
+            "title": "展开 root",
+            "detail": "揭示 score=0; 当前最优=0.0",
+            "ok": false
+          },
+          {
+            "title": "展开 a",
+            "detail": "揭示 score=0.1; 当前最优=0.1",
+            "ok": false
+          },
+          {
+            "title": "展开 c",
+            "detail": "揭示 score=0.2; 当前最优=0.2",
+            "ok": false
+          }
+        ]
+      }
+    ]
+  },
+  "agent-agent-society": {
+    "module": "m40_agent_society",
+    "route": "agent-agent-society",
+    "title": "智能体社会 · 激励与重复博弈",
+    "book_chapter": 10,
+    "book_line": 581,
+    "symbols": [
+      "action",
+      "play"
+    ],
+    "modes": [
+      "exploit",
+      "mutual",
+      "reciprocal"
+    ],
+    "sha256": "63592d9fc598e5bee7624b24be1cf9f0a8e3b553e4e04c7c28a1f5a12ff15c8e",
+    "cases": [
+      {
+        "mode": "exploit",
+        "metrics": [
+          {
+            "label": "左方收益",
+            "value": 30
+          },
+          {
+            "label": "右方收益",
+            "value": 0
+          },
+          {
+            "label": "总收益",
+            "value": 30
+          }
+        ],
+        "trace": [
+          {
+            "title": "第 1 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [5, 0]",
+            "ok": false
+          },
+          {
+            "title": "第 2 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [10, 0]",
+            "ok": false
+          },
+          {
+            "title": "第 3 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [15, 0]",
+            "ok": false
+          },
+          {
+            "title": "第 4 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [20, 0]",
+            "ok": false
+          },
+          {
+            "title": "第 5 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [25, 0]",
+            "ok": false
+          },
+          {
+            "title": "第 6 轮",
+            "detail": "动作 ('D', 'C'), 收益 (5, 0), 累计 [30, 0]",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "mutual",
+        "metrics": [
+          {
+            "label": "左方收益",
+            "value": 6
+          },
+          {
+            "label": "右方收益",
+            "value": 6
+          },
+          {
+            "label": "总收益",
+            "value": 12
+          }
+        ],
+        "trace": [
+          {
+            "title": "第 1 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [1, 1]",
+            "ok": false
+          },
+          {
+            "title": "第 2 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [2, 2]",
+            "ok": false
+          },
+          {
+            "title": "第 3 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [3, 3]",
+            "ok": false
+          },
+          {
+            "title": "第 4 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [4, 4]",
+            "ok": false
+          },
+          {
+            "title": "第 5 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [5, 5]",
+            "ok": false
+          },
+          {
+            "title": "第 6 轮",
+            "detail": "动作 ('D', 'D'), 收益 (1, 1), 累计 [6, 6]",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "reciprocal",
+        "metrics": [
+          {
+            "label": "左方收益",
+            "value": 18
+          },
+          {
+            "label": "右方收益",
+            "value": 18
+          },
+          {
+            "label": "总收益",
+            "value": 36
+          }
+        ],
+        "trace": [
+          {
+            "title": "第 1 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [3, 3]",
+            "ok": true
+          },
+          {
+            "title": "第 2 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [6, 6]",
+            "ok": true
+          },
+          {
+            "title": "第 3 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [9, 9]",
+            "ok": true
+          },
+          {
+            "title": "第 4 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [12, 12]",
+            "ok": true
+          },
+          {
+            "title": "第 5 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [15, 15]",
+            "ok": true
+          },
+          {
+            "title": "第 6 轮",
+            "detail": "动作 ('C', 'C'), 收益 (3, 3), 累计 [18, 18]",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-system-design": {
+    "module": "m41_system_design",
+    "route": "agent-system-design",
+    "title": "系统选择 · 工作流、状态与缓存",
+    "book_chapter": 1,
+    "book_line": 263,
+    "symbols": [
+      "choose",
+      "status_bar",
+      "cache_experiment"
+    ],
+    "modes": [
+      "workflow",
+      "agent",
+      "hybrid"
+    ],
+    "sha256": "bf1aab0c55814ae94fcb4e9af6e8e16f40d1da5c81c882168f77cc592e47180a",
+    "cases": [
+      {
+        "mode": "workflow",
+        "metrics": [
+          {
+            "label": "完成或转交数",
+            "value": 3
+          },
+          {
+            "label": "模拟成本单位",
+            "value": 2
+          },
+          {
+            "label": "缓存拼接对照",
+            "value": {
+              "reference": 17.994066,
+              "spliced": 17.979331,
+              "reusable": false
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "fixed-report",
+            "detail": "route=workflow; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "investigate",
+            "detail": "route=workflow; 完成或安全转交=False",
+            "ok": false
+          },
+          {
+            "title": "ambiguous-owner",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "transfer",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "组合上下文缓存",
+            "detail": "完整重算 17.994066; 拼旧后缀 17.979331",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "agent",
+        "metrics": [
+          {
+            "label": "完成或转交数",
+            "value": 4
+          },
+          {
+            "label": "模拟成本单位",
+            "value": 6
+          },
+          {
+            "label": "缓存拼接对照",
+            "value": {
+              "reference": 17.994066,
+              "spliced": 17.979331,
+              "reusable": false
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "fixed-report",
+            "detail": "route=agent; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "investigate",
+            "detail": "route=agent; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "ambiguous-owner",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "transfer",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "组合上下文缓存",
+            "detail": "完整重算 17.994066; 拼旧后缀 17.979331",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "hybrid",
+        "metrics": [
+          {
+            "label": "完成或转交数",
+            "value": 4
+          },
+          {
+            "label": "模拟成本单位",
+            "value": 4
+          },
+          {
+            "label": "缓存拼接对照",
+            "value": {
+              "reference": 17.994066,
+              "spliced": 17.979331,
+              "reusable": false
+            }
+          }
+        ],
+        "trace": [
+          {
+            "title": "fixed-report",
+            "detail": "route=workflow; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "investigate",
+            "detail": "route=agent; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "ambiguous-owner",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "transfer",
+            "detail": "route=human; 完成或安全转交=True",
+            "ok": true
+          },
+          {
+            "title": "组合上下文缓存",
+            "detail": "完整重算 17.994066; 拼旧后缀 17.979331",
+            "ok": false
+          }
+        ]
+      }
+    ]
+  },
+  "agent-memory-lifecycle": {
+    "module": "m42_memory_privacy",
+    "route": "agent-memory-lifecycle",
+    "title": "个人记忆 · 同意、过期与删除",
+    "book_chapter": 3,
+    "book_line": 15,
+    "symbols": [
+      "MemoryService"
+    ],
+    "modes": [
+      "flat",
+      "scoped",
+      "forget"
+    ],
+    "sha256": "ed903e4294999ff1d1448c7002bd0cbab64a4b83566af18b913f1b6dbd23baa5",
+    "cases": [
+      {
+        "mode": "flat",
+        "metrics": [
+          {
+            "label": "召回内容",
+            "value": [
+              "Python",
+              "Rust",
+              "Go"
+            ]
+          },
+          {
+            "label": "跨租户条数",
+            "value": 1
+          },
+          {
+            "label": "过期条数",
+            "value": 1
+          }
+        ],
+        "trace": [
+          {
+            "title": "首次会话",
+            "detail": "按作用域召回 ['Python']",
+            "ok": true
+          },
+          {
+            "title": "新会话 / 删除后",
+            "detail": "召回 ['Python', 'Rust', 'Go']; 越界=1, 过期=1",
+            "ok": false
+          },
+          {
+            "title": "主动服务",
+            "detail": "未开启主动提醒, 不发送个人记忆",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "scoped",
+        "metrics": [
+          {
+            "label": "召回内容",
+            "value": [
+              "Python"
+            ]
+          },
+          {
+            "label": "跨租户条数",
+            "value": 0
+          },
+          {
+            "label": "过期条数",
+            "value": 0
+          }
+        ],
+        "trace": [
+          {
+            "title": "首次会话",
+            "detail": "按作用域召回 ['Python']",
+            "ok": true
+          },
+          {
+            "title": "新会话 / 删除后",
+            "detail": "召回 ['Python']; 越界=0, 过期=0",
+            "ok": true
+          },
+          {
+            "title": "主动服务",
+            "detail": "未开启主动提醒, 不发送个人记忆",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "forget",
+        "metrics": [
+          {
+            "label": "召回内容",
+            "value": []
+          },
+          {
+            "label": "跨租户条数",
+            "value": 0
+          },
+          {
+            "label": "过期条数",
+            "value": 0
+          }
+        ],
+        "trace": [
+          {
+            "title": "首次会话",
+            "detail": "按作用域召回 ['Python']",
+            "ok": true
+          },
+          {
+            "title": "新会话 / 删除后",
+            "detail": "召回 []; 越界=0, 过期=0",
+            "ok": true
+          },
+          {
+            "title": "主动服务",
+            "detail": "未开启主动提醒, 不发送个人记忆",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  },
+  "agent-vector-index": {
+    "module": "m43_vector_index",
+    "route": "agent-vector-index",
+    "title": "向量索引 · 精确扫描与近似搜索",
+    "book_chapter": 3,
+    "book_line": 286,
+    "symbols": [
+      "exact",
+      "build_tree",
+      "tree_query",
+      "build_graph",
+      "graph_query"
+    ],
+    "modes": [
+      "exact",
+      "tree",
+      "graph"
+    ],
+    "sha256": "02d10a24abffd3d44289d72e97c783d6ae525d6314e4e8374decf20dc06464c1",
+    "cases": [
+      {
+        "mode": "exact",
+        "metrics": [
+          {
+            "label": "近邻召回率",
+            "value": 1.0
+          },
+          {
+            "label": "距离计算次数",
+            "value": 288
+          },
+          {
+            "label": "查询数",
+            "value": 12
+          }
+        ],
+        "trace": [
+          {
+            "title": "查询 1",
+            "detail": "近邻 1, 精确基准 1, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 2",
+            "detail": "近邻 3, 精确基准 3, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 3",
+            "detail": "近邻 5, 精确基准 5, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 4",
+            "detail": "近邻 7, 精确基准 7, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 5",
+            "detail": "近邻 9, 精确基准 9, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 6",
+            "detail": "近邻 11, 精确基准 11, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 7",
+            "detail": "近邻 13, 精确基准 13, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 8",
+            "detail": "近邻 15, 精确基准 15, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 9",
+            "detail": "近邻 17, 精确基准 17, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 10",
+            "detail": "近邻 19, 精确基准 19, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 11",
+            "detail": "近邻 21, 精确基准 21, 距离计算 24",
+            "ok": true
+          },
+          {
+            "title": "查询 12",
+            "detail": "近邻 23, 精确基准 23, 距离计算 24",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "tree",
+        "metrics": [
+          {
+            "label": "近邻召回率",
+            "value": 0.8333
+          },
+          {
+            "label": "距离计算次数",
+            "value": 36
+          },
+          {
+            "label": "查询数",
+            "value": 12
+          }
+        ],
+        "trace": [
+          {
+            "title": "查询 1",
+            "detail": "近邻 0, 精确基准 1, 距离计算 3",
+            "ok": false
+          },
+          {
+            "title": "查询 2",
+            "detail": "近邻 3, 精确基准 3, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 3",
+            "detail": "近邻 5, 精确基准 5, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 4",
+            "detail": "近邻 7, 精确基准 7, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 5",
+            "detail": "近邻 10, 精确基准 9, 距离计算 3",
+            "ok": false
+          },
+          {
+            "title": "查询 6",
+            "detail": "近邻 11, 精确基准 11, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 7",
+            "detail": "近邻 13, 精确基准 13, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 8",
+            "detail": "近邻 15, 精确基准 15, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 9",
+            "detail": "近邻 17, 精确基准 17, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 10",
+            "detail": "近邻 19, 精确基准 19, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 11",
+            "detail": "近邻 21, 精确基准 21, 距离计算 3",
+            "ok": true
+          },
+          {
+            "title": "查询 12",
+            "detail": "近邻 23, 精确基准 23, 距离计算 3",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "mode": "graph",
+        "metrics": [
+          {
+            "label": "近邻召回率",
+            "value": 0.6667
+          },
+          {
+            "label": "距离计算次数",
+            "value": 144
+          },
+          {
+            "label": "查询数",
+            "value": 12
+          }
+        ],
+        "trace": [
+          {
+            "title": "查询 1",
+            "detail": "近邻 1, 精确基准 1, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 2",
+            "detail": "近邻 3, 精确基准 3, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 3",
+            "detail": "近邻 5, 精确基准 5, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 4",
+            "detail": "近邻 6, 精确基准 7, 距离计算 12",
+            "ok": false
+          },
+          {
+            "title": "查询 5",
+            "detail": "近邻 6, 精确基准 9, 距离计算 12",
+            "ok": false
+          },
+          {
+            "title": "查询 6",
+            "detail": "近邻 13, 精确基准 11, 距离计算 12",
+            "ok": false
+          },
+          {
+            "title": "查询 7",
+            "detail": "近邻 13, 精确基准 13, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 8",
+            "detail": "近邻 15, 精确基准 15, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 9",
+            "detail": "近邻 17, 精确基准 17, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 10",
+            "detail": "近邻 19, 精确基准 19, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 11",
+            "detail": "近邻 21, 精确基准 21, 距离计算 12",
+            "ok": true
+          },
+          {
+            "title": "查询 12",
+            "detail": "近邻 6, 精确基准 23, 距离计算 12",
+            "ok": false
+          }
+        ]
+      }
+    ]
+  },
+  "agent-self-distillation": {
+    "module": "m44_self_distillation",
+    "route": "agent-self-distillation",
+    "title": "在轨自蒸馏 · 特权信息与部署边界",
+    "book_chapter": 8,
+    "book_line": 711,
+    "symbols": [
+      "rollout",
+      "score",
+      "train"
+    ],
+    "modes": [
+      "before",
+      "no-hint",
+      "privileged"
+    ],
+    "sha256": "ff511bde069696a53a1a22e100ea332c75d1ae024301247c9fc264988f8cbb18",
+    "cases": [
+      {
+        "mode": "before",
+        "metrics": [
+          {
+            "label": "无提示测试通过率",
+            "value": 0.0
+          },
+          {
+            "label": "训练阶段",
+            "value": "训练前"
+          }
+        ],
+        "trace": [
+          {
+            "title": "学生采样",
+            "detail": "按当前策略走向目标, 状态分布由自己的动作产生",
+            "ok": true
+          },
+          {
+            "title": "教师条件",
+            "detail": "同一模型额外看已验证方向提示",
+            "ok": true
+          },
+          {
+            "title": "无提示测试",
+            "detail": "隔离起点成功率 0%; 运行时提示恒为零",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "no-hint",
+        "metrics": [
+          {
+            "label": "无提示测试通过率",
+            "value": 0.0
+          },
+          {
+            "label": "训练访问状态数",
+            "value": 722
+          },
+          {
+            "label": "学生状态权重",
+            "value": -0.1
+          }
+        ],
+        "trace": [
+          {
+            "title": "学生采样",
+            "detail": "按当前策略走向目标, 状态分布由自己的动作产生",
+            "ok": true
+          },
+          {
+            "title": "教师条件",
+            "detail": "没有额外信息, 两分布相同",
+            "ok": false
+          },
+          {
+            "title": "无提示测试",
+            "detail": "隔离起点成功率 0%; 运行时提示恒为零",
+            "ok": false
+          }
+        ]
+      },
+      {
+        "mode": "privileged",
+        "metrics": [
+          {
+            "label": "无提示测试通过率",
+            "value": 1.0
+          },
+          {
+            "label": "训练访问状态数",
+            "value": 348
+          },
+          {
+            "label": "学生状态权重",
+            "value": 1.255452
+          }
+        ],
+        "trace": [
+          {
+            "title": "学生采样",
+            "detail": "按当前策略走向目标, 状态分布由自己的动作产生",
+            "ok": true
+          },
+          {
+            "title": "教师条件",
+            "detail": "同一模型额外看已验证方向提示",
+            "ok": true
+          },
+          {
+            "title": "无提示测试",
+            "detail": "隔离起点成功率 100%; 运行时提示恒为零",
+            "ok": true
+          }
+        ]
+      }
+    ]
+  }
+}

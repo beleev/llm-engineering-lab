@@ -21,8 +21,8 @@ const modules = import.meta.glob('@/components/labs/*.vue')
 const LABS = Object.fromEntries(
   Object.entries(modules).map(([file, loader]) => [
     file.split('/').pop().replace('.vue', ''),
-    // delay: 200 ms 内下载完就不闪占位框
-    defineAsyncComponent({ loader, loadingComponent: Loading, errorComponent: Failed, delay: 200 }),
+    // delay: 0 ms 内下载完就不闪占位框
+    defineAsyncComponent({ loader, loadingComponent: Loading, errorComponent: Failed, delay: 0 }),
   ]),
 )
 

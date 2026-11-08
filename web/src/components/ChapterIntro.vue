@@ -202,6 +202,8 @@ const codeRefs = computed(() => {
 }
 .meta-block {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
 }
@@ -222,6 +224,8 @@ const codeRefs = computed(() => {
 }
 .meta-codes {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 4px 6px;
   align-items: center;

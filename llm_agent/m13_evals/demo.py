@@ -152,6 +152,9 @@ def main() -> None:
     assert pass_at_k(10, 10, 3) == pass_hat_k(10, 10, 3) == 1.0, "10 次全成功时 pass@3 和 pass^3 都应是 1"
     assert pass_hat_k(10, 2, 3) == 0.0, "只成功 2 次时, 抽 3 次不可能全成功, pass^3 应是 0"
 
+    from llm_agent.m13_evals.diagnostics import main as diagnose_main
+    diagnose_main()
+
     print("\n  OK: 以环境终态判分 + 轨迹约束 + pass^k + 回归对比 = 敢改 agent 的底气。")
 
 

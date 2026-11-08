@@ -146,7 +146,7 @@
             <p class="stage-one">{{ s.oneliner }}</p>
             <!-- 章节名在侧栏里都有, 卡片上只报数 -->
             <div v-if="s.chapters" class="stage-files">
-              <span class="mono file-tag">共 {{ s.chapters.length }} 章</span>
+              <span class="mono file-tag">{{ s.groups.length }} 个主题 · {{ s.chapters.length }} 章</span>
             </div>
             <div v-else-if="s.files" class="stage-files">
               <RepoLink

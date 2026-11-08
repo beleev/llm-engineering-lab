@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import List, Optional, Tuple
 
@@ -84,7 +85,11 @@ class Agent:
         max_parallel: int = 4,
         name: str = "agent",
         load_history: bool = False,
+        tracer=None,
     ) -> None:
+        self.tracer = tracer
+        self._trace_root = None
+        self.reported_usage = []  # 服务端实报，与下方字符估算账本分开
         self.name = name
         self.llm: LLM = llm or RuleBasedLLM()
         self.tools = tools
@@ -121,6 +126,16 @@ class Agent:
 
     # ------------------------------------------------------------------ loop
     def run(self, prompt: str, verbose: bool = True) -> str:
+        if self.tracer is None:
+            return self._run(prompt, verbose)
+        with self.tracer.span('agent') as span:
+            self._trace_root = span['id']
+            try:
+                return self._run(prompt, verbose)
+            finally:
+                self._trace_root = None
+
+    def _run(self, prompt: str, verbose: bool = True) -> str:
         """处理一条用户 prompt, 返回最终回答的文本。
 
         一个 turn = 问一次模型。模型要工具, 就执行、回填结果、再问。
@@ -234,9 +249,9 @@ class Agent:
         # 第 2 步 执行通过授权的调用。pool.map 按输入顺序返回, 结果不会错位
         if len(approved) > 1:  # 并行: 总耗时 ≈ 最慢的那个, 而不是求和
             with ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
-                outs = list(pool.map(self.tools.execute, [c for _, c in approved]))
+                outs = list(pool.map(self._execute_traced, [c for _, c in approved]))
         else:
-            outs = [self.tools.execute(c) for _, c in approved]
+            outs = [self._execute_traced(c) for _, c in approved]
         for (i, _), out in zip(approved, outs):
             results[i] = out
 
@@ -259,13 +274,29 @@ class Agent:
                 print(f"  [{self.name}] tool_result {call.id} -> {shorten(result.output)}")
         return results, notes
 
+    def _execute_traced(self, call):
+        if self.tracer is None:
+            return self.tools.execute(call)
+        with self.tracer.span('tool', parent=self._trace_root, operation=call.id) as span:
+            result = self.tools.execute(call)
+            span['status'] = 'ok' if result.ok else 'error'
+            return result
+
     # --------------------------------------------------------------- context
     def _ask_model(self, context: List[Message], tools: Optional[list] = None) -> ModelAction:
-        """问一次模型, 顺手记账。token 数是 estimate_tokens 的粗估, 不是 API 返回的 usage。
+        """问一次模型, 顺手记账。usage 为 estimate_tokens 粗估；服务端实报另存 reported_usage，不混加。
 
         tools 不给就带上全部工具定义。所有模型调用 (包括 _compact 的摘要) 都走这里记账。
         """
-        action = self.llm.next(context, self.tools.schemas() if tools is None else tools)
+        with self.tracer.span('model', parent=self._trace_root) if self.tracer else nullcontext() as span:
+            action = self.llm.next(context, self.tools.schemas() if tools is None else tools)
+            usage = getattr(self.llm, 'last_usage', None)
+            if usage is not None:
+                self.reported_usage.append(dict(usage))
+                if span is not None:
+                    span['usage'] = dict(usage)
+                    span['usage_source'] = 'provider'
+
         tokens = sum(estimate_tokens(m.text) for m in context)
         self.usage["llm_calls"] += 1
         self.usage["input_tokens"] += tokens  # 每次调用都要重发整个上下文: 这就是长会话贵的原因

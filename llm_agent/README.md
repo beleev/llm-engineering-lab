@@ -17,14 +17,15 @@
 - **原理优先**: 默认"模型"是 `RuleBasedLLM` (关键词规则), 行为完全确定 —— 所以每个 demo 都能用 `assert` 证明自己声称的行为, 而不是无条件打印 OK。
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
 - **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
-- **安全可跑**: `ShellTool` 只模拟、永不执行; 没有网络; 文件只写临时目录; 唯一的子进程是 m09 用 `sys.executable` 拉起本包自己的 MCP server。
-- **零依赖**: 默认路径只用 stdlib。CI 在 Python 3.10 和 3.13 上跑。
+- **安全可跑**: `ShellTool` 只模拟、永不执行; 不访问外网，m55 使用本机 HTTP; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
+- **基础模块零依赖**: 原基础模块用 stdlib，研究补充使用 numpy。`--with-training` 加入 m32 / m37 / m44 / m45 / m46 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 运行
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 全部默认 demo, 任何断言失败即非零退出
+python -m llm_agent.run_all                 # 54 个默认 demo，使用标准库与 numpy
+python -m llm_agent.run_all --with-training # 加入 5 个 CPU 训练扩展, 共 59 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
 
@@ -47,7 +48,11 @@ m13 Evals ─ m14 Context Engineering ─ (m15 真实模型, opt-in)            
       │
 m16 RAG ─ m17 Computer Use ─ m18 A2A ─ m19 Prompt Caching                  扩展面: 知识、界面、别的 agent、成本
       │
-full_loop  把以上全部拼在一起, 逐场景断言
+full_loop  把执行机制拼在一起, 逐场景断言
+      │
+m20 记忆更新 ─ m21 完成验收 ─ m22 故障恢复 ─ m23 上下文成本
+      │
+m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评估
 ```
 
 ### 模块清单
@@ -73,7 +78,16 @@ full_loop  把以上全部拼在一起, 逐场景断言
 | 17 | [Computer Use](m17_computer_use/) | 无障碍树快照 → click / type / scroll、ref vs 坐标点击、页面注入拦截 | `m17_computer_use/demo.py` |
 | 18 | [A2A](m18_a2a/) | Agent Card、任务状态机 (input-required)、artifact、与 MCP 的分工 | `m18_a2a/demo.py` |
 | 19 | [Prompt Caching](m19_prompt_caching/) | cache_control 断点、前缀字节匹配、写贵读便宜、TTL、时间戳反例 | `m19_prompt_caching/demo.py` |
+| 20 | [记忆更新 · 来源、范围与版本](m20_memory_lifecycle/) | 记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。 | `m20_memory_lifecycle/demo.py` |
+| 21 | [完成验收 · 说完不等于做完](m21_completion_verification/) | 把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。 | `m21_completion_verification/demo.py` |
+| 22 | [故障恢复 · 重试、幂等与取消](m22_runtime_reliability/) | 超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。 | `m22_runtime_reliability/demo.py` |
+| 23 | [上下文成本 · 压缩与缓存一起算](m23_context_cache/) | 比较净成本, 同时检查范围、否定和来源是否保留。 | `m23_context_cache/demo.py` |
+| 24 | [检索证据 · 从相关到足够回答](m24_agentic_rag/) | 别名、对象、版本与答案形成完整证据链, 才能输出结果。 | `m24_agentic_rag/demo.py` |
+| 25 | [轨迹学习 · 先验证，再造训练数据](m25_trajectory_learning/) | 结果、来源、授权和预算一起决定轨迹能否进入训练集。 | `m25_trajectory_learning/demo.py` |
+| ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
+
+新增扩展的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 55 个 demo，加 `--with-training` 后共 60 个（m15 在线 demo 仍需主动开启）。
 
 ## 实现说明
 
@@ -105,17 +119,80 @@ full_loop  把以上全部拼在一起, 逐场景断言
 | 权限: 规则 + 模式 + plan mode | yes | m03 / m10; 黑名单局限已当场演示 |
 | OS 级沙箱 / 真实 shell | no | 教学安全: 只模拟; 路径围栏见 m12 |
 | Hooks (7 事件) | yes | Stop 仅通知, 不能阻止结束 |
-| Skills 渐进式披露 | yes | 两层 (目录 / 正文), 未做第三层附件 |
+| Skills 渐进式披露 | yes | m05 为目录/正文两层；m33 演示 index / SKILL / rules 三层资料及版本发布 |
 | MCP | partial | 真实 stdio + tools; 无 resources / prompts / HTTP / OAuth |
 | 持久化 / resume / compact boundary | yes | m06 / m14 |
 | Subagents / orchestrator-workers | yes | m07 / m11; lead 不会多轮重规划 |
-| 检索 | partial | m08 TF-IDF; m16 切块 + BM25 + 字符级稠密 + RRF + rerank; 无神经 embedding / ANN |
-| Computer use / A2A | partial | m17 模拟浏览器 (无真实渲染); m18 进程内 A2A (无 HTTP / 流式 / 推送) |
+| 检索 | partial | m08/m16 覆盖词面与字符特征检索；m43 有固定向量 ANN 机制实验；无训练过的语义 embedding、完整 ANNOY/HNSW |
+| Computer use / A2A | partial | m17 模拟浏览器，m35 可选真实 Chromium 截图/点击（颜色定位）；m18 仍为进程内 A2A，无 HTTP/流式/推送 |
 | Context editing / compaction / memory tool | yes | m14; 预算按字符, token 为估算 |
 | Prompt injection 防护 / 脱敏 | partial | 正则特征 + 轮级污点; 无信息流追踪。各层挡不住什么, 见 m03 / m07 / m09 / m12 / m17 的「与真实系统的差距」 |
-| Evals | partial | 小任务集; 无 LLM-as-judge、置信区间 |
+| Evals | partial | m13/m31 有终态、轨迹、裁判校准夹具及配对 bootstrap；无真实 LLM-as-judge 或大规模任务验证 |
 | 真实 LLM | opt-in | m15; 无 streaming / 重试 |
 | Prompt caching | partial | m19 离线模拟计费与 TTL; m15 的真实调用未启用 |
 
 读完本目录再看 Claude Code / Claude Agent SDK / OpenHands / LangGraph, 可以把复杂系统拆成几条主线:
 **模型怎么选动作、工具怎么执行、权限怎么拦、上下文怎么控、状态怎么留、子任务怎么隔离、不可信输入怎么防、改动之后怎么验。**
+
+## 全书知识补齐实验
+
+继续沿用扩展层, 主线阅读顺序不变。逐节来源和覆盖层次见 [知识覆盖表](../docs/agent-book-coverage.md)。
+
+| 模块 | 读完能解释什么 |
+|---|---|
+| [m26_tool_discovery](m26_tool_discovery/README.md) | 先发现能力, 再加载经过版本核验的工具定义。 |
+| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。 |
+| [m28_coding_agent](m28_coding_agent/README.md) | 读取、精确修改、运行测试和终态验收组成一次修复。 |
+| [m29_async_runtime](m29_async_runtime/README.md) | 请求取消和确认停止之间有状态; 已提交的副作用仍然存在。 |
+| [m30_collaboration](m30_collaboration/README.md) | 没有文本冲突不代表合并后满足共同约束。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。 |
+| [m32_agent_training](m32_agent_training/README.md) | 进入环境采样、计算奖励、更新参数, 再用隔离任务验收。 |
+| [m33_skill_evolution](m33_skill_evolution/README.md) | 先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 坐标属于一次观察, 提交前还要核对当前对象。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | 动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。 |
+| [m37_midtraining](m37_midtraining/README.md) | 中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。 |
+| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序让执行可重复, 但规则、数据接口和生成结果仍须验证。 |
+| [m39_meta_optimization](m39_meta_optimization/README.md) | 回放只能重组走过的分支; 学习搜索方法也需要独立测试。 |
+| [m40_agent_society](m40_agent_society/README.md) | 个体奖励、公共目标和交互历史共同决定协作结果。 |
+| [m41_system_design](m41_system_design/README.md) | 按任务不确定性分配自主性, 按证据与预算约束执行。 |
+| [m42_memory_privacy](m42_memory_privacy/README.md) | 授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。 |
+
+新增 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
+
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 近似索引用更少的距离计算换召回率, 必须保留精确基准。
+
+- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师分支可以多看验证信息, 学生部署时仍只能看普通观察。
+
+## 教学链条补充
+
+- [m45 语义检索与重排](m45_semantic_retrieval/README.md)：需要 torch；加入 run_all --with-training。
+- [m15 流式运行时](m15_claude_api/README.md)：离线协议夹具加入默认 run_all，在线 demo 仍需主动配置凭据。
+- [m31 trace/span](m31_eval_suite/README.md)：实际 Agent 调用链的并发、重试、取消。
+- [多轮模板](../llm_finetune/run_finetune/chat_template/README.md) 与 [RFT](../llm_finetune/run_finetune/rft/README.md)：接回训练数据和策略更新。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [RAG：答案误差如何反传到检索器](m46_joint_rag/README.md) | 检索器选错文档时，只训练生成器可能让它背答案；让答案损失影响检索，才有机会改进证据选择。 |
+| [有效上下文：看得到，不等于用得上](m47_context_utilization/README.md) | 模型能接收很长输入，不代表能稳定利用中间的一小段证据。理论可达、检索命中和正确组合是三件事。 |
+| [安全与治理：误拒、漏拦和责任记录](m48_safety_governance/README.md) | 正常文档可以讨论攻击，恶意文档也可以不含攻击关键词。权限需要依据可信的用户授权，而不是文档措辞。 |
+| [学习世界模型：预测和反馈的差别](m49_learned_world/README.md) | 世界模型根据动作预测下一步；控制器还需要在预测出错后重新观察。能生成连贯视频，并不等于能控制真实世界。 |
+| [代码任务：跨文件修改与独立验收](m50_repository_verification/README.md) | 一个函数通过测试，不等于整个仓库的行为正确。接口单位变了，调用方也必须理解同一个约定。 |
+| [形式证明与科学假设：三种正确](m51_formal_science/README.md) | 一个数算对了、一个命题证出来了、一条现实规律成立了，依赖的是不同证据。 |
+| [专业领域：证据时效、地域与复核](m52_domain_workflows/README.md) | 专业任务的错误往往不是句子不通，而是引用了过期规则、错误地域或不适用的人群。 |
+| [工具学习：从候选调用到训练数据](m53_tool_data/README.md) | 工具调用执行成功，不代表值得教给模型。训练数据应保留能帮助后续预测的调用，并计算额外成本。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [文档入库、来源定位、权限与更新删除](m54_document_lifecycle/README.md)
+- [MCP 旧新版本对照与 HTTP 资源端授权](m55_mcp_versions/README.md)
+- [切片门槛、线上质量与版本回滚](m56_release_loop/README.md)
+- [检查点版本迁移、权限重验与提交后强退恢复](m57_checkpoint_migration/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

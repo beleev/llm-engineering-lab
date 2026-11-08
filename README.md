@@ -1,6 +1,6 @@
 # LLM Engineering Lab
 
-A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments and 108 interactive labs. The tutorial text is primarily in Chinese.
+A hands-on lab for learning LLM engineering: build a Transformer from scratch, explore model architectures, simulate distributed training, fine-tune and align models, optimize inference, and build agents. Includes CPU-runnable Python experiments, interactive visualizations, and replayable execution evidence across six learning stages. The tutorial text is primarily in Chinese.
 
 [在线教程 / Interactive tutorial](https://beleev.github.io/llm-engineering-lab/) · [v1.0.0](https://github.com/beleev/llm-engineering-lab/releases/tag/v1.0.0) · [贡献指南 / Contributing](CONTRIBUTING.md) · [引用 / Cite](CITATION.cff)
 
@@ -16,7 +16,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
 - 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
-- 配套 **交互式 Web 教程**：108 个可拖、可点、可单步播放的实验台，284 道章末自测，195 条术语速查。页面上的代码直接取自仓库里的 Python 源文件。
+- 配套 **交互式 Web 教程**：六阶段、26 个主题组、107 个章节入口（101 个三级章节 + 6 个总览）、178 个实验入口，396 道章末自测，248 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -28,15 +28,15 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 阶段 2 · llm_models      PyTorch 实现 23 个模型: 2017 Transformer → 2025 GPT-OSS / LLaDA / Qwen3-Next
     ↓
 阶段 3 · llm_train       纯 numpy 模拟大规模训练: DDP / TP / PP / ZeRO / EP / Ring + Ulysses / FP8 / FP4 / Muon
-                          以及数据去重与 packing、scaling law、μP、评测
+                          以及数据去重与 packing、scaling law、μP、课程/合成数据、校准与多语言评测
     ↓
 阶段 4 · llm_finetune    SFT / LoRA / QLoRA / DoRA / DPO / KTO / SimPO / ORPO / RM / PRM / PPO / GRPO 及变体
-                          / RLAIF / 模型合并 / 离线与在线蒸馏
+                          / IPO / RLAIF / 在线偏好 / Prompt-Prefix-Adapter / 知识编辑 / DP 与遗忘 / 蒸馏
     ↓
-阶段 5 · llm_infer       27 个推理优化模块 (含测试时计算、多副本路由) + 真分页的 mini-vLLM 引擎
+阶段 5 · llm_infer       34 个推理模块 (含推理图、剪枝融合、端侧预算与服务容量) + 真分页的 mini-vLLM 引擎
     ↓
 阶段 6 · llm_agent       Agent 循环 / 工具 / 权限 / 上下文工程 / Hook / Skill / MCP / 子智能体 / 护栏 / 评测
-                          / RAG / Computer use / A2A / Prompt caching
+                          / RAG 联合目标 / Computer use / A2A / 记忆 / 验收恢复 / 学习世界模型 / 代码与形式验证
 ```
 
 推荐节奏：**先在网页上拖实验台建立直觉 → 做章末自测 → 再跑对应的 Python demo 读源码**。模块目录下的 README 大体按这个顺序写：
@@ -45,13 +45,56 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 各包首页统一为「概览 → 运行 → 模块与阅读顺序 → 实现说明 → 边界」。
 
+Agent 新增扩展见 [从执行到验证与改进](docs/agent-extensions.md)：首错诊断、记忆更新、完成验收、重试与取消、上下文净成本、多跳证据、轨迹学习和四阶段改进评估。
+
+### 知识覆盖与新增实验
+
+本次内容整理保留六阶段与 26 个二级主题：五对章节合并，QK-Norm / YaRN 分别归入注意力与位置编码，SWA / 混合线性结构也按原理重归属。旧链接仍跳到对应段落；旧自测成绩归档，合并后的章节需重新验收。六组重复回放集中到各自主讲页，其他章节用说明与跳转连接；温度和掩码基础实验各保留一个完整入口。知识更新与可验证推理整理为两个三级专题。
+
+工程实验现有 **9 组、49 个条件**：
+
+| 主讲章节 | 可运行内容 |
+| --- | --- |
+| 选型与落盘 | [交付包、新进程加载与错误配置拒绝](llm_finetune/run_finetune/artifact_delivery/README.md) |
+| RAG | [文档解析、权限、索引更新与引用失效](llm_agent/m54_document_lifecycle/README.md) |
+| MCP | [旧新报文对照、本机 HTTP 与授权反例](llm_agent/m55_mcp_versions/README.md) |
+| GRPO 进阶 | [策略版本、队列背压与重要性校正](llm_finetune/run_finetune/async_rollout/README.md) |
+| 评测套件 | [切片门槛、小流量回放与发布回滚](llm_agent/m56_release_loop/README.md) |
+| 算子与调度开销 | [真实 CPU profiler 与选做 CUDA 测量](llm_infer/m32_profiling/README.md) |
+| 服务调度 | [租户公平轮转、配额与 goodput](llm_infer/m33_tenant_scheduling/README.md) |
+| 会话持久化与恢复 | [版本迁移、权限重验与提交后强退恢复](llm_agent/m57_checkpoint_migration/README.md) |
+| 前缀缓存 | [可信共享域、模型/adapter 身份与错误命中](llm_infer/m34_cache_identity/README.md) |
+
+新增流程默认使用小模型或固定夹具；MCP HTTP 仅在本机运行。网页明确区分实测、确定性模拟与执行记录回放，不把它们作为真实大模型或生产服务的能力证明。
+
+[六阶段知识复查](docs/knowledge-audit.md) 与 [九项补充验收](docs/knowledge-completion.md) 保留前期发现与修复。研究方向长图的 [原始审计](docs/image-knowledge-audit.md) 固定在 `23f1c93`；后续 **11 个方向、45 个主题、90 条原差距**的处理见 [补充覆盖与边界](docs/research-completion.md)。原审计保留历史状态，不把当时的“缺失”误当作当前结果。
+
+2026-11-08 的 [内容重叠与关键缺口审查](docs/tutorial-overlap-gap-audit.md) 区分重复实验入口、跨阶段递进和未串通的工程流程，并给出章节归属及验收建议。原报告保留发现时的基线；逐项落实、运行结果和生产边界见 [工程补全与整理记录](docs/engineering-completion.md)。
+
+本轮 [章节归并审查](docs/tutorial-consolidation-audit.md) 的逐项落实见 [归并与边界实验验收](docs/tutorial-consolidation-completion.md)。新增三组实验分别是确定性服务量模拟、真实磁盘与进程恢复、真实缓存键/指纹检查；不把它们描述为 GPU 调度实测或完整分布式隔离。
+
+按 ai-agent-book 固定版本逐节对照的讲解、实验与边界见 [知识覆盖表](docs/agent-book-coverage.md)。Agent 模块现扩展到 m57，保留真实代码修复、异步任务、CPU 小模型训练与可选浏览器验证。
+
+研究方向长图补充共 **25 组实验、76 个对照条件、25 道自测和 20 条术语**，继续归入原有三级章节；没有新增二级主题组。
+
+| 学习位置 | 新增内容与阅读入口 |
+| --- | --- |
+| 数据与评测 | [课程与主动选域](llm_train/m23_data_curriculum/README.md)、[多代合成反馈](llm_train/m24_synthetic_feedback/README.md)、[校准/拒答/人工评价](llm_train/m25_reliability_metrics/README.md)、[多语言](llm_train/m26_multilingual/README.md) |
+| 微调与对齐 | [IPO](llm_finetune/run_finetune/ipo/README.md)、[四类 PEFT](llm_finetune/run_finetune/peft_comparison/README.md)、[在线偏好](llm_finetune/run_finetune/online_preference/README.md)、[知识编辑](llm_finetune/run_finetune/knowledge_edit/README.md)、[隐私与遗忘](llm_finetune/run_finetune/privacy_unlearning/README.md) |
+| 模型与多模态 | [递归记忆/分层读取](llm_models/run_models/foundation/hierarchical_memory/README.md)、[机制解释/SAE](llm_models/run_models/foundation/interpretability/README.md)、[视觉任务](llm_models/run_models/multimodal/vision_tasks/README.md)、[音频信号链](llm_models/run_models/multimodal/audio_pipeline/README.md)、[媒体一致性与来源](llm_models/run_models/generative/media_evaluation/README.md) |
+| 推理与设备 | [链/树/图推理](llm_infer/m29_reasoning_graph/README.md)、[剪枝与融合](llm_infer/m30_pruning_fusion/README.md)、[端侧预算](llm_infer/m31_edge_budget/README.md) |
+| Agent 与知识 | [RAG 联合目标](llm_agent/m46_joint_rag/README.md)、[有效上下文](llm_agent/m47_context_utilization/README.md)、[安全与治理](llm_agent/m48_safety_governance/README.md)、[工具数据筛选](llm_agent/m53_tool_data/README.md) |
+| 行动与验收 | [学习世界模型](llm_agent/m49_learned_world/README.md)、[仓库级代码验证](llm_agent/m50_repository_verification/README.md)、[形式证明与科学验证](llm_agent/m51_formal_science/README.md)、[专业领域工作流](llm_agent/m52_domain_workflows/README.md) |
+
+这些补充包含实际梯度更新、采样、像素/波形计算和独立进程验收，也包含明确标注的预算模型。网页按钮切换的是 **Python 实际运行记录**，不会现场训练或调用 API。真实大模型泛化、多机 GPU 性能、真实机器人与领域上线效果尚未据此验证；不能把教学闭环当成这些能力的完成证明。
+
 ## 安装与运行
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.10; 阶段 2/4 需要 torch, 阶段 1/3/5 只要 numpy, 阶段 6 纯标准库
+pip install -e ".[dev]"      # Python ≥ 3.10；包含 numpy / torch；不需要 GPU
 python main.py               # 冒烟: 每个核心模型跑一次前向, 断言初始 loss ≈ ln V、KV cache 有无一致
 
-pytest                       # 所有 demo / infer 脚本 (约 1.5 分钟)
+pytest                       # 所有 demo / infer 脚本, 耗时依机器而定
 pytest -m slow               # 所有训练脚本
 ```
 
@@ -61,9 +104,28 @@ pytest -m slow               # 所有训练脚本
 python -m llm_train.run_all
 python -m llm_finetune.run_all
 python -m llm_infer.run_all
-python -m llm_agent.run_all
+python -m llm_agent.run_all                  # 标准库 + numpy 的离线模块
+python -m llm_agent.run_all --with-training  # 加上五个 torch 训练扩展
 cd llm_basic && python gradcheck.py && python train.py && python sample.py "ROMEO:"
 ```
+
+只跑工程补全与内容一致性检查：
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-engineering-completion.py --check
+python scripts/check-engineering-coverage.py
+pytest tests/test_engineering_completion.py tests/test_curriculum_consolidation.py
+```
+
+研究方向补充与证据检查（CPU；不调用模型 API）：
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python scripts/run-research-completion.py
+python scripts/check-research-coverage.py
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-research-completion.py --check
+```
+
+修改实验后先重新导出 `web/scripts/export-research-completion.py`，核对各模块 README 中的结果，再运行 `--check`。旧的 `export-knowledge-completion.py` 摘要覆盖全仓库 Python，Python 源码变化后也要重新导出。浏览器回归命令见 [补充验证记录](docs/research-completion-validation.md)。
 
 单个模块：
 
@@ -79,9 +141,23 @@ python -m llm_agent.m09_mcp.demo
 Web 教程：
 
 ```bash
-cd web && npm install && npm run dev
-npm run check:sources        # 校验页面引用的每个 Python 符号都还存在
+cd web
+npm install
+npm run dev
 ```
+
+构建与内容检查（另开终端，在 `web` 目录运行）：
+
+```bash
+npm run check:sources        # 页面引用的 Python 符号
+npm run check:math           # 公式渲染
+npm run check:quiz           # 自测题结构
+npm run check:evolution      # 章节演进内容
+npm run check:consolidation  # 章节归属、旧链接与进度迁移
+npm run build
+```
+
+本轮归并验证记录见 [验收数据](docs/tutorial-consolidation-validation.json)：Python 测试 299 项通过，39 项慢速训练测试未运行；源码引用、公式、自测和生产构建检查通过。六个阶段总览的「按主题阅读」目录与后续卡片已统一留白，并验证了亮/暗主题、桌面/窄屏、展开/收起的 48 种组合。
 
 ## 技术覆盖
 
@@ -140,13 +216,15 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 方向 | 模块 |
 |------|------|
 | 省 KV 显存 | KV Cache · PagedAttention · Prefix Cache · Radix Cache · KV 占用对比 / MLA 解码 · 分层 KV offload |
-| 调度 | Continuous Batching（含抢占）· Chunked Prefill（Sarathi 混批）· P/D 分离 |
+| 调度 | Continuous Batching（含抢占）· Chunked Prefill（Sarathi 混批）· P/D 分离 · 租户公平轮转 / 配额 / goodput 模拟 |
 | 少算几次 | Speculative Decoding（拒绝采样 + 分布保持检验）· EAGLE · 树状投机 · 稀疏注意力解码 |
 | 压缩 | INT8 / group-wise INT4 / AWQ · GPTQ · SmoothQuant（W8A8）· FP8 · KIVI KV 量化 |
 | 算子与并行 | FlashAttention（Q/KV 双向分块 + LSE）· Flash-Decoding（split-K）· Tensor Parallel · CUDA Graph · MoE 推理 EP + EPLB |
 | 输出控制 | Sampling · Beam Search · Structured Output（token 级预编译语法 mask）· Attention Sinks（SinkCache）· Multi-LoRA |
 | 测试时计算 | best-of-N · 多数投票 · PRM 引导搜索 · budget forcing |
 | 多副本 | 前缀感知路由 + 负载阈值兜底 |
+| 缓存边界 | 可信共享域 · 模型 / adapter 身份与版本 · 缓存错误命中对照 |
+| 性能与设备 | CPU profiler · 选做 CUDA 测量 · 剪枝与融合 · 端侧预算模型 |
 
 `full_engine` 是真分页的 mini-vLLM：物理 KV block 池、前缀命中真的跳过计算、分块 prefill 混批、recompute 抢占，**每条输出与朴素 greedy 逐 token 相同**。
 
@@ -160,20 +238,22 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 扩展 | Hooks · Skills 渐进式披露 · 真 MCP（stdio JSON-RPC）· A2A（agent 之间的任务协议） |
 | 操作界面 | Computer use（无障碍树观察、按元素 ref 点击） |
 | 编排 | 计划模式 · 子智能体 · orchestrator–workers |
-| 运维 | JSONL 持久化与恢复 · Agent 评测（pass@k / pass^k） |
+| 运维 | JSONL 持久化与恢复 · checkpoint 版本迁移 / 权限重验 / 提交后强退恢复 · Agent 评测（pass@k / pass^k）· 发布门槛与回滚 |
 | 接真模型 | 可选的 Claude API 适配器，默认不联网 |
 
 工具全部是模拟或沙箱内的，可以放心跑。
 
 ## Web 教程
 
-### 86 章不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
+### 不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
 
 | 档位 | 章数 | 用时 (粗估) | 读完能干什么 |
 |------|-----:|------------|--------------|
-| ★ 冲刺 | 12 | 约 1.7 小时 | 每个阶段最核心的那一两页, 接得上下一阶段 |
-| ● 主干 | 42 | 约 5.9 小时 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
-| ○ 全部 | 86 | 约 11.5 小时 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+| ★ 冲刺 | 12 | 约 2 小时 22 分 | 每个阶段最核心的那一两页, 接得上下一阶段 |
+| ● 主干 | 42 | 约 7 小时 50 分 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
+| ○ 全部 | 108 | 约 17 小时 37 分 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+
+「全部」按速成路线页统计：107 个六阶段章节入口，加 1 个总览对照表；不含主线首页与术语速查。用时取当前页面估算，内容更新后以网页为准。
 
 分层只是阅读建议, 不影响任何章节的内容。侧栏可以按档位收起扩展章, 每章开头标着它属于哪一层,
 章内最该带走的那条结论有「重点」徽章。用时按内容字数粗估, 只用来排计划。
@@ -292,3 +372,7 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 ## License
 
 MIT
+
+## 六阶段教学链条补充
+
+[九项补齐记录](docs/knowledge-completion.md) 汇总多轮模板、trace/span、RFT、流式适配器、语义检索、多维并行、服务容量、多模态入口与感受野的证据及边界。保持原六阶段、26 个二级主题；新增实验并入现有三级页面。

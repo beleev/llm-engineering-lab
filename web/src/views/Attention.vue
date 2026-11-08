@@ -314,7 +314,8 @@
 
     <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 没配置时不渲染 -->
 
-    <LabMount />
+    <LabMount :names="['ResearchCompletionLab']" />
+    <TopicSupplement v-for="section in topicPages.attention?.sections || []" :key="section.id" :section="section" />
 
     <QuizCard />
 
@@ -327,6 +328,8 @@
 </template>
 
 <script setup>
+import TopicSupplement from '@/components/TopicSupplement.vue'
+import { topicPages } from '@/data/models.js'
 import Tex from '@/components/Tex.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'

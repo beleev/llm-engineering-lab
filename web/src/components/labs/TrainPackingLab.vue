@@ -29,7 +29,7 @@
       </div>
     </template>
 
-    <div class="pk">
+    <div class="pk lab-scroll">
       <div class="grid" :style="{ gridTemplateColumns: `40px repeat(${T}, 24px)` }">
         <span />
         <span v-for="s in T" :key="'h' + s" class="hd mono" :class="'d' + (doc[s - 1] % 4)">{{ doc[s - 1] + 1 }}</span>

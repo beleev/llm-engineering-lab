@@ -133,4 +133,33 @@ DPO 的 EM 在表里有两个数:
 
 ### 未实现
 
-RFT / best-of-N → SFT (最简单的 RL 基线); QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采到凑满 batch" 与 overlong 惩罚; IPO。
+QLoRA 的 double quantization 与 paged optimizer; DAPO 动态采样的 "补采到凑满 batch" 与 overlong 惩罚; IPO。
+
+## 从 Agent 轨迹构造学习数据
+
+[轨迹学习实验](../llm_agent/m25_trajectory_learning/README.md) 把结果、授权、来源和预算转换为 SFT 样本、偏好对与过程标签, 并按实体切分留出集。它验证数据入口, 不重复实现本章算法, 也不宣称已完成模型训练。
+
+## 多轮模板与拒绝采样微调
+
+[Chat Template](run_finetune/chat_template/README.md) 补消息→token→多轮监督；[RFT](run_finetune/rft/README.md) 在同一小 LLaMA 上对比示范 SFT、筛选采样后 SFT、在线 RL，报告任务保留偏差。
+
+## 研究方向补充
+
+这些模块归入原有章节。全部为离线 CPU 教学实验；结果与真实模型、硬件实测的边界见各模块 README。
+
+| 模块 | 关注的问题 |
+| --- | --- |
+| [IPO：偏好间隔为何有有限目标](run_finetune/ipo/README.md) | 成对标签说 A 比 B 好，并没有要求把 B 的概率压到零。IPO 用有限的相对概率间隔作为优化目标。 |
+| [PEFT：Prompt、Prefix、Adapter 与 LoRA](run_finetune/peft_comparison/README.md) | 冻结基座并不意味着只能改提示词。四种方法把可训练参数放在不同位置，影响梯度路径和部署代价。 |
+| [在线偏好：更新后还符合谁的偏好](run_finetune/online_preference/README.md) | 策略变了，采到的回答也会变。持续学习需要重新收集偏好，同时防止把“用户爱听”学成“事实可以错”。 |
+| [知识编辑：改对一个事实，伤到多少邻居](run_finetune/knowledge_edit/README.md) | 改参数里的事实不像改数据库的一行。共享表示会让一次更新影响相似实体、别名和关联事实。 |
+| [隐私：记忆提取、DP 与参数遗忘](run_finetune/privacy_unlearning/README.md) | 拒绝复述某条记录不代表模型没有记住它；攻击没成功，也不等于已经证明隐私安全。 |
+
+全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。逐项映射见 [长图补充覆盖与边界](../docs/research-completion.md)。
+
+## 工程流程补充
+
+- [模型交付包与独立进程一致性](run_finetune/artifact_delivery/README.md)
+- [异步 rollout、策略版本与概率校正](run_finetune/async_rollout/README.md)
+
+网页只在主讲章节挂完整实验，其他章节保留说明与跳转。整体整理与验收见 [工程补全记录](../docs/engineering-completion.md)。

@@ -1,5 +1,23 @@
 // 阶段 6 · llm_agent 的实验台挂载
-export default {
+const labs = {
+  'agent-self-distillation': ['AgentCoverageLab'],
+  'agent-vector-index': ['AgentCoverageLab'],
+  'agent-tool-discovery': ['AgentCoverageLab'],
+  'agent-knowledge-organization': ['AgentCoverageLab'],
+  'agent-coding-agent': ['AgentCoverageLab'],
+  'agent-async-runtime': ['AgentCoverageLab'],
+  'agent-eval-suite': ['AgentCoverageLab'],
+  'agent-agent-training': ['AgentCoverageLab'],
+  'agent-skill-evolution': ['AgentCoverageLab'],
+  'agent-voice-interaction': ['AgentCoverageLab'],
+  'agent-visual-grounding': ['AgentCoverageLab'],
+  'agent-embodied-control': ['AgentCoverageLab'],
+  'agent-midtraining': ['AgentCoverageLab'],
+  'agent-programmatic-actions': ['AgentCoverageLab'],
+  'agent-meta-optimization': ['AgentCoverageLab'],
+  'agent-agent-society': ['AgentCoverageLab'],
+  'agent-system-design': ['AgentCoverageLab'],
+
   'agent-loop': ['AgentLoopLab'],
   'agent-tools-permissions': ['AgentPermissionLab'],
   'agent-context-memory': ['AgentCjkLab'],
@@ -8,12 +26,21 @@ export default {
   'agent-full-loop': ['AgentHarnessLab'],
   'agent-mcp': ['AgentMcpLab'],
   'agent-planning': ['AgentPlanModeLab'],
-  'agent-orchestrator': ['AgentOrchestratorLab'],
+  'agent-orchestrator': ['AgentOrchestratorLab', 'AgentCoverageLab'],
   'agent-guardrails': ['AgentInjectionLab'],
-  'agent-evals': ['AgentEvalLab'],
+  'agent-evals': ['AgentEvalLab', 'AgentDiagnosisLab'],
   'agent-context-engineering': ['AgentContextLab'],
   'agent-a2a': ['AgentA2aLab'],
   'agent-computer-use': ['AgentComputerUseLab'],
-  'agent-prompt-caching': ['AgentPromptCacheLab'],
+  'agent-prompt-caching': ['AgentPromptCacheLab', 'AgentContextCostLab'],
   'agent-rag': ['AgentRagLab'],
+  'agent-memory-lifecycle': ['AgentMemoryLifecycleLab', 'AgentCoverageLab'],
+  'agent-completion-verification': ['AgentCompletionLab'],
+  'agent-runtime-reliability': ['AgentRetryLab', 'AgentCancellationLab'],
+  'agent-evidence-chain': ['AgentEvidenceLab'],
+  'agent-trajectory-learning': ['AgentTrajectoryLab'],
+  'agent-learning-loop': ['AgentLearningLab'],
 }
+
+for (const route of ["agent-trajectory-learning", "agent-async-runtime", "agent-eval-suite", "agent-vector-index"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']
+export default labs

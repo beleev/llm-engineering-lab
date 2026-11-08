@@ -72,3 +72,5 @@ python -m llm_infer.m04_prefix_cache.demo      # bs=4, pool=10
 1. bs=16, 两条请求共享 100 token 前缀, 能复用多少? **答**: 6 个整 block = 96 token; 剩下 4 个 token 落在未满 block 里, 不共享。
 2. 命中的 block ref_count=0 意味着什么, 该怎么处理? **答**: 它已被释放、正在 free_list 里等待复用但内容还在; 要先从 free_list 摘出来再 ref=1, 否则稍后会被当空闲块分走。
 3. 为什么共享 block 不需要 copy-on-write? **答**: 只有写满的 block 才登记, 写满后不再有人写它 (新 token 写在后面的 block), 所以只读共享是安全的。
+
+缓存身份的完整对照见 [m34](../m34_cache_identity/)：同 token、不同 adapter 的错误复用，以及可信身份确定的共享域。cache salt 不等于服务进程隔离。

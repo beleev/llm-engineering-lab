@@ -1,0 +1,323 @@
+[
+  {
+    "module": "m26_tool_discovery",
+    "route": "agent-tool-discovery",
+    "title": "工具发现 · 按需加载与提示设计",
+    "book_chapter": 4,
+    "book_line": 133,
+    "symbols": [
+      "Spec",
+      "Discover",
+      "prompt_trials",
+      "fidelity_check"
+    ],
+    "modes": [
+      "flat",
+      "discovery",
+      "poisoned"
+    ]
+  },
+  {
+    "module": "m27_knowledge_organization",
+    "route": "agent-knowledge-organization",
+    "title": "知识组织 · 树状摘要与关系图",
+    "book_chapter": 3,
+    "book_line": 424,
+    "symbols": [
+      "current_facts",
+      "hierarchy",
+      "graph_path",
+      "dataset_insights"
+    ],
+    "modes": [
+      "flat",
+      "hierarchy",
+      "graph"
+    ]
+  },
+  {
+    "module": "m28_coding_agent",
+    "route": "agent-coding-agent",
+    "title": "Coding Agent · 修改、测试与修复",
+    "book_chapter": 5,
+    "book_line": 13,
+    "symbols": [
+      "Workspace",
+      "ProjectTool",
+      "RepairPolicy"
+    ],
+    "modes": [
+      "one-shot",
+      "repair",
+      "budget"
+    ]
+  },
+  {
+    "module": "m29_async_runtime",
+    "route": "agent-async-runtime",
+    "title": "异步运行 · 事件、取消与恢复",
+    "book_chapter": 6,
+    "book_line": 29,
+    "symbols": [
+      "Journal",
+      "Runtime",
+      "run_case"
+    ],
+    "modes": [
+      "complete",
+      "cancel-before",
+      "cancel-after"
+    ]
+  },
+  {
+    "module": "m30_collaboration",
+    "route": "agent-orchestrator",
+    "title": "多智能体 · 独立审查与共享冲突",
+    "book_chapter": 10,
+    "book_line": 194,
+    "symbols": [
+      "SharedPlan",
+      "reviewed_answer"
+    ],
+    "modes": [
+      "file-only",
+      "revision",
+      "invariant"
+    ]
+  },
+  {
+    "module": "m31_eval_suite",
+    "route": "agent-eval-suite",
+    "title": "评估体系 · 用户环境与裁判校准",
+    "book_chapter": 7,
+    "book_line": 162,
+    "symbols": [
+      "UserSimulator",
+      "run_task",
+      "calibration"
+    ],
+    "modes": [
+      "baseline",
+      "no-clarify",
+      "full"
+    ]
+  },
+  {
+    "module": "m32_agent_training",
+    "route": "agent-agent-training",
+    "title": "Agent 训练 · 轨迹到参数更新",
+    "book_chapter": 8,
+    "book_line": 482,
+    "symbols": [
+      "rollout",
+      "sft",
+      "online_update",
+      "training_run"
+    ],
+    "modes": [
+      "untrained",
+      "sft",
+      "rl"
+    ]
+  },
+  {
+    "module": "m33_skill_evolution",
+    "route": "agent-skill-evolution",
+    "title": "Skill 进化 · 提案、发布与整理",
+    "book_chapter": 9,
+    "book_line": 56,
+    "symbols": [
+      "propose",
+      "SkillStore",
+      "curate"
+    ],
+    "modes": [
+      "global",
+      "scoped",
+      "rollback"
+    ]
+  },
+  {
+    "module": "m34_voice_interaction",
+    "route": "agent-voice-interaction",
+    "title": "语音交互 · 打断与快慢响应",
+    "book_chapter": 6,
+    "book_line": 307,
+    "symbols": [
+      "voice_activity",
+      "experiment"
+    ],
+    "modes": [
+      "half",
+      "duplex",
+      "no-generation"
+    ]
+  },
+  {
+    "module": "m35_visual_grounding",
+    "route": "agent-visual-grounding",
+    "title": "视觉操作 · 截图、定位与核对",
+    "book_chapter": 6,
+    "book_line": 460,
+    "symbols": [
+      "locate",
+      "hit",
+      "experiment"
+    ],
+    "modes": [
+      "stale",
+      "refresh",
+      "verify"
+    ]
+  },
+  {
+    "module": "m36_embodied_control",
+    "route": "agent-embodied-control",
+    "title": "具身控制 · 反馈与模拟偏差",
+    "book_chapter": 6,
+    "book_line": 585,
+    "symbols": [
+      "rollout"
+    ],
+    "modes": [
+      "open-loop",
+      "feedback",
+      "robust"
+    ]
+  },
+  {
+    "module": "m37_midtraining",
+    "route": "agent-midtraining",
+    "title": "中期训练 · 新知识与旧能力",
+    "book_chapter": 8,
+    "book_line": 26,
+    "symbols": [
+      "probe",
+      "continue_training",
+      "training_run"
+    ],
+    "modes": [
+      "base",
+      "domain-only",
+      "replay"
+    ]
+  },
+  {
+    "module": "m38_programmatic_actions",
+    "route": "agent-programmatic-actions",
+    "title": "程序化行动 · 规则、适配器与生成界面",
+    "book_chapter": 5,
+    "book_line": 351,
+    "symbols": [
+      "calculate",
+      "adapt",
+      "make_ui",
+      "make_svg"
+    ],
+    "modes": [
+      "naive",
+      "validated",
+      "rejected"
+    ]
+  },
+  {
+    "module": "m39_meta_optimization",
+    "route": "agent-meta-optimization",
+    "title": "元优化 · 发现树与回放",
+    "book_chapter": 9,
+    "book_line": 256,
+    "symbols": [
+      "ReplayWorld",
+      "search"
+    ],
+    "modes": [
+      "breadth",
+      "prior",
+      "selected"
+    ]
+  },
+  {
+    "module": "m40_agent_society",
+    "route": "agent-agent-society",
+    "title": "智能体社会 · 激励与重复博弈",
+    "book_chapter": 10,
+    "book_line": 581,
+    "symbols": [
+      "action",
+      "play"
+    ],
+    "modes": [
+      "exploit",
+      "mutual",
+      "reciprocal"
+    ]
+  },
+  {
+    "module": "m41_system_design",
+    "route": "agent-system-design",
+    "title": "系统选择 · 工作流、状态与缓存",
+    "book_chapter": 1,
+    "book_line": 263,
+    "symbols": [
+      "choose",
+      "status_bar",
+      "cache_experiment"
+    ],
+    "modes": [
+      "workflow",
+      "agent",
+      "hybrid"
+    ]
+  },
+  {
+    "module": "m42_memory_privacy",
+    "route": "agent-memory-lifecycle",
+    "title": "个人记忆 · 同意、过期与删除",
+    "book_chapter": 3,
+    "book_line": 15,
+    "symbols": [
+      "MemoryService"
+    ],
+    "modes": [
+      "flat",
+      "scoped",
+      "forget"
+    ]
+  },
+  {
+    "module": "m43_vector_index",
+    "route": "agent-vector-index",
+    "title": "向量索引 · 精确扫描与近似搜索",
+    "book_chapter": 3,
+    "book_line": 286,
+    "symbols": [
+      "exact",
+      "build_tree",
+      "tree_query",
+      "build_graph",
+      "graph_query"
+    ],
+    "modes": [
+      "exact",
+      "tree",
+      "graph"
+    ]
+  },
+  {
+    "module": "m44_self_distillation",
+    "route": "agent-self-distillation",
+    "title": "在轨自蒸馏 · 特权信息与部署边界",
+    "book_chapter": 8,
+    "book_line": 711,
+    "symbols": [
+      "rollout",
+      "score",
+      "train"
+    ],
+    "modes": [
+      "before",
+      "no-hint",
+      "privileged"
+    ]
+  }
+]

@@ -24,6 +24,8 @@
       :next-step="{ name: 'infer-kv-memory', label: '下一章 · KV 与缓存内存' }"
     />
 
+    <StageContents stage-id="infer" />
+
     <section class="section">
       <h2>1. 推理优化的递进关系</h2>
       <div class="lead-group">
@@ -181,6 +183,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'

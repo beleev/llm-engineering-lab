@@ -31,6 +31,8 @@
       :next-step="nextChapter"
     />
 
+    <StageContents stage-id="basic" />
+
     <EvolutionChain
       title="演进逻辑链 · 从计数表到能训练的 GPT"
       subtitle="根问题: 给定前文, 算出下一个字的概率分布, 而且这个本事要能从语料里学出来。"
@@ -247,6 +249,7 @@
 </template>
 
 <script setup>
+import StageContents from '@/components/StageContents.vue'
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import Prose from '@/components/Prose.vue'
@@ -256,19 +259,18 @@ import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import DagView from '@/components/dag/DagView.vue'
-import { learningPath, stages } from '@/data/models.js'
+import { learningPath, stages, chapterByRoute } from '@/data/models.js'
 
 // 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
 const at = learningPath.findIndex((x) => x.route === 'basic')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
-// 章节编号从 stages 里数, 不手写: 别的阶段加章后写死的 "阶段 2.2" 会过期
+// 章节编号与三级目录共用数据，跨阶段引用也跟随归组更新。
 const chapterNo = (route) => {
   for (const s of stages) {
     if (s.route === route) return `阶段 ${s.idx}`
-    const i = s.chapters.findIndex((c) => c.route === route)
-    if (i >= 0) return `阶段 ${s.idx}.${i + 1}`
+    if (chapterByRoute[route]) return `章节 ${chapterByRoute[route].number}`
   }
   return ''
 }

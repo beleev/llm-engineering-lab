@@ -6,7 +6,15 @@ import courseCatalog from './plugins/course-catalog.js'
 
 export default defineConfig({
   base: '/llm-engineering-lab/',
-  plugins: [vue(), courseCatalog()],
+  plugins: [vue(), courseCatalog(), {
+    name: 'watch-course-python',
+    configureServer(server) {
+      // glob 的 Python 文件在 web 根目录外；显式监听目录才能发现新增文件。
+      for (const pkg of ['llm_agent', 'llm_finetune', 'llm_models', 'llm_train', 'llm_infer']) {
+        server.watcher.add(fileURLToPath(new URL(`../${pkg}/`, import.meta.url)))
+      }
+    },
+  }],
   build: { manifest: true },
   resolve: {
     alias: {

@@ -18,7 +18,7 @@ DEMOS = [
     "m21_moe_serving", "m22_sparse_attention",
     "m23_test_time_compute", "m24_beam_search",
     "m25_weight_quant", "m26_flash_decoding", "m27_multi_replica_routing",
-    "full_engine",
+    "m28_service_capacity", "m29_reasoning_graph", "m30_pruning_fusion", "m31_edge_budget", "m32_profiling", "m33_tenant_scheduling", "m34_cache_identity", "full_engine",
 ]
 
 

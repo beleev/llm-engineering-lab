@@ -74,7 +74,7 @@ const steps = computed(() => {
   const full = `mcp__weather__${sc.name}`
   const st = [
     { dir: 'local', title: 'spawn server 子进程', note: 'Popen(argv, stdin=PIPE, stdout=PIPE): 只拉起调用方给的 argv, 不经过 shell。之后 stdout 就是协议通道, server 的日志只能写 stderr。' },
-    { dir: 'req', title: 'initialize', json: rpc(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'llm_agent', version: '0.1' } }), note: '握手第一步: 双方对齐协议版本和能力。每条请求带递增的 id, 响应必须带同一个 id。' },
+    { dir: 'req', title: 'initialize', json: rpc(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'llm_agent', version: '0.1' } }), note: '2025-06-18 教学配置的握手第一步；2026-07-28 已改为逐请求元数据，见本章版本对照实验。每条请求带递增的 id, 响应必须带同一个 id。' },
     { dir: 'res', title: 'result: serverInfo + capabilities', json: { jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'toy-weather', version: '0.1' } } }, note: 'server 声明自己支持 tools 能力。' },
     { dir: 'req', title: 'notifications/initialized', json: { jsonrpc: '2.0', method: 'notifications/initialized' }, note: '没有 id = 通知 (notification): 规范要求 server 不回复。' },
     { dir: 'req', title: 'tools/list', json: rpc(2, 'tools/list', {}), note: '问 server: 你有哪些工具?' },

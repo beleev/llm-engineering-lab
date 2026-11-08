@@ -26,7 +26,7 @@
       <text x="0" y="12" class="hd">观察到的快照 (scrollY=0)</text>
       <text x="210" y="12" class="hd">点下去那一刻 · <tspan class="aim-t">{{ by === 'xy' ? `click_xy(200, ${clickY})` : `click(ref=${refOf(target)})` }}</tspan></text>
       <g v-for="(n, i) in seen" :key="'s' + i" :transform="`translate(0, ${T + n.top})`"
-        :class="['el', n.kind, { target: n.no === target, pick: n.no }]"
+        :class="['el', 'focus-inset', n.kind, { target: n.no === target, pick: n.no }]"
         :tabindex="n.no ? 0 : -1" :role="n.no ? 'button' : null" @click="n.no && (target = n.no)" @keydown.enter="n.no && (target = n.no)">
         <rect x="0" y="1" width="190" :height="n.h - 2" rx="3" />
         <text x="8" :y="n.h / 2 + 4">{{ n.label }}</text>
