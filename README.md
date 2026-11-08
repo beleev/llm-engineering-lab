@@ -114,7 +114,7 @@ cd llm_basic && python gradcheck.py && python train.py && python sample.py "ROME
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python web/scripts/export-engineering-completion.py --check
 python scripts/check-engineering-coverage.py
-pytest tests/test_engineering_completion.py
+pytest tests/test_engineering_completion.py tests/test_curriculum_consolidation.py
 ```
 
 研究方向补充与证据检查（CPU；不调用模型 API）：
@@ -141,9 +141,23 @@ python -m llm_agent.m09_mcp.demo
 Web 教程：
 
 ```bash
-cd web && npm install && npm run dev
-npm run check:sources        # 校验页面引用的每个 Python 符号都还存在
+cd web
+npm install
+npm run dev
 ```
+
+构建与内容检查（另开终端，在 `web` 目录运行）：
+
+```bash
+npm run check:sources        # 页面引用的 Python 符号
+npm run check:math           # 公式渲染
+npm run check:quiz           # 自测题结构
+npm run check:evolution      # 章节演进内容
+npm run check:consolidation  # 章节归属、旧链接与进度迁移
+npm run build
+```
+
+本轮归并验证记录见 [验收数据](docs/tutorial-consolidation-validation.json)：Python 测试 299 项通过，39 项慢速训练测试未运行；源码引用、公式、自测和生产构建检查通过。六个阶段总览的「按主题阅读」目录与后续卡片已统一留白，并验证了亮/暗主题、桌面/窄屏、展开/收起的 48 种组合。
 
 ## 技术覆盖
 
@@ -202,13 +216,15 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 方向 | 模块 |
 |------|------|
 | 省 KV 显存 | KV Cache · PagedAttention · Prefix Cache · Radix Cache · KV 占用对比 / MLA 解码 · 分层 KV offload |
-| 调度 | Continuous Batching（含抢占）· Chunked Prefill（Sarathi 混批）· P/D 分离 |
+| 调度 | Continuous Batching（含抢占）· Chunked Prefill（Sarathi 混批）· P/D 分离 · 租户公平轮转 / 配额 / goodput 模拟 |
 | 少算几次 | Speculative Decoding（拒绝采样 + 分布保持检验）· EAGLE · 树状投机 · 稀疏注意力解码 |
 | 压缩 | INT8 / group-wise INT4 / AWQ · GPTQ · SmoothQuant（W8A8）· FP8 · KIVI KV 量化 |
 | 算子与并行 | FlashAttention（Q/KV 双向分块 + LSE）· Flash-Decoding（split-K）· Tensor Parallel · CUDA Graph · MoE 推理 EP + EPLB |
 | 输出控制 | Sampling · Beam Search · Structured Output（token 级预编译语法 mask）· Attention Sinks（SinkCache）· Multi-LoRA |
 | 测试时计算 | best-of-N · 多数投票 · PRM 引导搜索 · budget forcing |
 | 多副本 | 前缀感知路由 + 负载阈值兜底 |
+| 缓存边界 | 可信共享域 · 模型 / adapter 身份与版本 · 缓存错误命中对照 |
+| 性能与设备 | CPU profiler · 选做 CUDA 测量 · 剪枝与融合 · 端侧预算模型 |
 
 `full_engine` 是真分页的 mini-vLLM：物理 KV block 池、前缀命中真的跳过计算、分块 prefill 混批、recompute 抢占，**每条输出与朴素 greedy 逐 token 相同**。
 
@@ -222,20 +238,22 @@ npm run check:sources        # 校验页面引用的每个 Python 符号都还�
 | 扩展 | Hooks · Skills 渐进式披露 · 真 MCP（stdio JSON-RPC）· A2A（agent 之间的任务协议） |
 | 操作界面 | Computer use（无障碍树观察、按元素 ref 点击） |
 | 编排 | 计划模式 · 子智能体 · orchestrator–workers |
-| 运维 | JSONL 持久化与恢复 · Agent 评测（pass@k / pass^k） |
+| 运维 | JSONL 持久化与恢复 · checkpoint 版本迁移 / 权限重验 / 提交后强退恢复 · Agent 评测（pass@k / pass^k）· 发布门槛与回滚 |
 | 接真模型 | 可选的 Claude API 适配器，默认不联网 |
 
 工具全部是模拟或沙箱内的，可以放心跑。
 
 ## Web 教程
 
-### 112 章不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
+### 不用全读 —— 先看 [速成路线](https://beleev.github.io/llm-engineering-lab/#/fast-track)
 
 | 档位 | 章数 | 用时 (粗估) | 读完能干什么 |
 |------|-----:|------------|--------------|
-| ★ 冲刺 | 12 | 约 1.7 小时 | 每个阶段最核心的那一两页, 接得上下一阶段 |
-| ● 主干 | 42 | 约 5.9 小时 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
-| ○ 全部 | 112 | 以网页动态估算为准 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+| ★ 冲刺 | 12 | 约 2 小时 22 分 | 每个阶段最核心的那一两页, 接得上下一阶段 |
+| ● 主干 | 42 | 约 7 小时 50 分 | 讲清一个大模型怎么训出来、怎么上线、怎么变成会行动的系统 |
+| ○ 全部 | 108 | 约 17 小时 37 分 | 加上 2026 年的前沿技术、同一问题的其他解法和生成模型分支 |
+
+「全部」按速成路线页统计：107 个六阶段章节入口，加 1 个总览对照表；不含主线首页与术语速查。用时取当前页面估算，内容更新后以网页为准。
 
 分层只是阅读建议, 不影响任何章节的内容。侧栏可以按档位收起扩展章, 每章开头标着它属于哪一层,
 章内最该带走的那条结论有「重点」徽章。用时按内容字数粗估, 只用来排计划。
