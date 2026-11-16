@@ -14,7 +14,7 @@
       question="模型之间就差 4 个构造参数的话, 「读 N 个模型的源码」是不是变成了「读 N 张零件配置表」?"
       :goals="[
         '把任意一个模型翻译成 PreLNBlock 的四个零件配置',
-        '说清 Pre-LN 为什么让深层模型不靠精细 warmup 也能开训',
+        '说清 Pre-LN 为什么让深层模型不靠精细 warmup (学习率先小后大) 也能开训',
         '在 LLaMA / Mixtral / DeepSeek 的代码里一眼找到零件被换掉的那几行',
       ]"
       :codes="[
@@ -150,7 +150,7 @@
           典型的坑: LLaMA 把 lm_head 和输入嵌入绑权重, 嵌入又用了 <span class="mono">nn.Embedding</span> 默认的
           <Tex text="$\mathcal{N}(0, 1)$" />。
         </p>
-        <p>绑权重之后, 每个 token 都会给「它自己」打一个约 <Tex text="$\sigma\cdot d$" /> 的高分, 而正确答案几乎从来不是它自己。</p>
+        <p>绑权重之后, 最后一层输出的向量几乎还是 token 自己的嵌入。于是每个 token 都会给「它自己」打一个约 <Tex text="$\sigma\cdot d$" /> 的高分, 而正确答案几乎从来不是它自己。</p>
         <ul class="pts">
           <li><b><Tex text="$\sigma = 1$" />:</b> 首步 CE 是 <strong class="mono">258</strong>, 而 <Tex text="$\ln 1000 = 6.91$" />。</li>
           <li><b><Tex text="$\sigma = 0.02$" />:</b> 改法只有这一行, CE 回到 <strong class="mono">7.09</strong>。</li>
@@ -356,7 +356,7 @@ const modelMatch = computed(() => {
       'Transformer': { track: 'left', color: C.old,
         blurb: '原始 encoder-decoder + Post-LN, 全部零件最朴素' },
       'BERT': { track: 'left', color: C.a,
-        blurb: '双向注意力 + MLM, 理解任务里程碑' },
+        blurb: '双向注意力 + MLM (掩码语言建模), 理解类任务的里程碑' },
       'GPT-3': { track: 'left', color: C.a,
         blurb: '把 Transformer 纯 decoder 堆到 175B, 生成式范式起点' },
       'LLaMA': { track: 'left', color: C.b,
@@ -364,11 +364,11 @@ const modelMatch = computed(() => {
       'Mixtral': { track: 'left', color: C.c,
         blurb: 'LLaMA 骨架, FFN 换成 softmax top-k MoE' },
       'DeepSeek-V3': { track: 'left', color: C.d,
-        blurb: '把 KV cache 压到 latent + MoE 切更细, 671B/37B 激活' },
+        blurb: '把 KV cache 压到 latent + MoE 切更细, 671B 总参数, 每 token 只激活 37B' },
       'DeepSeek-V3.2': { track: 'left', color: C.d,
         blurb: 'V3 + DSA, 把算力从 $O(T^2)$ 降到 $O(T\\cdot k)$' },
       'Mamba': { track: 'left', color: C.e,
-        blurb: '非注意力分支: SSM 线性 $O(T)$, 另一条主线' },
+        blurb: '非注意力分支: SSM (状态空间模型) 线性 $O(T)$, 另一条主线' },
       'DiT': { track: 'right', color: C.d,
         blurb: '扩散 Transformer 骨架, adaLN-Zero 注入 timestep' },
       'Qwen2-VL': { track: 'eye', color: C.c,

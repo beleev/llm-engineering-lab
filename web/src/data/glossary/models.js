@@ -26,4 +26,9 @@ export default [
   t('LLaDA', '掩码扩散语言模型', '随机比例遮盖训练 + 迭代去遮采样, 生成顺序由置信度决定', '$\\mathrm{loss} = \\mathrm{CE} \\cdot \\mathrm{mask} / t$', 'models-llada'),
   t('低置信度重遮', 'low-confidence remasking', '每步全部预测, 只留最有把握的, 其余遮回去下一步再想', '准确率 1.00 vs 随机 0.91', 'models-llada'),
   t('VAR', 'next-scale prediction', '逐分辨率自回归 1×1→2×2→4×4, 级内并行, 块状因果 mask', '3 次前向 vs 光栅 16 次', 'models-var'),
+  t('视觉前缀', 'prefix 路线 (LLaVA / Qwen2-VL)', '图像 patch 过 ViT 和 projector 变成 token, 拼在文本前面送进同一个因果 decoder; LLM 不改, 文本看得到图, 图看不到文本', '224×224、16×16 patch → 196 个 token; 边长翻倍 ×4', 'models-multimodal'),
+  t('M-RoPE', 'Multimodal RoPE (Qwen2-VL)', 'head 维切成 (时间, 行, 列) 三段各自旋转; patch 位置 (0, 行, 列), 文本三轴同值, 纯文本时与 1-D RoPE 逐位相等', '对调行列 → 输出变 5.3e-05; 纯文本差 0.0e+00', 'models-multimodal'),
+  t('对比学习温度', 'logit_scale = exp(t) = 1/τ', 'CLIP 的 B×B 相似度矩阵乘可学的 $1/\\tau$ 再做双向 CE; 不放大的话余弦 ∈ [−1, 1], softmax 几乎均匀', '初值 1/0.07 ≈ 14.3, 上限 100; 初始 loss ≈ ln B', 'models-multimodal'),
+  t('Perceiver Resampler', 'Flamingo 式视觉压缩', 'K 个可学 latent 用 cross-attention 读全部 patch, 输出长度只由 K 决定; latent 不再对应空间位置, 细节会丢', 'demo: 16 个 patch → 8 个 latent', 'models-multimodal'),
+  t('Thinker / Talker', 'Qwen2.5-Omni 双输出', 'Thinker 吃全模态前缀出文本; 小 Talker 用 cross-attention 读 Thinker 的隐状态出语音 codec token, 前向单向', 'loss = 文本 CE + 0.5×语音 CE; 换 codec → 文本 logits 变化 0', 'models-multimodal'),
 ]

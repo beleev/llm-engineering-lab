@@ -9,7 +9,7 @@
 | [故障恢复 · 重试、幂等与取消](../llm_agent/m22_runtime_reliability/README.md) | 超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。 |
 | [上下文成本 · 压缩与缓存一起算](../llm_agent/m23_context_cache/README.md) | 比较净成本, 同时检查范围、否定和来源是否保留。 |
 | [检索证据 · 从相关到足够回答](../llm_agent/m24_agentic_rag/README.md) | 别名、对象、版本与答案形成完整证据链, 才能输出结果。 |
-| [轨迹学习 · 先验证，再造训练数据](../llm_agent/m25_trajectory_learning/README.md) | 结果、来源、授权和预算一起决定轨迹能否进入训练集。 |
+| [轨迹学习 · 先验证, 再造训练数据](../llm_agent/m25_trajectory_learning/README.md) | 结果、来源、授权和预算一起决定轨迹能否进入训练集。 |
 | [持续改进 · 学会、迁移、变化与保持](../llm_agent/full_learning_loop/README.md) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 |
 
 每个模块都有对照、可失败断言和边界说明。网页用相同机制重算, `tests/test_agent_extensions.py` 核对控制项覆盖范围内的 Python / JavaScript 数字。诊断轨迹由 `python web/scripts/export-agent-evidence.py` 从真实教学 Agent 导出。

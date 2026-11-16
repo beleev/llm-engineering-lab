@@ -1,16 +1,16 @@
-# 性能实测：模型估算与 profiler 怎样对照
+# 性能实测: 模型估算与 profiler 怎样对照
 
 ## 直觉
 
-FLOPs 相同不代表执行时间相同。真正的算子调用、分配与 host 开销需要测出来。
+x@w+b 和 torch.addmm 的逻辑 FLOPs 都是 1056768, profiler 里却不一样: 两版各 1 次矩阵乘, ATen 调用 6 对 7, CPU 分配字节 65536 对 32768, eager 多分配了一份中间结果。FLOPs 相同不代表执行时间相同, 真正的算子调用、分配与 host 开销要测出来。
 
 ## 核心原理
 
-先 warmup，再独立计时，再采 profiler。记录 Python/PyTorch、设备、线程数和重复次数；网页展示稳定事件计数，机器相关耗时在 CLI 的 JSON 中保留。
+测量分三步: 先 warmup 3 次, 再独立计时 7 次, 最后单独采一次 profiler, 因为 profiler 本身会扰动耗时。记录 Python/PyTorch 版本、设备、线程数 (本例 1) 和重复次数; 网页只回放稳定的事件计数, 机器相关耗时留在 CLI 的 JSON 里。
 
-正向分配字节之和不等于峰值内存，ATen 调用也不等于 GPU kernel 数。self 时间排除了子调用，不能把嵌套事件时间或异步 CPU/GPU 时间直接相加。
+CPU 分配字节是正向分配事件之和 (eager 65536、fused 32768), 不是峰值驻留内存; ATen 调用数 (6 对 7) 也不等于 GPU kernel 数。self 时间排除了子调用, 不能把嵌套事件时间或异步的 CPU/GPU 时间直接相加。
 
-CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。
+CUDA 选做在计时前后 synchronize, 并报告峰值 allocated; 异步拷贝还需要 pinned memory、正确的 stream 和依赖管理。CPU 分支只验证测量流程, 不推断 GPU 加速比。
 
 ## 运行
 
@@ -18,7 +18,7 @@ CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷�
 python -m llm_infer.m32_profiling.demo
 ```
 
-需要 Python ≥ 3.10；使用现有 torch 依赖。默认 CPU、本机夹具，无模型 API 调用。
+需要 Python ≥ 3.10; 使用现有 torch 依赖。默认 CPU、本机夹具, 无模型 API 调用。
 
 ## 运行后应该看到什么
 
@@ -48,17 +48,17 @@ CPU 分配字节是正向分配事件之和，不是峰值驻留内存。profile
 
 ## 怎样验证
 
-CPU profiler 示例记录 warmup、重复测量和环境，解释总时间与算子时间为何不同。；GPU 选做再讲同步、异步拷贝、峰值显存及 kernel trace，不拿 CPU 或模拟结果宣称 GPU 加速比。
+固定同一组张量 (128×64 @ 64×64 + 64)、单线程和 seed, 比较 matmul 后加 bias 与 addmm 两种写法; 判定看两版输出在容差内一致, 以及矩阵乘调用、ATen 调用、逻辑 FLOPs、CPU 分配字节四个计数是否如预期。
 
 边界测试见 [test_engineering_completion.py](../../tests/test_engineering_completion.py)。
 
 ## 常见误区与自测
 
-两版 FLOPs 相同，能否仅据此认定耗时相同？
+两版 FLOPs 一样, 能不能就此认定耗时一样?
 
 <details><summary>展开解析</summary>
 
-CUDA 选做在计时前后 synchronize，并报告峰值 allocated；异步拷贝还需 pinned memory、正确 stream 和依赖管理。CPU 分支验证测量流程，不推断 GPU 加速比。
+不能。FLOPs 只数乘加, 不数调用、分配和访存: 本例两版 FLOPs 同为 1056768, eager 却多分配了 32768 字节的中间结果, ATen 调用也不同 (6 对 7)。耗时要在 warmup 后独立计时, 差在哪再用 profiler 看算子。
 
 </details>
 

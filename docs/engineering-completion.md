@@ -8,15 +8,15 @@
 
 | 主题 | 运行模块 | 条件数 |
 | --- | --- | --- |
-| [模型交付：新进程里还是同一个模型吗](../llm_finetune/run_finetune/artifact_delivery/README.md) | `llm_finetune.run_finetune.artifact_delivery.demo` | 5 |
-| [文档生命周期：旧答案什么时候必须失效](../llm_agent/m54_document_lifecycle/README.md) | `llm_agent.m54_document_lifecycle.demo` | 6 |
-| [MCP：旧握手、新报文与资源端授权](../llm_agent/m55_mcp_versions/README.md) | `llm_agent.m55_mcp_versions.demo` | 8 |
-| [异步 RL：样本来自哪一版策略](../llm_finetune/run_finetune/async_rollout/README.md) | `llm_finetune.run_finetune.async_rollout.demo` | 4 |
-| [评测到发布：均分变好，为什么仍要回滚](../llm_agent/m56_release_loop/README.md) | `llm_agent.m56_release_loop.demo` | 6 |
-| [性能实测：模型估算与 profiler 怎样对照](../llm_infer/m32_profiling/README.md) | `llm_infer.m32_profiling.demo` | 2 |
-| [多租户调度：总体吞吐会掩盖谁的等待](../llm_infer/m33_tenant_scheduling/README.md) | `llm_infer.m33_tenant_scheduling.demo` | 4 |
-| [任务恢复：旧检查点遇到新代码](../llm_agent/m57_checkpoint_migration/README.md) | `llm_agent.m57_checkpoint_migration.demo` | 7 |
-| [缓存身份：相同 token 不一定能复用](../llm_infer/m34_cache_identity/README.md) | `llm_infer.m34_cache_identity.demo` | 7 |
+| [模型交付: 新进程里还是同一个模型吗](../llm_finetune/run_finetune/artifact_delivery/README.md) | `llm_finetune.run_finetune.artifact_delivery.demo` | 5 |
+| [文档生命周期: 旧答案什么时候必须失效](../llm_agent/m54_document_lifecycle/README.md) | `llm_agent.m54_document_lifecycle.demo` | 6 |
+| [MCP: 旧握手、新报文与资源端授权](../llm_agent/m55_mcp_versions/README.md) | `llm_agent.m55_mcp_versions.demo` | 8 |
+| [异步 RL: 样本来自哪一版策略](../llm_finetune/run_finetune/async_rollout/README.md) | `llm_finetune.run_finetune.async_rollout.demo` | 4 |
+| [评测到发布: 均分变好, 为什么仍要回滚](../llm_agent/m56_release_loop/README.md) | `llm_agent.m56_release_loop.demo` | 6 |
+| [性能实测: 模型估算与 profiler 怎样对照](../llm_infer/m32_profiling/README.md) | `llm_infer.m32_profiling.demo` | 2 |
+| [多租户调度: 总体吞吐会掩盖谁的等待](../llm_infer/m33_tenant_scheduling/README.md) | `llm_infer.m33_tenant_scheduling.demo` | 4 |
+| [任务恢复: 旧检查点遇到新代码](../llm_agent/m57_checkpoint_migration/README.md) | `llm_agent.m57_checkpoint_migration.demo` | 7 |
+| [缓存身份: 相同 token 不一定能复用](../llm_infer/m34_cache_identity/README.md) | `llm_infer.m34_cache_identity.demo` | 7 |
 
 ## 运行与校验
 

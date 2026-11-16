@@ -68,7 +68,7 @@ y:     [e, l, l, o]
     'basic-forward': {
       title: 'forward 与形状流 · 从 ids 到 logits',
       subtitle: '读完你能报出每一步的形状, 并说出每个 forward 往 cache 里塞了什么、为什么非塞不可。',
-      tldr: 'ids [B,T] 一路走成 logits [B,T,V]。\n路径: embedding → n_layer 个 Pre-LN block → final norm → lm_head。\n每一步顺手把反向要用的中间量装进 cache 带回来。',
+      tldr: 'ids [B,T] 一路走成 logits [B,T,V] (每个位置给 V 个词各打一个分)。\n路径: embedding → n_layer 个 Pre-LN block (先归一化再进子层) → final norm → lm_head。\n每一步顺手把反向要用的中间量装进 cache 带回来。',
       question: '为什么 forward 不能只返回 logits, 还要拖着一长串 cache?',
       evolution: {
         title: '让每个位置都看得见全部前文',
@@ -107,7 +107,7 @@ y:     [e, l, l, o]
       ],
       sourceRows: [
         { concept: 'embedding', code: 'model.py:embedding_forward', takeaway: 'W[ids] 查表; cache 只存 ids 和 W 的形状, 不存 W: 反向只需要知道取了哪几行。' },
-        { concept: 'RMSNorm', code: 'model.py:rmsnorm_forward', takeaway: 'cache 是 (x, g, rms) 三件套, 反向的耦合项三样全要。' },
+        { concept: 'RMSNorm', code: 'model.py:rmsnorm_forward', takeaway: 'cache 是 (x, g, rms) 三件套; 反向里 rms 依赖整行 x 带来的耦合项, 三样全要。' },
         { concept: '缩放点积', code: 'model.py:attention_forward', takeaway: 'scale = $1/\\sqrt{D}$; 不缩放的话点积方差正比于 D, softmax 直接饱和。' },
         { concept: 'causal mask', code: 'model.py:causal_mask', takeaway: '上三角 ($j > i$) 填 −inf, softmax 后权重为 0。一次前向因此等于并行做了 T 道题。' },
         { concept: '残差', code: 'model.py:block_forward', takeaway: 'h = x + a 没有 cache: 加法的反向是把 dout 原样发给两条路。' },
@@ -152,7 +152,7 @@ y:     [e, l, l, o]
         {
           key: true,
           title: '手写反向的 bug 不会报错, 只会让模型悄悄变笨',
-          body: '转置写反、sum 错维度、softmax 漏一项: 程序都不会崩, loss 照样下降, 只是降得慢一点。\n所以要一个 “不可能写错” 的参照: 中心差分 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$。\n故意删掉 rmsnorm_backward 的耦合项, 逐算子检查立刻报 dx 相对误差 3.11e-01。',
+          body: '转置写反、sum 错维度、softmax 漏一项: 程序都不会崩, loss 照样下降, 只是降得慢一点。\n所以要一个 “不可能写错” 的参照: 中心差分 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$。\n故意删掉 rmsnorm_backward 的耦合项 (rms 依赖整行 x 的那一项), 逐算子检查立刻报 dx 相对误差 3.11e-01。',
         },
         {
           title: '一个张量被用了几次, 梯度就是几路之和',
@@ -160,7 +160,7 @@ y:     [e, l, l, o]
         },
         {
           title: 'gradcheck 分两级, 定位方式完全不同',
-          body: '- 逐算子: 拿随机张量 R 当 dout, 令 $L = \\sum(\\text{out} \\odot R)$, 于是 $dL/d\\,\\text{out}$ 正好是 $R$。再对每个输入的每个元素做差分。7 个算子的相对误差落在 1e-11 ~ 2e-10, 哪个错一目了然。\n- 端到端: 整模型 + CE, n_layer = 1 和 2 各跑一遍, 每个参数抽 8 个位置。\n端到端的判定用 $\\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$。抽样常落在真实梯度 $\\approx 0$ 的位置, 纯相对误差会误报。',
+          body: '- 逐算子: 拿随机张量 R 当 dout, 令 $L = \\sum(\\text{out} \\odot R)$, 于是 $dL/d\\,\\text{out}$ 正好是 $R$。再对每个输入的每个元素做差分。7 个算子的相对误差落在 1e-11 ~ 2e-10, 哪个错一目了然。\n- 端到端: 整模型 + CE (交叉熵 loss), n_layer = 1 和 2 各跑一遍, 每个参数抽 8 个位置。\n端到端的判定用 $\\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$。抽样常落在真实梯度 $\\approx 0$ 的位置, 纯相对误差会误报。',
         },
       ],
       links: [
@@ -172,7 +172,7 @@ y:     [e, l, l, o]
         { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p − onehot)/N; 每行加起来恰好为 0。gradcheck.py 断言的是所有行的总和为 0。' },
         { concept: 'embedding backward', code: 'np.add.at(dW, ids, dout)', takeaway: '花式索引的 += 遇到重复 id 只加一次, 必须用 add.at。' },
         { concept: 'softmax backward', code: 'model.py:attention_backward', takeaway: '$ds = a \\odot (da - \\sum a\\cdot da)$; 被 mask 的位置 $a = 0$, 带一个因子 a 就自动归零, 不用再 mask 一次。' },
-        { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$; 第二项来自 rms 依赖整行 x。' },
+        { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$, 代码里 c = dout·g, s 是 c·x 整行求和; 第二项来自 rms 依赖整行 x。' },
         { concept: '数值梯度', code: 'gradcheck.py:numeric_grad', takeaway: '$(f(w+\\varepsilon) - f(w-\\varepsilon))/2\\varepsilon$, 截断误差 $O(\\varepsilon^2)$; 就地改、算完还原。' },
         { concept: '逐算子检查', code: 'gradcheck.py:check_op', takeaway: '随机张量 R 当 dout, 任何算子都能单独验, 不用搭整个模型。' },
         { concept: '多层反向', code: 'model.py:transformer_backward', takeaway: 'reversed(range(n_layer)) 逐层回传; tok_emb 和 pos_emb 最后收到同一个 dh。' },
@@ -216,11 +216,11 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         {
           key: true,
           title: '除以 √v̂ = 每个参数有自己的学习率',
-          body: 'Transformer 各层的梯度尺度差几个数量级。\n- SGD: 单一 lr 被最陡的方向卡死。lr 超过 $2/\\lambda_{\\max}$ ($\\lambda_{\\max}$ 是最陡方向的曲率) 就发散, 平缓方向几乎不动。\n- Adam: 更新量归一成 $\\hat m/\\sqrt{\\hat v}$, 每步位移约等于 lr, 跟这个方向的坡度基本无关。\n偏置修正: m、v 从 0 起步, 前几步被低估, 所以除以 $1 - \\beta^t$。第 1 步正好得到 $\\mathrm{sign}(g)$, 每个元素恰好移动 lr。',
+          body: 'Transformer 各层的梯度尺度差几个数量级。\n- SGD: 单一 lr 被最陡的方向卡死。lr 超过 $2/\\lambda_{\\max}$ ($\\lambda_{\\max}$ 是最陡方向的曲率) 就发散, lr 只能按最陡的方向定, 平缓方向几乎不动。\n- Adam: 更新量归一成 $\\hat m/\\sqrt{\\hat v}$, 每步位移约等于 lr, 跟这个方向的坡度基本无关。\n偏置修正: m、v 从 0 起步, 前几步被低估, 所以除以 $1 - \\beta^t$。第 1 步正好得到 $\\mathrm{sign}(g)$, 每个元素恰好移动 lr。',
         },
         {
           title: '训练并行, 生成串行, 这条依赖链省不掉',
-          body: '- 训练: 完整答案 y 已知 (teacher forcing), 因果 mask 让 T 个位置互不偷看, 一次前向算完所有 CE。\n- 生成: 第 t+1 个 token 依赖刚抽出来的第 t 个, 没法并行。\n生成能省的只有重复计算: sample.py 每生成 1 个 token 就把整段重算一遍, 按它的注释整体是 $O(T^3)$。\n阶段 5 的 KV cache 干掉的就是这部分重复。',
+          body: '- 训练: 完整答案 y 已知 (teacher forcing), 因果 mask 让 T 个位置互不偷看, 一次前向算完所有位置的 CE (交叉熵 loss)。\n- 生成: 第 t+1 个 token 依赖刚抽出来的第 t 个, 没法并行。\n生成能省的只有重复计算: sample.py 每生成 1 个 token 就把整段重算一遍, 按它的注释整体是 $O(T^3)$。\n阶段 5 的 KV cache 干掉的就是这部分重复。',
         },
         {
           title: '三个开关默认全关, 开了也不一定更好',
@@ -267,8 +267,8 @@ for _ in range(max_new_tokens):
 const supplements = {
   "basic-forward": [
     {
-      "title": "感受野：这个位置能从哪些输入取得信息",
-      "body": "感受野不是视力，而是一个输出能够依赖的输入范围。因果全注意力在位置 t 可连接 0 到 t；纯滑窗每层含当前位置 W 个 token，L 层上界是 1+L×(W−1)，再截到 t+1。W=8、L=4 是 29，不是 32。这是结构上限，不保证模型实际记住远处细节。",
+      "title": "感受野: 这个位置能从哪些输入取得信息",
+      "body": "感受野是一个输出能够依赖的输入范围, 不是\"视力\"。因果全注意力在位置 t 能连到 0 到 t 的全部输入。\n纯滑窗每层只看含自己在内的 W 个 token, 每叠一层只多往前看 W−1 个, L 层的上界是 1+L×(W−1): W=8、L=4 时是 29, 不是 32。位置 t 含自己一共只有 t+1 个输入, 所以还要截到 t+1。\n这是结构上限, 不保证模型真的记住远处的细节。",
       "source": null
     }
   ]

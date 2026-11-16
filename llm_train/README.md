@@ -119,9 +119,9 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [数据课程：相同样本数，学到的一样吗](m23_data_curriculum/README.md) | 数据选择是在预算内决定下一步学什么。容易的样本有助于起步，但一直重复容易样本，会把预算花在已经学会的部分。 |
-| [合成数据：多代反馈与长尾消失](m24_synthetic_feedback/README.md) | 生成得更多，不一定知道得更多。小概率事实一旦没有被采到，下一代模型可能再也生成不出来。 |
-| [可靠性：校准、拒答与人工评价](m25_reliability_metrics/README.md) | 准确率告诉你答对多少，校准告诉你“有多确定”是否可信。二者要分开测。 |
-| [多语言：采样、分词与翻译偏差](m26_multilingual/README.md) | 同样一句意思，不同语言可能消耗不同数量的 token；同样一份数据预算，也可能几乎没有训练到低资源语言。 |
+| [数据课程: 相同样本数, 学到的一样吗](m23_data_curriculum/README.md) | 数据选择是在预算内决定下一步学什么。容易的样本有助于起步, 但一直重复容易样本, 会把预算花在已经学会的部分。 |
+| [合成数据: 多代反馈与长尾消失](m24_synthetic_feedback/README.md) | 生成得更多, 不一定知道得更多。小概率事实一旦没有被采到, 下一代模型可能再也生成不出来。 |
+| [可靠性: 校准、拒答与人工评价](m25_reliability_metrics/README.md) | 准确率告诉你答对多少, 校准告诉你「有多确定」是否可信。二者要分开测。 |
+| [多语言: 采样、分词与翻译偏差](m26_multilingual/README.md) | 同样一句意思, 不同语言可能消耗不同数量的 token; 同样一份数据预算, 也可能几乎没有训练到低资源语言。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。

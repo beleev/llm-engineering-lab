@@ -68,5 +68,8 @@ export default {
   ],
   "agent-agent-training": [
     "ResearchCompletionLab"
+  ],
+  "models-multimodal": [
+    "ResearchCompletionLab"
   ]
 }

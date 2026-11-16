@@ -12,6 +12,7 @@
       </div>
     </template>
     <div class="research-content">
+      <EvolutionChain v-if="entry.evolution" :title="'演进逻辑链 · ' + entry.evolution.title" :subtitle="entry.evolution.subtitle" :steps="evoSteps(entry.evolution)" />
       <Prose class="intuition" :text="entry.intuition" />
       <details class="reading">
         <summary>先理解原理与验证方法</summary>
@@ -40,12 +41,16 @@
 <script setup>
 import { computed, reactive } from 'vue'
 import { useRoute } from 'vue-router'
+import EvolutionChain from '@/components/EvolutionChain.vue'
 import LabFrame from '@/components/lab/LabFrame.vue'
 import Prose from '@/components/Prose.vue'
 import SourceSnippet from '@/components/SourceSnippet.vue'
 const props = defineProps({ records: { type: Object, required: true }, namespace: { type: String, required: true } })
 const route = useRoute()
 const selected = reactive({})
+// 和 StageTopic.vue 的 EVO_COLORS 一致: 按步序配色
+const EVO_COLORS = ['var(--text-muted)', 'var(--accent)', 'var(--left)', 'var(--right)', 'var(--eye)']
+const evoSteps = e => e.steps.map((s, i) => ({ color: EVO_COLORS[i % EVO_COLORS.length], ...s }))
 const entries = computed(() => props.records.entries.filter(entry => entry.routes.includes(route.name)))
 const current = entry => entry.conditions.find(condition => condition.id === selected[entry.id]) || entry.conditions[0]
 const format = value => value == null ? '不适用' : Array.isArray(value) ? value.map(format).join(', ') : typeof value === 'boolean' ? (value ? '是' : '否') : value

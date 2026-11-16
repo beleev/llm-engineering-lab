@@ -147,7 +147,7 @@
 | [故障恢复 · 重试、幂等与取消 · 取消](https://beleev.github.io/llm-engineering-lab/#/agent/runtime-reliability) | [查看截图](agent-runtime-reliability-extension-2.png) |
 | [上下文成本 · 压缩与缓存一起算](https://beleev.github.io/llm-engineering-lab/#/agent/context-cost) | [查看截图](agent-context-cost-extension-1.png) |
 | [检索证据 · 从相关到足够回答](https://beleev.github.io/llm-engineering-lab/#/agent/evidence-chain) | [查看截图](agent-evidence-chain-extension-1.png) |
-| [轨迹学习 · 先验证，再造训练数据](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning) | [查看截图](agent-trajectory-learning-extension-1.png) |
+| [轨迹学习 · 先验证, 再造训练数据](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning) | [查看截图](agent-trajectory-learning-extension-1.png) |
 | [持续改进 · 学会、迁移、变化与保持](https://beleev.github.io/llm-engineering-lab/#/agent/learning-loop) | [查看截图](agent-learning-loop-extension-1.png) |
 
 ## Agent 专题实验

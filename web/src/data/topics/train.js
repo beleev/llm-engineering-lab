@@ -50,7 +50,7 @@ const topic = {
         },
         {
           title: '等价挂在"按样本数加权"上',
-          body: 'micro 的 loss 已经在本地取过均值, 累加时要再乘 $n_k/N$。等分时它退化成 $1/K$, 所以漏掉也不报错。\n- m01 里 "直接相加": 梯度恰好放大 $K=4$ 倍, 等于偷偷把学习率乘 4。\n- 换成 [3,3,2] 这种不等长切法: 立刻露馅。\n跨卡同理: all-reduce(mean) 做的是各卡局部均值的简单平均, 只有每卡样本数相同时才等于全局均值。',
+          body: 'micro 的 loss 已经在本地取过均值, 累加时要再乘 $n_k/N$ ($n_k$ 是第 k 份的样本数, $N$ 是总样本数)。等分时它退化成 $1/K$, 所以漏掉也不报错。\n- m01 里 "直接相加": 梯度恰好放大 $K=4$ 倍, 等于偷偷把学习率乘 4。\n- 换成 [3,3,2] 这种不等长切法: 立刻露馅。\n跨卡同理: all-reduce(mean) 做的是各卡局部均值的简单平均, 只有每卡样本数相同时才等于全局均值。',
         },
       ],
       links: [
@@ -164,11 +164,11 @@ tp_dx = all_reduce_sum(dx_partial)[0]             # 反向唯一一次通信`,
         },
         {
           title: '通信账: ZeRO-2 不比 DDP 贵',
-          body: '- ZeRO-2: all-reduce 本来就等于 reduce-scatter + all-gather。ZeRO-2 只在两半中间插一步 "各自更新自己的分片", 总字节和 DDP 持平 (m05 实测 1.00×)。\n- ZeRO-3: 每层前向、反向都要先 all-gather 一次参数才能算, 约 1.5×。用完立刻 free, 瞬时只多一层的完整 fp16 参数 (demo 里 +256 B)。',
+          body: '- ZeRO-2: all-reduce 本来就等于 reduce-scatter (求和后每卡只留自己那片) + all-gather (各片拼回整份)。ZeRO-2 只在两半中间插一步 "各自更新自己的分片", 总字节和 DDP 持平 (m05 实测 1.00×)。\n- ZeRO-3: 每层前向、反向都要先 all-gather 一次参数才能算, 约 1.5×。用完立刻 free, 瞬时只多一层的完整 fp16 参数 (demo 里 +256 B)。',
         },
         {
           title: '激活重算: 用 33% 计算换 √L 显存',
-          body: '不存所有层的中间激活, 只存段边界, 反向前重跑段内前向。峰值 $\\approx L/k + k$, $k=\\sqrt{L}$ 时最小。\nm07 里 $L=16$: $k=1$ 要 17 份, $k=4$ 只要 8 份, 梯度逐位相同 (0.0e+00)。\n代价是多跑一次前向: 前反向本来 3 个单位, 变成 4 个, 上限 +33%。demo 里 $L=16$、$k=4$ 实测 +25%。',
+          body: '不存所有层的中间激活, 只存段边界, 反向前重跑段内前向。峰值 $\\approx L/k + k$ ($k$ 是每段的层数), $k=\\sqrt{L}$ 时最小。\nm07 里 $L=16$: $k=1$ 要 17 份, $k=4$ 只要 8 份, 梯度逐位相同 (0.0e+00)。\n代价是多跑一次前向: 前反向本来 3 个单位, 变成 4 个, 上限 +33%。demo 里 $L=16$、$k=4$ 实测 +25%。',
         },
         {
           title: '可恢复 = 四样齐全',
@@ -206,7 +206,7 @@ p16_shard = master_shard.astype(float16)            # 下一步再按需 gather`
     'train-precision-stability': {
       title: '精度与稳定性 · FP16 / BF16 / FP8 与坏 step 防护',
       subtitle: '读完你能解释现代训练为什么默认 BF16、fp32 master 为什么删不得, 以及一个 Inf 冒出来时框架在做什么。',
-      tldr: '低精度只负责算, 更新永远发生在 fp32 master 上。\n- FP16: 要配动态 loss scaling。溢出就跳过这一步, 并把 scale 减半。\n- BF16: 用精度换范围, 省掉 scaling。\n- FP8: 位宽再砍一半, scale 变成必选项。',
+      tldr: '低精度只负责算, 更新落在 fp32 master 上。这是本章的训练配方, 不是所有实现的必要条件; m13 里去掉它, 200 步后的验证 loss 差 584×。\n- FP16: 要配动态 loss scaling。溢出就跳过这一步, 并把 scale 减半。\n- BF16: 用精度换范围, 省掉 scaling。\n- FP8: 位宽再砍一半, scale 变成必选项。',
       question: '为什么 FP16 训练不是把所有数组 astype(np.float16) 就完事? BF16 和 FP8 又各改了什么?',
       evolution: {
         title: '位宽每砍一刀, 就补一道保险',
@@ -298,11 +298,11 @@ scaler.update(overflow)                          # 溢出减半, 连续好 step 
         },
         {
           title: '两种压平路由的手段',
-          body: '指标是 max/mean: 最热专家收到的 token 数, 除以各专家的平均数。1.00× 是完全均衡。\n- Switch / Mixtral: 加 aux loss $L = E\\cdot\\sum f_e\\cdot P_e$。把 $f$ 当常数对 $P$ 求导, 梯度就在推平路由概率。m11: 60 步后 max/mean 从 1.62× 降到 1.12×, 丢弃 5 → 0。\n- DeepSeek-V3: 给每个专家一个可调 bias, 热门的减、冷门的加, 不往 loss 里掺东西。m11: max/mean 降到 1.00×。\n区别在副作用: aux loss 的梯度会进路由器, 和语言建模抢方向; bias 不进计算图。',
+          body: '指标是 max/mean: 最热专家收到的 token 数, 除以各专家的平均数。1.00× 是完全均衡。\n- Switch / Mixtral: 加 aux loss $L = E\\cdot\\sum f_e\\cdot P_e$ ($f_e$ 是专家 e 实际收到的 token 占比, $P_e$ 是路由给它的平均概率)。把 $f$ 当常数对 $P$ 求导, 梯度就在推平路由概率。m11: 60 步后 max/mean 从 1.62× 降到 1.12×, 丢弃 5 → 0。\n- DeepSeek-V3: 给每个专家一个可调 bias, 热门的减、冷门的加, 不往 loss 里掺东西。m11: max/mean 降到 1.00×。\n区别在副作用: aux loss 的梯度会进路由器, 和语言建模抢方向; bias 不进计算图。',
         },
         {
           title: '同一个 online softmax',
-          body: '分块算注意力, 再增量合并。每收到一块, 就用新的最大值把旧的 (m, 分母, 加权和) 重新缩放一遍。\n这是恒等变形: m12 实测与完整注意力差 4.4e-16。\n- 单卡内做: FlashAttention。\n- 跨卡传块: Ring Attention, 任何时刻每卡只持有 $1/D$ 的 KV。',
+          body: '分块算注意力, 再增量合并。每收到一块, 就用新的最大值把旧的 (m, 分母, 加权和) 重新缩放一遍。\n这是恒等变形: m12 实测与完整注意力差 4.4e-16。\n- 单卡内做: FlashAttention。\n- 跨卡传块: Ring Attention, 任何时刻每卡只持有 $1/D$ 的 KV ($D$ 是环上的卡数)。',
         },
         {
           title: '因果 mask 下要 zigzag 切',
@@ -367,7 +367,7 @@ for step in range(D):
         },
         {
           title: 'full_loop 是合成章',
-          body: '同一个 train_step 里装着: rank 切分、micro 累积、AMP 放大与跳步、全局裁剪、ZeRO 分片 Adam、分片 checkpoint。\n- 40 步跳了 4 步: 3 次真实 fp16 溢出 + 1 次注入的 NaN batch。最终 scale 稳在 $2^{18}$。\n- 中途存盘再续训: master 权重差 0.0e+00。\n同一个函数传 world=1、micro=1、amp=False, 就退化成单卡基线。所以等价性断言是这份代码的自洽检验。',
+          body: '同一个 train_step 里装着: rank 切分、micro 累积、AMP (混合精度) 放大与跳步、全局裁剪、ZeRO 分片 Adam、分片 checkpoint。\n- 40 步跳了 4 步: 3 次真实 fp16 溢出 + 1 次注入的 NaN batch。最终 scale 稳在 $2^{18}$。\n- 中途存盘再续训: master 权重差 0.0e+00。\n同一个函数传 world=1、micro=1、amp=False, 就退化成单卡基线。所以等价性断言是这份代码的自洽检验。',
         },
         {
           title: '读真实框架的入口',
@@ -615,7 +615,7 @@ def nvfp4(x, block=16):
         },
         {
           title: '大规模要配 QK-clip',
-          body: 'Muon 的更新是满秩的, 大规模训练时 attention logit 容易爆。\nm14 只演示裁剪本身: 手工造一组偏大的 $W_q$、$W_k$, max logit 752.1, softmax 最大概率均值 1.000。已经是 one-hot, 梯度全没了。\n- Kimi K2 的 MuonClip: 每步后若 max logit $S_{\\max}$ 超过 $\\tau$, 就把 $W_q$、$W_k$ 各乘 $\\sqrt{\\tau/S_{\\max}}$。demo 取 $\\tau$=100, 裁剪后正好 100.0。\n- embedding、输出头、norm、bias: 仍然用 AdamW。正交化是矩阵概念, 对向量参数没有意义。',
+          body: 'Muon 的更新是满秩的, 大规模训练时 attention logit (softmax 前的 q·k 分数) 容易爆。\nm14 只演示裁剪本身: 手工造一组偏大的 $W_q$、$W_k$, max logit 752.1, softmax 最大概率均值 1.000。已经是 one-hot, 梯度全没了。\n- Kimi K2 的 MuonClip: 每步后若 max logit $S_{\\max}$ 超过 $\\tau$, 就把 $W_q$、$W_k$ 各乘 $\\sqrt{\\tau/S_{\\max}}$。demo 取 $\\tau$=100, 裁剪后正好 100.0。\n- embedding、输出头、norm、bias: 仍然用 AdamW。正交化是矩阵概念, 对向量参数没有意义。',
         },
       ],
       links: [
@@ -665,15 +665,15 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
         {
           title: '换切法, 不换数学',
           key: true,
-          body: '- 注意力之外: 每卡持有 [T/P, H, d]。\n- 进注意力前: all-to-all 成 [T, H/P, d]。每卡看到完整序列但只算 $H/P$ 个头, 直接跑普通 FlashAttention, 算完再换回来。\n头与头之间本来互不相干, 所以结果和完整注意力对得上 (m16: P=2/4 差 0.0e+00, P=8 差 4.4e-16)。\n因果 mask 天然均衡, 不需要 zigzag。',
+          body: '- 注意力之外: 每卡持有 [T/P, H, d] ($P$ 张卡, $T$ 个 token, $H$ 个头, 每头 $d$ 维)。\n- 进注意力前: all-to-all 成 [T, H/P, d]。每卡看到完整序列但只算 $H/P$ 个头, 直接跑普通 FlashAttention, 算完再换回来。\n头与头之间本来互不相干, 所以结果和完整注意力对得上 (m16: P=2/4 差 0.0e+00, P=8 差 4.4e-16)。\n因果 mask 下每卡都算完整序列, 活天然一样多, 不需要 zigzag。',
         },
         {
           title: '通信量随 P 下降',
-          body: '每卡发 $4(P-1)/P^2$ 份张量: 4 次 all-to-all (Q、K、V、输出), 每次只发不属于自己的 $(P-1)/P$。\nm16 里 T=32、H=8、d=8, P=2/4/8 时每 rank 字节:\n- Ulysses: 16384 / 12288 / 7168\n- Ring: 16384 / 24576 / 28672。P=8 时是 Ulysses 的 4.0 倍。',
+          body: '每卡发 $4(P-1)/P^2$ 份完整张量: 4 次 all-to-all (Q、K、V、输出), 每次把自己那 $1/P$ 片里不属于自己的 $(P-1)/P$ 发出去。\nm16 里 T=32、H=8、d=8, P=2/4/8 时每 rank 字节:\n- Ulysses: 16384 / 12288 / 7168\n- Ring: 16384 / 24576 / 28672。P=8 时是 Ulysses 的 4.0 倍。',
         },
         {
           title: '两个硬约束',
-          body: '- P 必须整除头数: m16 里 P=16、H=8 直接 AssertionError。GQA/MQA 的 KV 头更少, 限制更紧。\n- 跨机不友好: all-to-all 吃对分带宽 (集群切成两半, 两半之间的总带宽), 不如 Ring 只和邻居点对点传。\n所以实战常见的是机内 8 路 Ulysses × 机间 4 路 Ring。',
+          body: '- P 必须整除头数: m16 里 P=16、H=8 直接 AssertionError。GQA/MQA (多个 Q 头共用一个 KV 头) 的 KV 头更少, 限制更紧。\n- 跨机不友好: all-to-all 吃对分带宽 (集群切成两半, 两半之间的总带宽), 不如 Ring 只和邻居点对点传。\n所以实战常见的是机内 8 路 Ulysses × 机间 4 路 Ring。',
         },
       ],
       links: [
@@ -724,11 +724,11 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
         },
         {
           title: 'MinHash 估相似度, LSH 只决定谁被比较',
-          body: 'MinHash 靠一个性质: 随机置换下, 两个集合最小元素相同的概率恰好等于 Jaccard。\n每篇文档存 128 个这样的最小值当签名。两篇签名里相同位置的比例, 就是 Jaccard 的估计。\n两两全比是 $O(n^2)$。LSH 把 128 位签名切成 $b=32$ 段 × $r=4$ 行, 任一段完全相同才成候选。\n成候选的概率是一条 S 曲线 $1-(1-s^r)^b$, 拐点约 $(1/b)^{1/r} \\approx 0.42$。$s$ = 0.2 / 0.4 / 0.6 / 0.8 时是 0.05 / 0.564 / 0.988 / 1.0。\n候选对还要用签名估的 Jaccard ≥ 0.5 再校验。两个阈值分开调:\n- S 曲线: 管召回和算量。\n- 校验线: 管最终判定。',
+          body: 'MinHash 靠一个性质: 随机置换下, 两个集合最小元素相同的概率恰好等于 Jaccard。\n每篇文档存 128 个这样的最小值当签名。两篇签名里相同位置的比例, 就是 Jaccard 的估计。\n两两全比是 $O(n^2)$。LSH 把 128 位签名切成 $b=32$ 段 × $r=4$ 行, 任一段完全相同才成候选。\n成候选的概率是一条 S 曲线 $1-(1-s^r)^b$ ($s$ 是两篇的真实 Jaccard), 拐点约 $(1/b)^{1/r} \\approx 0.42$。$s$ = 0.2 / 0.4 / 0.6 / 0.8 时是 0.05 / 0.564 / 0.988 / 1.0。\n候选对还要用签名估的 Jaccard ≥ 0.5 再校验。两个阈值分开调:\n- S 曲线: 管召回和算量。\n- 校验线: 管最终判定。',
         },
         {
           title: '配比: 数据源温度配比',
-          body: '按原始比例采样, 2M token 的 math 在 1000M 库存里只占 0.2%, 几乎见不到。数据源温度配比 $p_i \\propto n_i^{1/T}$ 把它抬上来 (预算 500M):\n- T=2: math 上采样 ×13.84, 过 6.9 遍。\n- T=5: ×50.89, 过 25.4 遍, 很可能已经在背诵。\n目标配比定了, 单个 batch 里的实际占比还会偏。\n指标: 一个 batch (64 条) 内, 各来源实际占比与目标占比的最大偏差, 再取所有 batch 里最坏的。\n- iid 抽样: 0.228。\n- 额度调度: 0.021。\n额度调度是确定性的: 每步给各来源加 $p_i$ 的额度, 选额度最大的来源出一条, 扣 1。偏差不会累积。',
+          body: '按原始比例采样, 2M token 的 math 在 1000M 库存里只占 0.2%, 几乎见不到。数据源温度配比 $p_i \\propto n_i^{1/T}$ ($n_i$ 是来源 i 的库存, $p_i$ 是它的采样占比) 把它抬上来 (预算 500M):\n- T=2: math 上采样 ×13.84, 过 6.9 遍。\n- T=5: ×50.89, 过 25.4 遍, 很可能已经在背诵。\n目标配比定了, 单个 batch 里的实际占比还会偏。\n指标: 一个 batch (64 条) 内, 各来源实际占比与目标占比的最大偏差, 再取所有 batch 里最坏的。\n- iid 抽样: 0.228。\n- 额度调度: 0.021。\n额度调度是确定性的: 每步给各来源加 $p_i$ 的额度, 选额度最大的来源出一条, 扣 1。偏差不会累积。',
         },
         {
           title: '拼行把有效 token 从 0.285 提到 0.990',
@@ -807,7 +807,7 @@ valid = doc[1:] == doc[:-1]                      # 3. 不跨篇预测`,
         },
         {
           title: '这些数字不能拿去推 LLM',
-          body: '上面的数字不能拿去推 LLM:\n- 指数: 这里 $\\alpha \\approx 1.08$、$\\beta \\approx 1.13$, 论文是 0.34 / 0.28。玩具 teacher 的 $1/k$ 谱决定了 $\\alpha$。\n- $a \\approx 0.5$ 是巧合: $a$ 只看 $\\alpha$ 与 $\\beta$ 的比值, 这里两者碰巧接近。换个 teacher 就变。\n- D/N ≈ 150, 不是 20: 这里一个 "token" 是一个回归样本, 信息量和语言 token 不可比。\n- 不是样本外检验: IsoFLOP 的 6 个点也参与了拟合。每格只跑 1 个种子。',
+          body: '上面的数字不能拿去推 LLM:\n- 指数: 这里 $\\alpha \\approx 1.08$、$\\beta \\approx 1.13$, 论文是 0.34 / 0.28。玩具 teacher 的 $1/k$ 谱决定了 $\\alpha$: 生成数据的目标网络里, 第 k 个单元的输出权重按 $1/k$ 衰减。\n- $a \\approx 0.5$ 是巧合: $a$ 只看 $\\alpha$ 与 $\\beta$ 的比值, 这里两者碰巧接近。换个 teacher 就变。\n- D/N ≈ 150, 不是 20: 这里一个 "token" 是一个回归样本, 信息量和语言 token 不可比。\n- 不是样本外检验: IsoFLOP 的 6 个点也参与了拟合。每格只跑 1 个种子。',
         },
         {
           title: 'SP 下最优 lr 随宽度漂',
@@ -856,7 +856,7 @@ lrs = [lr, lr / m, lr / m]                    # ★ 输入层不缩, 隐藏层�
     'train-eval': {
       title: '评测 · perplexity、污染、pass@k 与裁判',
       subtitle: '读完你能看出评测数字的口径问题: 分词器、测试集污染、pass@k 估计法、裁判位置偏差。',
-      tldr: '每个评测数字都有口径:\n- PPL 跟着分词器变, 跨模型要比 bits-per-byte。\n- n-gram 查得到原题, 查不到改写过的题。\n- 朴素 pass@k 系统性偏低, 要用无偏估计。\n- LLM 裁判偏爱先出现的回答, 要交换 A/B 各判一次。',
+      tldr: '每个评测数字都有口径:\n- PPL 跟着分词器变, 跨模型要比按字符或字节摊的 bits (本章实测的是 bits-per-char)。\n- n-gram 查得到原题, 查不到改写过的题。\n- 朴素 pass@k 系统性偏低, 要用无偏估计。\n- LLM 裁判偏爱先出现的回答, 要交换 A/B 各判一次。',
       question: '分数高是模型真会, 还是背过题、换了分词器、或者裁判偏心?',
       evolution: {
         title: '题越开放, 判分越难',
@@ -931,12 +931,12 @@ const supplements = {
   "train-model-parallel": [
     {
       "title": "多维配置要一起算",
-      "body": "m22 固定模型和全局 batch，比较 DP×TP×PP。先验证 rank 网格和整除约束，再算每卡状态/激活、α+字节/带宽通信、DP 重叠和 PP 气泡。Roofline 比较算力与访存上限；MFU 是代价模型估计，不是硬件实测。TP 增加可能省内存却降低吞吐。",
+      "body": "m22 固定 1B 参数、24 层、全局 batch 64、8 卡, 比较 DP×TP×PP 的组合。先验证 rank 网格和整除约束 (DP2×TP3×PP2 直接拒绝, 不给非法配置编收益), 再算每卡状态/激活、α + 字节/带宽的通信、DP 重叠和 PP 气泡。\n- DP2×TP2×PP2: 每卡状态 3.725 GiB, 步时间约 708 ms, 关键卡 786 次通信。\n- DP1×TP4×PP2: 状态降到 1.863 GiB, 步时间却涨到 975 ms, 通信 4640 次。TP 多出的小消息吃掉了省下的内存。\n- α 从 8 μs 改到 100 μs: 同一配置 1429 ms。\nRoofline 取算力与访存的上限; MFU 是代价模型估的 (0.694 vs 0.504), 不是硬件实测。",
       "source": "llm_train/m22_parallel_budget/demo.py:estimate"
     }
   ],
   "train-collectives-loop": [
-    {"title":"通信语义进入训练循环", "body":"本章关注 collective 的参与 rank、张量布局与调用顺序：reduce-scatter 后每个 rank 只持有自己的分片，all-gather 恢复完整视图。预算估算集中在模型并行章；这里用实际同步和恢复断言检查循环是否正确。", "source":null}
+    {"title":"通信语义进入训练循环", "body":"本章看的是每个 collective 谁参与、张量怎么摆、按什么顺序调: reduce-scatter 之后每个 rank 只持有总和的自己那一片, all-gather 再拼回完整视图。\nm09 用 N=4、S=32 B 核对: reduce-scatter 24 B + all-gather 24 B = all-reduce 48 B; ring_all_reduce_sum 一步步传 chunk, 断言实测字节数等于公式、结果等于直接求和。\n显存和时间的预算估算集中在模型并行章; 这里只用实际同步和恢复断言检查主循环对不对。", "source":null}
   ]
 }
 for (const [route, rows] of Object.entries(supplements)) {
@@ -949,18 +949,17 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.pages["train-collectives-loop"].related = [{"route": "train-model-parallel", "label": "DP×TP×PP：显存与时间一起算", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["train-model-parallel"].related = [{"route": "infer-compute", "label": "从代价模型到 profiler", "reason": "预算估算帮助选配置；算子 trace 与真实计时验证实际瓶颈。"}]
+topic.pages["train-collectives-loop"].related = [{"route": "train-model-parallel", "label": "DP×TP×PP: 显存与时间一起算", "reason": "本章只讲四个原语和主循环; 各并行配置的显存、时间预算表在那一章。"}]
+topic.pages["train-model-parallel"].related = [{"route": "infer-compute", "label": "从代价模型到 profiler", "reason": "预算表只能淘汰明显不行的配置; 真实瓶颈要靠算子 trace 和计时。"}]
 export default topic
 
 mergePage(topic, 'train-low-precision', 'train-precision-stability', '进阶 · block scale 与 FP4', ["TrainBlockScaleLab"])
 
 topic.pages['train-precision-stability'].title = '低精度训练 · 稳定性、缩放与 FP4'
-topic.pages['train-precision-stability'].tldr = '先保证小梯度和小更新没有消失，再讨论位宽与缩放粒度。本章实现用 FP32 master 累积更新；这是一种训练配方，不是所有实现的必要条件。'
 const precision = topic.pages['train-precision-stability']
 precision.points[1].body = precision.points[1].body.replace('更新本身永远落在 fp32 master 上', '本章的更新落在 fp32 master 上')
-precision.sections[0].points[0].body = '一个 block 由 amax 决定 scale。outlier 会挤压邻居的有效精度；前面的 FP8 实验已展示这一点。FP4 网格只有 ±{0.5,1,1.5,2,3,4,6}，非零幅值范围只有 12 倍，因此更依赖小 block。'
-topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = 'PP 按层切分，stage 边界传递激活。micro-batch 的执行顺序影响在途激活与空等时间；气泡公式、时间线和通信代价集中在「1F1B 与交错调度」。'
+precision.sections[0].points[0].body = 'scale = block 里的 amax / 网格最大值, 其余元素按它缩放后再舍入。outlier 越大, 同 block 的邻居被挤得越靠近 0; block 越小, 被连累的邻居越少。FP8 上这一点已经量过: outlier 到 1e5 倍时, 其余 token 的输出相对误差 per-tensor 0.126、block 0.026 (见上文)。\nFP4 的网格只有 $\\pm\\{0.5,1,1.5,2,3,4,6\\}$, 非零幅值最大最小只差 12 倍, 所以 block 必须缩到 16~32。'
+topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = '按连续层切成 PP 段, 每段一个 stage, 各放一张卡; stage 边界只传一份激活, 比 TP 省得多。代价是首尾的卡在空等: PP=4、M=8 时气泡 27.3%。\nmicro-batch 的执行顺序决定在途激活 (已前向、还没反向的份数) 和空等时间: GPipe 每个 stage 攥 M 份, 1F1B 降到 PP−s 份。\n气泡公式、时间线和通信代价集中在「1F1B 与交错调度」。'
 
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 

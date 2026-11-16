@@ -1,16 +1,16 @@
-# 文档生命周期：旧答案什么时候必须失效
+# 文档生命周期: 旧答案什么时候必须失效
 
 ## 直觉
 
-检索正确不仅是找到相似文本，还要确认此刻有权读、版本仍有效、答案能回到原文。
+租户 A 问 '退款 11': 先过滤权限能返回自己的 '退款天数 12'; 后过滤时 B 的 '退款天数 11' 先占了 top-1 名额, 删掉后返回空, 越权 0 条但答案也没了。文档更新到 15、撤权、删除之后, 旧引用全部失效; 换编码器版本直接被拒。检索正确不只是找到相似文本, 还要此刻有权读、版本仍有效、答案能回到原文。
 
 ## 核心原理
 
-HTML 的段落和表格行保留原始字符偏移，chunk 带 source/version/parent 与 embedding 版本。PDF 解析要保留页码和坐标；扫描件还需 OCR 置信度与版面顺序，不能把失败文件当成空成功。
+解析器按段落和表格行切块, 保留原始字符偏移, 每个 chunk 带 source/version/parent 和 embedding 版本, 引用能回到原文。PDF 解析要保留页码和坐标, 扫描件还要 OCR 置信度与版面顺序; 解析失败不能当成空成功。
 
-前过滤在合法集合内找候选；后过滤先取 top-k，再删无权项，可能丢掉本应返回的合法项。两者最终返回都要校验权限，原文、引用和缓存也要遵守同一个范围。
+前过滤在有权集合里找候选; 后过滤先取 top-k 再删无权项, 无权近邻会把合法项挤出名额 (本例返回 0 条)。两种方式最终返回前都要再校验权限, 原文、引用和缓存遵守同一个范围。
 
-更新先完成解析，再替换索引快照；撤权和删除清空缓存。引用读取时再次核对版本及授权，历史引用也会失效。更换编码器不能把不兼容向量混入旧索引。
+更新先完成解析, 再替换索引快照; 撤权和删除换代际并清空缓存。引用读取时再次核对版本和授权, 旧引用随之失效。换编码器不能把不兼容向量混进旧索引, 本例直接拒绝查询。
 
 ## 运行
 
@@ -18,9 +18,11 @@ HTML 的段落和表格行保留原始字符偏移，chunk 带 source/version/pa
 python -m llm_agent.m54_document_lifecycle.demo
 ```
 
-需要 Python ≥ 3.10；使用现有 torch 依赖。默认 CPU、本机夹具，无模型 API 调用。
+需要 Python ≥ 3.10, 只用标准库。本机夹具, 不调用模型 API。
 
 ## 运行后应该看到什么
+
+夹具是两个租户: A 能读 policy (售后政策, 退款天数 12), B 能读 private (退款天数 11)。每种情况都先让 A 问一次「退款 11」拿到旧答案「退款天数 12」并引用成功, 再做变更, 再问同一个问题。6 张表的「返回片段」是变更后 A 拿到的片段数; 「越权返回」6 种情况都是 0。
 
 ### 先过滤权限
 
@@ -32,6 +34,7 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | false |
 | 当前文档版本 | 1 |
 
+只在 A 有权的 chunk 里找, 返回「退款天数 12」。快照重新加载后再查, 结果一致; 引用带着 source / version / parent / offset, 读取时再校验一次权限。
 
 ### 后过滤权限
 
@@ -43,6 +46,7 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | false |
 | 当前文档版本 | 1 |
 
+先在全部 chunk 里取 top-1: B 的「退款天数 11」离查询更近, 被选中后又因无权删掉, 返回 0 段。没泄漏, 但 A 本该拿到的那条也没了, 而且不能拿旧缓存补答。
 
 ### 文档更新
 
@@ -54,6 +58,7 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | false |
 | 当前文档版本 | 2 |
 
+policy 升到版本 2, 内容改成「退款天数 15」。旧引用读取时版本对不上, 失效; 新查询返回「退款天数 15」。
 
 ### 撤销权限
 
@@ -65,6 +70,7 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | false |
 | 当前文档版本 | 1 |
 
+A 对 policy 的权限被收回。返回 0 段, 旧引用失效, 不能拿缓存补答。文档本身还在, 版本仍是 1。
 
 ### 删除文档
 
@@ -76,6 +82,7 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | false |
 | 当前文档版本 | 0 |
 
+policy 整篇删除, 版本读数归 0。返回 0 段, 旧引用失效。
 
 ### 编码器换版
 
@@ -87,28 +94,31 @@ python -m llm_agent.m54_document_lifecycle.demo
 | embedding 拒绝 | true |
 | 当前文档版本 | 1 |
 
+用 numbers-v2 去查 numbers-v1 建的索引, 直接拒绝 (embedding 拒绝 = true)。旧索引没被污染: 用 v1 再查仍返回 1 段, 旧引用也仍有效。
 
 ## 与真实系统的差距
 
-两维固定编码器与单桶 ANN 用于隔离权限、召回和失效行为，不代表真实语义效果。HTML 保留字符偏移；PDF/扫描件必须由单独解析/OCR 适配器提供页码与坐标，本模块显式拒绝原始 PDF。缓存按租户与索引代际隔离，变更时保守全量失效。
+编码器是两维固定向量 (文本里最后一个数字, 加上有没有「退款」二字); ANN 只探测和查询数字落在同一区间 (每 20 一桶) 的那一个桶, 再保留 top-1。它们只用来隔离权限、召回和失效三种行为, 不代表真实语义效果。
+
+HTML 保留字符偏移。PDF 和扫描件必须由单独的解析 / OCR 适配器提供页码和坐标, 本模块对原始 PDF 直接报错。缓存按租户和索引代际隔离, 一有变更就保守地全量失效。
 
 ## 怎样验证
 
-固定带表格的文档，保留 source_id/version/page 或 offset/parent_id；解析失败不得伪造空成功。；两租户分别检索；对比 ANN 前过滤与后过滤的召回影响，任何返回和引用都不得泄漏无权文档。；修改、删除或撤权后重放相同问题，旧 chunk、旧引用和缓存答案均不可继续生效；embedding 版本不兼容时显式重建或拒绝混用。
+固定带表格的 A/B 两租户文档和同一个问题, 比较前过滤、后过滤、更新、撤权、删除、换编码器六种情形; 判定看返回片段数、越权返回是否为 0、旧引用是否失效, 以及快照重载后结果是否一致。
 
 边界测试见 [test_engineering_completion.py](../../tests/test_engineering_completion.py)。
 
 ## 常见误区与自测
 
-权限后过滤没有泄露文档，为什么仍可能找不到答案？
+权限后过滤没有泄露文档, 为什么仍可能找不到答案?
 
 <details><summary>展开解析</summary>
 
-更新先完成解析，再替换索引快照；撤权和删除清空缓存。引用读取时再次核对版本及授权，历史引用也会失效。更换编码器不能把不兼容向量混入旧索引。
+因为无权的近邻先占了候选名额。本例后过滤取 top-1 时, B 的 '退款天数 11' 比 A 的 '退款天数 12' 更接近查询, 过滤后剩下空集, 合法答案被挤掉了。前过滤在有权集合里找候选, 就返回了那 1 条。
 
 </details>
 
 ## 参考资料
 
-- [Unstructured：原始文档到结构化元素](https://docs.unstructured.io/open-source/core-functionality/partitioning)
-- [Azure AI Search：向量过滤位置会影响召回](https://learn.microsoft.com/en-us/azure/search/vector-search-filters)
+- [Unstructured: 原始文档到结构化元素](https://docs.unstructured.io/open-source/core-functionality/partitioning)
+- [Azure AI Search: 向量过滤位置会影响召回](https://learn.microsoft.com/en-us/azure/search/vector-search-filters)

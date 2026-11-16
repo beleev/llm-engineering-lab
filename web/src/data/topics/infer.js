@@ -79,7 +79,7 @@ for _ in range(max_new - 1):
 
     'infer-scheduler': {
       title: '调度与 prefill · 每一步都重新组 batch',
-      subtitle: '读完你能说清"每步 token 预算"这一个旋钮, 怎么同时拧动 TBT 和 TTFT。',
+      subtitle: '读完你能说清"每步 token 预算"这一个旋钮, 怎么同时拧动 TBT (两个 token 之间的间隔) 和 TTFT (首 token 延迟)。',
       tldr: '- 静态 batch: 要等最长的那条。\n- 连续批: 调度粒度从 "一个请求" 缩到 "一步前向", 每步重问一遍谁进谁出。\n一条长 prompt 会把所有正在 decode 的用户卡住, 所以再加两道:\n- chunked prefill: 长 prompt 切块混进 decode 的 batch, 最大卡顿 297 → 52 ms。\n- P/D 分离: 干脆把两类负载放到不同节点。',
       question: '队首请求因为 block 不够而进不来, 这一步调度器该干什么?',
       evolution: {
@@ -105,7 +105,7 @@ for _ in range(max_new - 1):
         },
         {
           title: 'token 预算就是 TBT 上限',
-          body: '代价模型 step_ms = 20 + 0.25 × 本步 token 数。每步算多少 token, 直接封顶用户两个 token 之间的间隔。\n4 条在 decode 时来一条 1024-token 的长 prompt。从 "prefill 优先, 整段一步算完" 换成 "分块, 每步预算 128 token":\n- decode 用户最大卡顿: 297 → 52 ms\n- 那条长请求自己的 TTFT: 276 → 445 ms\n分块不是白赚: 卡顿降下来, 代价是那条长请求的首 token 更晚。',
+          body: '代价模型 step_ms = 20 + 0.25 × 本步 token 数。每步算多少 token, 直接封顶用户两个 token 之间的间隔。\n4 条序列正在 decode, 这时来了一条 1024-token 的长 prompt。从 "prefill 优先, 整段一步算完" 换成 "分块, 每步预算 128 token":\n- decode 用户最大卡顿: 297 → 52 ms\n- 那条长请求自己的 TTFT: 276 → 445 ms\n分块不是白赚: 卡顿降下来, 代价是那条长请求的首 token 更晚。',
         },
       ],
       links: [
@@ -136,7 +136,7 @@ for _ in range(max_new - 1):
       widgets: [],
       title: '解码加速与采样 · 更少 target 调用, 更可控的分布',
       subtitle: '读完你能解释"小模型先猜"为什么不让输出变差, 以及采样参数顺序为什么会改结果。',
-      tldr: 'decode 每步只出 1 个 token, 却要把整份权重读一遍, 算力大量闲着。\n投机解码: 便宜的 draft 连猜 $K$ 个, target 一次 forward 验 $K+1$ 个槽位, 输出分布一点不变。\n- greedy: 逐位比 argmax。\n- 采样: 用 rejection sampling。\n采样这一侧是 logits 上的一串后处理, 顺序会改结果。',
+      tldr: 'decode 每步只出 1 个 token, 却要把整份权重读一遍, 算力大量闲着。\n投机解码: 便宜的 draft (小模型) 连猜 $K$ 个, target (原来的大模型) 一次 forward 验 $K+1$ 个槽位, 输出分布一点不变。\n- greedy: 逐位比 argmax。\n- 采样: 用 rejection sampling。\n采样这一侧是 logits 上的一串后处理, 顺序会改结果。',
       question: '为什么投机解码在采样模式下仍然"无损": 输出分布和只用 target 采样完全一样?',
       evolution: {
         title: '读一遍权重, 多收几个 token',
@@ -152,7 +152,7 @@ for _ in range(max_new - 1):
       points: [
         {
           title: '一次验 K+1 个槽位',
-          body: 'target 喂 [out[-1], $d_0, \\dots, d_{K-1}$], 因果 mask 让第 $i$ 行只看到 $d_{<i}$。接受最长的正确前缀, 全对再白送 1 个 bonus token。\n加速比取决于 draft:\n- 与 target 完全一致: 48 个 token 只要 11 次 target 调用 (4.36×)\n- 蒸馏式 draft: 1.85×\n- 随便找个小模型: 1.12×',
+          body: '给 target 一次喂 [out[-1], $d_0, \\dots, d_{K-1}$], 因果 mask 让第 $i$ 行只看到 $d_{<i}$。接受最长的正确前缀, 全对再白送 1 个 bonus token。\n加速比取决于 draft:\n- 与 target 完全一致: 48 个 token 只要 11 次 target 调用 (4.36×)\n- 蒸馏式 draft: 1.85×\n- 随便找个小模型: 1.12×',
         },
         {
           title: 'rejection sampling 让它无损',
@@ -182,7 +182,7 @@ for _ in range(max_new - 1):
         { concept: '采样接受', code: 'm07_speculative_decoding/speculative.py:accept_sampling', takeaway: '$u < p_t/p_d$ 就接受; 否则从 $\\max(0, p_t - p_d)$ 归一化后重采样。全接受时 bonus 直接采自 target。' },
         { concept: '期望产出', code: '(1 − α^(K+1)) / (1 − α)', takeaway: '每次 target 调用的期望 token 数; $\\alpha$ 是每 token 接受率。$K$ 再大也被 $1/(1-\\alpha)$ 封顶, 这正是树形投机的动机。' },
         { concept: '采样顺序', code: 'm10_sampling/samplers.py:sample', takeaway: '六步链条里每一步都是"把被砍的置 -inf", 所以可以任意串联。' },
-        { concept: 'Gumbel-max 是精确的', code: 'argmax(log p + G), G = −log(−log U)', takeaway: '与 multinomial 同分布, TV 0.0064 vs 参照噪声 0.0066; 只有逐元素运算 + 一次 argmax, 整个 batch 一个 kernel。' },
+        { concept: 'Gumbel-max 是精确的', code: 'argmax(log p + G), G = −log(−log U)', takeaway: '与 multinomial 同分布, TV (总变差距离) 0.0064 vs 参照噪声 0.0066; 只有逐元素运算 + 一次 argmax, 整个 batch 一个 kernel。' },
         { concept: 'beam search', code: 'm24_beam_search/beam.py:beam_search', takeaway: '每条活 beam 取 top-$(w+1)$ 个 token 作候选, 保证有 EOS 时仍能凑满 $w$ 条; 结束时按 $\\text{score}/\\text{len}^\\alpha$ 排序。$w=1$ 与 greedy 逐 token 相同。' },
         { concept: '造一个会停的模型', code: 'm24_beam_search/demo.py:EosBiased', takeaway: '随机权重模型 P(EOS) 约 0.5%/步, 从不停。EOS logit +3 后约 8.3%/步 (沿 greedy 路径 24 步的均值), 才看得到 beam 偏爱短句。' },
       ],
@@ -335,7 +335,7 @@ m = m_new
     // ---------------- 深入九章 ---------------- //
     'infer-prefix-radix': {
       title: '前缀复用 · 从 block hash 到 radix tree',
-      subtitle: '多轮对话、few-shot、共享 system prompt: 请求之间的公共前缀只该算一次。',
+      subtitle: '读完你能说清多轮对话、few-shot、共享 system prompt 这些公共前缀怎么只算一次, 以及 block hash 和 radix tree 的命中粒度差在哪。',
       tldr: 'KV 只依赖它之前的 token, 所以相同前缀的 KV 可以跨请求复用。\n- m04 链式 block hash: 只能命中整块。\n- m05 radix tree: 能命中任意长度, 代价是要处理边分裂。\n容量满了从叶子按 LRU 驱逐。',
       question: '驱逐时为什么只能从叶子开始, 不能直接扔掉最久没用的中间节点?',
       evolution: {
@@ -394,7 +394,7 @@ m = m_new
     'infer-structured-output': {
       title: 'token 级语法约束 · 把 FSM 预编译成 mask 表',
       subtitle: '读完你能解释为什么"合法字符"和"合法 token"是两回事。',
-      tldr: '字符级 FSM 能保证语法合法, 但模型吐的是多字符 token (如 「":」、「true」)。\n- 离线: 对每个 (状态, token) 试走一遍。整段字符都走得通才算合法, 同时记下落点状态。\n- 在线: 每步只查一行表, 把非法 token 的 logit 置 −inf。',
+      tldr: '字符级 FSM (有限状态机) 能保证语法合法, 但模型吐的是多字符 token (如 「":」、「true」)。\n- 离线: 对每个 (状态, token) 试走一遍。整段字符都走得通才算合法, 同时记下落点状态。\n- 在线: 每步只查一行表, 把非法 token 的 logit 置 −inf。',
       question: '为什么不能每步在线对 V 个 token 逐字符试走一遍 FSM?',
       evolution: {
         title: '从请模型守规矩到管住 logits',
@@ -454,7 +454,7 @@ state = next_state[state, tok]`,
 
     'infer-quant-awq': {
       title: 'INT4 · AWQ · KIVI · 比特越低, "怎么分组"越要紧',
-      subtitle: 'decode 是带宽受限的: 权重和 KV 越小, 每步要搬的字节越少。',
+      subtitle: '读完你能说清 INT4 为什么要分组、AWQ 为什么先缩放再量化, 以及 K 和 V 为什么分组方向不同。',
       tldr: '- group-wise INT4: 每 $g$ 个权重共用一组 scale/zero, 离群值只污染自己那一组。\n- AWQ: 输出误差 $= \\sum_i x_i \\cdot \\Delta W_i$。量化前把激活大的输入通道放大 $s_i$、激活同步缩小, 数学等价, 误差从 0.0759 降到 0.0273。\n- KV 量化: K 有固定的离群通道, 按通道分组; V 没有, 按 token 分组。',
       question: '量化要最小化的为什么是 $\\|XW - X\\hat{W}\\|$ 而不是 $\\|W - \\hat{W}\\|$?',
       evolution: {
@@ -529,7 +529,7 @@ best = argmin(err)`,
 
     'infer-kv-footprint': {
       title: 'KV 体积 · MHA / MQA / GQA / MLA',
-      subtitle: '同一套 attention 数学, 四种"cache 里存什么", 直接决定一张卡能同时服务多少条序列。',
+      subtitle: '读完你能算出 MHA / GQA / MLA 每 token 的 KV 字节, 并说清它怎么决定一张卡能同时服务多少条序列。',
       tldr: '每 token 的 KV 字节由 "cache 里存几组头" 决定:\n- LLaMA-2-7B (MHA): 512 KiB\n- LLaMA-3-8B (GQA-8): 128 KiB\n- DeepSeek-V3 (MLA): 68.6 KiB\nMLA 只缓存 latent, 比同尺寸 MHA 省 56.9×。',
       question: 'MLA 的 latent 为什么不能带 RoPE, 而要另外留一份解耦的 RoPE key?',
       evolution: {
@@ -587,7 +587,7 @@ max_seqs = kv_budget_bytes // (bytes_per_token * context_len)`,
 
     'infer-attention-sinks': {
       title: 'Attention sinks · 流式长上下文的有界 KV',
-      subtitle: '纯滑动窗口一旦把开头几个 token 挤出去, 模型立刻崩, 因为 softmax 必须把那个 1 分给某个人。',
+      subtitle: '读完你能解释滑动窗口一挤掉开头几个 token 模型为什么立刻崩, 以及 StreamingLLM 怎么把 KV 压到有界。',
       tldr: 'softmax 的权重和恒为 1。当前 token 没什么可看时, 多余的注意力倒在开头几个 token 上, 它们被训练成了垃圾桶 (sink)。\nStreamingLLM 的做法:\n- 永远保留开头 n_sink 个 + 最近 window 个。\n- 位置按 cache 槽位重新编号, 所以 K 必须存未旋转的版本。',
       question: 'SinkCache 里的 K 为什么要存 pre-RoPE 的, 和普通 KV cache 正好相反?',
       evolution: {
@@ -644,7 +644,7 @@ q = apply_rope(q, positions=pos[-1:])`,
 
     'infer-tree-speculation': {
       title: 'EAGLE 与树形投机 · 让一次 target forward 验更多',
-      subtitle: '链式 draft 第一个猜错, 后面 $K-1$ 个全废。两条改进路线: 猜得更准, 或者一次验更多分支。',
+      subtitle: '读完你能说清链式 draft 为什么第一个猜错后面 $K-1$ 个全废, 以及 EAGLE (猜得更准) 和树形投机 (一次验更多分支) 各怎么补。',
       tldr: '- EAGLE: draft 吃 target 白送的 hidden state、共享 target 的 lm_head, 接受率更高。\n- 树形投机: 每个节点留下 draft 的 top-k 候选, 长成一棵树。target 用 tree attention mask 一次验完, 接受与 target greedy 一致的最长路径。\n同样的验证预算: 链 $K=15$ 每次 1.86 token, 树 [3,2,1] 2.58。',
       question: '同一深度的兄弟节点为什么共享同一个 RoPE 位置?',
       evolution: {
@@ -703,7 +703,7 @@ while True:
 
     'infer-kv-offload': {
       title: '分层 KV offload · GPU → CPU → 磁盘',
-      subtitle: '多轮对话每一轮的 prompt 都是整段历史, GPU 装不下所有用户的历史。被挤出去的 KV 别扔, 降级存起来。',
+      subtitle: '读完你能说清被 GPU 挤出去的历史 KV 怎么降级到 CPU 和磁盘, 以及每一层为什么要单独算"加载还是重算"。',
       tldr: '1 个 token 的 KV (128 KiB):\n- 走 PCIe 25 GB/s 搬: 约 5 µs\n- 重算: 约 125 µs\n搬比算便宜 25 倍。但每次加载还有一笔固定延迟, 链路一慢, 命中反而比重算更贵。\n所以每一层都要单独判断 "加载还是重算"。\n以下时间全部来自代价模型, 不是实测。',
       question: '为什么"多加一层缓存"有时反而让 TTFT 变差?',
       evolution: {
@@ -756,8 +756,8 @@ self.store(prompt)                            # 命中的提升回 GPU 层, 溢�
 
     'infer-moe-serving': {
       title: 'MoE serving · 专家并行与 EPLB',
-      subtitle: '专家分布在多张卡上, 每层都要同步, 所以一步的耗时等于最忙那张卡的耗时。',
-      tldr: '- dispatch: token 经 all-to-all 发到专家所在的 rank。\n- combine: 算完再发回, 按 gate 加权。\n路由一倾斜, 热专家所在 rank 的负载能到均值的 2.95×, 平均利用率只剩 34%。\nEPLB 给热专家加冗余副本、把它的 token 拆开: max/mean 压到 1.02×, 输出逐位不变。',
+      subtitle: '读完你能说清 MoE 多卡服务为什么只看最忙那张卡, 以及 EPLB 为什么要复制热专家而不只是重新摆放。',
+      tldr: '- dispatch: token 经 all-to-all 发到专家所在的 rank (卡)。\n- combine: 算完再发回, 按 gate 加权。\n路由一倾斜, 热专家所在 rank 的负载能到均值的 2.95×, 平均利用率只剩 34%。\nEPLB 给热专家加冗余副本、把它的 token 拆开: max/mean 压到 1.02×, 输出逐位不变。',
       question: '为什么只靠"重新摆放专家"不够, 必须复制热专家?',
       evolution: {
         title: '从摆放到复制',
@@ -813,8 +813,8 @@ for s in argsort(-slot_load):                   # ② 从重到轻
 
     'infer-sparse-decode': {
       title: '稀疏注意力 decode · 只读 top-k 个 KV block',
-      subtitle: '长上下文 decode 是访存瓶颈: 每步要把全部 KV 读一遍, 而注意力质量集中在很少的 token 上。',
-      tldr: 'KV 切成 block, 每块常驻一份很小的摘要:\n- Quest: 逐维 min/max\n- NSA/DSA: 压缩 key 或低维 indexer\n用 q 给摘要打分选 top-k 块, 只对它们做 attention。\n- needle 负载: 读 3.1% 的 KV, 误差就降到 0.023。\n- 随机权重模型: 注意力弥散, 这个前提根本不成立。',
+      subtitle: '读完你能说清 Quest 怎么用 block 摘要只读一小部分 KV 还不漏掉针, 以及这个办法在什么模型上不成立。',
+      tldr: 'KV 切成 block, 每块常驻一份很小的摘要:\n- Quest: 逐维 min/max\n- NSA/DSA: 压缩 key 或低维 indexer\n用 q 给摘要打分选 top-k 块, 只对它们做 attention。\n- needle (大海捞针) 负载: 读 3.1% 的 KV, 误差就降到 0.023。\n- 随机权重模型: 注意力弥散, 这个前提根本不成立。',
       question: 'Quest 为什么用"上界"打分, 而不是直接用 block 的均值?',
       evolution: {
         title: '少读 KV, 别漏掉针',
@@ -979,7 +979,7 @@ answer = beams[0][1][-1]`,
         },
         {
           title: '哪些数是真跑的, 哪些是模型算的',
-          body: '- TTFT 来自代价模型: 每副本一条 FIFO 队列, prefill 1000 tok/s、decode 100 tok/s。\n- 参数刻意调慢: 副本利用率 30~40%, 排队才看得见。\n- 真实引擎: 做 continuous batching, 过载表现为 TPOT 变差。\n- 命中率是真跑的: 每副本 24k token 的 RadixCache。轮询的 59.3% 主要来自 512 token 的 system prompt。\n- 路由器看得太清楚: 这里直接读副本的真实 radix tree。SGLang 的 router 维护近似树, 不知道副本的驱逐。',
+          body: '- TTFT 来自代价模型: 每副本一条 FIFO 队列, prefill 1000 tok/s、decode 100 tok/s。\n- 参数刻意调慢: 副本利用率 30~40%, 排队才看得见。\n- 真实引擎: 做 continuous batching, 过载表现为 TPOT (每出一个 token 的耗时) 变差。\n- 命中率是真跑的: 每副本 24k token 的 RadixCache。轮询的 59.3% 主要来自 512 token 的 system prompt。\n- 路由器看得太清楚: 这里直接读副本的真实 radix tree。SGLang 的 router 维护近似树, 不知道副本的驱逐。',
         },
       ],
       links: [
@@ -1016,21 +1016,21 @@ const supplements = {
   "infer-scheduler": [
     {
       "title": "队列需要容量边界",
-      "body": "m28 在固定长短请求分布下扫描到达率，比有界/无界队列。拒绝、超时、取消和完成分别统计；每种终态回收活跃资源。毫秒数来自代价模型，不能拿来配置真实 GPU 容量。",
+      "body": "m28 固定请求分布 (25% 长请求, 4 个活跃槽, 1 秒截止), 把到达率从 8 扫到 96 请求/s, 比有界队列 (最多等 8 个) 和无界队列。\n48 请求/s 时: 有界队列峰值 8, 拒绝 131, 满足 SLO 的 16.5 请求/s; 无界队列峰值 52, 超时 93, 满足 SLO 的只剩 1.55 请求/s。无限排队不增加容量, 只把等待变成超时。\n拒绝、超时、取消 (每 17 个请求有 1 个在 100 ms 取消)、完成分别统计, 每种终态都回收 KV 页, 结束残留页为 0。毫秒数来自代价模型 (一步 2 + 0.5×活跃数 ms), 不能拿来配置真实 GPU 容量。",
       "source": "llm_infer/m28_service_capacity/demo.py:simulate"
     }
   ],
   "infer-multi-replica-routing": [
     {
       "title": "不要只报平均吞吐",
-      "body": "TTFT 含排队，ITL 看 token 间隔；p95/p99 仅在完成样本上统计，必须一起看未完成比例。goodput 是满足整套 SLO 的完成请求/观测时间；排空期也计入分母。",
+      "body": "48 请求/s 的无界队列: 完成 34.7 请求/s, 看着比有界的 34.2 还高; 可 TTFT p99 955 ms, 满足 SLO 的只有 1.55 请求/s (有界 16.5)。\n- TTFT 从到达算起, 含排队; ITL 看相邻 token 的间隔。\n- p95/p99 只在完成的样本上统计, 必须和未完成比例 (拒绝 / 超时 / 取消) 一起看, 否则是幸存者偏差。\n- goodput: 同时满足 TTFT ≤ 200 ms、最大 ITL ≤ 6 ms、1 秒内完成的请求数 ÷ 观测时间, 排空期也计入分母。",
       "source": "llm_infer/m28_service_capacity/demo.py:experiment"
     }
   ],
   "infer-engine": [
     {
       "title": "从机制正确到负载下可用",
-      "body": "模型吞吐、接收量与好吞吐不是同一个数。容量实验核对到达=完成+拒绝+超时+取消，结束占页为零。提高拒绝率可能让 p99 好看，不能因此宣称服务变好。",
+      "body": "模型吞吐、接收量和好吞吐是三个数。96 请求/s 的有界队列: 到达 956 = 完成 364 + 拒绝 568 + 超时 0 + 取消 24, 结束时占页为 0, 账才算对上。\n同一档的无界队列 TTFT p99 960 ms、超时 693; 有界队列 p99 455 ms, 但那是拒掉 568 个换来的。提高拒绝率能让 p99 好看, 不能因此说服务变好: 要同时看 offered load、完成数、goodput 和全部终态。",
       "source": "llm_infer/m28_service_capacity/demo.py:simulate"
     }
   ]
@@ -1045,17 +1045,17 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.pages["infer-compute"].points.push({"title": "性能实测：模型估算与 profiler 怎样对照", "body": "FLOPs 相同不代表执行时间相同。真正的算子调用、分配与 host 开销需要测出来。 先 warmup，再独立计时，再采 profiler。记录 Python/PyTorch、设备、线程数和重复次数；网页展示稳定事件计数，机器相关耗时在 CLI 的 JSON 中保留。"})
-topic.pages["infer-scheduler"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后，排队会发生什么", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-runs", "label": "模型交付与独立进程加载", "reason": "服务接收的是可解释的产物，不只是权重文件。"}]
-topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
-topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
+topic.pages["infer-compute"].points.push({"title": "性能实测: 模型估算与 profiler 怎样对照", "body": "FLOPs 相同不代表执行时间相同: x@w+b 和 torch.addmm 的逻辑 FLOPs 都是 1,056,768, profiler 里却是 6 次 vs 7 次 ATen 调用, CPU 分配 65,536 vs 32,768 字节。算子调用、分配和 host 开销要测出来。\n测法: 先 warmup 3 次, 再独立计时 7 次, 最后单独采一次 profiler (它会扰动耗时)。记录 Python/PyTorch 版本、设备、线程数 (这里 1) 和重复次数。\n网页只展示稳定的事件计数; 机器相关的毫秒数留在 CLI 的 JSON 里。分配字节是分配事件之和, 不是峰值驻留; ATen 调用数也不等于 GPU kernel 数。"})
+topic.pages["infer-scheduler"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后, 排队会发生什么", "reason": "本章只讲队列要有上限; 到达率扫描和 goodput 的完整读数在那一章。"}]
+topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后, 排队会发生什么", "reason": "本章只讲终态要对账; 到达率扫描和 goodput 的完整读数在那一章。"}, {"route": "finetune-runs", "label": "模型交付与独立进程加载", "reason": "引擎加载的是 manifest 里的整套约定, 不只是权重文件。"}]
+topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式: 基础页演示它怎么改变分布, 本章讲它在采样里怎么用。"}]
+topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定谁能看见谁; 本章只讲 K/V 怎么存, 滑杆实验不再重复。"}]
 export default topic
 
-topic.pages["infer-scheduler"].points.push({"title": "多租户调度：总体吞吐会掩盖谁的等待", "body": "连续的大租户请求可能让小租户长期等不到服务。按租户看等待、超时和 goodput，才能发现总吞吐藏住的问题。\n公平轮转以等成本服务量子分配机会；长请求在自己的租户队列继续，不阻止另一租户获得一个量子。真实 token 的代价不相同，需结合 prefill/decode、KV 和预算估计。"})
+topic.pages["infer-scheduler"].points.push({"title": "多租户调度: 总体吞吐会掩盖谁的等待", "body": "A 租户连续发 60 个长请求 (各 5 tick), B 每 15 tick 发 1 个短请求 (各 2 tick), 四种策略跑同一条到达轨迹:\n- FIFO: B 只完成 1 个, 其余 3 个超时。\n- 固定优先级: B 一个都没完成, 从未被服务。\n- 公平轮转: B 4 个全完成, 首服务等待 0; A 完成从 9 降到 8。\n- 公平 + 配额 (每租户最多排 8 个): A 队列峰值 40 → 8, 拒绝 41。\n只看 A 或总完成数, 前三种策略几乎一样 (A 完成 9 / 9 / 8); 按租户看等待、超时和 goodput 才看得到 B 在挨饿。\n公平轮转按等成本的服务量子轮流给机会, 长请求在自己租户的队列里继续, 不挡另一租户拿到一个量子。真实 token 的代价不相同, 要结合 prefill/decode、KV 和预算估计; 有限轨迹也不能证明任意负载下无饥饿。"})
 topic.pages["infer-scheduler"].source.push("llm_infer/m33_tenant_scheduling/demo.py:experiment")
 
-topic.pages["infer-prefix-radix"].points.push({"title": "缓存身份：相同 token 不一定能复用", "body": "KV 的身份不仅是 token，还包含解释这些 token 的模型与输入约定。命中更快，也可能泄露其他租户是否使用过某个前缀。\n共享域由可信身份网关决定。客户端声明的租户或 salt 不能覆盖鉴权结果；同域可复用，跨域隔离需要明确的命名空间。"})
+topic.pages["infer-prefix-radix"].points.push({"title": "缓存身份: 相同 token 不一定能复用", "body": "KV 的身份不只是 token, 还包括解释这些 token 的模型、adapter 和输入约定。m34 先用可信身份 A 写入 [1,2,3,4] 在 model-v1 / adapter-v1 下的 KV, 再换条件请求同一串 token:\n- 跨租户共用 (缓存键不带 scope): B 命中了 A 的条目。命中更快, 也泄露了别的租户用过这个前缀。\n- 隔离命名空间: B 未命中, 缓存条目变 2; 同域的 A 再来则命中。\n- 忽略版本: 换了 adapter 仍命中, 返回值与当前模型约定不符, 旧值被静默返回。\n- 模型或 adapter 变化 (键带版本): 未命中, 重算。\n- 伪造租户声明: 网关按凭证判定身份, 声明不一致直接拒绝。\n共享域由可信身份网关决定, 客户端声明的租户或 salt 不能覆盖鉴权结果; 同域可复用, 跨域要有明确的命名空间。salt 只隔离缓存键, 不隔离进程、网络和显存; 命中 1 / 未命中 5 是合成代价, 不是测出来的时延或攻击率。"})
 topic.pages["infer-prefix-radix"].source.push("llm_infer/m34_cache_identity/demo.py:experiment")
 
 canonicalizeRelated(topic)

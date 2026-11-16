@@ -1,6 +1,6 @@
-# 轨迹学习 · 先验证，再造训练数据
+# 轨迹学习 · 先验证, 再造训练数据
 
-[![轨迹学习 · 先验证，再造训练数据](../../docs/screenshots/agent-trajectory-learning-extension-1.png)](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning)
+[![轨迹学习 · 先验证, 再造训练数据](../../docs/screenshots/agent-trajectory-learning-extension-1.png)](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning)
 
 [项目首页](../../README.md) · [Agent 目录](../README.md) · [交互实验](https://beleev.github.io/llm-engineering-lab/#/agent/trajectory-learning)
 

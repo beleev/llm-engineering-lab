@@ -281,7 +281,7 @@ const evoSteps = [
     fix: '[V,V] 计数表按行归一就是分布; 只看得见前 1 个字' },
   { name: '神经网络 LM', color: 'var(--accent)',
     pain: '想看更长的前文, 表格就按 $V^n$ 膨胀, 大多数格子从没出现过',
-    fix: 'Transformer 把前文压成向量再出 logits; 参数没法数出来, 只能沿梯度学' },
+    fix: 'Transformer 把前文压成向量再出 logits (每个候选字一个分); 参数没法数出来, 只能沿梯度学' },
   { name: '手写 backward', color: 'var(--left)',
     pain: '45,568 个参数每步都要梯度, 这里又不用 autograd',
     fix: 'forward 存 cache, backward 倒着走链式法则; 写错不报错, 所以用 gradcheck 对答案' },

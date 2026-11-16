@@ -164,7 +164,7 @@
     <div class="card" style="margin-top: 20px;">
       <h3>为什么 DiT / MM-DiT / Sora 后来都换成了 Flow Matching?</h3>
       <p class="desc">
-        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型, 全部从 <Tex text="$\varepsilon$" />-pred 切到了 v-pred + Rectified Flow。
+        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型, 全部从 <Tex text="$\varepsilon$" />-pred 切到了 v-pred + Rectified Flow (走直线的 Flow Matching)。
         三个理由:
       </p>
       <ul class="desc" style="padding-left: 20px; list-style: disc; line-height: 1.9; margin-top: 6px;">
@@ -217,7 +217,7 @@ const evoSteps = [
     pain: '采样要走几十步, 每步都在整张像素图上跑一遍去噪网络',
     fix: 'VAE 压成 latent (元素 ÷48), 切 patch 过 Transformer; 条件经 adaLN 注入' },
   { name: 'Flow Matching', year: 2023, color: 'var(--right)',
-    pain: '$\\varepsilon$-pred 的去噪轨迹是弯的, 步子一大就偏, DDIM 仍要 50 步',
+    pain: '$\\varepsilon$-pred 的去噪轨迹是弯的, 步子一大就偏, DDIM (少步采样器) 仍要 50 步',
     fix: '噪声和数据之间走直线, 网络回归速度 $v=\\varepsilon-x_0$: 欧拉法几步就到, SD3 推荐 28 步' },
 ]
 

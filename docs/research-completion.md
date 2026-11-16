@@ -8,31 +8,31 @@
 
 | 主题 | 运行模块 | 条件数 |
 | --- | --- | --- |
-| [数据课程：相同样本数，学到的一样吗](../llm_train/m23_data_curriculum/README.md) | `llm_train.m23_data_curriculum.demo` | 3 |
-| [合成数据：多代反馈与长尾消失](../llm_train/m24_synthetic_feedback/README.md) | `llm_train.m24_synthetic_feedback.demo` | 3 |
-| [可靠性：校准、拒答与人工评价](../llm_train/m25_reliability_metrics/README.md) | `llm_train.m25_reliability_metrics.demo` | 3 |
-| [多语言：采样、分词与翻译偏差](../llm_train/m26_multilingual/README.md) | `llm_train.m26_multilingual.demo` | 3 |
-| [IPO：偏好间隔为何有有限目标](../llm_finetune/run_finetune/ipo/README.md) | `llm_finetune.run_finetune.ipo.demo` | 2 |
-| [PEFT：Prompt、Prefix、Adapter 与 LoRA](../llm_finetune/run_finetune/peft_comparison/README.md) | `llm_finetune.run_finetune.peft_comparison.demo` | 4 |
-| [在线偏好：更新后还符合谁的偏好](../llm_finetune/run_finetune/online_preference/README.md) | `llm_finetune.run_finetune.online_preference.demo` | 3 |
-| [知识编辑：改对一个事实，伤到多少邻居](../llm_finetune/run_finetune/knowledge_edit/README.md) | `llm_finetune.run_finetune.knowledge_edit.demo` | 3 |
-| [隐私：记忆提取、DP 与参数遗忘](../llm_finetune/run_finetune/privacy_unlearning/README.md) | `llm_finetune.run_finetune.privacy_unlearning.demo` | 3 |
-| [推理图：链、树、合并与逐步核验](../llm_infer/m29_reasoning_graph/README.md) | `llm_infer.m29_reasoning_graph.demo` | 3 |
-| [剪枝与融合：零值不等于少做计算](../llm_infer/m30_pruning_fusion/README.md) | `llm_infer.m30_pruning_fusion.demo` | 3 |
-| [端侧预算：能放下、能跑快、能持续吗](../llm_infer/m31_edge_budget/README.md) | `llm_infer.m31_edge_budget.demo` | 3 |
-| [RAG：答案误差如何反传到检索器](../llm_agent/m46_joint_rag/README.md) | `llm_agent.m46_joint_rag.demo` | 4 |
-| [有效上下文：看得到，不等于用得上](../llm_agent/m47_context_utilization/README.md) | `llm_agent.m47_context_utilization.demo` | 3 |
-| [安全与治理：误拒、漏拦和责任记录](../llm_agent/m48_safety_governance/README.md) | `llm_agent.m48_safety_governance.demo` | 3 |
-| [学习世界模型：预测和反馈的差别](../llm_agent/m49_learned_world/README.md) | `llm_agent.m49_learned_world.demo` | 3 |
-| [代码任务：跨文件修改与独立验收](../llm_agent/m50_repository_verification/README.md) | `llm_agent.m50_repository_verification.demo` | 3 |
-| [形式证明与科学假设：三种正确](../llm_agent/m51_formal_science/README.md) | `llm_agent.m51_formal_science.demo` | 3 |
-| [专业领域：证据时效、地域与复核](../llm_agent/m52_domain_workflows/README.md) | `llm_agent.m52_domain_workflows.demo` | 3 |
-| [机制解释：可读出，不等于起作用](../llm_models/run_models/foundation/interpretability/README.md) | `llm_models.run_models.foundation.interpretability.demo` | 3 |
-| [视觉任务：OCR、图表与不确定性](../llm_models/run_models/multimodal/vision_tasks/README.md) | `llm_models.run_models.multimodal.vision_tasks.demo` | 3 |
-| [语音信号：波形、Mel 与 codec](../llm_models/run_models/multimodal/audio_pipeline/README.md) | `llm_models.run_models.multimodal.audio_pipeline.demo` | 3 |
-| [媒体生成：一致性、水印与来源](../llm_models/run_models/generative/media_evaluation/README.md) | `llm_models.run_models.generative.media_evaluation.demo` | 3 |
-| [递归记忆与分层读取：压缩丢了什么](../llm_models/run_models/foundation/hierarchical_memory/README.md) | `llm_models.run_models.foundation.hierarchical_memory.demo` | 3 |
-| [工具学习：从候选调用到训练数据](../llm_agent/m53_tool_data/README.md) | `llm_agent.m53_tool_data.demo` | 3 |
+| [数据课程: 相同样本数, 学到的一样吗](../llm_train/m23_data_curriculum/README.md) | `llm_train.m23_data_curriculum.demo` | 3 |
+| [合成数据: 多代反馈与长尾消失](../llm_train/m24_synthetic_feedback/README.md) | `llm_train.m24_synthetic_feedback.demo` | 3 |
+| [可靠性: 校准、拒答与人工评价](../llm_train/m25_reliability_metrics/README.md) | `llm_train.m25_reliability_metrics.demo` | 3 |
+| [多语言: 采样、分词与翻译偏差](../llm_train/m26_multilingual/README.md) | `llm_train.m26_multilingual.demo` | 3 |
+| [IPO: 偏好间隔为何有有限目标](../llm_finetune/run_finetune/ipo/README.md) | `llm_finetune.run_finetune.ipo.demo` | 2 |
+| [PEFT: Prompt、Prefix、Adapter 与 LoRA](../llm_finetune/run_finetune/peft_comparison/README.md) | `llm_finetune.run_finetune.peft_comparison.demo` | 4 |
+| [在线偏好: 更新后还符合谁的偏好](../llm_finetune/run_finetune/online_preference/README.md) | `llm_finetune.run_finetune.online_preference.demo` | 3 |
+| [知识编辑: 改对一个事实, 伤到多少邻居](../llm_finetune/run_finetune/knowledge_edit/README.md) | `llm_finetune.run_finetune.knowledge_edit.demo` | 3 |
+| [隐私: 记忆提取、DP 与参数遗忘](../llm_finetune/run_finetune/privacy_unlearning/README.md) | `llm_finetune.run_finetune.privacy_unlearning.demo` | 3 |
+| [推理图: 链、树、合并与逐步核验](../llm_infer/m29_reasoning_graph/README.md) | `llm_infer.m29_reasoning_graph.demo` | 3 |
+| [剪枝与融合: 零值不等于少做计算](../llm_infer/m30_pruning_fusion/README.md) | `llm_infer.m30_pruning_fusion.demo` | 3 |
+| [端侧预算: 能放下、能跑快、能持续吗](../llm_infer/m31_edge_budget/README.md) | `llm_infer.m31_edge_budget.demo` | 3 |
+| [RAG: 答案误差如何反传到检索器](../llm_agent/m46_joint_rag/README.md) | `llm_agent.m46_joint_rag.demo` | 4 |
+| [有效上下文: 看得到, 不等于用得上](../llm_agent/m47_context_utilization/README.md) | `llm_agent.m47_context_utilization.demo` | 3 |
+| [安全与治理: 误拒、漏拦和责任记录](../llm_agent/m48_safety_governance/README.md) | `llm_agent.m48_safety_governance.demo` | 3 |
+| [学习世界模型: 预测和反馈的差别](../llm_agent/m49_learned_world/README.md) | `llm_agent.m49_learned_world.demo` | 3 |
+| [代码任务: 跨文件修改与独立验收](../llm_agent/m50_repository_verification/README.md) | `llm_agent.m50_repository_verification.demo` | 3 |
+| [形式证明与科学假设: 三种正确](../llm_agent/m51_formal_science/README.md) | `llm_agent.m51_formal_science.demo` | 3 |
+| [专业领域: 证据时效、地域与复核](../llm_agent/m52_domain_workflows/README.md) | `llm_agent.m52_domain_workflows.demo` | 3 |
+| [机制解释: 可读出, 不等于起作用](../llm_models/run_models/foundation/interpretability/README.md) | `llm_models.run_models.foundation.interpretability.demo` | 3 |
+| [视觉任务: OCR、图表与不确定性](../llm_models/run_models/multimodal/vision_tasks/README.md) | `llm_models.run_models.multimodal.vision_tasks.demo` | 3 |
+| [语音信号: 波形、Mel 与 codec](../llm_models/run_models/multimodal/audio_pipeline/README.md) | `llm_models.run_models.multimodal.audio_pipeline.demo` | 3 |
+| [媒体生成: 一致性、水印与来源](../llm_models/run_models/generative/media_evaluation/README.md) | `llm_models.run_models.generative.media_evaluation.demo` | 3 |
+| [递归记忆与分层读取: 压缩丢了什么](../llm_models/run_models/foundation/hierarchical_memory/README.md) | `llm_models.run_models.foundation.hierarchical_memory.demo` | 3 |
+| [工具学习: 从候选调用到训练数据](../llm_agent/m53_tool_data/README.md) | `llm_agent.m53_tool_data.demo` | 3 |
 
 ## 运行与校验
 

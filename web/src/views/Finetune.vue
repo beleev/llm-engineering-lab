@@ -42,7 +42,7 @@
           <strong>SFT → Reward Model → PPO</strong>。三步各要一次训练, PPO 那步还要同时养 4 个模型。
         </p>
         <ul class="pts">
-          <li><b>4 个怎么数:</b> 这是含奖励模型的经典 RLHF 口径: policy、冻结的 ref、critic、奖励模型 (RM)。</li>
+          <li><b>4 个怎么数:</b> 经典 RLHF (含奖励模型) 的口径是 policy、冻结的 ref、critic、奖励模型 (RM)。</li>
           <li>
             <b>「PPO」一章写的是常驻 ×3:</b>
             <router-link :to="{ name: 'finetune-ppo' }">那一章</router-link>的奖励由 verifier 程序判分, 不养 RM, 常驻的只剩 policy + ref + critic。
@@ -228,7 +228,7 @@
       <h2>4. DPO · 把偏好学习写成一行 logsigmoid</h2>
       <div class="lead-group">
         <p>
-          DPO 的洞见: KL 约束下的策略提升问题有<strong>解析最优解</strong>。把它代回 Bradley-Terry,
+          DPO 的洞见: KL 约束下的策略提升问题有<strong>解析最优解</strong>。把它代回 Bradley-Terry (成对比较的偏好模型),
           loss 就退化成 "chosen 比 rejected 领先多少" 的二分类。RM 和 PPO 都不用了。
         </p>
         <p>

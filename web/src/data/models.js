@@ -705,7 +705,7 @@ export const agentModules = [
   },
   {
     id: 'm25',
-    name: '轨迹学习 · 先验证，再造训练数据',
+    name: '轨迹学习 · 先验证, 再造训练数据',
     concept: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
     link: '同一份轨迹生成三种数据',
     file: 'llm_agent/m25_trajectory_learning/demo.py',

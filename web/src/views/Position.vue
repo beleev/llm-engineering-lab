@@ -263,7 +263,7 @@ const evoSteps = [
     pain: 'Sin 是写死的公式, 不一定贴合数据',
     fix: '每个位置配一个可学向量 (BERT / ViT), 但训练长度之外的位置从没被训过' },
   { name: 'RoPE', year: 2021, color: 'var(--left)',
-    pain: '加在 embedding 上, V 也跟着带了位置, 而 attention 只需要 Q 和 K 带',
+    pain: '训练长度之外推不出去; 而且加在 embedding 上, 不需要位置的 V 也带上了',
     fix: '把 Q/K 的相邻两维当复数, 在位置 $m$ 处旋转 $e^{im\\theta}$: 内积自动只剩 $(m-n)$, 零参数, 能往外推' },
   { name: 'M-RoPE', year: 2024, color: 'var(--eye)',
     pain: '视觉 patch 是二维网格, 一根一维的位置轴装不下',

@@ -83,7 +83,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | 22 | [故障恢复 · 重试、幂等与取消](m22_runtime_reliability/) | 超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。 | `m22_runtime_reliability/demo.py` |
 | 23 | [上下文成本 · 压缩与缓存一起算](m23_context_cache/) | 比较净成本, 同时检查范围、否定和来源是否保留。 | `m23_context_cache/demo.py` |
 | 24 | [检索证据 · 从相关到足够回答](m24_agentic_rag/) | 别名、对象、版本与答案形成完整证据链, 才能输出结果。 | `m24_agentic_rag/demo.py` |
-| 25 | [轨迹学习 · 先验证，再造训练数据](m25_trajectory_learning/) | 结果、来源、授权和预算一起决定轨迹能否进入训练集。 | `m25_trajectory_learning/demo.py` |
+| 25 | [轨迹学习 · 先验证, 再造训练数据](m25_trajectory_learning/) | 结果、来源、授权和预算一起决定轨迹能否进入训练集。 | `m25_trajectory_learning/demo.py` |
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
@@ -139,36 +139,36 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 
 | 模块 | 读完能解释什么 |
 |---|---|
-| [m26_tool_discovery](m26_tool_discovery/README.md) | 先发现能力, 再加载经过版本核验的工具定义。 |
-| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。 |
-| [m28_coding_agent](m28_coding_agent/README.md) | 读取、精确修改、运行测试和终态验收组成一次修复。 |
-| [m29_async_runtime](m29_async_runtime/README.md) | 请求取消和确认停止之间有状态; 已提交的副作用仍然存在。 |
-| [m30_collaboration](m30_collaboration/README.md) | 没有文本冲突不代表合并后满足共同约束。 |
-| [m31_eval_suite](m31_eval_suite/README.md) | 固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。 |
-| [m32_agent_training](m32_agent_training/README.md) | 进入环境采样、计算奖励、更新参数, 再用隔离任务验收。 |
-| [m33_skill_evolution](m33_skill_evolution/README.md) | 先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。 |
-| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。 |
-| [m35_visual_grounding](m35_visual_grounding/README.md) | 坐标属于一次观察, 提交前还要核对当前对象。 |
-| [m36_embodied_control](m36_embodied_control/README.md) | 动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。 |
-| [m37_midtraining](m37_midtraining/README.md) | 中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。 |
-| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序让执行可重复, 但规则、数据接口和生成结果仍须验证。 |
-| [m39_meta_optimization](m39_meta_optimization/README.md) | 回放只能重组走过的分支; 学习搜索方法也需要独立测试。 |
-| [m40_agent_society](m40_agent_society/README.md) | 个体奖励、公共目标和交互历史共同决定协作结果。 |
-| [m41_system_design](m41_system_design/README.md) | 按任务不确定性分配自主性, 按证据与预算约束执行。 |
-| [m42_memory_privacy](m42_memory_privacy/README.md) | 授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。 |
+| [m26_tool_discovery](m26_tool_discovery/README.md) | 模型初次只看到 discover 这 1 个工具; 查目录命中才注册, 下一轮可见 Schema 从 1 变 2, 而不是 103 个。 |
+| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 同一份 5 条事实: 平铺检索只答出 [Atlas], 树摘要答全 [Atlas, Boreal], 图遍历两跳答出负责人 Lin。 |
+| [m28_coding_agent](m28_coding_agent/README.md) | 改一行不等于修好: 首个候选 return total 只过 1/3 测试。 |
+| [m29_async_runtime](m29_async_runtime/README.md) | 取消是两段式: cancel-request 之后要等执行器的 cancel-ack。 |
+| [m30_collaboration](m30_collaboration/README.md) | 两个 worker 各改一个文件, 没有文本冲突, 合起来总量 12 超过上限 10。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 同一份题集 (suite 191d7ed87046) 跑三种条件: baseline 1/3, 只开授权门 2/3, 再开澄清 3/3; 分层报才看得出 safety 是授权门救的, hard 是澄清救的。 |
+| [m32_agent_training](m32_agent_training/README.md) | 4 个符号动作、16 个训练实体: SFT 用 5 条示范跑 60 步学会 lookup→answer, 留出的 16 个实体全过; 在线 RL 按温度 3 每步采 8 条、跑 35 步, 参数动了, 留出仍 100%。 |
+| [m33_skill_evolution](m33_skill_evolution/README.md) | 项目 A 的失败只改 projects[A]=Rust, 不动 default: 全局改法过三道门是 [True, False, False] 被拒; 局部改法三门全过才发布成版本 1, A=Rust、B=Python。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 同一条 10 个事件的时间线: 半双工打不断, 3 条输出全是旧任务的; 全双工只停播放器会重播 2 条过期音频; 按 generation 丢弃后只剩 "正在查"、"已停止" 2 条, 过期 0 条。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 同一个绿色按钮, 截图之后和红色按钮换了位: 按旧坐标 (29, 17) 点开的是 other, 刷新后 (29, 52) 才是 target。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | 同一段动作块, 增益 1.0 刚好到 1.0, 增益 1.8 冲到 1.8。 |
+| [m37_midtraining](m37_midtraining/README.md) | 只训新域 120 步: 新域 0% → 100%, 旧域 100% → 0%, loss 全程在降。 |
+| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 把规则写成代码只保证可重复: total * (1 - percent) 每次都算出 -900。 |
+| [m39_meta_optimization](m39_meta_optimization/README.md) | 训练树上 prior 策略 0.9 赢过 breadth 0.8; 换到留出树, prior 只拿 0.2, breadth 0.95。 |
+| [m40_agent_society](m40_agent_society/README.md) | 背叛对合作 6 轮拿 30 分, 双方都背叛各 6 分、总共 12; 互惠对互惠各 18、总共 36, 对背叛者只让它拿 10。 |
+| [m41_system_design](m41_system_design/README.md) | 有清单走 workflow, 没清单走 Agent, 歧义和高风险交人: hybrid 4 个请求全处理完, 费用 4 单位; 全 Agent 也是 4 个, 费用 6。 |
+| [m42_memory_privacy](m42_memory_privacy/README.md) | 授权在召回之前查, 不是召回后过滤: flat 模式一次就漏 1 条别家租户的、1 条过期的。 |
 
 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
 
-- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 近似索引用更少的距离计算换召回率, 必须保留精确基准。
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 精确扫描 288 次距离计算, recall 1.0; 单叶投影树 36 次, recall 0.8333; 预算 12 的图搜索 144 次, recall 0.6667, 预算放到 24 才回到 1.0。
 
-- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师分支可以多看验证信息, 学生部署时仍只能看普通观察。
+- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师和学生是同一个 nn.Linear(2, 2), 教师分支多看一列已验证的方向提示。
 
 ## 机制实验
 
-- [m45 语义检索与重排](m45_semantic_retrieval/README.md)：需要 torch；加入 run_all --with-training。
-- [m15 流式运行时](m15_claude_api/README.md)：离线协议夹具加入默认 run_all，在线 demo 仍需主动配置凭据。
-- [m31 trace/span](m31_eval_suite/README.md)：实际 Agent 调用链的并发、重试、取消。
-- [多轮模板](../llm_finetune/run_finetune/chat_template/README.md) 与 [RFT](../llm_finetune/run_finetune/rft/README.md)：接回训练数据和策略更新。
+- [m45 语义检索与重排](m45_semantic_retrieval/README.md): 需要 torch, 不在默认 run_all 里; `run_all --with-training` 才会跑。
+- [m15 流式运行时](m15_claude_api/README.md): 离线协议夹具在默认 run_all 里; 在线 demo 要自己配好凭据才会开。
+- [m31 trace/span](m31_eval_suite/README.md): 记真实 Agent 调用链的并发、重试和取消。
+- [多轮模板](../llm_finetune/run_finetune/chat_template/README.md) 与 [RFT](../llm_finetune/run_finetune/rft/README.md): 把 Agent 轨迹接回训练数据和策略更新。
 
 ## 研究实验
 
@@ -176,14 +176,14 @@ m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 S
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [RAG：答案误差如何反传到检索器](m46_joint_rag/README.md) | 检索器选错文档时，只训练生成器可能让它背答案；让答案损失影响检索，才有机会改进证据选择。 |
-| [有效上下文：看得到，不等于用得上](m47_context_utilization/README.md) | 模型能接收很长输入，不代表能稳定利用中间的一小段证据。理论可达、检索命中和正确组合是三件事。 |
-| [安全与治理：误拒、漏拦和责任记录](m48_safety_governance/README.md) | 正常文档可以讨论攻击，恶意文档也可以不含攻击关键词。权限需要依据可信的用户授权，而不是文档措辞。 |
-| [学习世界模型：预测和反馈的差别](m49_learned_world/README.md) | 世界模型根据动作预测下一步；控制器还需要在预测出错后重新观察。能生成连贯视频，并不等于能控制真实世界。 |
-| [代码任务：跨文件修改与独立验收](m50_repository_verification/README.md) | 一个函数通过测试，不等于整个仓库的行为正确。接口单位变了，调用方也必须理解同一个约定。 |
-| [形式证明与科学假设：三种正确](m51_formal_science/README.md) | 一个数算对了、一个命题证出来了、一条现实规律成立了，依赖的是不同证据。 |
-| [专业领域：证据时效、地域与复核](m52_domain_workflows/README.md) | 专业任务的错误往往不是句子不通，而是引用了过期规则、错误地域或不适用的人群。 |
-| [工具学习：从候选调用到训练数据](m53_tool_data/README.md) | 工具调用执行成功，不代表值得教给模型。训练数据应保留能帮助后续预测的调用，并计算额外成本。 |
+| [RAG: 答案误差如何反传到检索器](m46_joint_rag/README.md) | 检索器冻结时, 正确文档概率停在 0.1142, 答案边缘似然 0.2013, top-1 是错的那篇。让答案损失反传到检索 logits, 100 步后正确文档概率 0.9802; 两侧一起训时检索也到 0.9771, 但生成器在错文档下答对的概率从 0.1 涨到 0.2613, 这就是背答案的苗头。 |
+| [有效上下文: 看得到, 不等于用得上](m47_context_utilization/README.md) | 同一个读出器, 证据放在 64 个 token 的开头、中间、末尾, 带首尾偏好时拿到的质量是 0.8132、0.0286、0.8132; 去掉偏好三处都是 0.4643, 仍被 63 个干扰稀释到 0.5 以下。先检索出 top-4 再读, 三处都到 0.9479, 18 组组合全部够用。能装下、能召回、能组合是三件事。 |
+| [安全与治理: 误拒、漏拦和责任记录](m48_safety_governance/README.md) | 同样 4 个案例, 关键词拦截误拒了 1 条引用 "ignore previous instructions" 的正常请求, 又放过了 1 条换了说法的外发攻击, B 组正确率 0; 不设权限门则 2 条攻击全放行。执行器只核对服务端 allowlist 时, 误拒 0、漏放 0。正常文档可以讨论攻击, 恶意文档也可以不含关键词, 权限只能来自可信的用户授权。 |
+| [学习世界模型: 预测和反馈的差别](m49_learned_world/README.md) | demo 用 120 条转移样本拟合出 A/B = 0.9002/0.7007, 动力学匹配时一步 MPC 把状态从 2 收到 0.0062。部署时执行器增益从 0.7 掉到 0.35: 开环照着预测走, 预测说已经到 0.006, 真实状态还在 0.286, 终态 0.28553; 每步重新观察的闭环终态 0.00706。世界模型负责预测, 控制器还得在预测出错后回去看现实。 |
+| [代码任务: 跨文件修改与独立验收](m50_repository_verification/README.md) | 把折扣接口从百分数改成小数后, 只改 rates.py 不改 invoice.py 的补丁, 在工作区外的 4 个独立用例里只过 1 个, 退出码 1; 同步调用方的完整补丁 4/4。候选把 total 硬编码成 80、把本地测试改成 assert True 自报全绿, 独立用例照样只过 1/4。一个函数过了测试, 不等于整个仓库对了。 |
+| [形式证明与科学假设: 三种正确](m51_formal_science/README.md) | 引用写成 (0, 0) 的伪造证书, 最后一行同样是 Q, 内核逐步核对引用后拒绝; 引用 (0, 1) 的证书通过。三点测量里有一处异常, 二次式把训练 MSE 拟到 0.0, 在独立模拟器的 4 个留出点上 MSE 3.06; 线性假设训练 MSE 0.14222, 留出 0.07111。算对一个数、证出一个命题、发现一条现实规律, 靠的是三种不同的证据。 |
+| [专业领域: 证据时效、地域与复核](m52_domain_workflows/README.md) | 同样 3 个虚构场景, 只按领域取第一篇资料: 医疗引了过期的 med-old, 法律引了 B 地区的 law-B, 0 对。按地域和日期过滤后医疗、法律各对 1 条, C 地区没有金融资料就拒答, 3/3; 专家复核状态来自场景里的 expert 标志, 模型自己写不出 "已复核"。专业任务的错误常常不是句子不通, 而是引错了版本、地域或人群。 |
+| [工具学习: 从候选调用到训练数据](m53_tool_data/README.md) | 同一个加法工具, 全部收录时留出 40 题全调用, 复述题也被答成 a+b, 只对 20 题; 按有/无工具的答案似然收益过滤后, 只在算术题上调用 (20 次), 40 题全对; 把成本门槛提到 6, 算术题的收益也不够, 0 次调用, 又只对 20 题。工具执行成功, 不代表值得教给模型; 训练数据应保留能帮助后续预测的调用, 并把额外成本算进去。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。
 

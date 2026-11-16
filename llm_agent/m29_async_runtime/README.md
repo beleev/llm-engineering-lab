@@ -6,37 +6,47 @@
 
 ## 直觉
 
-用户打断时, 工具究竟执行到哪了?
+用户点了取消, 工具究竟停在哪一步? 它刚提交的那笔钱怎么办?
 
-请求取消和确认停止之间有状态; 已提交的副作用仍然存在。
+取消是两段式: cancel-request 之后要等执行器的 cancel-ack。已提交的副作用不回滚: cancel-after 模式账本仍是 10 元, 重开再提交也还是 1 笔, 靠 SQLite 主键 invoice-1 做幂等。
 
 ## 核心原理
 
 ### 从调用栈变成事件生命周期
 
-任务从外部事件开始, 在 await 处挂起, 再由结果唤醒。
+任务由外部事件唤醒, 在 await release.wait() 处真正挂起, 再由结果唤醒; 不是一个函数从头跑到尾。
 
-事件应标识任务与 generation, 状态包括 working、completed、cancel-request 与 cancel-ack。
+每条事件标识任务与 generation, 状态包括 working、committed、stream、completed、cancel-request 与 cancel-ack。complete 模式按 working → committed → stream × 2 → completed 走完, 事件同时写进 SQLite 的 events 表。
 
 ### 取消要等执行器确认
 
-asyncio Task.cancel 在可取消点抛 CancelledError。
+asyncio 的 Task.cancel 只在可取消点 (await) 抛 CancelledError。
 
-本例等待确认再结束, 旧 generation 不再输出。
+本例的 interrupt 先把 generation 加 1, 再 cancel, 然后 await 任务直到执行器记下 cancel-ack 才返回; 旧 generation 的 token 不再输出, cancel-after 模式 streamed 为 0。
 
-阻塞线程、外部服务和物理设备没有这种自动保证。
+已结束任务的取消是幂等的, 不伪造新确认。阻塞线程、外部服务和物理设备没有这种自动保证。
 
 ### 提交状态独立持久化
 
-SQLite 主键绑定操作与金额, 同键异参拒绝。同一事务边界内可避免重复入账; 恢复后查已有收据, 不能凭超时判断未执行。
+Journal 用 SQLite 主键 invoice-1 绑定操作与金额 10; 同键重复提交被 INSERT OR IGNORE 吸收, 同键换金额抛 "幂等键对应的参数变了"。
+
+cancel-after 模式在挂起前就提交了 10 元, 取消确认后账本仍是 10 元; 关掉再重开账本、按同一键重提交, 恢复前后 10/10 元, 1 笔。
+
+恢复后先查已有收据, 不能凭超时判断未执行: 只有 cancel-before 模式才是 0 元 0 笔。
 
 ### 流式输出也需要代际
 
-模型文字块、工具进度、语音输出都是事件。展示已经发生的进度, 不把局部 token 当最终承诺。预算预留在无 await 临界段完成。
+模型文字块、工具进度、语音输出都是事件。本例把 "已"、"处理" 两个 token 当流式事件, 每出一个先比对 generation, 过期就直接 return。
+
+展示已经发生的进度, 不把局部 token 当最终承诺。
+
+预算预留在无 await 的临界段完成: write 先检查 generation 和 budget=2, used += 1 之后才提交。
 
 ### 长期任务需要更多恢复信息
 
-生产任务还要持久化检查点、租约、输入版本和审批状态, 区分外部通知与用户新指令。虚拟身份与工具凭证按执行身份隔离; 本例只展示单进程机制。
+生产任务还要持久化检查点、租约、输入版本和审批状态, 区分外部通知与用户新指令。
+
+虚拟身份与工具凭证按执行身份隔离; 本例只展示单进程里的 generation、幂等键和事件表。
 
 ### 同步模型怎样接异步事件
 
@@ -66,7 +76,9 @@ python -m llm_agent.m29_async_runtime.demo
 
 ## 与真实系统的差距
 
-真实 asyncio 与磁盘 SQLite, 但没有网络分区、分布式租约或进程强杀测试。重开的是账本, 不是自动恢复任意 Python 调用栈。
+用的是真实 asyncio 任务与磁盘 SQLite, 竞态靠 Event 屏障复现, 不靠 sleep 猜时序。
+
+没有网络分区、分布式租约或进程强杀测试; "重开" 重开的是账本文件, 不是自动恢复任意 Python 调用栈。
 
 ## 常见误区
 

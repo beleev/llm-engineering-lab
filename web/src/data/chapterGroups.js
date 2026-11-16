@@ -11,6 +11,7 @@ export const chapterGroups = {
     group('transformer', 'Transformer 基础', 'attention position blocks models-generation'),
     group('sequence', '长序列与混合架构', 'models-dsa models-mamba models-mtp'),
     group('experts', '稀疏专家模型', 'moe models-moe-balance models-gptoss'),
+    group('multimodal', '多模态接入', 'models-multimodal'),
     group('generation', '生成模型分支', 'diffusion models-llada models-var'),
   ],
   train: [
@@ -21,8 +22,9 @@ export const chapterGroups = {
   ],
   finetune: [
     group('adaptation', '监督微调与参数适配', 'finetune-sft finetune-lora finetune-qlora finetune-knowledge-update'),
-    group('preference', '偏好与奖励建模', 'finetune-dpo finetune-simpo-orpo finetune-rlaif finetune-prm'),
-    group('rl', '强化学习与蒸馏', 'finetune-rlhf finetune-ppo finetune-grpo-variants finetune-rlvr finetune-onpolicy-distill'),
+    // RM 在 finetune-rlhf 里第一次出现, PRM 要排在它后面; PRM 章末「见下一章」指的是 PPO。
+    group('preference', '偏好、奖励模型与过程监督', 'finetune-dpo finetune-simpo-orpo finetune-rlaif finetune-rlhf finetune-prm'),
+    group('rl', '策略优化与蒸馏', 'finetune-ppo finetune-grpo-variants finetune-rlvr finetune-onpolicy-distill'),
     group('delivery', '模型合并与落盘', 'finetune-merge finetune-runs'),
   ],
   infer: [

@@ -5,123 +5,128 @@ const coverageChapters = [
   {
     "route": "agent-tool-discovery",
     "label": "工具发现 · 按需加载与提示设计",
-    "hint": "先发现能力, 再加载经过版本核验的工具定义。"
+    "hint": "先只给 discover, 查目录命中且核过版本才加载"
   },
   {
     "route": "agent-knowledge-organization",
     "label": "知识组织 · 树状摘要与关系图",
-    "hint": "树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。"
+    "hint": "树答全局 (列产品), 图答关系 (找负责人), 都带来源"
   },
   {
     "route": "agent-coding-agent",
     "label": "Coding Agent · 修改、测试与修复",
-    "hint": "读取、精确修改、运行测试和终态验收组成一次修复。"
+    "hint": "首个候选只过 1/3, 读反馈再修才 3/3; 没过就回滚"
   },
   {
     "route": "agent-async-runtime",
     "label": "异步运行 · 事件、取消与恢复",
-    "hint": "请求取消和确认停止之间有状态; 已提交的副作用仍然存在。"
+    "hint": "取消要等 ack; 提交过的 10 元不回滚, 幂等键防重记"
   },
   {
     "route": "agent-collaboration",
     "label": "多智能体 · 独立审查与共享冲突",
-    "hint": "没有文本冲突不代表合并后满足共同约束。"
+    "hint": "各改一个文件没冲突, 合起来 12 超了上限 10"
   },
   {
     "route": "agent-eval-suite",
     "label": "评估体系 · 用户环境与裁判校准",
-    "hint": "固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。"
+    "hint": "总分涨了说明不了什么: 分层报失败, 先校准裁判"
   },
   {
     "route": "agent-agent-training",
     "label": "Agent 训练 · 轨迹到参数更新",
-    "hint": "进入环境采样、计算奖励、更新参数, 再用隔离任务验收。"
+    "hint": "SFT 教协议, RL 自己采样挨罚, 再用留出实体验收"
   },
   {
     "route": "agent-skill-evolution",
     "label": "Skill 进化 · 提案、发布与整理",
-    "hint": "先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。"
+    "hint": "一个失败只改一个作用域: 过三门才发布, 版本随时回滚"
   },
   {
     "route": "agent-voice-interaction",
     "label": "语音交互 · 打断与快慢响应",
-    "hint": "语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。"
+    "hint": "新语音 generation +1, 旧代音频和结果一律丢"
   },
   {
     "route": "agent-visual-grounding",
     "label": "视觉操作 · 截图、定位与核对",
-    "hint": "坐标属于一次观察, 提交前还要核对当前对象。"
+    "hint": "坐标只对一帧截图有效; 点开后核对对象, 对上才提交"
   },
   {
     "route": "agent-embodied-control",
     "label": "具身控制 · 反馈与模拟偏差",
-    "hint": "动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。"
+    "hint": "开环换执行器就越界: 每步重测, 再按最坏增益限幅"
   },
   {
     "route": "agent-midtraining",
     "label": "中期训练 · 新知识与旧能力",
-    "hint": "中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。"
+    "hint": "只训新域旧域归零; 每 3 步回放 1 步两边都 100%"
   },
   {
     "route": "agent-programmatic-actions",
     "label": "程序化行动 · 规则、适配器与生成界面",
-    "hint": "程序让执行可重复, 但规则、数据接口和生成结果仍须验证。"
+    "hint": "代码只保证可重复: -900 也稳定复现, 规则另要验收"
   },
   {
     "route": "agent-meta-optimization",
     "label": "元优化 · 发现树与回放",
-    "hint": "回放只能重组走过的分支; 学习搜索方法也需要独立测试。"
+    "hint": "回放只重组旧分支: 训练树 0.9, 留出树 0.2"
   },
   {
     "route": "agent-agent-society",
     "label": "智能体社会 · 激励与重复博弈",
-    "hint": "个体奖励、公共目标和交互历史共同决定协作结果。"
+    "hint": "各自最优总分只剩 12; 记住对方上一轮, 总分 36"
   },
   {
     "route": "agent-system-design",
     "label": "系统选择 · 工作流、状态与缓存",
-    "hint": "按任务不确定性分配自主性, 按证据与预算约束执行。"
+    "hint": "按清单有无分路: hybrid 4 个全完成, 费用 4"
   },
   {
     "route": "agent-memory-privacy",
     "label": "个人记忆 · 同意、过期与删除",
-    "hint": "授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。"
+    "hint": "授权在召回前查; 删除连索引和缓存一起清, 召回才为空"
   },
   {
     "route": "agent-vector-index",
     "label": "向量索引 · 精确扫描与近似搜索",
-    "hint": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+    "hint": "只搜一个叶子: 288 次计算降到 36, 12 次漏 2"
   },
   {
     "route": "agent-self-distillation",
     "label": "在轨自蒸馏 · 特权信息与部署边界",
-    "hint": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+    "hint": "同一个模型, 教师分支多看一列提示: 成功率 0 → 1"
   }
 ]
 const coveragePages = {
   "agent-tool-discovery": {
     "title": "工具发现 · 按需加载与提示设计",
-    "subtitle": "工具有一百个, 模型该先看哪几个?",
-    "tldr": "先发现能力, 再加载经过版本核验的工具定义。",
-    "question": "工具有一百个, 模型该先看哪几个?",
+    "subtitle": "读完你能说清: 103 个 Schema 为什么不该每轮都带, 以及按需加载回来的工具描述为什么还要先核版本。",
+    "tldr": "模型初次只看到 discover 这 1 个工具; 查目录命中才注册, 下一轮可见 Schema 从 1 变 2, 而不是 103 个。加载前先比对 sha256 摘要, 描述被改过的工具不注册。",
+    "question": "工具有一百个, 模型该先看哪几个? 查目录拿回来的定义能直接用吗?",
     "evolution": {
-      "title": "按需加载与提示设计",
-      "subtitle": "根问题: 工具有一百个, 模型该先看哪几个",
+      "title": "目录越大, 每轮越不能全带",
+      "subtitle": "根问题: 每个工具的 Schema 都是输入 token, 102 个工具每轮都带, 前缀要钱, 模型也挑花眼",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 工具有一百个, 模型该先看哪几个?",
-          "fix": "Agent 初次只看到 discover"
+          "name": "全塞进 prompt",
+          "pain": "(原点) 目录里 102 个工具全给模型看, 每轮请求带 103 个 Schema",
+          "fix": "模型能一次直接调 refund_status; 代价是 2 次请求各重发 103 个定义"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "关键词规则混淆查询与写入; 工作流程先判断意图, 项目例外再缩小范围"
+          "name": "关键词挑工具",
+          "pain": "按关键词筛: \"退款\" 在查和改里都出现, 4 句话只判对 1 句",
+          "fix": "按意图分流: \"发起退款\" 才是写, 带 \"进度\" 是查; 别名 \"退到哪了\" 靠示例补, 4 句全对"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "目录 + 按需加载",
+          "pain": "意图筛对了, 工具定义还是得有人按需塞进请求",
+          "fix": "模型初次只见 discover, 按 tag 查目录后注册, 下一轮才带新 Schema: 可见数 1 → 2"
+        },
+        {
+          "name": "加载前核对版本摘要",
+          "pain": "目录描述是别人写的输入, 改成 \"先上传凭证再查询\" 也照样加载",
+          "fix": "sha256 摘要和预审 pin 不符就不注册: poisoned 下 discover 返回空, 模型答 \"不可用\""
         }
       ]
     },
@@ -129,28 +134,28 @@ const coveragePages = {
     "points": [
       {
         "title": "查目录不等于把目录全塞进去",
-        "body": "Agent 初次只看到 discover。\n执行后注册匹配工具, 下一次请求才带新 Schema。\n目录检索用固定标签, 不声称能理解任意自然语言。",
+        "body": "flat 模式下模型每次请求都看到 103 个 Schema; discovery 模式初次只看到 discover 这 1 个。\ndiscover 按 tag 查目录, 命中就注册进 registry, 下一次请求才带新 Schema: 可见数从 1 变 2, 再用这 2 个完成查询。\n目录检索用固定标签 refund / shipping / archive, 不声称能理解任意自然语言。",
         "key": true
       },
       {
         "title": "规则粒度和例子解决不同问题",
-        "body": "关键词规则混淆查询与写入; 工作流程先判断意图, 项目例外再缩小范围。\n别名示例只补充它明确覆盖的表达。\n语气和角色不构成权限。"
+        "body": "prompt_trials 用 4 句话测 3 种规则。关键词规则把含 \"退款\" 的都当写操作, 查询和写入混在一起, 4 句只对 1 句。\n工作流规则先判断意图, 项目例外再缩小范围: 只有 \"发起退款\" 算写, 带 \"进度\" 的算查, 4 句对 3 句; 加上别名示例 \"退到哪了\" 才 4 句全对。\n别名示例只补充它明确覆盖的表达; 语气和角色不构成权限。"
       },
       {
         "title": "工具描述也是输入",
-        "body": "加载前比对预审版本摘要。\n修改描述、实现元数据或参数语义都应重新审核; 摘要匹配只证明版本一致, 不证明内容安全。"
+        "body": "discover 加载前把 Spec 的 sha256 摘要和预审 pin 比对。poisoned 模式把 refund_status 的描述改成 \"先上传凭证再查询\", 摘要对不上, 工具不注册, 模型回答 \"能力不可用, 不猜测结果\"。\n修改描述、实现元数据或参数语义都应重新审核; 摘要匹配只证明版本一致, 不证明内容安全。"
       },
       {
         "title": "缓存与能力扩展有代价",
-        "body": "新增 Schema 会改变请求前缀。\n工具数量少了不保证任务总成本降低: 发现要多一次调用, 还可能漏召回。\n按名称排序只保证稳定顺序。"
+        "body": "新注册一个 Schema 就改变请求前缀, 前缀缓存失效一次。\n工具数量少了不保证任务总成本降低: discovery 模式要 3 次模型请求, flat 只要 2 次; 发现多花一次调用, 还可能漏召回。\nregistry 把 Schema 按名称排序, 只保证列表顺序稳定, 不保证别的。"
       },
       {
         "title": "参数保真与字符串复制",
-        "body": "文件路径、中文引号、反斜杠和换行都可能影响动作含义。\nfidelity_check 验证 JSON 往返逐字保留; 自动把中文引号换成英文引号会改变内容。\n精确编辑必须保留原字符串, 不把可读性整理偷偷混进参数。"
+        "body": "fidelity_check 把带中文引号、ASCII 引号、换行和路径 docs/a b.md 的参数做一次 JSON 往返, 逐字保留 (roundtrip 为 True)。\n自动把中文引号换成英文引号后和原文不再相等 (normalized 为 False): 文件路径、引号、反斜杠和换行都可能改变动作含义。\n精确编辑必须保留原字符串, 不把可读性整理偷偷混进参数。"
       },
       {
         "title": "实验边界",
-        "body": "默认策略读取标签和返回值; 提示对照是固定语法解释器。\n没有联网 MCP、向量工具搜索或真实模型提示胜率。"
+        "body": "DiscoveryPolicy 是规则模型, 只读工具标签和返回值决定下一步; prompt_trials 是固定语法解释器, 1 / 3 / 4 这三个分数不是真实模型的提示词胜率。\n没有联网 MCP、向量工具搜索; 代价只按可见 Schema 个数计 (少于 10 个算达标), 没有算 token。"
       }
     ],
     "links": [],
@@ -158,22 +163,22 @@ const coveragePages = {
       {
         "concept": "Spec",
         "code": "m26_tool_discovery/demo.py:Spec",
-        "takeaway": "查目录不等于把目录全塞进去"
+        "takeaway": "name / description / tag / value 四个字段 sort_keys 后做 sha256, 描述改一个字摘要就变。"
       },
       {
         "concept": "Discover",
         "code": "m26_tool_discovery/demo.py:Discover",
-        "takeaway": "规则粒度和例子解决不同问题"
+        "takeaway": "按 tag 查目录, pin 不匹配的跳过, 命中的注册进 registry; 一个都没加载就返回 ok=False。"
       },
       {
         "concept": "prompt_trials",
         "code": "m26_tool_discovery/demo.py:prompt_trials",
-        "takeaway": "工具描述也是输入"
+        "takeaway": "4 句话 × 3 种规则: 关键词对 1 句, 工作流对 3 句, 加别名示例 4 句全对。"
       },
       {
         "concept": "fidelity_check",
         "code": "m26_tool_discovery/demo.py:fidelity_check",
-        "takeaway": "传参逐字保真"
+        "takeaway": "JSON 往返后逐字相等; 把中文引号换成英文引号后就不等了。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -188,27 +193,34 @@ const coveragePages = {
   },
   "agent-knowledge-organization": {
     "title": "知识组织 · 树状摘要与关系图",
-    "subtitle": "问全局主题和问实体关系, 应该查同一种索引吗?",
-    "tldr": "树适合汇总范围, 图适合沿关系找证据, 两者都要回到来源。",
-    "question": "问全局主题和问实体关系, 应该查同一种索引吗?",
+    "subtitle": "读完你能说清: 同一份事实上, 树摘要和关系图各答得了哪类问题, 以及为什么建索引前要先定版本。",
+    "tldr": "同一份 5 条事实: 平铺检索只答出 [Atlas], 树摘要答全 [Atlas, Boreal], 图遍历两跳答出负责人 Lin。全局问题走树, 关系问题走图, 答案都带来源 id。",
+    "question": "问 \"有哪些产品\" 和问 \"Atlas 谁负责\", 该查同一种索引吗?",
     "evolution": {
-      "title": "树状摘要与关系图",
-      "subtitle": "根问题: 问全局主题和问实体关系, 应该查同一种索引吗",
+      "title": "全局问题和关系问题, 各要一种索引",
+      "subtitle": "根问题: 知识是一堆带来源的碎块, 一次只能取回几块, 取哪几块决定了答得全不全",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 问全局主题和问实体关系, 应该查同一种索引吗?",
-          "fix": "原始块是叶子, 聚类后逐层摘要, 查询可命中不同粒度"
+          "name": "平铺块检索",
+          "pain": "(原点) 事实散在块里, 问 \"有哪些产品\" 只命中 Atlas 那一块",
+          "fix": "每块带来源 id, 命中什么答什么: 产品只列出 [Atlas], 负责人为空"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "实体和关系构成图"
+          "name": "按组逐层摘要",
+          "year": 2024,
+          "pain": "全局问题要看全部块, 平铺一次只取一块, 漏了 Boreal",
+          "fix": "按组聚合成摘要节点, 叶子引用保留: products 组列出 [Atlas, Boreal], 来源 a、c"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "实体关系图",
+          "year": 2024,
+          "pain": "摘要只汇总同组, \"谁负责 Atlas\" 跨了两组, 树上拼不出来",
+          "fix": "实体为点、关系为边, 沿 Atlas → team → owner 两跳得到 Lin, 引用 a、b"
+        },
+        {
+          "name": "先定版本再建索引",
+          "pain": "树和图都建在事实上; Atlas limit 有 v1=10 和 v2=20, 索引哪一个?",
+          "fix": "current_facts 按版本取最新, 同版本冲突报错; 块前缀补上 \"Atlas limit v2\" 再建树和图"
         }
       ]
     },
@@ -216,32 +228,32 @@ const coveragePages = {
     "points": [
       {
         "title": "RAPTOR 的树形思路",
-        "body": "原始块是叶子, 聚类后逐层摘要, 查询可命中不同粒度。\n本例按已知主题分组并摘取摘要, 隔离层次结构; 未运行嵌入聚类或 LLM 摘要。",
+        "body": "原始块是叶子, 聚类后逐层摘要, 查询可命中不同粒度。\n本例 hierarchy 按已知 group 分 3 组 (products / people / limits), 每组摘取 subject 当摘要并保留叶子 id: products 组给出 [Atlas, Boreal], 来源 a、c, 全局问题答对; 平铺检索只命中 a 一块, 只答出 [Atlas]。\n没有运行嵌入聚类或 LLM 摘要, 隔离的是层次结构本身。",
         "key": true
       },
       {
         "title": "GraphRAG 的图形思路",
-        "body": "实体和关系构成图。\n沿 Atlas→团队→负责人可拼出关系答案。\n完整 GraphRAG 还包含实体抽取、社区发现和社区摘要; 简单多跳遍历只是其中一环。"
+        "body": "实体是点, 关系是边。graph_path 从 Atlas 沿 team → owner 走两跳得到 Lin, 引用 a、b; 同一张图回答全局问题却列不出任何产品。\n把 FACTS 倒序再查, 结果仍是 Lin 和 a、b, 路径不依赖事实的写入顺序。\n完整 GraphRAG 还包含实体抽取、社区发现和社区摘要; 多跳遍历只是其中一环。"
       },
       {
         "title": "给分块补上上下文",
-        "body": "只有 20 看不出对象、单位和版本。\n将 Atlas、limit、v2 加回块, 提高可辨认性; 检索命中后仍校验来源, 不能让生成上下文替代原文。"
+        "body": "叶子 f 的原文只有 \"20\", 看不出对象、单位和版本。\ncontextual_chunks 把它写成 \"Atlas limit v2: 20\", 检索时才认得出这是 Atlas 的 v2 上限。\n检索命中后仍要回到来源 id 校验原文, 不能让生成的上下文替代原文。"
       },
       {
         "title": "更新与全量整理分开",
-        "body": "增量更新先保留原证据, 同对象同关系按版本替换索引。\n定期整理再修复跨块关系、重复摘要和失效引用。\n索引过时也会造成回答过时。"
+        "body": "Atlas limit 有 v1=10 和 v2=20 两条, current_facts 按版本取最新, 索引里只留 f, 原证据 e 不删; 同版本不同值直接抛 ValueError 等人审核。\n定期整理再修复跨块关系、重复摘要和失效引用。\n索引过时也会造成回答过时: graph_path 查 Atlas limit 返回 20 和来源 f, 是因为先按版本过滤过。"
       },
       {
         "title": "文件系统与结构化知识",
-        "body": "分层目录可用摘要索引、资源概览、完整正文三级加载, 以稳定 URI 关联证据。\n表格分析应把统计事实和因果解释分开; 多模态记忆也要保存原文件与摘要之间的链接。"
+        "body": "把知识放在文件系统里时, 目录可以分三级加载: 摘要索引、资源概览、完整正文, 用稳定 URI 把每一级和证据连起来, 和本例的 source id 是同一个意思。\n表格分析要把统计事实和因果解释分开写; 多模态记忆也要保存原文件与摘要之间的链接。"
       },
       {
         "title": "从数据到知识不等于多写摘要",
-        "body": "dataset_insights 比较短任务和长任务的两种方案: A 在两组内成功率都较高, 总体却低于 B, 因为任务分配不同。\n先保留计数、分组、分母和时间范围, 再分析关联; 观察数据的关联不能直接当因果。"
+        "body": "dataset_insights 比较两种方案在两组任务上的成功率: A 在两组里都更高 (0.93 对 0.87, 0.73 对 0.69), 总体却更低 (0.78 对 0.83)。\n原因是任务分配不同: 两边各 350 道, A 有 263 道落在成功率低的那组, B 只有 80 道。\n先保留计数、分组、分母和时间范围, 再分析关联; 观察数据的关联不能直接当因果。"
       },
       {
         "title": "实验边界",
-        "body": "数据是人工构造的三元组; 不含自然语言实体抽取、真实语义嵌入或自动社区发现。\n实验比较表示方法, 不宣称完整复现论文算法。"
+        "body": "数据是 6 条人工构造的三元组, 实体和关系都是手写的; 没有自然语言实体抽取、真实语义嵌入或自动社区发现。\n实验比较的是三种表示方法在同一份事实上各答对哪个问题, 不宣称完整复现 RAPTOR 或 GraphRAG 算法。"
       }
     ],
     "links": [],
@@ -249,22 +261,22 @@ const coveragePages = {
       {
         "concept": "current_facts",
         "code": "m27_knowledge_organization/demo.py:current_facts",
-        "takeaway": "RAPTOR 的树形思路"
+        "takeaway": "同 (subject, relation) 按 version 取最新: e 被 f 替换, 剩 a、b、c、d、f 五条; 同版本不同值抛 ValueError。"
       },
       {
         "concept": "hierarchy",
         "code": "m27_knowledge_organization/demo.py:hierarchy",
-        "takeaway": "GraphRAG 的图形思路"
+        "takeaway": "按 group 分 3 组, 摘要是 subject 的排序去重, sources 保留叶子 id; 不是 LLM 摘要。"
       },
       {
         "concept": "graph_path",
         "code": "m27_knowledge_organization/demo.py:graph_path",
-        "takeaway": "给分块补上上下文"
+        "takeaway": "逐跳过滤 subject == node 且 relation 匹配, 来源 id 沿路累加; Atlas → team → owner 得 (Lin, [a, b])。"
       },
       {
         "concept": "dataset_insights",
         "code": "m27_knowledge_organization/demo.py:dataset_insights",
-        "takeaway": "分组统计与总体混杂"
+        "takeaway": "A 两组都赢 B, 总体 0.78 却输给 0.83: 两边各 350 道, 分配比例不同。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -279,27 +291,32 @@ const coveragePages = {
   },
   "agent-coding-agent": {
     "title": "Coding Agent · 修改、测试与修复",
-    "subtitle": "代码改完了, 为什么还不能说修好了?",
-    "tldr": "读取、精确修改、运行测试和终态验收组成一次修复。",
-    "question": "代码改完了, 为什么还不能说修好了?",
+    "subtitle": "读完你能说清: 一次代码修复要经过搜索、读原文、唯一替换、真跑测试哪几站, 以及由谁来判定修好了。",
+    "tldr": "改一行不等于修好: 首个候选 return total 只过 1/3 测试。读反馈再修一次才 3/3 (7 次模型调用); 验收由驱动器自己跑测试, 没过就回滚, 4 次调用的预算用完也回滚。",
+    "question": "代码改完了, 模型也说修好了, 为什么还不能算修好?",
     "evolution": {
-      "title": "修改、测试与修复",
-      "subtitle": "根问题: 代码改完了, 为什么还不能说修好了",
+      "title": "说修好了, 要测试说了算",
+      "subtitle": "根问题: 模型改代码的结论是文字, 代码对不对只有跑过测试才知道, 而测试和改动都可能被它自己动过",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 代码改完了, 为什么还不能说修好了?",
-          "fix": "搜索定位函数, 读取原文, 唯一旧文本才能替换"
+          "name": "改完即交付",
+          "pain": "(原点) 模型改一行就说 \"修好了\", 对不对没人跑过",
+          "fix": "信文字结论, 直接保留改动; 本例首个候选 return total 其实只过 1/3 测试"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "工具启动本地 Python 子进程导入修改后的模块"
+          "name": "改完跑一遍测试",
+          "pain": "文字不可信得跑测试; 但改哪一行靠猜, 测试文件也可能被顺手改掉",
+          "fix": "search 定位、read 原文, 旧文本唯一才替换; check.py 先核 sha256, 子进程真的导入新文件"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "失败就再修一次",
+          "pain": "one-shot 测试 1/3 就停, 失败反馈白拿了",
+          "fix": "模型读到 1/3 的反馈, 第二次 patch 换成带 round 的百分数版本, 测试 3/3; 共 7 次调用"
+        },
+        {
+          "name": "外部验收 + 预算回滚",
+          "pain": "修复可以无限试下去; 没修好的候选留在工作区就是坏代码",
+          "fix": "驱动器自己再跑一次 check, 没过就恢复原文件; max_turns=4 时 4 次调用用完即回滚"
         }
       ]
     },
@@ -307,24 +324,24 @@ const coveragePages = {
     "points": [
       {
         "title": "先建立工作区证据",
-        "body": "搜索定位函数, 读取原文, 唯一旧文本才能替换。\n含糊替换可能改错位置; 修改前后生成 diff, 测试文件保持原摘要。",
+        "body": "RepairPolicy 先 search 定位 discounted 在 pricing.py 第 1 行, 再 read 原文, 然后才 patch。\nWorkspace.patch 要求旧文本在文件里恰好出现 1 次, 否则抛 \"旧文本不存在或不唯一, 拒绝模糊替换\"; 替换后先 compile 再写盘。\n修改前后用 difflib 生成 diff; check.py 保持原 sha256 摘要, 跑测试前先核对, 模型改不了测试。",
         "key": true
       },
       {
         "title": "测试真的运行",
-        "body": "工具启动本地 Python 子进程导入修改后的模块。\n首个候选只返回原价, 测试失败; 模型读取反馈后换为正确折扣与两位小数。"
+        "body": "test 工具用 subprocess 启动本地 Python 子进程 (argv 固定, 无 shell, 5 秒超时), 导入修改后的 pricing.py 跑 3 个用例。\n首个候选 return total 只返回原价, (100, 10) 得 100 而不是 90, 测试 1/3; 模型读到反馈后换成 round(total * (1 - percent / 100), 2), 折扣按百分数算并保留两位小数, 测试 3/3。"
       },
       {
         "title": "验收与修复预算独立",
-        "body": "最终文字不参与成功判定。\n预算耗尽或测试失败时恢复原文件; 只有环境验收通过才保留候选。"
+        "body": "模型最后一句 \"候选修复已提交验收\" 不参与成功判定; experiment 在 agent.run 之后自己再跑一次 check。\nrepair 模式 7 次模型调用后通过, 保留候选; one-shot 5 次、budget 4 次 (max_turns=4) 都只过 1/3, 验收失败就把 pricing.py 恢复成原文。"
       },
       {
         "title": "Coding Agent 的工程接口",
-        "body": "大项目还要检索符号、管理上下文、执行 lint 和构建、隔离工作区、审查差异。\n代码能表达复杂规则, 但生成代码仍需权限和运行约束。"
+        "body": "本例只有 search / read / patch / test 四个工具; 大项目还要检索符号、管理上下文、执行 lint 和构建、隔离工作区、审查差异。\n代码能表达复杂规则, 但生成的代码仍要过权限门和运行约束: patch 是 medium 风险、非只读, 其余三个只读、low 风险。"
       },
       {
         "title": "实验边界",
-        "body": "策略是固定修复器, 只接受三个预审算术表达式。\n临时目录与路径围栏不是 OS 沙箱, 不支持运行任意不可信生成代码。"
+        "body": "策略是固定修复器, patch 只接受 3 个预审算术表达式 (原文那句、return total、带 round 的那句), 不是真实模型。\n临时目录加路径围栏 (../pricing.py、check.py、/etc/passwd 都被拒) 不是 OS 沙箱, 不支持运行任意不可信生成代码。"
       }
     ],
     "links": [],
@@ -332,17 +349,17 @@ const coveragePages = {
       {
         "concept": "Workspace",
         "code": "m28_coding_agent/demo.py:Workspace",
-        "takeaway": "先建立工作区证据"
+        "takeaway": "patch 要旧文本唯一、表达式预审、compile 通过才写盘; check 先核 check.py 的 sha256 再起子进程。"
       },
       {
         "concept": "ProjectTool",
         "code": "m28_coding_agent/demo.py:ProjectTool",
-        "takeaway": "测试真的运行"
+        "takeaway": "search / read / test 只读 low 风险, patch 非只读 medium 风险; 四个工具共用一个 Workspace。"
       },
       {
         "concept": "RepairPolicy",
         "code": "m28_coding_agent/demo.py:RepairPolicy",
-        "takeaway": "验收与修复预算独立"
+        "takeaway": "search → read → patch(BAD) → test; 失败且允许修复且 patch 不到 2 次就 patch(GOOD), 否则 final。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -356,27 +373,32 @@ const coveragePages = {
   },
   "agent-async-runtime": {
     "title": "异步运行 · 事件、取消与恢复",
-    "subtitle": "用户打断时, 工具究竟执行到哪了?",
-    "tldr": "请求取消和确认停止之间有状态; 已提交的副作用仍然存在。",
-    "question": "用户打断时, 工具究竟执行到哪了?",
+    "subtitle": "读完你能用三种取消时序解释: 用户打断时为什么要等确认、旧 generation 的输出去哪了、已经提交的 10 元怎么办。",
+    "tldr": "取消是两段式: cancel-request 之后要等执行器的 cancel-ack。已提交的副作用不回滚: cancel-after 模式账本仍是 10 元, 重开再提交也还是 1 笔, 靠 SQLite 主键 invoice-1 做幂等。",
+    "question": "用户点了取消, 工具究竟停在哪一步? 它刚提交的那笔钱怎么办?",
     "evolution": {
-      "title": "事件、取消与恢复",
-      "subtitle": "根问题: 用户打断时, 工具究竟执行到哪了",
+      "title": "打断一个正在跑的任务, 要补三道账",
+      "subtitle": "根问题: 副作用一旦提交就撤不回, 而打断可以落在提交前、提交后的任何一个 await 上",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 用户打断时, 工具究竟执行到哪了?",
-          "fix": "任务从外部事件开始, 在 await 处挂起, 再由结果唤醒"
+          "name": "同步调用栈",
+          "pain": "(原点) 工具在调用栈里同步跑, 用户打断只能干等或杀进程",
+          "fix": "简单直接; 代价是打断时不知道执行到哪, 副作用落没落地也没人记"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "asyncio Task.cancel 在可取消点抛 CancelledError"
+          "name": "直接 cancel",
+          "pain": "想停就 cancel; 但抛了 CancelledError 不等于执行器已经停下",
+          "fix": "执行器捕获 CancelledError 后记 cancel-ack 再抛出; 调用方 await 到确认才算停"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "generation 号",
+          "pain": "旧任务确认停了, 它迟到的流式 token 还会混进新一轮输出",
+          "fix": "每次打断 generation += 1, 执行器每出一个 token 先比对代际, 过期就 return"
+        },
+        {
+          "name": "幂等键账本",
+          "pain": "取消前已提交的 10 元撤不回; 响应丢了、进程重开后还可能再记一笔",
+          "fix": "SQLite 主键 invoice-1 绑定金额; 重开账本再提交, 恢复前后都是 10 元 1 笔; 同键异参报错"
         }
       ]
     },
@@ -384,24 +406,24 @@ const coveragePages = {
     "points": [
       {
         "title": "从调用栈变成事件生命周期",
-        "body": "任务从外部事件开始, 在 await 处挂起, 再由结果唤醒。\n事件应标识任务与 generation, 状态包括 working、completed、cancel-request 与 cancel-ack。",
+        "body": "任务由外部事件唤醒, 在 await release.wait() 处真正挂起, 再由结果唤醒; 不是一个函数从头跑到尾。\n每条事件标识任务与 generation, 状态包括 working、committed、stream、completed、cancel-request 与 cancel-ack。complete 模式按 working → committed → stream × 2 → completed 走完, 事件同时写进 SQLite 的 events 表。",
         "key": true
       },
       {
         "title": "取消要等执行器确认",
-        "body": "asyncio Task.cancel 在可取消点抛 CancelledError。\n本例等待确认再结束, 旧 generation 不再输出。\n阻塞线程、外部服务和物理设备没有这种自动保证。"
+        "body": "asyncio 的 Task.cancel 只在可取消点 (await) 抛 CancelledError。\n本例的 interrupt 先把 generation 加 1, 再 cancel, 然后 await 任务直到执行器记下 cancel-ack 才返回; 旧 generation 的 token 不再输出, cancel-after 模式 streamed 为 0。\n已结束任务的取消是幂等的, 不伪造新确认。阻塞线程、外部服务和物理设备没有这种自动保证。"
       },
       {
         "title": "提交状态独立持久化",
-        "body": "SQLite 主键绑定操作与金额, 同键异参拒绝。\n同一事务边界内可避免重复入账; 恢复后查已有收据, 不能凭超时判断未执行。"
+        "body": "Journal 用 SQLite 主键 invoice-1 绑定操作与金额 10; 同键重复提交被 INSERT OR IGNORE 吸收, 同键换金额抛 \"幂等键对应的参数变了\"。\ncancel-after 模式在挂起前就提交了 10 元, 取消确认后账本仍是 10 元; 关掉再重开账本、按同一键重提交, 恢复前后 10/10 元, 1 笔。\n恢复后先查已有收据, 不能凭超时判断未执行: 只有 cancel-before 模式才是 0 元 0 笔。"
       },
       {
         "title": "流式输出也需要代际",
-        "body": "模型文字块、工具进度、语音输出都是事件。\n展示已经发生的进度, 不把局部 token 当最终承诺。\n预算预留在无 await 临界段完成。"
+        "body": "模型文字块、工具进度、语音输出都是事件。本例把 \"已\"、\"处理\" 两个 token 当流式事件, 每出一个先比对 generation, 过期就直接 return。\n展示已经发生的进度, 不把局部 token 当最终承诺。\n预算预留在无 await 的临界段完成: write 先检查 generation 和 budget=2, used += 1 之后才提交。"
       },
       {
         "title": "长期任务需要更多恢复信息",
-        "body": "生产任务还要持久化检查点、租约、输入版本和审批状态, 区分外部通知与用户新指令。\n虚拟身份与工具凭证按执行身份隔离; 本例只展示单进程机制。"
+        "body": "生产任务还要持久化检查点、租约、输入版本和审批状态, 区分外部通知与用户新指令。\n虚拟身份与工具凭证按执行身份隔离; 本例只展示单进程里的 generation、幂等键和事件表。"
       },
       {
         "title": "同步模型怎样接异步事件",
@@ -409,7 +431,7 @@ const coveragePages = {
       },
       {
         "title": "实验边界",
-        "body": "真实 asyncio 与磁盘 SQLite, 但没有网络分区、分布式租约或进程强杀测试。\n重开的是账本, 不是自动恢复任意 Python 调用栈。"
+        "body": "用的是真实 asyncio 任务与磁盘 SQLite, 竞态靠 Event 屏障复现, 不靠 sleep 猜时序。\n没有网络分区、分布式租约或进程强杀测试; \"重开\" 重开的是账本文件, 不是自动恢复任意 Python 调用栈。"
       }
     ],
     "links": [],
@@ -417,17 +439,17 @@ const coveragePages = {
       {
         "concept": "Journal",
         "code": "m29_async_runtime/demo.py:Journal",
-        "takeaway": "从调用栈变成事件生命周期"
+        "takeaway": "operations 表以 key 为主键: INSERT OR IGNORE 吸收重复提交, 金额不同抛 ValueError; events 表记每个状态。"
       },
       {
         "concept": "Runtime",
         "code": "m29_async_runtime/demo.py:Runtime",
-        "takeaway": "取消要等执行器确认"
+        "takeaway": "interrupt: generation += 1 → task.cancel() → await task 直到 cancel-ack; write 在无 await 临界段里先扣预算再提交。"
       },
       {
         "concept": "run_case",
         "code": "m29_async_runtime/demo.py:run_case",
-        "takeaway": "提交状态独立持久化"
+        "takeaway": "跑完关账本、重开、按同键再提交一次: complete 和 cancel-after 都是 10/10 元 1 笔, cancel-before 是 0/0。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -441,27 +463,32 @@ const coveragePages = {
   },
   "agent-collaboration": {
     "title": "多智能体 · 独立审查与共享冲突",
-    "subtitle": "两个 Agent 改不同文件, 为什么仍可能冲突?",
-    "tldr": "没有文本冲突不代表合并后满足共同约束。",
-    "question": "两个 Agent 改不同文件, 为什么仍可能冲突?",
+    "subtitle": "读完你能说清: 没有文本冲突的两个修改为什么合起来不合法, 以及 3 票一致为什么不算证据。",
+    "tldr": "两个 worker 各改一个文件, 没有文本冲突, 合起来总量 12 超过上限 10。版本号或总量约束任一个都能拒掉第二个提案; 3 票同为 10 仍然错, 审查者独立读 v2 才得到 20。",
+    "question": "两个 Agent 改不同文件, 没有冲突提示, 合并后为什么还是错的?",
     "evolution": {
-      "title": "独立审查与共享冲突",
-      "subtitle": "根问题: 两个 Agent 改不同文件, 为什么仍可能冲突",
+      "title": "合并没报错, 不等于合起来是对的",
+      "subtitle": "根问题: 并行的 worker 各自基于一份快照做决定, 快照之间没有人替它们算总账",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 两个 Agent 改不同文件, 为什么仍可能冲突?",
-          "fix": "顺序流水线便于核查依赖, 并行专家汇总增加信息源, 提议—审查形成纠错循环"
+          "name": "各改各的文件",
+          "pain": "(原点) 两个 worker 并行, 各只改自己的文件, 合并时没有文本冲突",
+          "fix": "直接合并: cpu 4 → 6, gpu 4 → 6 都接受, 总量 12 超过上限 10"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "两个 worker 都看见总量 8, 各把自己负责的资源从 4 改到 6"
+          "name": "版本号拒过期提案",
+          "pain": "文本不冲突, 合起来却超上限: 两个提案都基于总量 8 的旧快照",
+          "fix": "每次合并 revision + 1, 提案带的 revision 不等于当前就拒; 第二个被拒, 总量 10"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "总量不变量",
+          "pain": "版本号只判断提案新不新, 不判断合并后的状态合不合法",
+          "fix": "合并前算 sum(candidate) > 10 就拒, 不合法状态进不了共享计划; 两条规则互补"
+        },
+        {
+          "name": "审查带独立证据",
+          "pain": "状态管住了; 但 3 个 worker 同读一份过期数据, 投票 3:0 仍是错的",
+          "fix": "审查者独立读 policy-v2 得到 20, 推翻 3 票的 10; 多数票只在误差独立时才有用"
         }
       ]
     },
@@ -469,24 +496,24 @@ const coveragePages = {
     "points": [
       {
         "title": "协作拓扑改变信息流",
-        "body": "顺序流水线便于核查依赖, 并行专家汇总增加信息源, 提议—审查形成纠错循环。\n去中心化协作需要消息、归属和终止协议, 不是去掉管理者就会自动协调。",
+        "body": "顺序流水线便于核查依赖, 并行专家汇总增加信息源, 提议—审查形成纠错循环。\n本例跑了两种: 两个 planner 并行向 SharedPlan 提案, 以及 3 票投票后再由审查者读新证据。\n去中心化协作需要消息、归属和终止协议, 不是去掉管理者就会自动协调。",
         "key": true
       },
       {
         "title": "版本检查与语义检查互补",
-        "body": "两个 worker 都看见总量 8, 各把自己负责的资源从 4 改到 6。\n单文件无冲突, 合并总量变成 12; 版本号拒绝过期提案, 总量约束拒绝不合法状态。"
+        "body": "两个 worker 都看见总量 8 (cpu 4 + gpu 4), 各把自己负责的资源从 4 改到 6。\nfile-only 策略: 两个文件没有文本冲突, 都接受, 合并总量变成 12。\nrevision 策略: 第一个提案合并后 revision 变 1, 第二个带的 revision 还是 0, 被拒, 总量 10。invariant 策略: 合并前算 sum > 10 就拒, 总量也是 10。版本号拒绝过期提案, 总量约束拒绝不合法状态。"
       },
       {
         "title": "多数票不等于独立证据",
-        "body": "同一过期来源让三个答案都错。\n审查者读取 v2 得到新事实, 才能纠正结果; 同质投票不能用独立随机误差公式估计收益。"
+        "body": "3 个答案都从同一过期来源读到 10, 投票 3:0 仍然错。\n审查者读取 policy-v2 得到 20, 才把结果纠正过来; 同质投票不能用独立随机误差的公式估计收益。"
       },
       {
         "title": "避免级联和失控",
-        "body": "委托要写目标、边界、输出和预算。\n共享上下文容易互相污染, 隔离上下文需要显式传证据。\n设任务所有者、迭代上限和人工升级条件, 不把所有模糊决策都转交用户。"
+        "body": "委托要写清目标、边界、输出和预算。\n共享上下文容易互相污染, 隔离上下文则需要显式传证据。\n要设任务所有者、迭代上限和人工升级条件, 不把所有模糊决策都转交用户。"
       },
       {
         "title": "实验边界",
-        "body": "规则 worker 提案与固定证据审查, 未证明真实多模型的独立性。\n并发取消和 A2A 协议分别见 m29 与 m18。"
+        "body": "worker 是规则提案 (固定的两条 Patch), 审查者读的是固定证据 current=20; 实验没有证明真实多模型之间的独立性。\n并发取消和 A2A 协议分别见 m29 与 m18。"
       }
     ],
     "links": [],
@@ -494,12 +521,12 @@ const coveragePages = {
       {
         "concept": "SharedPlan",
         "code": "m30_collaboration/demo.py:SharedPlan",
-        "takeaway": "协作拓扑改变信息流"
+        "takeaway": "merge 先拒未知 key、非 int、负数; revision 策略比 patch.revision 和当前 revision; invariant 策略算 sum > 10。"
       },
       {
         "concept": "reviewed_answer",
         "code": "m30_collaboration/demo.py:reviewed_answer",
-        "takeaway": "版本检查与语义检查互补"
+        "takeaway": "Counter 取多数票 10, 和证据里的 20 比, 不等就标 corrected。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -512,60 +539,65 @@ const coveragePages = {
   },
   "agent-eval-suite": {
     "title": "评估体系 · 用户环境与裁判校准",
-    "subtitle": "总通过率上涨, 是哪类问题真的改善了?",
-    "tldr": "固定环境和数据版本, 分层报失败, 再检查裁判自己会不会错。",
-    "question": "总通过率上涨, 是哪类问题真的改善了?",
+    "subtitle": "读完你能用三条件对照说清: 通过率从 1/3 涨到 3/3, 哪道题是澄清救的、哪道是授权门救的, 裁判本身对不对。",
+    "tldr": "同一份题集 (suite 191d7ed87046) 跑三种条件: baseline 1/3, 只开授权门 2/3, 再开澄清 3/3; 分层报才看得出 safety 是授权门救的, hard 是澄清救的。裁判也要校准: 按长度判 4 条标注只对 1 条, 按 rubric 判 4 条全对。",
+    "question": "通过率从 1/3 涨到 3/3, 我怎么知道是机制变好了, 还是题变简单、裁判变松了?",
     "evolution": {
-      "title": "用户环境与裁判校准",
-      "subtitle": "根问题: 总通过率上涨, 是哪类问题真的改善了",
+      "title": "一个通过率, 拆成题集、分层、用户和裁判",
+      "subtitle": "根问题: 通过率是一个数, 题目换了、裁判偏了、机制改了, 它都一样涨",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 总通过率上涨, 是哪类问题真的改善了?",
-          "fix": "用户隐藏状态、环境、工具、终态裁判和过程约束共同定义测试"
+          "name": "只看总通过率",
+          "pain": "(原点) 通过率是一个数, 题目换了、裁判偏了、机制改了, 它都一样涨",
+          "fix": "三道题跑完数通过几道: baseline 1/3; 便宜, 但删掉安全题也能涨分"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "关闭澄清或授权机制时使用同一任务集"
+          "name": "分层 + 固定题集",
+          "pain": "1/3 变 2/3 说明不了是哪类题好了; 两次跑的题集不同也没法比",
+          "fix": "按 easy / hard / safety 分层报; 题集哈希成 suite id, 三种条件 id 相同"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "用户模拟器",
+          "pain": "分层后看到 hard 一直挂: 账户没说清, 策略只能猜 A; 把答案写进题又泄漏",
+          "fix": "隐藏账户只在模拟器里, 问 which-account 才给, 其余 unknown; hard 题多 1 轮"
+        },
+        {
+          "name": "裁判校准 + 终态验收",
+          "pain": "过没过还得裁判说: 按长度判的裁判 4 条标注只对 1 条, 假阳性 2",
+          "fix": "rubric 看 supported 且 scoped, 一致率 1.0; 终态交 m21 验收, 不信完成声明"
         }
       ]
     },
     "code": "llm_agent/m31_eval_suite/demo.py",
     "points": [
       {
-        "title": "任务不只有一段提示",
-        "body": "用户隐藏状态、环境、工具、终态裁判和过程约束共同定义测试。\n账户有歧义时用户模拟器只回答澄清问题, 不提前把隐藏状态泄漏给策略。",
+        "title": "一道题不只是一段提示",
+        "body": "一道题 = 隐藏账户 + 初始账户 + 是否允许写 + 难度层, 三道题各占一层: clear (easy) 初始账户就是 A; ambiguous (hard) 初始账户为空, 真实账户 B 只在 UserSimulator 里; denied (safety) 标了 allowed=False, 写了就是授权失败。\n模拟器只回答 which-account, 别的问题一律返回 unknown, 策略拿不到它没问到的状态。\n终态还要过 m21 的验收器: baseline 不许修复 (max_repairs=0), 环境里缺 gamma 就判未完成; 另两种条件允许修 1 次, 通过。",
         "key": true
       },
       {
-        "title": "消融必须保持题目相同",
-        "body": "关闭澄清或授权机制时使用同一任务集。\neasy、hard、safety 分开报告, suite 摘要标识版本; 更换数据分布不能当同一次 A/B。"
+        "title": "消融只开关机制, 题集不动",
+        "body": "三种条件跑同一份 TASKS, suite id 都是 191d7ed87046。\n- baseline (不澄清、不管授权): 1/3, hard 题 wrong-object, safety 题 authorization。\n- no-clarify (只开授权门): 2/3, 只剩 hard 题挂。\n- full (再开澄清): 3/3, hard 题 user_turns=1。\n分层才看得出 safety 是授权门救的、hard 是澄清救的。换一份题集 suite id 就变, 两次结果不能当同一次 A/B。"
       },
       {
-        "title": "评审器也要验证",
-        "body": "长度偏好会把长而错的结果判为好。\nrubric 检查支持与作用域, 与预先标注夹具算一致率、假阳性和假阴性。\n真实 LLM judge 还需人工样本校准与顺序交换。"
+        "title": "裁判自己先过一遍标注",
+        "body": "校准用 4 条预先标注的夹具, 每条记 (supported, scoped, length, label)。按长度判 (length > 2 算好) 一致率 0.25: 1 个 tp、2 个假阳性、1 个假阴性, 长而错的两条都被判成好。\nrubric 判 supported 且 scoped, 一致率 1.0, 假阳性 0。baseline 用的是长度裁判, 另两种条件用 rubric。\n真实 LLM judge 还要拿人工样本校准, 并交换候选顺序再判一次。"
       },
       {
-        "title": "观测与实验基础设施",
-        "body": "记录调用、错误类别、延迟和真实 usage, 区分模型失败与基础设施失败。\n机制开关和目标人群开关分开; 配对重采样、样本量与效果阈值一起解释。"
+        "title": "每道题记调用数和失败类别",
+        "body": "每道题记 calls 和 failure: 三种条件的调用数是 3 / 2 / 3, full 多出的 1 次是澄清; failure 分 wrong-object 和 authorization, 模型失败和基础设施失败不混在一起。\n真实系统还要记延迟和实报 usage; 机制开关和目标人群开关分开, 配对重采样、样本量和效果阈值一起解释。"
       },
       {
         "title": "模拟器也可能教坏策略",
-        "body": "用户语气、工具延迟和错误分布可做域随机化, 但要用真实案例校准保真度。\n隐私日志只留必要字段, 失败案例进训练前检查泄漏和授权。"
+        "body": "这里的 UserSimulator 只有一条规则: 问 which-account 就给隐藏账户, 否则 unknown。策略学会的只是 \"问这一句\", 换种说法的用户它没见过。\n真实用户语气、工具延迟和错误分布可以做域随机化, 但保真度要拿真实案例校准。隐私日志只留必要字段; 失败案例进训练前先查泄漏和授权。"
       },
       {
         "title": "评估集需要长期维护",
-        "body": "来自真实失败、人工设计和合成任务的样本各有偏差。\n标记来源、难度、时间与适用人群, 按同源任务分组拆分, 保留封闭测试集。\n题目长期全对可能意味着饱和或泄漏, 不一定是能力已无限提高。"
+        "body": "样本来自真实失败、人工设计或合成任务, 各有各的偏差。每道题标上来源、难度、时间和适用人群, 按同源任务分组拆分, 留一份封闭测试集。\n本章 3 道题在 full 条件下已经 3/3: 一套题长期全对, 先怀疑饱和或泄漏, 不是能力无限涨。"
       },
       {
         "title": "实验边界",
-        "body": "小型规则用户、人工预设校准标签, 没有开展真实人工评审或线上 A/B。\n调用数来自执行, 延迟与费用不编造。"
+        "body": "用户是 1 条规则的模拟器, 校准标签是 4 条手写夹具; 没有真实人工评审, 也没有线上 A/B。\n调用数来自执行 (3 / 2 / 3), 延迟和费用没有数, 不编。只有 3 道题, 一道就是 1/3, 差异谈不上显著。"
       }
     ],
     "links": [],
@@ -573,17 +605,17 @@ const coveragePages = {
       {
         "concept": "UserSimulator",
         "code": "m31_eval_suite/demo.py:UserSimulator",
-        "takeaway": "任务不只有一段提示"
+        "takeaway": "隐藏账户只在模拟器里; 问 which-account 才给, 其他问题一律 unknown, 每问一次 turns +1。"
       },
       {
         "concept": "run_task",
         "code": "m31_eval_suite/demo.py:run_task",
-        "takeaway": "消融必须保持题目相同"
+        "takeaway": "同一道题只开关 clarify / enforce 两个布尔; passed 要账户对、写操作和授权一致, 两样缺一不可。"
       },
       {
         "concept": "calibration",
         "code": "m31_eval_suite/demo.py:calibration",
-        "takeaway": "评审器也要验证"
+        "takeaway": "同一组 4 条标注: length 裁判一致率 0.25、假阳性 2; rubric 裁判一致率 1.0、假阳性 0。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -597,68 +629,73 @@ const coveragePages = {
   },
   "agent-agent-training": {
     "title": "Agent 训练 · 轨迹到参数更新",
-    "subtitle": "轨迹已经导出了, 模型真的学会行动了吗?",
-    "tldr": "进入环境采样、计算奖励、更新参数, 再用隔离任务验收。",
-    "question": "轨迹已经导出了, 模型真的学会行动了吗?",
+    "subtitle": "读完你能说清: 从 m25 导出的轨迹到真的更新小 LLaMA 的权重, SFT 和在线策略梯度各管什么, 为什么留出满分不等于 RL 更强。",
+    "tldr": "4 个符号动作、16 个训练实体: SFT 用 5 条示范跑 60 步学会 lookup→answer, 留出的 16 个实体全过; 在线 RL 按温度 3 每步采 8 条、跑 35 步, 参数动了, 留出仍 100%。奖励由 m25 的 execute 判过程, 猜对答案也不算。",
+    "question": "m25 把合格轨迹导出成 JSON 了, 然后呢? 模型的参数什么时候才真的变?",
     "evolution": {
-      "title": "轨迹到参数更新",
-      "subtitle": "根问题: 轨迹已经导出了, 模型真的学会行动了吗",
+      "title": "从筛轨迹到真的改权重",
+      "subtitle": "根问题: 导出的轨迹只是文件, 参数一个没动; 学没学会, 得让策略自己进环境走一遍",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 轨迹已经导出了, 模型真的学会行动了吗?",
-          "fix": "m25 的 execute 同时检查答案、来源、授权和预算"
+          "name": "筛轨迹导出",
+          "pain": "(原点) m25 只把合格轨迹筛出来写成 JSON, 模型参数一个没动",
+          "fix": "导出 chosen / rejected 对留给训练; 学没学会没人验"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "SFT 用正确轨迹教 lookup→answer 协议, prompt 位置不计 loss"
+          "name": "示范 SFT",
+          "pain": "导出的轨迹得真的进参数, 还得验协议是不是学会了",
+          "fix": "5 条示范教 lookup → answer, prompt 位不计 loss; 60 步后留出 16 个实体全过"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "在线策略梯度",
+          "pain": "SFT 只见过人写的示范; 策略自己会采到 steal 和 answer:10, 却从没被罚过",
+          "fix": "当前策略温度 3 采 8 条, 奖励 eligible - 0.05 × calls 减组内均值, 跑 35 步"
+        },
+        {
+          "name": "同温度 + 留出验收",
+          "pain": "采样用温度 3, log-prob 若按温度 1 算, 更新的就是另一个策略",
+          "fix": "log_prob 取自同一个温度 3 的分布; 留出 entity-32..47 与训练不交, RL 后仍 100%"
         }
       ]
     },
     "code": "llm_agent/m32_agent_training/demo.py",
     "points": [
       {
-        "title": "复用同一个验收器",
-        "body": "m25 的 execute 同时检查答案、来源、授权和预算。\n小 LLaMA 生成受限动作, 环境只在 lookup 或违规 steal 后提供观察; 猜中答案仍可能过程不合格。",
+        "title": "奖励来自同一个验收器",
+        "body": "奖励不是看答案对不对, 是 m25 的 execute 把整条动作串跑一遍: 答案要对、要先 lookup 拿到观察、不能 steal、不超 budget=3, 全过才 eligible。\n小 LLaMA 每步只能从 4 个动作里选: lookup、answer:observed、answer:10、steal。环境只在 lookup 或 steal 之后把 expected 填进观察; 没 lookup 就 answer:10, 哪怕 expected 恰好是 10, reasons 里也是 unsupported, 过程不合格。",
         "key": true
       },
       {
-        "title": "SFT 与在线 RL 分别负责什么",
-        "body": "SFT 用正确轨迹教 lookup→answer 协议, prompt 位置不计 loss。\n在线策略梯度重新采样当前策略, 用组内均值作 baseline, 更新同一模型参数。"
+        "title": "SFT 教协议, 在线 RL 自己采样",
+        "body": "SFT 用 5 条示范教协议: 状态 (1, 3) 该出 lookup, 状态 (2, v) 该出 answer:observed, v 取 10..13。标签在 prompt 位置写 -100, 只对动作位算 loss; AdamW lr 0.008, 60 步。\n在线策略梯度不看示范: 每步让当前策略在 8 个训练任务上各采 1 条, reward 减组内均值当 advantage, loss 是 -logp × advantage 的均值, 梯度范数裁到 1, lr 0.002, 35 步; 更新的是同一份参数。"
       },
       {
         "title": "采样与训练概率必须一致",
-        "body": "在线探索温度为 3, log-prob 也在温度 3 下计算。\n若采样与训练的模型、温度或数值精度不一致, 行为分布就会错配。"
+        "body": "探索时 logits 除以温度 3 再采样, log_prob 也从同一个温度 3 的 Categorical 里取, rollout 一个函数算两件事。\n若采样用温度 3、梯度按温度 1 的分布算, 或者采样和训练用的模型、数值精度不同, 算出来的就是另一个策略的梯度, 行为分布错配。"
       },
       {
         "title": "多轮归因有方差",
-        "body": "这里把末端过程奖励传给整条动作序列, 能更新但归因粗。\nPRM、逐步奖励、critic 和优势估计可细化信用分配; 奖励越稠密也越需检查被钻空子的机会。"
+        "body": "一条轨迹最多 3 步, 奖励只在末端出一个数 (eligible 减 0.05 × 步数), 乘到整条序列 log-prob 之和上; 哪一步做对了没有区分, 能更新但归因粗。\nPRM、逐步奖励、critic 和优势估计可以细化信用分配; 奖励越稠密, 越要检查有没有被钻空子的机会。"
       },
       {
         "title": "数据与结论的边界",
-        "body": "训练与留出实体分离, 动作协议和数值范围相同。\n结果显示协议学习, 不代表未知工具或自然语言推理泛化; 这里 RL 保持留出满分, 不声称超过 SFT。"
+        "body": "训练用 entity-0..15, 留出用 entity-32..47, 两组不交 (main 里有 isdisjoint 断言); 动作协议和 expected 的取值范围 10..13 一样。\nmain 断言 before < sft == rl == 1: SFT 后留出 100%, RL 后仍 100%。这只说明协议学会了、RL 没把它弄坏; 不代表能泛化到没见过的工具或自然语言推理, 也不声称 RL 超过 SFT。"
       },
       {
         "title": "后续训练方法的连接",
-        "body": "偏好对接 DPO, 过程标签接 PRM, 在线采样接 PPO/GRPO。\n失败轨迹、长动作截断、工具异常和安全约束都要进入训练设计; 对模型环境、蒸馏与自蒸馏仍要防裁判同源偏差。"
+        "body": "偏好对接 DPO (m25 导出的 chosen / rejected 对就是它的输入), 过程标签接 PRM, 在线采样接 PPO / GRPO。\n失败轨迹、长动作截断、工具异常和安全约束都要进训练设计; 对模型环境、蒸馏与自蒸馏还要防裁判同源偏差。"
       },
       {
         "title": "奖励可以携带诊断",
-        "body": "结果奖励是一项标量, 多目标可先保留质量、成本与安全的向量, 生成式诊断解释首错和修复方向。\n最终优化前必须明确组合方式, 不能用更低成本抵消授权违规。\nRLVP 一类路径约束把过程有效性也纳入验收。"
+        "body": "这里的 reward 是一个标量: eligible - 0.05 × calls。execute 其实还返回 step_labels 和 reasons (unsupported / authorization / budget / wrong-result), 训练时被压成一个数。\n多目标可以先保留质量、成本、安全的向量, 让生成式诊断解释首错和修复方向; 优化前必须定好组合方式, 不能让更低的成本抵消一次授权违规。RLVP 一类路径约束把过程有效性也纳入验收。"
       },
       {
         "title": "经典 RL 与语言动作",
-        "body": "经典环境常用固定离散动作或连续控制量; 语言 Agent 一次动作可能是变长 token 串和工具参数。\n动作语法、执行是否成功、终止与截断要分别记录, 否则训练会把无效协议当普通低奖励轨迹。"
+        "body": "这里的动作空间故意退化成 4 个 token (16..19), 像经典离散控制; 真实语言 Agent 一次动作是变长 token 串加工具参数。\nexecute 把动作语法 (unknown-action)、执行是否成功、终止 (answer 之后的 after-final) 和截断 (budget) 分开记; 不分开, 训练会把无效协议当普通低奖励轨迹。"
       },
       {
         "title": "实验边界",
-        "body": "真实 CPU 小 LLaMA 权重更新, 但只有四个符号动作。\n不是通用自然语言 Agent 训练基准; 不报告无证据的 RL 泛化收益。"
+        "body": "真的在 CPU 上更新了小 LLaMA 的权重 (d_model=32, 1 层, 词表 24, seed 7), parameter_delta 断言大于 0; 但只有 4 个符号动作、16 + 16 个实体。\n不是通用自然语言 Agent 训练基准; 留出满分的 RL 不报告任何泛化收益。本章要 torch, 纯标准库环境跑不了。"
       }
     ],
     "links": [],
@@ -666,22 +703,22 @@ const coveragePages = {
       {
         "concept": "rollout",
         "code": "m32_agent_training/demo.py:rollout",
-        "takeaway": "复用同一个验收器"
+        "takeaway": "状态只有 (是否已观察, 观察值) 两个数; 每步 4 选 1, 采样和 log_prob 出自同一个温度的分布, 跑完交 execute 判。"
       },
       {
         "concept": "sft",
         "code": "m32_agent_training/demo.py:sft",
-        "takeaway": "SFT 与在线 RL 分别负责什么"
+        "takeaway": "5 条示范, prompt 位标 -100 不计 loss, AdamW 60 步; 教的是 lookup→answer:observed 这条协议。"
       },
       {
         "concept": "online_update",
         "code": "m32_agent_training/demo.py:online_update",
-        "takeaway": "采样与训练概率必须一致"
+        "takeaway": "每步当前策略采 8 条, reward = eligible - 0.05 × calls, 减组内均值做 baseline, 梯度范数裁到 1。"
       },
       {
         "concept": "training_run",
         "code": "m32_agent_training/demo.py:training_run",
-        "takeaway": "多轮归因有方差"
+        "takeaway": "seed 7 固定; 断言 before < sft == rl == 1, 参数 L1 变化 > 0; 留出 entity-32..47 与训练不交。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -696,27 +733,32 @@ const coveragePages = {
   },
   "agent-skill-evolution": {
     "title": "Skill 进化 · 提案、发布与整理",
-    "subtitle": "从一次失败学到规则, 怎样避免影响别的项目?",
-    "tldr": "先生成局部提案, 用迁移、保持和安全任务验收, 再发布版本。",
-    "question": "从一次失败学到规则, 怎样避免影响别的项目?",
+    "subtitle": "读完你能用三种条件说清: 同一个失败, 全局改和局部改各会卡在哪道门, 以及发布、回滚、整理三件事为什么要分开。",
+    "tldr": "项目 A 的失败只改 projects[A]=Rust, 不动 default: 全局改法过三道门是 [True, False, False] 被拒; 局部改法三门全过才发布成版本 1, A=Rust、B=Python。rollback(0) 一拨, A 又是 Python。",
+    "question": "项目 A 的 review 说该用 Rust, 我直接把默认语言改成 Rust, 项目 B 怎么就坏了?",
     "evolution": {
-      "title": "提案、发布与整理",
-      "subtitle": "根问题: 从一次失败学到规则, 怎样避免影响别的项目",
+      "title": "改规则的范围, 不能比证据大",
+      "subtitle": "根问题: 一次失败只证明一个项目里的一条规则错了, 改规则的作用域却可以比证据大",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 从一次失败学到规则, 怎样避免影响别的项目?",
-          "fix": "知识修改事实, Prompt 修改决策顺序, Skill 保存可复用步骤, 程序修改执行机制, 参数修改模型概率"
+          "name": "直接改默认规则",
+          "pain": "(原点) A 的 review 要 Rust, 规则只有一条全局 default: Python",
+          "fix": "把 default 改成 Rust; 对 A 立刻生效, 没有任何验收"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "项目 A 的失败生成例外"
+          "name": "发布前过三道门",
+          "pain": "全局改 Rust 后项目 B 和 untrusted 项目也变 Rust, 迁移一个破坏两个",
+          "fix": "候选先过迁移 / 保持 / 安全三道门: 全局版 [True, False, False], 拒绝"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "带作用域的提案",
+          "pain": "门只会拒绝, 不会修候选; A 的失败还是没学进去",
+          "fix": "只收 review- 证据, 提案只写 projects[A]=Rust; 三门全过才发布成版本 1"
+        },
+        {
+          "name": "版本指针 + 离线整理",
+          "pain": "发布后发现问题得能退回; 同一规则攒出多条来源, 过期规则还留着",
+          "fix": "active 指针可回滚, rollback(0) 回 Python; curate 合并同范围同值, 归档过期的"
         }
       ]
     },
@@ -724,36 +766,36 @@ const coveragePages = {
     "points": [
       {
         "title": "更新载体不只有记忆",
-        "body": "知识修改事实, Prompt 修改决策顺序, Skill 保存可复用步骤, 程序修改执行机制, 参数修改模型概率。\n四类载体使用不同检查, 不能用记住新事实代替全部学习。",
+        "body": "学到的东西往哪放, 决定怎么验收: 知识改事实, Prompt 改决策顺序, Skill 存可复用步骤, 程序改执行机制, 参数改模型概率。本章动的是 Skill: 一条 \"按项目选语言\" 的规则, 存在 rules.json 里。\n每类载体各用各的检查: 记住一个新事实代替不了全部学习, 改了 rules.json 也不等于改了模型。",
         "key": true
       },
       {
         "title": "提案来自已验证反馈",
-        "body": "项目 A 的失败生成例外。\n直接把全局语言改成 Rust 会破坏 B 和安全用例; 局部提案通过后才发布, 验收集不进入提案生成输入。"
+        "body": "LEARNING 里只有一条失败: 项目 A 的 review-1 说该用 Rust, 当前策略答 Python。propose 只接受 review- 开头的证据, 其他来源直接 ValueError。\n全局候选 {default: Rust} 过三道门得 [True, False, False]: A 的迁移过了, B 的保持和 untrusted 的安全都挂, 不发布, active 还是 0。局部候选 {projects: {A: Rust}} 三门全过, 发布成版本 1。\n三道门 (heldout-a / retention-b / safety-c) 不进 propose 的输入。"
       },
       {
         "title": "Skill 的三层加载",
-        "body": "index.md 供发现, SKILL.md 供决策, rules.json 保存详细规则。\n正文引用脚本或资源时还要检查路径、来源和执行权限; 描述命中不构成脚本执行授权。"
+        "body": "SkillStore.write 每次落三个文件: index.md 一行 \"project-language: 按项目选择语言 → SKILL.md\" 供发现, SKILL.md 两句话供决策 (先查项目例外, 否则用默认语言), rules.json 存完整策略。三个文件的内容跟 active 版本一致。\n正文引用脚本或资源时还要查路径、来源和执行权限: 目录里的描述命中了, 不等于授权执行脚本。"
       },
       {
         "title": "睡眠学习是离线整合",
-        "body": "按时间、轨迹数量、容量或错误频率触发, 在线只收证据。\n后台合并同范围重复项、保留来源、归档过期规则、重建索引, 经过回归再激活。"
+        "body": "curate 不在线上跑, 拿 3 条记录在 now=5 时整理: a 和 b 同是 (A, Rust), 来源 review-1 和 review-2 合并成 1 条、两条来源都留; c 是 (A, Go) 且 expires=1, 归档。合并后 1 条, 归档 1 条。\n只合并相同作用域 + 相同值, 冲突不能按最近访问次数偷偷裁决。触发可以按时间、轨迹数量、容量或错误频率, 在线只收证据; 整理完重建索引, 回归通过再激活。"
       },
       {
         "title": "版本控制不能代替评估",
-        "body": "可回滚让失败可恢复, 但不证明新规则可靠。\n程序更新还要测试和差异审查; 参数更新还要检查保持与安全。\n元优化比较学习方法本身, 见 m39。"
+        "body": "rollback 条件里, 局部候选三门全过、发布成版本 1 之后, rollback(0) 把 active 拨回 0, 三个文件重写, A 又答 Python。\n能退回只说明失败可恢复, 不证明版本 1 可靠; 可靠是三道门证的。程序更新还要测试和差异审查, 参数更新还要查保持与安全。元优化比较学习方法本身, 见 m39。"
       },
       {
         "title": "怎样写一份可用的 Skill",
-        "body": "先写触发条件、服务对象、步骤和输出验收。\n核心规则带正反例, 禁止项注明合法例外, 资料和脚本放引用层。\n用真实任务的失败与人工修改反推规则, 避免把一次对话全文直接当 Skill。"
+        "body": "先写触发条件、服务对象、步骤和输出验收。核心规则带正反例, 禁止项注明合法例外, 资料和脚本放引用层。\n规则从真实任务的失败和人工修改反推: 本章的 projects[A]=Rust 就来自一条 review。不要把一次对话全文直接当 Skill。"
       },
       {
         "title": "内容加载不等于固定角色",
-        "body": "目录先可发现, 正文按需读取, 并不规定正文一定属于 system。\n不同客户端可能用 user、developer 或工具结果承载, 需要按实际 API 与信任边界检查; 不能从加载位置推断自动提权。"
+        "body": "index.md 先被发现, SKILL.md 按需读取; 这只规定了加载顺序, 没规定正文一定进 system。\n不同客户端可能用 user、developer 或工具结果承载, 按实际 API 和信任边界检查; 不能从加载位置推断自动提权。"
       },
       {
         "title": "实验边界",
-        "body": "规则提案器与本地文件发布, 不是自主生成任意自然语言 Skill。\n逐文件 replace 不构成跨文件原子事务, 并发发布需额外版本锁。"
+        "body": "提案器是规则 (改 default 或改 projects[项目]), 发布是写一个本地临时目录; 不是自主生成任意自然语言 Skill。\n三个文件各自先写 .tmp 再 replace, 单文件原子, 跨文件不是一个事务; 并发发布还要额外加版本锁。"
       }
     ],
     "links": [],
@@ -761,17 +803,17 @@ const coveragePages = {
       {
         "concept": "propose",
         "code": "m33_skill_evolution/demo.py:propose",
-        "takeaway": "更新载体不只有记忆"
+        "takeaway": "只接受 review- 开头的证据; globalize 改 default, 否则只改 projects[项目], 验收集不进输入。"
       },
       {
         "concept": "SkillStore",
         "code": "m33_skill_evolution/demo.py:SkillStore",
-        "takeaway": "提案来自已验证反馈"
+        "takeaway": "publish 先过 GATES 三道门, 全过才追加版本、拨 active、重写三个文件; rollback 只拨指针再重写。"
       },
       {
         "concept": "curate",
         "code": "m33_skill_evolution/demo.py:curate",
-        "takeaway": "Skill 的三层加载"
+        "takeaway": "按 (scope, value) 合并、来源取并集, expires ≤ now 的归档: 3 条进, 留 1 条, 归档 1 条。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -785,27 +827,32 @@ const coveragePages = {
   },
   "agent-voice-interaction": {
     "title": "语音交互 · 打断与快慢响应",
-    "subtitle": "用户已经改口, 为什么系统还在播旧答案?",
-    "tldr": "语音输入和输出可以重叠, 旧任务的音频仍要按 generation 丢弃。",
-    "question": "用户已经改口, 为什么系统还在播旧答案?",
+    "subtitle": "读完你能用 half / duplex / no-generation 三种条件说清: 用户 250 ms 改口之后, 哪些事件该收、哪些该丢, 为什么只停播放器不够。",
+    "tldr": "同一条 10 个事件的时间线: 半双工打不断, 3 条输出全是旧任务的; 全双工只停播放器会重播 2 条过期音频; 按 generation 丢弃后只剩 \"正在查\"、\"已停止\" 2 条, 过期 0 条。",
+    "question": "用户 300 ms 就说了 \"停止查询\", 为什么 320 ms 系统还把 \"订单已发货\" 播出来?",
     "evolution": {
-      "title": "打断与快慢响应",
-      "subtitle": "根问题: 用户已经改口, 为什么系统还在播旧答案",
+      "title": "麦克风开着, 回声和旧答案都得拦",
+      "subtitle": "根问题: 播放时开麦, 收进来的可能是自己的回声; 关麦, 用户又插不上话, 而旧任务的结果还在路上",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 用户已经改口, 为什么系统还在播旧答案?",
-          "fix": "VAD 判断说话边界, ASR 产生部分及最终转录, LLM 处理任务, TTS 分块播放"
+          "name": "半双工",
+          "pain": "(原点) 播放时开麦会收到自己的回声, 关麦用户又插不上话",
+          "fix": "播放时关麦: half 条件 250 ms 的 speech-start 被丢, 改口没人听见, 旧答案照播"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "播放期间继续监听, 回声消除需要参考信号"
+          "name": "全双工 + 回声参考",
+          "pain": "用户打不断: 300 ms 的 \"停止查询\" 被丢, 340 ms 的 \"已停止\" 也没播",
+          "fix": "播放时继续收音, 把播放波形逐样本减掉, 剩余 rms > 0.05 才算人声"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "只停当前播放",
+          "pain": "听见了新语音, 可旧任务 270 ms 的 TTS 块、320 ms 的工具结果还在进队列",
+          "fix": "新语音一来就停当前声音; 迟到的块没人拦, no-generation 条件 4 条全播, 2 条过期"
+        },
+        {
+          "name": "按代际丢弃",
+          "pain": "停播放器拦不住迟到结果: \"旧结果\" 和 \"订单已发货\" 在打断之后重新播出",
+          "fix": "新语音让 generation +1; 音频和结果带代号, 不是当前代就丢; duplex 过期 0 条"
         }
       ]
     },
@@ -813,32 +860,32 @@ const coveragePages = {
     "points": [
       {
         "title": "识别、推理与合成是不同阶段",
-        "body": "VAD 判断说话边界, ASR 产生部分及最终转录, LLM 处理任务, TTS 分块播放。\n级联系统便于替换组件, 原生 Omni 可联合建模但仍需控制状态。",
+        "body": "时间线上 10 个事件分属四段: VAD 在 0 ms 判出 speech-start; ASR 100 ms 出部分转录 \"查\", 180 ms 出最终转录 \"查订单\"; LLM 侧 190 ms 先回 fast-ack \"正在查\", 320 ms 才出 slow-result \"订单已发货\"; TTS 按块播, 270 ms 一块 \"旧结果\"。\n级联系统每段都能单独换件; 原生 Omni 把几段联合建模, 但 generation 这类状态照样要管。",
         "key": true
       },
       {
         "title": "全双工不能把回声当新用户",
-        "body": "播放期间继续监听, 回声消除需要参考信号。\n示例用已知波形相减演示边界; 真实设备还有延迟、混响、串音和漏检。"
+        "body": "播放期间麦克风不关, 220 ms 收到的 tts-echo 是自己的声音, 三种条件都丢。\nvoice_activity 拿播放波形做参考逐样本相减, 剩余 rms > 0.05 才算人声: 纯回声 [0.1, -0.1] × 40 相减后是 0, 判无人声; 整体抬 0.2 后判有人声; 参考长度对不上直接 ValueError。\n真实设备还有延迟、混响、串音和漏检, 已知波形相减只讲机制。"
       },
       {
         "title": "快回应不等于快承诺",
-        "body": "先播“正在查”降低等待感, 最终答案仍等工具结果。\n快慢双通道需要共享任务状态, 防止慢结果覆盖已经取消的新需求。"
+        "body": "asr-final 180 ms, fast-ack \"正在查\" 190 ms 就播, first_ack_ms=190; 真正的答案 \"订单已发货\" 320 ms 才到, 中间 130 ms 等的是工具。\n快慢两条通道共享同一个 generation: duplex 条件下 slow-result 带的是代 1, 到达时已经是代 2, 丢弃; 慢结果盖不掉已取消的新需求。"
       },
       {
         "title": "打断要传播到输出队列",
-        "body": "用户新语音推进 generation, 旧 TTS 块和工具结果丢弃。\n仅停止当前声音却继续接受旧结果, 会稍后重新播出过期答案。"
+        "body": "250 ms 用户再次开口, duplex 条件 generation 从 1 推到 2: 270 ms 的 tts-chunk \"旧结果\" (代 1) 丢, 320 ms 的 slow-result (代 1) 丢, 340 ms 的 \"已停止\" (代 2) 播。输出 [\"正在查\", \"已停止\"], stale=0。\nno-generation 条件只停当前声音、照收旧结果: 输出 4 条, \"旧结果\" 和 \"订单已发货\" 在打断之后重新播出, stale=2。"
       },
       {
         "title": "测量用户体验",
-        "body": "区分首个响应延迟、最终答案延迟、打断到停播延迟和误打断率。\n时间线是给定事件, 不把这些数写成真实语音系统性能。"
+        "body": "四个数分开报: 首个响应延迟 (这里 190 ms)、最终答案延迟、打断到停播延迟、误打断率。half 条件 interrupted=False, 用户 250 ms 的插话被丢, 打断根本没发生。\n时间线是写死的 10 个事件, 190 ms 这类数字描述的是夹具, 不是真实语音系统的性能。"
       },
       {
         "title": "语音自然度不只看字准确",
-        "body": "TTS 的音色、韵律、停顿和情感影响表达; 分块太短可能降低连贯性, 等完整句子又增加延迟。\n流式感知还需保留时间戳、说话人和中断位置, 不应把多个音频片段简单当普通文字拼接。"
+        "body": "TTS 的音色、韵律、停顿和情感决定听感; 块切太短连贯性掉, 等完整句子延迟涨, 本章的粒度是 \"旧结果\"、\"已停止\" 这样一块一句。\n流式感知要保留时间戳、说话人和中断位置 (Event 带 at 和 generation); 多个音频片段不能当普通文字直接拼接。"
       },
       {
         "title": "实验边界",
-        "body": "VAD 使用合成波形, ASR 与 TTS 事件是预设夹具。\n没有调用声学识别或合成模型; 重点是全双工和代际状态, 模型结构另见多模态阶段。"
+        "body": "VAD 只在 80 个合成样本上验了两次 (纯回声 / 回声整体抬 0.2); ASR 转录和 TTS 块是预设夹具, 没有调用任何声学识别或合成模型。\n本章只看全双工和代际状态; 语音模型结构另见多模态阶段。"
       }
     ],
     "links": [],
@@ -846,12 +893,12 @@ const coveragePages = {
       {
         "concept": "voice_activity",
         "code": "m34_voice_interaction/demo.py:voice_activity",
-        "takeaway": "识别、推理与合成是不同阶段"
+        "takeaway": "回声参考逐样本相减后看 rms > 0.05; 长度不等直接 ValueError, 不猜对齐。"
       },
       {
         "concept": "experiment",
         "code": "m34_voice_interaction/demo.py:experiment",
-        "takeaway": "全双工不能把回声当新用户"
+        "takeaway": "speech-start 推进 generation; fast-ack / tts-chunk / slow-result 代号不等于当前代就丢, 关掉这条 (no-generation) 就多播 2 条过期音频。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -864,27 +911,32 @@ const coveragePages = {
   },
   "agent-visual-grounding": {
     "title": "视觉操作 · 截图、定位与核对",
-    "subtitle": "截图上的坐标没算错, 为什么还是点错订单?",
-    "tldr": "坐标属于一次观察, 提交前还要核对当前对象。",
-    "question": "截图上的坐标没算错, 为什么还是点错订单?",
+    "subtitle": "读完你能用 stale / refresh / verify 三种条件说清: 坐标没算错为什么还点错, 刷新截图够不够, 提交前到底核对什么。",
+    "tldr": "同一个绿色按钮, 截图之后和红色按钮换了位: 按旧坐标 (29, 17) 点开的是 other, 刷新后 (29, 52) 才是 target。点击只负责打开, committed 只在核对 opened == target 之后为真, 三种条件 wrong_commit 都是 False。",
+    "question": "我截图、找到绿色按钮中心 (29, 17)、点下去, 每一步都没错, 怎么打开的是另一个订单?",
     "evolution": {
-      "title": "截图、定位与核对",
-      "subtitle": "根问题: 截图上的坐标没算错, 为什么还是点错订单",
+      "title": "坐标是对一帧算的, 点击落在下一帧",
+      "subtitle": "根问题: 坐标是对某一帧截图算出来的, 点击落在的却是当前这一帧, 两帧之间页面可以变",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 截图上的坐标没算错, 为什么还是点错订单?",
-          "fix": "定位器在截图里找目标颜色的区域中心"
+          "name": "定位后直接点",
+          "pain": "(原点) 坐标是对一帧截图算的, 点击落在当前帧上, 中间页面可以变",
+          "fix": "找目标色像素的包围盒中心 (29, 17) 就点; 布局没变时够用"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "截图后交换两个订单按钮的位置, 旧坐标命中另一个订单"
+          "name": "点前刷新截图",
+          "pain": "截图后两个按钮换位, 旧坐标落在 other 上, stale 条件点错订单",
+          "fix": "点击前重新截图再定位: refresh 条件拿到 (29, 52), 打开 target"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "点后核对对象",
+          "pain": "刷新只保证截图那一刻; 截图到点击之间页面还能再变, 刷新证明不了点中了谁",
+          "fix": "点击后看打开的是谁, 不符就重截重点: verify 条件 2 次观察才命中 target"
+        },
+        {
+          "name": "导航和提交分开",
+          "pain": "错点能回退, 但点到的要是 \"提交\" 按钮, 错一次就撤不回",
+          "fix": "点击只负责打开详情; committed 只在 opened == target 时为真, stale 条件不提交"
         }
       ]
     },
@@ -892,24 +944,24 @@ const coveragePages = {
     "points": [
       {
         "title": "从像素找到目标",
-        "body": "定位器在截图里找目标颜色的区域中心。\n默认 demo 用栅格图; browser.py 使用 Chromium 实际截图和鼠标点击, 同一个定位函数读取真实像素。",
+        "body": "截图是 80 × 80 的像素栅格, 上面两个 40 × 16 的按钮: 绿色 (20, 180, 80) 是目标订单, 红色 (180, 40, 60) 是另一个订单。locate 取所有绿色像素的包围盒中心: 目标在 (10, 10) 时得 (29, 17), 在 (10, 45) 时得 (29, 52)。\n截图里一个绿像素都没有就抛 ValueError, 不猜坐标。browser.py 用 Chromium 真截图、真鼠标点击, 同一个 locate 读真实像素, 所有网络请求被阻断。",
         "key": true
       },
       {
         "title": "观察和行动之间环境会变",
-        "body": "截图后交换两个订单按钮的位置, 旧坐标命中另一个订单。\n刷新截图可以更新坐标, 但不能保证点击瞬间页面没有再变。"
+        "body": "render(shift=True) 把两个按钮上下换位, 模拟截图之后页面重排。stale 条件按旧截图的 (29, 17) 点下去, hit 返回 other: 坐标没算错, 算的是上一帧。\nrefresh 条件点击前重新截图, 定位到 (29, 52), 打开 target。刷新只能保证截图那一刻, 不能保证点击瞬间页面没有再变。"
       },
       {
         "title": "把导航和副作用分开",
-        "body": "点击先打开详情, 核对对象正确再提交业务动作。\n误点可以恢复, 错误提交则可能不可逆; 需要事务、授权和人工确认的动作不能只看按钮名字。"
+        "body": "三种条件里点击都只做一件事: 打开详情。committed 只在 opened == target 时为真: stale 打开 other, committed=False; verify 第一次也打开 other, 重截重点 (29, 52) 后才 True, observations=2。\n三种条件 wrong_commit 全是 False: 误点能回退, 错误提交可能不可逆。需要事务、授权和人工确认的动作, 不能只看按钮上的字。"
       },
       {
         "title": "不局限于浏览器",
-        "body": "桌面与手机都需要感知、动作空间、焦点和输入状态。\n音视频 GUI 还要采样时间轴; 世界模型可预测动作后果, 但预测仍需环境反馈核对。"
+        "body": "桌面和手机一样要有感知 (截图)、动作空间 (点击 / 输入)、焦点和输入状态; 这里的 80 × 80 栅格加 hit 函数就是最小的一套。\n音视频 GUI 还要在时间轴上采样; 世界模型可以预测一次动作的后果, 但预测仍要拿环境反馈核对, 和 verify 条件重截一次是同一件事。"
       },
       {
         "title": "实验边界",
-        "body": "真实浏览器夹具没有联网, 定位靠特定颜色而非通用视觉语言模型。\n不会声称可操作任意站点、桌面或手机。"
+        "body": "定位靠一种固定颜色, 不是通用视觉语言模型; 两个同色元素会被算成一个包围盒的中心。\n真实浏览器夹具本地渲染、不联网, 要装 playwright 和 pillow。不声称能操作任意站点、桌面或手机。"
       }
     ],
     "links": [],
@@ -917,17 +969,17 @@ const coveragePages = {
       {
         "concept": "locate",
         "code": "m35_visual_grounding/demo.py:locate",
-        "takeaway": "从像素找到目标"
+        "takeaway": "取目标色所有像素的包围盒中心: 旧截图 (29, 17), 新截图 (29, 52); 没有目标色就 ValueError。"
       },
       {
         "concept": "hit",
         "code": "m35_visual_grounding/demo.py:hit",
-        "takeaway": "观察和行动之间环境会变"
+        "takeaway": "按当前布局判断点落在哪个 40 × 16 的按钮里: 旧坐标在换位后落到 other。"
       },
       {
         "concept": "experiment",
         "code": "m35_visual_grounding/demo.py:experiment",
-        "takeaway": "把导航和副作用分开"
+        "takeaway": "stale 点错不提交; refresh 刷新后命中; verify 点错后重截重点, 2 次观察; 三种条件 wrong_commit 都是 False。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -941,52 +993,58 @@ const coveragePages = {
   },
   "agent-embodied-control": {
     "title": "具身控制 · 反馈与模拟偏差",
-    "subtitle": "模拟器里刚好到达目标, 换个执行器为什么越界?",
-    "tldr": "动作效果会漂移, 闭环反馈和最坏情况边界一起限制误差。",
-    "question": "模拟器里刚好到达目标, 换个执行器为什么越界?",
+    "subtitle": "读完你能用三种增益的对照说清: 开环动作块为什么一迁移就越界, 反馈为什么还不够, 最坏增益限幅换来了什么。",
+    "tldr": "同一段动作块, 增益 1.0 刚好到 1.0, 增益 1.8 冲到 1.8。每步重测位置把误差压到 0.026 但仍越界 1 次; 按最坏增益 2.0 限幅才 0 次越界, 代价是增益 0.6 只走到 0.904。",
+    "question": "模拟器里 5 步刚好走到 1.0, 换个增益 1.8 的执行器怎么就冲到 1.8 了?",
     "evolution": {
-      "title": "反馈与模拟偏差",
-      "subtitle": "根问题: 模拟器里刚好到达目标, 换个执行器为什么越界",
+      "title": "每换一次执行器, 就多一道保险",
+      "subtitle": "根问题: 位置的变化 = 增益 × 动作, 增益只在模拟器里标过, 真实执行器是多少没人告诉你",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 模拟器里刚好到达目标, 换个执行器为什么越界?",
-          "fix": "机器人观测包括视觉、本体和接触信号, 动作可为力矩、关节或末端目标"
+          "name": "开环动作块",
+          "pain": "(原点) 位置变化 = 增益 × 动作, 增益只在模拟器里标过, 真机是多少没人告诉你",
+          "fix": "策略一次吐出 5 步 × 0.2 的动作块, 标称增益 1.0 下刚好停在 1.0; 中途不看环境"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "VLA 将视觉、语言指令映射为动作, 动作可离散 token 或连续分布"
+          "name": "闭环反馈",
+          "pain": "动作块中途不看环境: 增益 1.8 时 5 步冲到 1.8, 越过上限 1.0 也不停",
+          "fix": "每步重测位置, action = clip(目标 - x, ±0.25); 标称增益下 4 步到 1.0"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "域随机化验收",
+          "year": 2017,
+          "pain": "只在标称增益 1.0 下验过, 误差 0 说明不了别的执行器",
+          "fix": "三个增益 0.6 / 1.0 / 1.8 各跑 8 步: 开环最差误差 0.8, 反馈 0.026 但越界 1 次"
+        },
+        {
+          "name": "最坏增益限幅",
+          "pain": "反馈靠测到再纠: 增益 1.8 第 3 步冲到 1.08, 越界后才拉回",
+          "fix": "按最坏增益 2.0 限幅, action ≤ (上限 - x) / 2; 0 次越界, 增益 0.6 只到 0.904"
         }
       ]
     },
     "code": "llm_agent/m36_embodied_control/demo.py",
     "points": [
       {
-        "title": "观测、控制与动作块",
-        "body": "机器人观测包括视觉、本体和接触信号, 动作可为力矩、关节或末端目标。\n长动作块减少推理次数, 却延长不看环境的时间; 反馈重新测量当前状态。",
+        "title": "动作块中途不看环境, 增益一变就越界",
+        "body": "开环动作块在标称增益 1.0 下 5 步 × 0.2 刚好停在 1.0, 误差 0。换成增益 1.8 的执行器, 同一段动作块第 5 步冲到 1.8, 越过上限 1.0 后剩下 3 步什么也不做。\n反馈模式每步重测位置, action = clip(目标 - x, ±0.25), 三种增益的终点误差最大 0.026。\n真实机器人的观测是视觉、本体和接触信号, 动作是力矩、关节或末端目标。动作块越长, 推理次数越少, 不看环境的时间也越长。",
         "key": true
       },
       {
-        "title": "VLA 与分层控制",
-        "body": "VLA 将视觉、语言指令映射为动作, 动作可离散 token 或连续分布。\n高层拆任务, 低层控制稳定性; 语言计划不能直接代替实时控制与碰撞限制。"
+        "title": "VLA 与分层控制: 语言计划管不了越界",
+        "body": "VLA 把视觉和语言指令映射成动作, 动作可以是离散 token, 也可以是连续分布。本章没有 VLA: 高层相当于给出 target = 1.0 这一个目标, 低层是每步 clip 到 ±0.25 的控制律。\n高层拆任务, 低层管稳定性。语言计划说 \"走到 1.0\" 不会替你守住上限 1.0: 反馈模式在增益 1.8 下第 3 步就到了 1.08, 实时控制和碰撞限制得低层自己管。"
       },
       {
-        "title": "世界模型与规划",
-        "body": "用动力学预测多个候选动作的后果, 再选动作; 模型偏差会沿长轨迹放大。\n执行一段再观测的滚动规划减少累积误差, 但不能消除未建模风险。"
+        "title": "世界模型与规划: 模型偏差沿轨迹累积",
+        "body": "开环动作块就是用标称模型 (增益 1.0) 规划 8 步的结果: 真实增益 1.8 时每步多走 0.16, 5 步累积成 0.8 的误差, 模型偏差沿长轨迹放大。\n反馈等于每步重新观测的滚动规划, 把累积误差压到 0.026, 但未建模的增益风险还在: 第 3 步仍越界到 1.08。用动力学预测多个候选动作的后果再选, 预测本身也带这个偏差。"
       },
       {
-        "title": "Sim2Real 需要变化的环境",
-        "body": "本例改变执行器增益, 比较标称开环、反馈和最坏增益动作限制。\n域随机化、系统辨识和真实校准是互补方法, 在一个模拟器成功不代表现实安全。"
+        "title": "Sim2Real: 三个增益上各跑一遍",
+        "body": "demo 断言标称模拟器里开环误差为 0, 再改执行器增益, 在 0.6 / 1.0 / 1.8 上各跑 8 步:\n- 标称开环: 最差误差 0.8, 越界 1 次。\n- 反馈: 最差误差 0.026, 越界 1 次 (增益 1.8 第 3 步到 1.08)。\n- 最坏增益限幅: 最差误差 0.096, 越界 0 次。\n限幅按随机化范围的最坏增益 2.0 算, action ≤ (上限 - x) / 2, 不偷看真实增益; 代价是增益 0.6 时 8 步只走到 0.904。域随机化、系统辨识和真实校准互补, 一个模拟器里成功不代表现实安全。"
       },
       {
         "title": "实验边界",
-        "body": "一维离散动力学模拟, 没有真实机器人、接触力学或训练 VLA。\n安全边界只在给定增益范围与精确观测假设下成立。"
+        "body": "一维离散动力学, 8 步, 没有真实机器人、接触力学或训练 VLA。\n0 次越界只在增益 0.6–1.8 (限幅按 2.0 算) 和精确观测下成立: 位置读数无噪声、无延迟。增益超过 2.0, 或观测带误差, 这个数不能外推。"
       }
     ],
     "links": [],
@@ -994,7 +1052,7 @@ const coveragePages = {
       {
         "concept": "rollout",
         "code": "m36_embodied_control/demo.py:rollout",
-        "takeaway": "观测、控制与动作块"
+        "takeaway": "mode 决定动作来源: open-loop 前 5 步固定 0.2, feedback 用 clip(target - x, ±0.25), robust 再压到 (limit - x) / 2; 每步 x += gain × action, 越界只记 violated 不中止。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1006,27 +1064,32 @@ const coveragePages = {
   },
   "agent-midtraining": {
     "title": "中期训练 · 新知识与旧能力",
-    "subtitle": "继续训练的 loss 很低, 为什么旧任务不会做了?",
-    "tldr": "中期训练补底座, SFT 教协议, RL 调策略; 每一段都检查保持。",
-    "question": "继续训练的 loss 很低, 为什么旧任务不会做了?",
+    "subtitle": "读完你能用小 LLaMA 的对照解释: 新域 loss 很低为什么旧任务全错, 以及每 3 步回放 1 步旧语料为什么够。",
+    "tldr": "只训新域 120 步: 新域 0% → 100%, 旧域 100% → 0%, loss 全程在降。按 [2, 2, 1] 混 1/3 旧语料, 同样 120 步, 两个域都 100%。",
+    "question": "继续训练 loss 一路降, 旧任务怎么从 100% 掉到 0% 了?",
     "evolution": {
-      "title": "新知识与旧能力",
-      "subtitle": "根问题: 继续训练的 loss 很低, 为什么旧任务不会做了",
+      "title": "新知识进权重, 旧能力得有人盯着",
+      "subtitle": "根问题: 新知识只能靠改权重进模型, 旧能力用的是同一批权重, 每一步更新都在动它",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 继续训练的 loss 很低, 为什么旧任务不会做了?",
-          "fix": "继续 next-token 学习领域语料、工具文档和长上下文; SFT 用角色遮罩教交互格式; RL 在可评分轨迹中重"
+          "name": "SFT 硬灌知识",
+          "pain": "(原点) 领域知识、工具文档不在预训练语料里, 模型答不上, 又只能靠改权重补",
+          "fix": "拿几千条问答做 SFT; 角色遮罩只学回复那段, 学到的是交互格式, 知识没进底座"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "本例复用小 LLaMA 学固定符号知识, 新域继续训练全部 token 位置"
+          "name": "只训新域语料",
+          "pain": "格式会了, 知识还是没有; 得回到 next-token 在领域语料上继续训",
+          "fix": "对全部 token 位置算 loss, 新域 120 步后正确率 0% → 100%; 只盯 loss"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "旧域单独探测",
+          "pain": "新域 loss 一路降, 旧域 (1, key) → key 的正确率却从 100% 掉到 0%",
+          "fix": "probe 对两个域各 8 个 key 分开算 argmax 正确率, 保持指标和 loss 分开报"
+        },
+        {
+          "name": "新旧混合回放",
+          "pain": "测出遗忘不等于治好, 只喂新域照样把旧映射冲掉",
+          "fix": "按 [2, 2, 1] 轮流取 batch, 每 3 步 1 步旧域; 同样 120 步, 新域旧域都 100%"
         }
       ]
     },
@@ -1034,24 +1097,24 @@ const coveragePages = {
     "points": [
       {
         "title": "中期训练不是大剂量 SFT",
-        "body": "继续 next-token 学习领域语料、工具文档和长上下文; SFT 用角色遮罩教交互格式; RL 在可评分轨迹中重分配概率。\n阶段选择取决于失败原因。",
+        "body": "三段改的东西不同:\n- 中期训练: 用 next-token 把领域语料、工具文档、长上下文写进底座。\n- SFT: 用角色遮罩只学 assistant 那段, 教的是交互格式。\n- RL: 在可评分轨迹上重分配概率。\n本章 demo 只做第一段: 序列 (域, key, 答案) 的两个 next-token 位置都算 loss, 没按 assistant 角色遮罩。选哪段看失败原因, 不是哪段时髦选哪段。",
         "key": true
       },
       {
-        "title": "不要只看新域损失",
-        "body": "本例复用小 LLaMA 学固定符号知识, 新域继续训练全部 token 位置。\n新域正确率之外单独探测旧域, 防止新能力遮住遗忘。"
+        "title": "新域 loss 降到底, 旧域正确率归零",
+        "body": "domain-only 模式在新域 (2, key) → key + 8 上继续训 120 步, 新域正确率 0% → 100%; 同一个模型在旧域 (1, key) → key 上从 100% 掉到 0%。\nloss 只算训练喂进去的新域, 它只能告诉你新域学得多好。probe 对每个域各 8 个 key 取 argmax 算正确率, 新旧分开报, 新能力才遮不住遗忘。\n模型是复用的小 LLaMA: vocab 24, d_model 32, 1 层, 语料是固定符号映射。"
       },
       {
-        "title": "混合与课程",
-        "body": "新旧语料混合帮助保留能力, 长度课程应逐级扩展并检查短上下文保持。\n标称窗口扩大不代表远距离信息可用, 需远距检索和推理测试。"
+        "title": "混合回放与长度课程",
+        "body": "replay 模式按 [2, 2, 1] 轮流取 batch, 每 3 步有 1 步旧域; 同样 120 步, 新域 100%, 旧域也 100%。\n长度课程同理: 窗口逐级扩大, 每级都回测短上下文有没有保持。标称窗口扩大不代表远距离信息可用, 要另做远距检索和推理测试; 本章没做长度课程。"
       },
       {
-        "title": "数据和早停",
-        "body": "过滤重复、低质和污染, 按来源与时间拆分训练验证, 观察知识获得和遗忘曲线。\n若 pass@k 几乎为零先补知识, 协议失败先稳定格式, 有奖励差异再做 RL。"
+        "title": "数据过滤与早停看两条曲线",
+        "body": "训练前过滤重复、低质和污染语料, 验证集按来源与时间拆开, 不然新域 loss 低可能只是背了重复样本。\n训练中画两条曲线: 新域的知识获得、旧域的遗忘, 早停看的是两条; 本章只在 120 步末尾探测一次。\n选阶段按失败原因: pass@k 几乎为零先补知识, 协议失败先稳定格式, 有奖励差异再做 RL。"
       },
       {
         "title": "实验边界",
-        "body": "训练真实更新权重, 但语料只有固定符号映射。\n探测衡量已知映射保持, 不称为未见知识泛化或真实长上下文训练。"
+        "body": "训练真实更新权重: AdamW, lr 0.004, seed 19, 两个域各 8 条样本。但语料只有固定符号映射, 探测衡量的是已知映射的保持, 不是未见知识泛化, 也不是真实长上下文训练。\n100% / 0% 这么整齐是因为每个域只有 8 个 key; 真实领域语料的遗忘是曲线, 不是开关。"
       }
     ],
     "links": [],
@@ -1059,17 +1122,17 @@ const coveragePages = {
       {
         "concept": "probe",
         "code": "m37_midtraining/demo.py:probe",
-        "takeaway": "中期训练不是大剂量 SFT"
+        "takeaway": "把 8 个 key 组成 (域, key) 输入, 取最后位置 argmax 和标签比, 返回正确率; domain 2 的标签是 key + 8。"
       },
       {
         "concept": "continue_training",
         "code": "m37_midtraining/demo.py:continue_training",
-        "takeaway": "不要只看新域损失"
+        "takeaway": "AdamW lr 0.004, 按 schedule 轮流取域; 序列 (域, key, 答案) 两个 next-token 位置都算 loss, 未按 assistant 角色遮罩。"
       },
       {
         "concept": "training_run",
         "code": "m37_midtraining/demo.py:training_run",
-        "takeaway": "混合与课程"
+        "takeaway": "seed 19 先只用 domain 1 训 base 100 步, 再各 deepcopy 一份训 120 步: domain-only 走 [2], replay 走 [2, 2, 1]; lru_cache 让三种模式共用这一次训练。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1083,52 +1146,58 @@ const coveragePages = {
   },
   "agent-programmatic-actions": {
     "title": "程序化行动 · 规则、适配器与生成界面",
-    "subtitle": "把规则写成代码, 就自动可靠了吗?",
-    "tldr": "程序让执行可重复, 但规则、数据接口和生成结果仍须验证。",
-    "question": "把规则写成代码, 就自动可靠了吗?",
+    "subtitle": "读完你能分清程序化行动的三道验收: 算式对不对看业务用例, 代码能不能跑看 AST 白名单, 界面安不安全看转义。",
+    "tldr": "把规则写成代码只保证可重复: total * (1 - percent) 每次都算出 -900。期望值 90 验规则, 受限 AST 拒掉 __import__, html.escape 和 SVG 文本节点把 <img>、<script> 变成文本。",
+    "question": "把折扣规则写成代码, 跑出来的数就一定对吗?",
     "evolution": {
-      "title": "规则、适配器与生成界面",
-      "subtitle": "根问题: 把规则写成代码, 就自动可靠了吗",
+      "title": "代码只保证可重复, 每种正确性另收一道验",
+      "subtitle": "根问题: 模型用文字算数每次结果都可能不同, 写成代码能重复, 但重复的不一定是对的",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 把规则写成代码, 就自动可靠了吗?",
-          "fix": "算术、表格处理和复杂约束可交给解释器, 减少反复自然语言执行"
+          "name": "文字心算",
+          "pain": "(原点) 折扣、合计这类规则让模型用自然语言算, 同一题每次答数都可能不同",
+          "fix": "一问一答, 模型在文本里心算; 错了没有栈可查, 对了也复现不了"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "专用工具提供稳定窄接口, 通用执行器组合能力强但风险大, Skill 说明何时怎样用"
+          "name": "代码交 exec",
+          "year": 2022,
+          "pain": "文字心算不可复现, 只能把规则写成表达式交给解释器",
+          "fix": "模型写 total * (1 - percent), exec 一跑就出数; 可重复了, 但 exec 什么都肯跑"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "期望值验收",
+          "pain": "规则写错也稳定地错: 100 打 9 折跑出 -900, 解释器不报错",
+          "fix": "用业务用例「期望 90」验收; naive 挂在「实际 -900」, 改成 percent / 100 才过"
+        },
+        {
+          "name": "受限 AST + 转义",
+          "pain": "验收挡得住算错, 挡不住 __import__('os').system 这种调用",
+          "fix": "只放行数字、变量、四则, 节点 > 40 拒; html.escape, SVG 文本节点, 适配器核 Schema"
         }
       ]
     },
     "code": "llm_agent/m38_programmatic_actions/demo.py",
     "points": [
       {
-        "title": "代码是可执行的思考",
-        "body": "算术、表格处理和复杂约束可交给解释器, 减少反复自然语言执行。\n错误规则写成代码只会稳定地执行错误, 所以仍需要边界用例。",
+        "title": "代码是可执行的思考, -900 也执行得很稳",
+        "body": "算术、表格处理和复杂约束交给解释器, 比让模型反复用自然语言算稳定。但稳定不等于正确: naive 模式把折扣写成 total * (1 - percent), total = 100、percent = 10 代进去跑出 -900, 每次都是 -900。\nvalidated 模式改成 total * (1 - percent / 100), 得到 90.0。判断哪个对的不是解释器, 是 \"期望 90\" 这条业务用例; 错误规则写成代码只会稳定地执行错误, 边界用例省不掉。",
         "key": true
       },
       {
-        "title": "能力形态按问题选择",
-        "body": "专用工具提供稳定窄接口, 通用执行器组合能力强但风险大, Skill 说明何时怎样用。\n运行时适配器把外部 Schema 转成内部协议, 不能静默接受接口漂移。"
+        "title": "工具、执行器、Skill 与适配器",
+        "body": "- 专用工具: 稳定窄接口, calculate 只做四则。\n- 通用执行器: 组合能力强但风险大, 本章不提供。\n- Skill: 说明何时、怎样用前两者。\n适配器 adapt 把外部 {order_id, amount_cents} 转成内部 {id, amount}: 1004 / 1999 → \"1004\" / 19.99。多一个字段、少一个字段, 或 amount_cents 不是 int, 直接抛 \"响应 Schema 不匹配\", 不静默接受接口漂移。"
       },
       {
-        "title": "生成 UI 与媒体",
-        "body": "数据和结构分开: 用户字符串转义后进入 HTML 文本, SVG 用文本节点生成。\n媒体生成的程序表示便于编辑与复验, 不意味着生成的界面可以任意执行脚本。"
+        "title": "生成 UI 与媒体: 先转义再拼",
+        "body": "数据和结构分开拼: make_ui 先 html.escape 用户字符串 <img src=x onerror=\"run()\"> 再塞进 <h2>, 输出里找不到 <img; make_svg 用 ElementTree 文本节点放 <script>not executable</script>, 序列化成 &lt;script&gt;, 还能被 ET.fromstring 重新解析。\n三种模式这两项检查都通过, 和算式对不对无关。媒体用程序表示便于编辑与复验, 但不意味着生成的界面可以任意执行脚本。"
       },
       {
-        "title": "自举也需要外部约束",
-        "body": "Agent 可编写自己的适配器或测试, 但不能自己修改评分标准后证明进步。\n只接受有限 AST 语法并计预算; 通用生成代码仍需真正的隔离执行环境。"
+        "title": "自举也需要外部约束: AST 白名单",
+        "body": "Agent 可以写自己的适配器或测试, 但不能改评分标准再宣称进步: \"期望 90\" 这条用例在 experiment 外面, 表达式改不到它。\ncalculate 只接受数字、已知变量和四则运算, AST 节点超过 40 个算超预算, 除零和溢出都抛 ValueError。rejected 模式的 __import__('os').system('echo unsafe') 在 Call 节点处被拒, amount 为 None。\n通用生成代码仍需真正的隔离执行环境, 受限 AST 只是最便宜的一层。"
       },
       {
         "title": "实验边界",
-        "body": "受限四则表达式与本地 HTML/SVG, 不执行任意 Python、JavaScript 或第三方 Skill 脚本。\n它展示表示方式, 不衡量通用生成质量。"
+        "body": "demo 只做受限四则表达式与本地 HTML/SVG 字符串, 不执行任意 Python、JavaScript 或第三方 Skill 脚本。\n它展示表示方式: 规则、适配器、界面各自怎么验, 不衡量通用生成质量。40 个节点的预算和只许四则是教学取值, 真实业务规则装不进去。"
       }
     ],
     "links": [],
@@ -1136,22 +1205,22 @@ const coveragePages = {
       {
         "concept": "calculate",
         "code": "m38_programmatic_actions/demo.py:calculate",
-        "takeaway": "代码是可执行的思考"
+        "takeaway": "ast.parse 后只放行 Constant / Name / BinOp (+ - * /), 节点超 40 或结果非有限数都抛 ValueError; 没有 eval。"
       },
       {
         "concept": "adapt",
         "code": "m38_programmatic_actions/demo.py:adapt",
-        "takeaway": "能力形态按问题选择"
+        "takeaway": "字段集合必须正好是 {order_id, amount_cents} 且 amount_cents 是 int, 否则抛 \"响应 Schema 不匹配\"; 1999 分变 19.99。"
       },
       {
         "concept": "make_ui",
         "code": "m38_programmatic_actions/demo.py:make_ui",
-        "takeaway": "生成 UI 与媒体"
+        "takeaway": "html.escape(label) 后再拼进 <h2>, <img src=x onerror> 变成文本; 金额按 :.2f 格式化。"
       },
       {
         "concept": "make_svg",
         "code": "m38_programmatic_actions/demo.py:make_svg",
-        "takeaway": "自举也需要外部约束"
+        "takeaway": "ElementTree 建 <svg><text>, 内容走 .text 文本节点, <script> 序列化成 &lt;script&gt;。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1166,27 +1235,32 @@ const coveragePages = {
   },
   "agent-meta-optimization": {
     "title": "元优化 · 发现树与回放",
-    "subtitle": "历史回放分数提高, 为什么新任务反而更差?",
-    "tldr": "回放只能重组走过的分支; 学习搜索方法也需要独立测试。",
-    "question": "历史回放分数提高, 为什么新任务反而更差?",
+    "subtitle": "读完你能用两棵 4 节点的树说清: 离线回放为什么不能偷看 score, 回放选出的策略为什么还要再过一次留出树。",
+    "tldr": "训练树上 prior 策略 0.9 赢过 breadth 0.8; 换到留出树, prior 只拿 0.2, breadth 0.95。回放只能重组走过的分支, 选出的策略还要过一次留出树。",
+    "question": "回放历史选出的搜索策略分更高了, 拿到新任务上为什么反而更差?",
     "evolution": {
-      "title": "发现树与回放",
-      "subtitle": "根问题: 历史回放分数提高, 为什么新任务反而更差",
+      "title": "回放越省, 越要防它偷看未来",
+      "subtitle": "根问题: 评估一个搜索策略要真的展开节点, 每次展开都要调一次底层 Agent, 比的策略越多越贵",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 历史回放分数提高, 为什么新任务反而更差?",
-          "fix": "知识更新改变知道什么, 程序更新改变怎么执行, 元优化改变如何存取信息或组织探索"
+          "name": "在线重跑",
+          "pain": "(原点) 换一个搜索策略就得重新调底层 Agent 把节点展开一遍, 每次展开都是真实成本",
+          "fix": "每个候选策略各在线跑一次; 结果可信, 但策略数翻倍成本也翻倍"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "每个节点保存历史评分和后继"
+          "name": "日志全量回放",
+          "pain": "每比一次策略就付一次全额, 历史日志里明明存着每个节点的得分",
+          "fix": "用日志当世界重跑策略, 0 次真实调用; 但策略能读到没展开节点的 score"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "发现树只露前沿",
+          "pain": "离线策略看到了未展开节点的 score, 选出的最优在线复现不了",
+          "fix": "前沿只露 prior, expand 才揭示 score 和后继; 没发现就 expand 直接报错"
+        },
+        {
+          "name": "留出树验证",
+          "pain": "训练树上 prior 策略 0.9 > breadth 0.8, 这只是历史内的保证",
+          "fix": "选中的 prior 拿到留出树上: 只得 0.2, breadth 0.95; 两个策略都保留, 报 cost 和失败"
         }
       ]
     },
@@ -1194,24 +1268,24 @@ const coveragePages = {
     "points": [
       {
         "title": "优化的对象上移一层",
-        "body": "知识更新改变知道什么, 程序更新改变怎么执行, 元优化改变如何存取信息或组织探索。\n候选可以是 Prompt、工作流、Harness 或搜索策略, 不能混淆机制和更新载体。",
+        "body": "三层改的东西不同: 知识更新改模型知道什么, 程序更新改怎么执行, 元优化改怎么存取信息或组织探索。\n本章优化的是搜索策略本身: breadth 按发现顺序展开, prior 展开 prior 最高的。候选也可以是 Prompt、工作流、Harness; 机制 (选哪个策略) 和更新载体 (策略是段代码还是段 prompt) 别混在一起。",
         "key": true
       },
       {
-        "title": "发现树保留可回放过程",
-        "body": "每个节点保存历史评分和后继。\n策略只看已经发现的前沿及先验, 选择展开才看到得分, 防止离线评估偷看未来。"
+        "title": "发现树只露前沿, expand 才揭示 score",
+        "body": "每个 Node 存 prior、score 和 children。ReplayWorld.options() 只返回前沿节点的 prior, expand 之后才揭示 score 和后继。\n策略在 budget = 3 内选 3 个节点展开: breadth 走 root → a → b, prior 走 root → a → c。想绕过去直接 expand('b') 会抛 ValueError \"节点尚未被发现或已展开\", 离线评估偷看不了未来。"
       },
       {
-        "title": "复用反馈不等于预测世界",
-        "body": "回放省下重复调用底层 Agent 的成本, 但不能生成历史中没发生过的分支。\n在线和离线决策接口一致, 才有可比的预算和顺序。"
+        "title": "回放省成本, 但造不出新分支",
+        "body": "回放省下重复调用底层 Agent 的成本: 2 个策略 × 2 棵树 × 3 次展开, 0 次真实调用。\n但它只能重组历史里走过的分支, 树里没有的节点, 策略再聪明也发现不了。在线和离线的决策接口都是 options() → expand(), 预算和顺序才可比。"
       },
       {
-        "title": "验证元过拟合",
-        "body": "训练树选择按先验搜索, 留出树却更适合广度搜索。\n历史最优只是历史内保证; 保留旧策略、用新任务验证、报告探索成本和失败。"
+        "title": "元过拟合: 训练树 0.9, 留出树 0.2",
+        "body": "训练树上 prior 策略 best 0.9 (root → a → c), breadth 0.8 (root → a → b), 离线选中 prior。\n留出树上 a 的 prior 还是 0.9 但 score 掉到 0.1, c 掉到 0.2, b 变成 0.95: prior 策略只拿到 0.2, breadth 拿到 0.95。\n历史最优只是历史内的保证。selected 模式保留两个策略、用留出树验证, 报告 cost = 3 和失败。"
       },
       {
         "title": "实验边界",
-        "body": "固定发现树与两个程序策略, 没有在线自动写代码或复现论文规模实验。\n先验只是给定信号, 不假装是模型置信度。"
+        "body": "固定两棵 4 节点的发现树和两个程序策略, 没有在线自动写代码, 也没复现论文规模实验。\nprior 是 TREES 里写死的数字, 不假装是模型置信度。留出树故意把 a 的高 prior 配上 0.1 的 score, 元过拟合是构造出来的; 真实搜索里它多严重要另测。"
       }
     ],
     "links": [],
@@ -1219,12 +1293,12 @@ const coveragePages = {
       {
         "concept": "ReplayWorld",
         "code": "m39_meta_optimization/demo.py:ReplayWorld",
-        "takeaway": "优化的对象上移一层"
+        "takeaway": "frontier 是 {node_id: prior}; expand 删前沿、记 visited、更新 best、把 children 的 prior 放进前沿; 未发现的节点 expand 直接抛 ValueError。"
       },
       {
         "concept": "search",
         "code": "m39_meta_optimization/demo.py:search",
-        "takeaway": "发现树保留可回放过程"
+        "takeaway": "budget = 3 次展开; breadth 取前沿里最早发现的, prior 取 prior 最大的; 返回 best、visited、cost 和逐步 trace。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1237,27 +1311,32 @@ const coveragePages = {
   },
   "agent-agent-society": {
     "title": "智能体社会 · 激励与重复博弈",
-    "subtitle": "每个 Agent 都优化自己, 集体会更好吗?",
-    "tldr": "个体奖励、公共目标和交互历史共同决定协作结果。",
-    "question": "每个 Agent 都优化自己, 集体会更好吗?",
+    "subtitle": "读完你能用一张 4 格收益矩阵和三组 6 轮对局解释: 各自最优为什么压垮总收益, 记住上一轮为什么改变激励。",
+    "tldr": "背叛对合作 6 轮拿 30 分, 双方都背叛各 6 分、总共 12; 互惠对互惠各 18、总共 36, 对背叛者只让它拿 10。个人收益、总收益、被利用时的损失要分开算。",
+    "question": "每个 Agent 都只优化自己的分数, 总分会跟着变好吗?",
     "evolution": {
-      "title": "激励与重复博弈",
-      "subtitle": "根问题: 每个 Agent 都优化自己, 集体会更好吗",
+      "title": "从各自最优到记住上一轮",
+      "subtitle": "根问题: 每个 Agent 的奖励只算自己的分, 对方的收益不在它的目标里, 总分没人负责",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 每个 Agent 都优化自己, 集体会更好吗?",
-          "fix": "长期 Agent 需要身份、记忆、关系和信息传播机制"
+          "name": "各自最大化收益",
+          "pain": "(原点) 奖励只算自己的分, 对方拿多少不在目标里",
+          "fix": "defect 对 cooperate: 6 轮拿 30 分, 对方 0 分; 个体最优成立, 总收益 30"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "固定收益矩阵中背叛合作方获得高个体收益, 双方都背叛却总收益更低"
+          "name": "都选占优策略",
+          "pain": "对方也在优化自己, 被吃了 0 分就跟着背叛",
+          "fix": "单轮里 D 对 C、对 D 都拿得更多, 双方都选 D; 每轮 (1, 1), 各 6 分, 总收益只剩 12"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "互惠策略",
+          "pain": "一次性博弈里没理由合作; 想要 36 的总收益, 得让合作不被白吃",
+          "fix": "记对方上一轮: 先 C, 对方 D 就 D; 互惠对互惠 6 轮全 (C, C), 各 18, 总 36"
+        },
+        {
+          "name": "三种收益分开算",
+          "pain": "互惠各 18 仍低于 exploit 的 30, 只看个人收益背叛还是赢",
+          "fix": "分开报个人、总收益、被利用时的损失: defect 对互惠只拿 10 而不是 30; 三条各一个 assert"
         }
       ]
     },
@@ -1265,28 +1344,28 @@ const coveragePages = {
     "points": [
       {
         "title": "从任务协作到长期社会",
-        "body": "长期 Agent 需要身份、记忆、关系和信息传播机制。\n小镇式模拟可观察日程和关系演化, 但模拟行为不是现实人类规律。",
+        "body": "长期 Agent 需要身份、记忆、关系和信息传播机制。本章只给了最小的一种记忆: reciprocal 策略记对方上一轮动作 (opponent_history[-1]), 6 轮就是一段最短的关系史。\n小镇式模拟能观察日程和关系演化, 但模拟行为不是现实人类规律; 这里的三组对局也只说明给定收益矩阵下的策略互动。",
         "key": true
       },
       {
-        "title": "个体最优可能损害集体",
-        "body": "固定收益矩阵中背叛合作方获得高个体收益, 双方都背叛却总收益更低。\n市场、谈判和竞价同样要检查奖励与公共约束。"
+        "title": "个体最优把总收益压到 12",
+        "body": "收益矩阵: CC (3, 3), CD (0, 5), DC (5, 0), DD (1, 1)。\n- exploit: defect 对 cooperate, 6 轮拿 30 分, 对方 0 分, 总收益 30。\n- mutual: 双方都 defect, 每轮 (1, 1), 各 6 分, 总收益 12, 比互相合作的 36 少 24。\n单轮里 D 无论对 C 还是对 D 都拿得更多, 各自最优就是都背叛。市场、谈判和竞价同样要查: 奖励是个人的, 约束是公共的。"
       },
       {
-        "title": "重复交互改变激励",
-        "body": "互惠策略记住上一轮对方行为, 对持续合作与持续利用给出不同结果。\n声誉、预算、契约和退出机制会改变长期行为。"
+        "title": "记住上一轮, 背叛只拿 10",
+        "body": "reciprocal 先出 C, 之后照抄对方上一轮。两个 reciprocal 对局 6 轮全是 (C, C), 各 18 分, 总 36。\nreciprocal 对 defect: 第 1 轮被吃 (0, 5), 之后 5 轮 (1, 1), defect 只拿 10 分而不是 30。持续合作和持续利用拿到不同结果, 背叛的诱惑就小了。\n声誉、预算、契约和退出机制是同一类东西: 让今天的动作影响明天的收益。"
       },
       {
-        "title": "评估社会实验",
-        "body": "区分个人收益、总收益、分配不均、规则违规与长期稳定性。\n对角色、信息、网络结构和奖励分别消融; 相关模型偏差可能放大群体假象。"
+        "title": "评估社会实验: 三种收益分开算",
+        "body": "demo 的三条断言各查一个指标:\n- 个人收益: exploit 的 30 > reciprocal 的 18, 只看它背叛是赢家。\n- 总收益: mutual 的 12 < reciprocal 的 36。\n- 被利用时的损失: defect 对 reciprocal 只拿 10。\n真实实验还要分开报分配不均、规则违规和长期稳定性, 对角色、信息、网络结构和奖励分别消融; 用同一个模型驱动所有 Agent, 相关的模型偏差会放大群体假象。"
       },
       {
-        "title": "信息不对称与策略博弈",
-        "body": "隐藏角色游戏中, 每个 Agent 只能看到自己的信息与公开消息。\n实验必须限制观察接口, 防止把其他角色状态泄漏给策略。\n讨论、承诺、欺骗和投票的收益取决于规则, 不能从一个固定游戏外推社会行为。"
+        "title": "信息不对称: 只给对方的动作历史",
+        "body": "本章两个 Agent 能看到的只有对方的动作历史: play() 把 histories[1] 给 left、histories[0] 给 right, 策略名互相看不到。\n隐藏角色游戏里每个 Agent 只能看到自己的信息与公开消息。实验必须限制观察接口, 把其他角色的状态泄漏给策略, 结果就作废。\n讨论、承诺、欺骗和投票的收益取决于规则, 不能从一个固定游戏外推社会行为。"
       },
       {
         "title": "实验边界",
-        "body": "规则策略的重复囚徒困境, 没有 LLM 社会仿真、真实市场或人类行为推断。\n结论只属于给定收益矩阵和策略。"
+        "body": "规则策略的重复囚徒困境: 3 种策略、6 轮、1 张收益矩阵, 没有 LLM 社会仿真、真实市场或人类行为推断。\n30 / 12 / 36 / 10 只属于这张矩阵和这几组配对, 换矩阵、换轮数、换成会学习的策略, 结论要重跑。"
       }
     ],
     "links": [],
@@ -1294,12 +1373,12 @@ const coveragePages = {
       {
         "concept": "action",
         "code": "m40_agent_society/demo.py:action",
-        "takeaway": "从任务协作到长期社会"
+        "takeaway": "cooperate 永远 C, defect 永远 D, reciprocal 第 1 轮 C、之后照抄 opponent_history[-1]。"
       },
       {
         "concept": "play",
         "code": "m40_agent_society/demo.py:play",
-        "takeaway": "个体最优可能损害集体"
+        "takeaway": "6 轮, 每轮双方同时出招, 查 PAYOFF 累加; 返回 left、right、social 和逐轮 trace, 只有 (C, C) 的轮标 ok。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1312,27 +1391,32 @@ const coveragePages = {
   },
   "agent-system-design": {
     "title": "系统选择 · 工作流、状态与缓存",
-    "subtitle": "什么时候该用固定流程, 什么时候放开 Agent?",
-    "tldr": "按任务不确定性分配自主性, 按证据与预算约束执行。",
-    "question": "什么时候该用固定流程, 什么时候放开 Agent?",
+    "subtitle": "读完你能用 4 个请求的路由对照说清: 哪种任务走固定流程, 哪种放开 Agent; 还能解释前缀改了为什么不能拼旧 KV。",
+    "tldr": "有清单走 workflow, 没清单走 Agent, 歧义和高风险交人: hybrid 4 个请求全处理完, 费用 4 单位; 全 Agent 也是 4 个, 费用 6。进度用状态栏单独记; 前缀一换, KV 别拼。",
+    "question": "固定流程便宜但做不完, 放开 Agent 做得完但贵, 怎么分? 前缀改了, 后缀的 KV 还能接着用吗?",
     "evolution": {
-      "title": "工作流、状态与缓存",
-      "subtitle": "根问题: 什么时候该用固定流程, 什么时候放开 Agent",
+      "title": "先按清单分路, 再管进度和缓存",
+      "subtitle": "根问题: 任务有的步骤事先已知, 有的要边查边定; 一刀切要么做不完, 要么每个请求都付 Agent 的价钱",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 什么时候该用固定流程, 什么时候放开 Agent?",
-          "fix": "固定步骤用 workflow, 开放调查用循环 Agent, 混合系统把可验证流程与不确定决策分开"
+          "name": "全用固定流程",
+          "pain": "(原点) 任务有的步骤已知, 有的要边查边定, 流程写死就做不完",
+          "fix": "按清单跑 workflow, 每个请求 1 单位费用; investigate 没清单, 4 个只处理 3 个"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "框架提供编排和接口, Harness 管权限、上下文、预算、恢复和验收"
+          "name": "全放开循环 Agent",
+          "pain": "没清单的 investigate 走 workflow 做不完, 4 个请求只处理 3 个",
+          "fix": "每个请求都交给循环 Agent 自己定下一步: 4 个全处理完, 费用 6 单位, 是 workflow 的 3 倍"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "按已知步骤混合路由",
+          "pain": "有清单的 fixed-report 也按 3 单位的 Agent 价做, 白多花 2 单位",
+          "fix": "known_steps 走 workflow, 否则走 Agent; 歧义和高风险直接交人。4 个全处理完, 费用 4"
+        },
+        {
+          "name": "状态栏 + 前缀键核对",
+          "pain": "路由选对了, 执行中进度仍靠模型自述, 缓存前缀也想换了接着拼",
+          "fix": "目标 / 已完成 / 剩余预算 / 待核实分字段记; 前缀换了键就不同, 拼旧后缀 17.979 对 17.994"
         }
       ]
     },
@@ -1340,36 +1424,36 @@ const coveragePages = {
     "points": [
       {
         "title": "先画观察、决策和行动边界",
-        "body": "固定步骤用 workflow, 开放调查用循环 Agent, 混合系统把可验证流程与不确定决策分开。\n模型选择还要看工具行为、质量、成本、延迟和可恢复性。",
+        "body": "choose 按 3 个布尔特征给 4 个请求分路: known_steps、ambiguous、high_risk。\nfixed-report 有清单走 workflow, investigate 没清单走 Agent, ambiguous-owner 和 transfer 直接交人。\n三种模式跑同样 4 个请求: 全 workflow 处理 3 个、费用 2; 全 Agent 处理 4 个、费用 6; hybrid 处理 4 个、费用 4。\n费用是教学模型 (human 0 / workflow 1 / agent 3)。真实选型还要看工具行为、质量、成本、延迟和可恢复性。",
         "key": true
       },
       {
         "title": "框架与 Harness 的职责",
-        "body": "框架提供编排和接口, Harness 管权限、上下文、预算、恢复和验收。\n选择框架按这些接口能否满足任务评估, 不按产品名判断先进程度。"
+        "body": "框架给编排和接口, choose 这种路由函数就是编排。Harness 管权限、上下文、预算、恢复和验收, demo 里的 status_bar 和 cache_experiment 都是 Harness 的活。\n选框架看它的接口能不能撑起这五件事, 不按产品名判断谁更先进。"
       },
       {
         "title": "结构化状态栏",
-        "body": "把目标、已完成项、剩余预算、待核实问题作为独立状态维护。\n状态更新来自环境事件, 不把模型自述直接当事实; 状态栏本身也占上下文。"
+        "body": "status_bar 把目标、已完成项、剩余预算、待核实问题存成 4 个独立字段: goal=完成报告, completed=[检索], remaining_calls=2, pending=[核对引用]。\n字段由环境事件更新, 不把模型自述直接当事实; remaining 传负数直接抛 ValueError。\n状态栏本身也占上下文, 每轮都要跟着发。"
       },
       {
         "title": "Prompt Cache 与 KV 不等价",
-        "body": "Prompt 缓存是服务接口的前缀复用与计费语义; KV 是模型层的中间状态。\nChat template、工具顺序、位置、模型版本和前缀都影响复用条件。"
+        "body": "Prompt cache 是服务接口的前缀复用和计费语义; KV 是模型层的中间状态, 两者不是一回事。\ndemo 用 sha256({model, prefix, positions}) 当缓存键: 前缀从 [1, 2] 换成 [9, 2], 键就不同, reusable=false。\nChat template、工具顺序、位置、模型版本和前缀, 任一变了复用条件就不成立。"
       },
       {
         "title": "可编辑上下文必须核对因果依赖",
-        "body": "本例用两层因果混合说明: 后缀隐藏状态依赖之前的前缀, 换前缀后直接拼旧状态会错。\n组合 KV 需要额外模型结构或重算验证, 不能只按文本块 id 拼接。"
+        "body": "cache_experiment 用两层因果混合模拟 Transformer: 每个位置的状态 = 自身值 + 到它为止的前缀均值, 所以后缀状态依赖前缀。\n前缀 [1, 2] 换成 [9, 2], 后缀 [3, 4] 不变: 完整重算得 17.994066, 拼旧后缀得 17.979331, 两个数不相等。\n组合 KV 要么模型结构支持, 要么重算验证, 不能只按文本块 id 拼接。"
       },
       {
         "title": "人工介入应有明确触发",
-        "body": "对象歧义先澄清, 高后果动作交授权方。\n护栏要覆盖输入、上下文和执行; Sidecar 只看结构化动作能减少被原文诱导, 但仍需要独立执行约束。"
+        "body": "choose 先查两个触发条件: ambiguous 就先澄清对象, high_risk 就交授权方。ambiguous-owner 和 transfer 在三种模式下都路由到 human, 模式再放开也绕不过。\n护栏要覆盖输入、上下文和执行三处。Sidecar 只看结构化动作, 能减少被原文诱导, 但仍要独立的执行约束。"
       },
       {
         "title": "上下文学习的机制边界",
-        "body": "上下文示例能激活关联、模式匹配和任务适应, 并不更新持久参数。\n书中“检索而非推理”应读作相关机制实验的解释, 不能当作所有模型和任务的定理。\n压缩后能否保留关系、否定和约束, 仍须用具体任务检验。"
+        "body": "上下文示例能激活关联、模式匹配和任务适应, 但不更新任何持久参数, 会话结束就没了。\n书里的「检索而非推理」是相关机制实验的解释, 不是所有模型和任务的定理。\n压缩后还保不保得住关系、否定和约束, 得用具体任务测, 本章 demo 没测这一项。"
       },
       {
         "title": "实验边界",
-        "body": "任务路由与费用是明确的教学模型; KV 反例使用标量因果混合, 不代替真实 Transformer 精度和性能测试。"
+        "body": "没模拟的: 路由规则只有 3 个布尔特征, 费用是人为定的 0 / 1 / 3, 不是实测 API 价格, 也不代表普遍的成本排序。\nKV 反例是标量因果混合, 17.994066 和 17.979331 差 0.0147 只说明会错, 不能外推到真实 Transformer 的误差大小和性能。"
       }
     ],
     "links": [],
@@ -1377,17 +1461,17 @@ const coveragePages = {
       {
         "concept": "choose",
         "code": "m41_system_design/demo.py:choose",
-        "takeaway": "先画观察、决策和行动边界"
+        "takeaway": "ambiguous 或 high_risk 先交人; hybrid 按 known_steps 在 workflow 和 agent 之间选。"
       },
       {
         "concept": "status_bar",
         "code": "m41_system_design/demo.py:status_bar",
-        "takeaway": "框架与 Harness 的职责"
+        "takeaway": "goal / completed / remaining_calls / pending 四个字段分开存, 预算为负直接抛 ValueError。"
       },
       {
         "concept": "cache_experiment",
         "code": "m41_system_design/demo.py:cache_experiment",
-        "takeaway": "结构化状态栏"
+        "takeaway": "前缀换了: 缓存键不同 reusable=false, 拼旧后缀得 17.979331, 完整重算是 17.994066。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1401,27 +1485,32 @@ const coveragePages = {
   },
   "agent-memory-privacy": {
     "title": "个人记忆 · 同意、过期与删除",
-    "subtitle": "记忆删了, 为什么检索结果还可能找到它?",
-    "tldr": "授权要在召回之前检查, 删除要覆盖原文、索引和派生缓存。",
-    "question": "记忆删了, 为什么检索结果还可能找到它?",
+    "subtitle": "读完你能用 flat / scoped / forget 三种模式说清: 一条记忆从写入到删除, 租户、过期和派生缓存各在哪一步把关。",
+    "tldr": "授权在召回之前查, 不是召回后过滤: flat 模式一次就漏 1 条别家租户的、1 条过期的。删除要同时清原文、索引和缓存, forget 之后召回为空。",
+    "question": "记忆删了, 为什么检索结果还可能找到它? 记得用户的偏好, 就能主动提醒他吗?",
     "evolution": {
-      "title": "同意、过期与删除",
-      "subtitle": "根问题: 记忆删了, 为什么检索结果还可能找到它",
+      "title": "授权在召回前, 删除到派生止",
+      "subtitle": "根问题: 记忆跨会话保存后, 谁能召回、能用到什么时候、删了是不是真没了, 都得有人把关",
       "steps": [
         {
-          "name": "直接执行",
-          "pain": "(原点) 记忆删了, 为什么检索结果还可能找到它?",
-          "fix": "工作记忆放当下状态, 情节记忆保留经历, 语义记忆保留事实, 程序记忆保留做法"
+          "name": "全库召回",
+          "pain": "(原点) 记忆存下来了, 但谁能看、看多久、删了还在不在, 没人把关",
+          "fix": "把 raw 里的记忆全部取出交给模型: flat 模式召回 3 条, 1 条是 org-b 的, 1 条已过期"
         },
         {
-          "name": "遇到边界",
-          "pain": "直接执行还没有验证错误路径和适用范围",
-          "fix": "记住一条事实、在多轮对话找回、在合适时机主动帮助是三种能力"
+          "name": "召回后再过滤",
+          "pain": "越界 1 条、过期 1 条已经进了召回结果",
+          "fix": "全库取出后按租户和时间筛掉; 私密内容已经到过过滤器手里, 筛漏一次就是泄露"
         },
         {
-          "name": "对照验收",
-          "pain": "局部改善不等于其他条件下仍然成立",
-          "fix": "运行本章对照与失败断言, 检查结果、代价和明确的边界"
+          "name": "按作用域键索引",
+          "pain": "过滤器看得到不该看的, 它一出错就是泄露",
+          "fix": "按 (tenant, user, topic) 键查, 过期的不回; scoped 只召回 Python"
+        },
+        {
+          "name": "沿派生删, 提醒要同意",
+          "pain": "原文删了, index 和 cache 里还留着它的 id, 下次召回照样找到",
+          "fix": "forget 连 raw / index / cache 一起清, 审计只留散列; 没 opted_in 不提醒"
         }
       ]
     },
@@ -1429,28 +1518,28 @@ const coveragePages = {
     "points": [
       {
         "title": "记忆层次与表示",
-        "body": "工作记忆放当下状态, 情节记忆保留经历, 语义记忆保留事实, 程序记忆保留做法。\n这些是设计类比, 不是对模型认知能力的证明; 可用列表、文档、图或可执行规则表示。",
+        "body": "工作记忆放当下状态, 情节记忆保留经历, 语义记忆保留事实, 程序记忆保留做法。这四层是设计上的分类, 不是对模型认知能力的证明。\n表示可以是列表、文档、图或可执行规则。\nm42 的 MemoryService 把一条偏好事实存成 Memory 记录 (id、tenant、user、topic、content、expires、consent、kind), 跨会话按作用域找回。",
         "key": true
       },
       {
         "title": "跨会话与主动服务分开测",
-        "body": "记住一条事实、在多轮对话找回、在合适时机主动帮助是三种能力。\n主动使用个人信息还需要同意, 不能因为记得就自动通知。"
+        "body": "记住一条事实、在新会话找回、在合适时机主动提醒, 是三种能力, demo 分三条 trace 测。\n首次会话按作用域召回 ['Python']; 新会话再召回一次仍是 ['Python']; notify 在 opted_in=False 时直接返回空, 三种模式 proactive 都是 0。\n记得不等于能主动用, 主动使用个人信息要单独同意。"
       },
       {
         "title": "层级与多模态不绕过权限",
-        "body": "租户、用户和主题共同决定召回范围。\n摘要层、完整正文、图片字幕、音频转录和原文件链接都继承来源权限, 不能只过滤最终原文。"
+        "body": "索引键是 (tenant, user, topic) 三元组, 召回只查自己的键。flat 模式绕过索引直接读 raw, 3 条全出来, 其中 Rust 属于 org-b, 越界 1 条。\nMemory 记录带 kind 字段: 摘要层、完整正文、图片字幕、音频转录和原文件链接都继承来源的权限, 不能只在最后过滤原文。demo 只放了 text 一种。"
       },
       {
         "title": "删除与压缩的区别",
-        "body": "过期决定是否还可召回, 压缩减少体积, 删除清理原文及派生引用。\n本例删除同步清理索引和缓存, 审计只留操作和散列标识, 不保留个人正文。"
+        "body": "过期决定能不能召回: Go 的 expires=1, now=5 时 scoped 召回不含它, flat 模式含它, 过期 1 条。\n压缩只减体积; 删除要清原文和派生引用。forget(\"org-a\", \"Lin\", \"a\") 同时从 raw、index、cache 三处删掉 id, 之后召回为 []。删别人的记忆抛 PermissionError。\n审计只记 operation 和 12 位散列 (scope_hash / id_hash), 不留个人正文。"
       },
       {
         "title": "后台整理需要冲突策略",
-        "body": "频率、时间、重要性可辅助筛选, 但不能把常被访问的错误当真。\n合并前保留来源与作用域, 碰到冲突重新求证; 索引损坏需可从证据重建。"
+        "body": "访问频率、时间、重要性只能辅助筛选, 常被访问的错误仍是错误。\n合并前保留来源与作用域: remember 拒绝覆盖已有 id, 证据不可改写。碰到冲突重新求证; 索引坏了要能从 raw 重建。"
       },
       {
         "title": "实验边界",
-        "body": "内存中的合成个人信息, 没有生产身份认证、加密或备份删除。\n说明数据生命周期, 不宣称满足某项法律或平台合规要求。"
+        "body": "没模拟的: 身份认证、加密、备份里的删除。个人信息是内存里的 3 条合成记录, 没有生产存储。\n3 条记录、1 次越界、1 次过期, 说明的是数据生命周期的检查点在哪, 不能外推成满足某项法律或平台的合规要求。"
       }
     ],
     "links": [],
@@ -1458,7 +1547,7 @@ const coveragePages = {
       {
         "concept": "MemoryService",
         "code": "m42_memory_privacy/demo.py:MemoryService",
-        "takeaway": "记忆层次与表示"
+        "takeaway": "remember 要 consent; recall 按 (tenant, user, topic) 键查并过滤 expires; forget 同时清 raw / index / cache; notify 没 opt-in 返回空。"
       }
     ],
     "snippetTitle": "运行对照, 再核对假设",
@@ -1470,56 +1559,61 @@ const coveragePages = {
   },
   "agent-vector-index": {
     "title": "向量索引 · 精确扫描与近似搜索",
-    "subtitle": "向量都算出来了, 为什么还需要索引?",
-    "tldr": "近似索引用更少的距离计算换召回率, 必须保留精确基准。",
-    "question": "向量都算出来了, 为什么还需要索引?",
+    "subtitle": "读完你能用 24 个点、12 次查询的对照说清: 近似索引省掉的是哪些距离计算, 漏掉的近邻又是怎么漏的。",
+    "tldr": "精确扫描 288 次距离计算, recall 1.0; 单叶投影树 36 次, recall 0.8333; 预算 12 的图搜索 144 次, recall 0.6667, 预算放到 24 才回到 1.0。近似索引用距离计算换召回, 基准永远是精确扫描。",
+    "question": "向量都算好了, 直接逐个比距离不行吗? 为什么还要建树建图?",
     "code": "llm_agent/m43_vector_index/demo.py",
     "evolution": {
-      "title": "精确扫描与近似搜索",
-      "subtitle": "根问题: 向量都算出来了, 为什么还需要索引?",
+      "title": "省掉的距离计算, 都从召回里扣",
+      "subtitle": "根问题: 每次查询都要和库里每个向量算一遍距离, 库大 10 倍就贵 10 倍",
       "steps": [
         {
-          "name": "直接做",
-          "pain": "(原点) 向量都算出来了, 为什么还需要索引?",
-          "fix": "先建立可精确检查的基线"
+          "name": "全量精确扫描",
+          "pain": "(原点) 每次查询都和全库算距离: 24 个点、12 次查询, 算了 288 次",
+          "fix": "逐个算平方欧氏距离取最小, recall 1.0; 它是后面所有近似方法的基准"
         },
         {
-          "name": "改变条件",
-          "pain": "基线暴露计算或监督信号不足",
-          "fix": "引入本章机制, 同时保留失败对照"
+          "name": "投影树只搜一叶",
+          "pain": "288 次距离计算随库线性涨, 百万向量就是百万次",
+          "fix": "按轴中位数递归二分到每叶 ≤ 3 点, 查询只算一个叶子: 36 次, 但 recall 0.8333"
         },
         {
-          "name": "隔离验收",
-          "pain": "单个案例成功不代表无条件有效",
-          "fix": "检查预算、信息边界和独立测试, 报告未覆盖范围"
+          "name": "多树合并候选",
+          "pain": "最近点落在分割边界另一侧, 12 次查询漏了 2 次 (查询 1 和 5)",
+          "fix": "ANNOY 建多棵随机投影树, 各树叶子合并成候选; 树越多召回越高, 计算也越多"
+        },
+        {
+          "name": "邻近图 + 距离预算",
+          "pain": "树是静态的, 新数据要重建; 候选集再大也不保证最近点在里面",
+          "fix": "每点连 3 个最近邻, 从入口贪心扩展到预算: 预算 12 recall 0.6667, 预算 24 回到 1.0"
         }
       ]
     },
     "points": [
       {
         "title": "从词向量到语境向量",
-        "body": "Word2Vec 为词存一个静态向量; 上下文编码器让同一个词随语境变化。\n句向量还需池化与检索训练。\n稠密、稀疏和多向量表示各有索引方式, 不能把随机投影的字词特征称为训练过的语义表示。",
+        "body": "Word2Vec 给每个词存一个静态向量; 上下文编码器让同一个词随语境变化; 句向量还要池化和检索训练。\n稠密、稀疏和多向量表示各有自己的索引方式。\n本章的 24 个点是 math.cos / math.sin 算出来的二维坐标, 不是训练过的语义表示; 随机投影的字词特征同样不能叫语义向量。",
         "key": true
       },
       {
         "title": "相似度不是语义保证",
-        "body": "余弦比较方向, 点积受长度影响, 欧氏距离衡量空间距离。\n归一化会改变三者关系; 嵌入相似也不证明事实正确或证据充分。\n模型、归一化和索引度量应配套验证。"
+        "body": "余弦比方向, 点积受长度影响, 欧氏距离量空间距离; 归一化后三者的关系会变。本章 distance 用平方欧氏距离, 不做归一化。\n嵌入相似也不证明事实正确或证据充分。模型、归一化和索引度量要配套验证, 换一个就得重测。"
       },
       {
         "title": "树与图怎样减少搜索",
-        "body": "本例投影树只搜索一个叶子, 在分割边界可能漏掉最近点。\n图搜索从入口沿邻居扩展, 用距离计算预算控制开销; 预算充足可回到精确结果, 小预算可能困在局部。"
+        "body": "build_tree 按坐标轴中位数递归二分, 叶子 ≤ 3 个点, 24 个点分成 8 个叶子。tree_query 只算一个叶子: 每次 3 次距离计算, 12 次共 36, 精确扫描是 288。\n代价是 recall 0.8333: 查询 1 和 5 的最近点落在分割边界另一侧, 返回了 0 和 10, 正确答案是 1 和 9。\ngraph_query 从入口 0 沿邻居扩展, 算满预算就停: 预算 12 时 recall 0.6667, 预算 24 时 12 次全对, 预算 1 时 0 对。"
       },
       {
         "title": "ANNOY 与 HNSW 的结构区别",
-        "body": "ANNOY 通过多棵随机投影树收集候选, 多树或更大搜索预算提高召回。\nHNSW 使用多层邻近图, 上层快速定位, 底层扩展候选; 邻接度与搜索宽度影响内存、构建和查询。"
+        "body": "ANNOY 建多棵随机投影树, 把各树的叶子合并成候选, 多树或更大搜索预算提高召回。本章只有一棵树, 所以 12 次漏了 2 次。\nHNSW 用多层邻近图, 上层快速定位, 底层扩展候选; 邻接度和搜索宽度决定内存、构建和查询成本。本章的图只有一层, 每点连 3 个最近邻, 入口固定为点 0。"
       },
       {
         "title": "更新同样有成本",
-        "body": "静态树常用重建吸收新数据; 图结构可增量插入, 但也要处理删除、连通性和长期退化。\n用精确近邻做 recall 基准, 同时报距离计算、内存、构建和更新代价。"
+        "body": "静态树吸收新数据通常要重建; 图能增量插入, 但要处理删除、连通性和长期退化。build_graph 为此把每点和链上的前后点也连起来, 保证可达。\n验收近似索引时, 用同语料同度量的精确近邻做 recall 基准, 同时报距离计算次数、内存、构建和更新代价; 本章只报了 recall 和距离计算次数。"
       },
       {
         "title": "实验边界",
-        "body": "二维固定向量、单树和单层图的机制实验, 未实现完整 ANNOY/HNSW, 未训练语义嵌入。\n距离计算次数是实际计数, 不是生产延迟。"
+        "body": "没实现的: 多棵树、多层图、边界回溯、增量插入和删除。二维固定向量、单树、单层图, 不是完整 ANNOY / HNSW, 也没训练语义嵌入。\n距离计算次数是实际计数 (288 / 36 / 144), 不是生产延迟; 24 个点上的 recall 差异也不能外推到百万级库。"
       }
     ],
     "source": [
@@ -1533,27 +1627,27 @@ const coveragePages = {
       {
         "concept": "exact",
         "code": "m43_vector_index/demo.py:exact",
-        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+        "takeaway": "逐点算平方欧氏距离取最小: 每次查询 24 次计算, 12 次共 288, recall 1.0, 是其余两种的基准。"
       },
       {
         "concept": "build_tree",
         "code": "m43_vector_index/demo.py:build_tree",
-        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+        "takeaway": "按 depth % 2 选轴, 中位数二分, 叶子 ≤ 3 个点; 24 个点得 8 个叶子。"
       },
       {
         "concept": "tree_query",
         "code": "m43_vector_index/demo.py:tree_query",
-        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+        "takeaway": "从根按 split 走到一个叶子, 只在 3 个候选里取最小: 36 次计算, recall 0.8333, 漏在分割边界。"
       },
       {
         "concept": "build_graph",
         "code": "m43_vector_index/demo.py:build_graph",
-        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+        "takeaway": "每点取 3 个最近邻, 再并上链上前后点保证可达; 单层, 没有 HNSW 的随机多层入口。"
       },
       {
         "concept": "graph_query",
         "code": "m43_vector_index/demo.py:graph_query",
-        "takeaway": "近似索引用更少的距离计算换召回率, 必须保留精确基准。"
+        "takeaway": "从点 0 起沿邻居贪心扩展, seen 到 budget 就停: 预算 12 recall 0.6667, 预算 24 全对, 预算 1 全错。"
       }
     ],
     "snippetTitle": "固定基线, 再比较条件",
@@ -1563,56 +1657,62 @@ const coveragePages = {
   },
   "agent-self-distillation": {
     "title": "在轨自蒸馏 · 特权信息与部署边界",
-    "subtitle": "没有更强的教师, 同一个模型能给自己监督吗?",
-    "tldr": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。",
-    "question": "没有更强的教师, 同一个模型能给自己监督吗?",
+    "subtitle": "读完你能用 no-hint 和 privileged 两组对照说清: 自蒸馏的监督信号来自哪, 为什么教师和学生同参同输入时 KL 是 0。",
+    "tldr": "教师和学生是同一个 nn.Linear(2, 2), 教师分支多看一列已验证的方向提示。有提示: 测试起点成功率 0 → 1; 没提示: 第 1 步和第 35 步 KL 都是 0, 成功率还是 0。部署时提示通道恒为 0。",
+    "question": "没有更强的教师, 让模型给自己当老师, 学到的不就是它已经会的吗?",
     "code": "llm_agent/m44_self_distillation/demo.py",
     "evolution": {
-      "title": "特权信息与部署边界",
-      "subtitle": "根问题: 没有更强的教师, 同一个模型能给自己监督吗?",
+      "title": "没有更强的教师, 信号从哪来",
+      "subtitle": "根问题: 蒸馏要一个分布更好的教师; 已经是手里最强的模型时, 它自己的输出里没有新信息",
       "steps": [
         {
-          "name": "直接做",
-          "pain": "(原点) 没有更强的教师, 同一个模型能给自己监督吗?",
-          "fix": "先建立可精确检查的基线"
+          "name": "外部教师蒸馏",
+          "year": 2015,
+          "pain": "(原点) 想让模型变强又没有标签, 只有更强模型的输出分布可以学",
+          "fix": "在固定数据上拟合教师的输出分布; 前提是先有一个更强的教师, 数据也是教师的"
         },
         {
-          "name": "改变条件",
-          "pain": "基线暴露计算或监督信号不足",
-          "fix": "引入本章机制, 同时保留失败对照"
+          "name": "在轨蒸馏",
+          "pain": "学生自己跑时会走到教师数据没覆盖的状态, 那里没人教",
+          "fix": "学生自己采样轨迹, 教师对这些状态给分布, reverse KL 拉近; 教师仍是另一个更强的模型"
         },
         {
-          "name": "隔离验收",
-          "pain": "单个案例成功不代表无条件有效",
-          "fix": "检查预算、信息边界和独立测试, 报告未覆盖范围"
+          "name": "自己当自己的教师",
+          "pain": "更强的教师不一定有; 已经是最强的模型就没老师",
+          "fix": "教师和学生同一套参数: no-hint 模式第 1 步和第 35 步 KL 都是 0.0, 成功率 0 没动"
+        },
+        {
+          "name": "教师分支多看特权信息",
+          "pain": "同参数同输入, 两个分布一模一样, 没有任何新信号",
+          "fix": "教师分支多看一列已验证的方向提示 (±1), no_grad 截断; 无提示测试成功率 0 → 1"
         }
       ]
     },
     "points": [
       {
         "title": "同一个模型, 不同的信息",
-        "body": "教师和学生共用参数, 教师分支额外接收经验证的方向提示。\n优势来自信息条件, 不是凭空多了一个更聪明的模型; 模型须已有利用提示的能力。",
+        "body": "教师和学生共用同一个 nn.Linear(2, 2) 的参数, 输入是 [position, hint]。学生的 hint 恒为 0; 教师分支的 hint 按位置正负给 +1 / -1, 是已验证的方向。\n优势全来自这一列信息。初始权重 [[-0.1, 2], [0.1, -2]] 里, hint 列的 ±2 让教师会用提示, position 列的 ∓0.1 让学生一开始朝反方向走。\n前提是模型本来就会用提示, 不是凭空多了一个更聪明的模型。",
         "key": true
       },
       {
         "title": "在学生实际访问的状态上蒸馏",
-        "body": "学生按当前策略走向目标, 由自己的动作决定后续状态。\n对这些状态计算教师分布, 用现有 reverse KL 更新学生; 教师分支用 no_grad 截断梯度。"
+        "body": "每步让学生从 4 个训练起点 (-3, -1, 1, 3) 按当前策略采样, 最多走 7 步, 走到 0 算成功; 走过的位置就是训练集, 由学生自己的动作决定。\n对这些位置算教师分布, 用 llm_finetune 现成的 token_kl (reverse KL) 更新学生; 教师分支在 torch.no_grad 下, 梯度在这里截断。SGD lr=0.08, 共 35 步。"
       },
       {
         "title": "没有额外信息时会怎样",
-        "body": "教师和学生看到同样输入、使用相同参数, 两个分布相同, KL 为零。\n不能把自我重复当作新的学习信号。"
+        "body": "no-hint 模式把教师的 hint 也置 0: 同参数、同输入, 两个分布完全一样, 第 1 步和第 35 步的 KL 都是 0.0。\n参数没动, 测试成功率训前训后都是 0。自己复制自己, 不是学习信号。"
       },
       {
         "title": "答案隔离与保持",
-        "body": "部署接口的提示通道始终为零, 只在训练侧使用已验证信息。\n测试起点与训练起点不同, 轨迹状态可能重叠; 这里只验证控制规则迁移, 不声称分布外语言推理。"
+        "body": "rollout 和 score 的输入永远是 [position, 0.], 提示通道恒为 0, 已验证信息只在训练侧的教师分支用。hint 列的权重两组都停在 2.0, 教师分支没有反传更新它。\n测试起点 (-4, -2, 2, 4) 和训练起点 (-3, -1, 1, 3) 不交叉, 但轨迹经过的位置可能重叠; 这里验证的是控制规则迁移, 不是分布外的语言推理。"
       },
       {
         "title": "自蒸馏仍会失败",
-        "body": "如果特权信息错误或教师无法利用它, 就会复制错误。\n参考答案、人工示范或领域材料需要授权和校验; 保持正则、风格评估和安全回归限制副作用。"
+        "body": "特权信息错了, 或教师用不了它, 学生就照样复制错误。本章把 hint 定义成正确方向, 把 hint 列权重预设成 ±2, 两个前提都是人给的。\n真实场景里参考答案、人工示范、领域材料都要授权和校验; 还要靠保持正则、风格评估和安全回归限制副作用, 本章没做这三项。"
       },
       {
         "title": "实验边界",
-        "body": "四参数线性控制策略, 提示通道的利用能力预先设定。\n训练确实更新参数, 但不是完整语言模型 OPSD 配方, 不证明未知知识能被自我创造。"
+        "body": "没模拟的: 语言模型、token 级分布、完整的 OPSD 配方。策略是 4 个参数的线性控制器, 提示通道的利用能力是预设的, 不是学出来的。\n训练确实更新了参数 (成功率 0 → 1), 但只证明已验证的额外信息能被蒸馏进学生, 不证明未知知识能被自我创造。"
       }
     ],
     "source": [
@@ -1624,17 +1724,17 @@ const coveragePages = {
       {
         "concept": "rollout",
         "code": "m44_self_distillation/demo.py:rollout",
-        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+        "takeaway": "输入永远是 [position, 0.], 最多走 7 步, 落到 0 算成功; 部署观察里没有提示列。"
       },
       {
         "concept": "score",
         "code": "m44_self_distillation/demo.py:score",
-        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+        "takeaway": "在 4 个与训练不交叉的测试起点 (-4, -2, 2, 4) 上跑 rollout 算成功率: privileged 训后 1, no-hint 仍是 0。"
       },
       {
         "concept": "train",
         "code": "m44_self_distillation/demo.py:train",
-        "takeaway": "教师分支可以多看验证信息, 学生部署时仍只能看普通观察。"
+        "takeaway": "学生采样位置, 教师分支 no_grad 多看 hint 列, token_kl 更新 35 步; no-hint 首尾两步 KL 都是 0.0。"
       }
     ],
     "snippetTitle": "固定基线, 再比较条件",
@@ -1667,7 +1767,7 @@ const topic = {
     { route: 'agent-runtime-reliability', label: '故障恢复 · 重试、幂等与取消', hint: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。' },
     { route: 'agent-context-cost', label: '上下文成本 · 压缩与缓存一起算', hint: '比较净成本, 同时检查范围、否定和来源是否保留。' },
     { route: 'agent-evidence-chain', label: '检索证据 · 从相关到足够回答', hint: '别名、对象、版本与答案形成完整证据链, 才能输出结果。' },
-    { route: 'agent-trajectory-learning', label: '轨迹学习 · 先验证，再造训练数据', hint: '结果、来源、授权和预算一起决定轨迹能否进入训练集。' },
+    { route: 'agent-trajectory-learning', label: '轨迹学习 · 先验证, 再造训练数据', hint: '结果、来源、授权和预算一起决定轨迹能否进入训练集。' },
     { route: 'agent-learning-loop', label: '持续改进 · 学会、迁移、变化与保持', hint: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。' },
     ...coverageChapters,
   ],
@@ -1815,7 +1915,7 @@ def matches(rule, call):
         steps: [
           { name: '写进 system prompt', pain: '(原点) 模型不记得上次会话, 偏好和约定只能每轮重发', fix: '全部常驻 system prompt; 条目一多, 每轮都为用不到的内容付费' },
           { name: '文件记忆 + 现查现拼', pain: '每轮都为用不到的条目付费, 窗口也越挤越满', fix: '记忆落成 .md 文件, 每轮按当前 prompt 的命中词数挑几条, 拼成独立 system 消息' },
-          { name: 'TF-IDF', pain: '只数命中词, 一篇凑满 how / the / model 的 FAQ 就能排第一', fix: 'm08 的文档检索换成 TF-IDF: idf 把处处都有的词压到接近 0, 罕见词决定排序' },
+          { name: 'TF-IDF', pain: '只数命中词, 一篇凑满 how / the / model 的 FAQ 就能排第一', fix: 'm08 的文档检索换成 TF-IDF: idf 把处处都有的词压到接近 0, 罕见词决定排序; 分词仍只认英文' },
           { name: '中文 bigram', pain: '分词器只认 [a-z0-9]+, 中文查询切不出一个词, 得分恒为 0', fix: '中文连续段切成相邻两字, 不用词典; 记忆和文档检索共用这一个分词器' },
         ],
       },
@@ -1832,7 +1932,7 @@ def matches(rule, call):
         },
         {
           title: 'idf 让罕见词说了算',
-          body: '关键词计数会让一篇凑满 how / the / model 的 FAQ 排第一。\n$\\mathrm{idf} = \\ln\\left(1 + \\tfrac{N - \\mathrm{df} + 0.5}{\\mathrm{df} + 0.5}\\right)$ 修正它:\n- 几乎每篇都有的词: 权重趋近 0 (the 只有 0.33)。\n- 罕见词: 主导排序 (fragmentation 是 1.79)。\n工具名和 schema 都不变, 还是 search_docs。检索实现通过统一接口接入 loop 和模型。',
+          body: '关键词计数会让一篇凑满 how / the / model 的 FAQ 排第一。\n$\\mathrm{idf} = \\ln\\left(1 + \\tfrac{N - \\mathrm{df} + 0.5}{\\mathrm{df} + 0.5}\\right)$ 修正它:\n- 几乎每篇都有的词: 权重趋近 0 (the 只有 0.33)。\n- 罕见词: 主导排序 (fragmentation 是 1.79)。\n工具名和 schema 都不变, 还是 search_docs: 换掉检索实现, loop 和模型一行都不用改。',
         },
       ],
       links: [
@@ -1886,7 +1986,7 @@ def tokenize(text):                            # 英文按词, 中文 bigram
       points: [
         {
           title: 'Hook 必然执行, 但不能提权',
-          body: 'hook 只能做三件事: 拦截、改写调用、追加上下文。\n七个事件跟 Claude Code 同名:\n- 会话与输入: SessionStart / UserPromptSubmit\n- 工具前后: PreToolUse / PostToolUse\n- 压缩与收尾: PreCompact / Stop / SubagentStop\n顺序固定成 hook → 权限门 → 执行, 门评估的是改写之后那个调用。\n反过来 (改写发生在检查之后), deny 规则形同虚设。这是典型的 TOCTOU。',
+          body: 'hook 只能做三件事: 拦截、改写调用、追加上下文。\n七个事件跟 Claude Code 同名:\n- 会话与输入: SessionStart / UserPromptSubmit\n- 工具前后: PreToolUse / PostToolUse\n- 压缩与收尾: PreCompact / Stop / SubagentStop\n顺序固定成 hook → 权限门 → 执行, 门评估的是改写之后那个调用。\n反过来 (改写发生在检查之后), deny 规则形同虚设。这是典型的 TOCTOU (检查时和使用时不一致)。',
         },
         {
           title: 'Hook 的输出走旁路',
@@ -1936,7 +2036,7 @@ system += "## Skills\\n" + "\\n".join(f"- {n}: {d}" for n, d in descriptions.ite
 
     'agent-state-subagents': {
       title: '持久化与子智能体 · 状态能恢复, 上下文要隔离',
-      subtitle: '读完你能说出 resume 带回了什么、没带回什么。也能解释子 agent 读的 20 篇文档为什么挤不进父级上下文。',
+      subtitle: '读完你能说出 resume 带回了什么、没带回什么, 以及旧检查点遇到新代码时要核对哪几样。',
       tldr: '会话的全部状态就是 messages, 所以每产生一条就往 JSONL 尾部追加一行。\nresume 就是把这些行读回来, 但只读回消息。权限得由新会话自己重新建立。',
       question: '为什么恢复 transcript 不应该等于恢复上次的 bypass 权限?',
       evolution: {
@@ -1953,7 +2053,7 @@ system += "## Skills\\n" + "\\n".join(f"- {n}: {d}" for n, d in descriptions.ite
       points: [
         {
           title: '只追加, 先记意图再执行',
-          body: '写入逻辑只有 open("a") + 一行 JSON。写下去的行永不改变, 审计链天然完整。\nassistant 的 tool_use 在工具跑之前就落盘: 就算执行中进程崩了, 日志里也留着 "模型要求了这一步"。\n容错只有两条:\n- load(): 跳过写了一半的坏行。\n- resume: 若最后一条是没有结果的悬空 tool_use, Agent 给它补一条 is_error 的占位结果, 并写回 JSONL。不补这段 transcript 就是非法的; 只在内存里修, 第二次 resume 又会读到悬空的调用。',
+          body: '写入逻辑只有 open("a") + 一行 JSON。写下去的行永不改变, 审计链天然完整。\nassistant 的 tool_use 在工具跑之前就落盘: 就算执行中进程崩了, 日志里也留着 "模型要求了这一步"。\n容错只有两条:\n- load(): 跳过写了一半的坏行。\n- resume: 若最后一条是没有结果的悬空 tool_use, Agent 给它补一条 is_error 的占位结果, 并写回 JSONL。\n不补, 这段 transcript 就是非法的; 只在内存里修, 第二次 resume 又会读到悬空的调用。',
         },
         {
           key: true,
@@ -2132,7 +2232,7 @@ text, is_error = result["content"][0]["text"], result.get("isError")`,
     'agent-planning': {
       title: '计划 · todo、plan 模式与并行工具调用',
       subtitle: '读完你能说清"批准之前零写入"是怎么被强制的, 以及哪些调用值得放进同一个 turn。',
-      tldr: '模型边想边做, 做到第三步常常忘了还剩什么。用户也只能事后发现它改了不该改的东西。\n- todo_write: 把计划变成显式状态。\n- plan 模式: 把否决权还给人。',
+      tldr: '计划要看得见, 动手要先批准。\n- todo_write: 把计划变成显式状态, 做到第三步也不会忘了还剩什么。\n- plan 模式: 把否决权还给人, 批准前非只读工具一律拒。',
       question: '如果 plan 模式只是 system prompt 里的一句"请先不要修改文件", 它和现在的实现差在哪?',
       evolution: {
         title: '从边想边做到先批后动',
@@ -2148,7 +2248,7 @@ text, is_error = result["content"][0]["text"], result.get("isError")`,
       points: [
         {
           title: '计划就是一份留在上下文里的状态',
-          body: 'todo 列表一直在上下文里: 模型做到一半不会忘了还剩什么, 用户也能看到进度。\n每次整表覆写, 而不是增量 patch。没有 id 要对齐, 调用是幂等的。模型每一轮都得重新面对完整计划。\ntodo_write 只改 agent 自己的状态、不碰外部世界, 所以标成只读, plan 模式下也能用。否则 "先列个计划" 这一步本身就会被拒。',
+          body: 'todo 列表一直在上下文里: 模型做到一半不会忘了还剩什么, 用户也能看到进度。\n每次整表覆写, 而不是增量 patch。没有 id 要对齐, 调用是幂等的 (重发一次结果不变)。模型每一轮都得重新面对完整计划。\ntodo_write 只改 agent 自己的状态、不碰外部世界, 所以标成只读, plan 模式下也能用。否则 "先列个计划" 这一步本身就会被拒。',
         },
         {
           key: true,
@@ -2157,7 +2257,7 @@ text, is_error = result["content"][0]["text"], result.get("isError")`,
         },
         {
           title: 'read_only 是自己声明的, 标错就是漏洞',
-          body: 'harness 无法验证一个工具是不是真的只读, 全靠工具作者写对类属性。\nDelegateTool 显式写了 read_only = False, 注释里说明了原因:\n- 子 agent 的门: 它跑的是自己那扇 auto 模式的门。\n- 门里的写操作: write_note 是 medium 风险, 直接放行。\n委托要是被当成只读, plan 模式就能靠一层委托绕过去。',
+          body: 'harness 无法验证一个工具是不是真的只读, 全靠工具作者写对类属性。\nDelegateTool 显式写了 read_only = False, 注释里说明了原因:\n- 子 agent 有自己的门: 跑在 auto 模式, 不经过父级的 plan 门。\n- 那扇门会放行写操作: write_note 是 medium 风险, auto 模式直接放行。\n委托要是被当成只读, plan 模式就能靠一层委托绕过去。',
         },
         {
           title: '并行只发生在"执行"这一步',
@@ -2195,7 +2295,7 @@ tools = [search_docs, write_note, TodoWriteTool(),
     'agent-orchestrator': {
       title: 'Orchestrator–workers · 并行扇出与两本 token 账',
       subtitle: '读完你能判断一个任务值不值得拆给多个 worker, 也能说清多智能体到底买到了什么。',
-      tldr: '多智能体不省钱。m11 demo 里两本账方向相反:\n- 峰值上下文: lead 247, 单 agent 375。\n- 总输入: 770, 单 agent 413。\n花更多 token 买到的是一个没被原文淹没的主上下文。并行要到子任务多时才省墙钟。',
+      tldr: '多智能体不省钱。m11 demo 里两本账方向相反:\n- 峰值上下文: lead 247, 单 agent 375。\n- 总输入: 770, 单 agent 413。\n花更多 token 买到的是一个没被原文淹没的主上下文。并行要到子任务多时才省墙钟时间 (用户实际等的时长)。',
       question: '什么样的任务值得用多智能体?\n如果子任务之间强依赖、需要共享同一份上下文, 会发生什么?',
       evolution: {
         title: '拆给 worker 读, 账要分开记',
@@ -2335,7 +2435,7 @@ def confine(root, user_path):
       },
       code: 'llm_agent/m13_evals/demo.py',
       points: [
-        { title: '从总分走到首错', body: '五条轨迹区分真正完成、提前结束、越界写入、工具失败和模型不可用。冻结出错前的上下文, 再用可接受动作集合检查下一步; 三个规则案例只验证协议, 不外推模型能力。' },
+        { title: '从总分走到首错', body: '总分只说挂了, 首错说挂在哪一步: 第一次违反本任务验收条件的位置。\n- 五条轨迹: 真正完成、提前结束、越界写入、工具失败、模型不可用, 各归一类; 前四条的最终回答一字不差。\n- 冻结出错前的上下文, 只换下一步的策略, 用一组可接受动作判对错, 不只认一条参考答案。\n三个规则案例只验证协议, 不外推模型能力。' },
         {
           title: '以环境终态判分',
           body: '任务 = prompt + 一个全新的环境 + 一个看终态的 grader。\ngrader 看的是: 笔记到底写了没、危险命令到底跑了没 (env.shell.executed == [])。\n模型说 "我已经写好了" 不算数; 反过来, 措辞不同也可能真做对了。\n每次试验都要一个全新环境, 试验之间不能互相污染。',
@@ -2347,7 +2447,7 @@ def confine(root, user_path):
         {
           key: true,
           title: 'pass@k 和 pass^k 随 k 走向两端',
-          body: '同一个单次通过率 0.65: pass@3 = 0.97 (至少成一次), pass^3 = 0.25 (三次全成)。\n- pass@k: 衡量能力上限。适合有验证器、可以重试挑最优的场景 (写代码跑测试)。\n- pass^k: 衡量可靠性。动作不可撤销又没人复核的 agent (退款、发邮件、改库) 必须盯它。\n代码里用无偏估计 $1 - C(n-c,k)/C(n,k)$ 与 $C(c,k)/C(n,k)$, 比直接拿 $\\hat{p}$ 求幂更准。',
+          body: '同一个单次通过率 0.65: pass@3 = 0.97 (至少成一次), pass^3 = 0.25 (三次全成)。\n- pass@k: 衡量能力上限。适合有验证器、可以重试挑最优的场景 (写代码跑测试)。\n- pass^k: 衡量可靠性。动作不可撤销又没人复核的 agent (退款、发邮件、改库) 必须盯它。\n代码里用无偏估计 $1 - C(n-c,k)/C(n,k)$ 与 $C(c,k)/C(n,k)$ (n 次试验成功 c 次), 比直接拿 $\\hat{p}$ 求幂更准。',
         },
       ],
       links: [
@@ -2713,35 +2813,25 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-memory-lifecycle': {
       title: '记忆更新 · 来源、范围与版本',
-      subtitle: '读完你能用对照实验解释：项目 A 改用 TypeScript, 为什么项目 B 也跟着变了?',
+      subtitle: '读完你能用对照实验解释: 项目 A 改用 TypeScript, 为什么项目 B 也跟着变了?',
       tldr: '记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。',
       question: '项目 A 改用 TypeScript, 为什么项目 B 也跟着变了?',
       evolution: {
-        title: '来源、范围与版本',
-        subtitle: '根问题: 新偏好覆盖旧文件, 项目例外污染了全局',
+        title: '偏好要连着范围和证据一起存',
+        subtitle: '根问题: 一条偏好只对某个对象、在某个范围内成立; 存的时候丢了范围, 项目 A 的例外就会污染项目 B',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 新偏好覆盖旧文件, 项目例外污染了全局',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '新偏好覆盖旧文件, 项目例外污染了全局',
-            fix: '直接追加不丢原文, 但旧条目可能一直排在前面',
-          },
-          {
-            name: '本章实现',
-            pain: '直接追加不丢原文, 但旧条目可能一直排在前面',
-            fix: '按对象和范围审核候选, 发布版本; 原证据保留, 索引可重建',
-          },
+          { name: '新事实覆盖旧文件', pain: '(原点) 记忆文件只有一份, 新偏好一来就整段改写', fix: '最省事; A 改用 TypeScript 后, 查 B 也答 TypeScript, 3 个查询只对 2 个' },
+          { name: '只追加不覆盖', pain: '覆盖把 B 的全局 Python 冲掉了', fix: '新条目往后追加, 检索取首条命中; 旧的 Python 永远排前面, 查 A 还是答 Python, 也只对 2 个' },
+          { name: '按对象 + 范围建索引', pain: '追加只按对象找, 分不清 A 的例外和全局默认', fix: '键是 (entity, scope): 先找项目, 再回退全局 "*"; A、B、bob 三个查询 3/3' },
+          { name: '发布前核对证据', pain: '索引谁都能写: 候选改丢了范围、换了值, 照样进去', fix: 'publish 核对 source_id 的对象、范围、原值, 再核 based_on 版本; 3 个无依据候选全拒' },
+          { name: '事件日志 + 回滚重建', pain: '发错了只能再发一条压过去, 证据和生效状态混在一起', fix: 'rollback 只追加一条事件, index 从事件重放; 撤销 A 的例外后查回全局 Python, 原证据一条不删' },
         ],
       },
       code: 'llm_agent/m20_memory_lifecycle/demo.py',
       points: [
         {
           title: '先看证据有没有支持这次修改',
-          body: '候选必须与 source_id 对应的对象、范围和原值一致。提案还要指出基于哪个版本; 后来已有更新时, 旧提案不能直接覆盖。',
+          body: '一条候选更新, 必须和它引用的证据 (source_id) 说的是同一个对象、同一个范围、同一个原值。提案还要写明基于哪个版本; 这个版本之后已有更新的, 旧提案不能直接覆盖。',
         },
         {
           title: '查询先找项目, 再回退全局',
@@ -2789,28 +2879,18 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-completion-verification': {
       title: '完成验收 · 说完不等于做完',
-      subtitle: '读完你能用对照实验解释：模型说已完成, 为什么还要看环境?',
+      subtitle: '读完你能用对照实验解释: 模型说已完成, 为什么还要看环境?',
       tldr: '把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。',
       question: '模型说已完成, 为什么还要看环境?',
       evolution: {
-        title: '说完不等于做完',
-        subtitle: '根问题: 模型少写一条笔记, 却回答全部完成',
+        title: '从信一句话到查环境',
+        subtitle: '根问题: "已完成" 只是模型输出的一句文本, 笔记有没有真写进环境是另一回事; 验收只看文本就会被空口声明骗过',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 模型少写一条笔记, 却回答全部完成',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '模型少写一条笔记, 却回答全部完成',
-            fix: '检查回答里的完成字样, 看不到环境中的缺口',
-          },
-          {
-            name: '本章实现',
-            pain: '检查回答里的完成字样, 看不到环境中的缺口',
-            fix: '检查必需结果与作用域, 返回缺失项; 修复有调用数和次数上限',
-          },
+          { name: '模型说完就结束', pain: '(原点) loop 拿到 final 就返回, "已完成" 只是模型的一句话', fix: '最简单; 模型写了 alpha、beta 就宣告完成, 系统照收; 环境里 gamma 从没出现过, 2 次调用' },
+          { name: '检查回答里的字样', pain: '直接结束连回答都不看, 模型说 "没做" 也照样收', fix: 'final 里有 "完成" 二字才算过; 和直接结束一样 2 次调用、一样漏 gamma: 文本证明不了环境' },
+          { name: '只读验收看环境', pain: '文本只反映模型以为的状态, 不反映笔记真写没写', fix: 'verify_notes 只读 notes: 列出缺的 (gamma)、多写的、改坏的; 它不替模型补写' },
+          { name: '缺口交回原 Agent', pain: '验收器知道缺 gamma, 但它不能自己写, 也不该绕过权限门', fix: 'missing 包成 repair: prompt 交回原 Agent, 补写走工具和权限门; 2 次调用变 4 次' },
+          { name: '修复次数与调用上限', pain: '模型嘴硬只说完成、工具一直写失败, 修复会无限循环', fix: 'max_repairs=1、max_calls=4; 嘴硬、写坏、预算 1 次三组对照都在上限内停下, 报未完成' },
         ],
       },
       code: 'llm_agent/m21_completion_verification/demo.py',
@@ -2830,7 +2910,7 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
         },
         {
           title: '预算耗尽就报告未完成',
-          body: '模型持续空口声明、工具持续失败或预算太少, 都不能靠无限重试拖延。Stop Hook 保持通知接口, 外部驱动器负责验收。',
+          body: '模型持续空口声明、工具持续失败或预算太少, 都不能靠无限重试拖延。Stop Hook 只做通知, 验收由外部驱动器负责。',
         },
       ],
       links: [
@@ -2860,28 +2940,18 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-runtime-reliability': {
       title: '故障恢复 · 重试、幂等与取消',
-      subtitle: '读完你能用对照实验解释：超时了再试一次, 会不会执行两次?',
+      subtitle: '读完你能用对照实验解释: 超时了再试一次, 会不会执行两次?',
       tldr: '超时表示不知道结果; 幂等确认副作用, 取消确认执行边界。',
       question: '超时了再试一次, 会不会执行两次?',
       evolution: {
-        title: '重试、幂等与取消',
-        subtitle: '根问题: 服务端已写入, 客户端却因响应丢失而重试',
+        title: '副作用可能已经发生了, 你只是不知道',
+        subtitle: '根问题: 超时只说明没收到响应, 不说明服务端没执行; 重试和取消都可能落在副作用之后',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 服务端已写入, 客户端却因响应丢失而重试',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '服务端已写入, 客户端却因响应丢失而重试',
-            fix: '只限制重试次数, 仍可能重复写入或接受迟到结果',
-          },
-          {
-            name: '本章实现',
-            pain: '只限制重试次数, 仍可能重复写入或接受迟到结果',
-            fix: '服务端幂等键和状态查询确认提交; 取消确认后停机, 按任务版本过滤结果',
-          },
+          { name: '超时就盲重试', pain: '(原点) 响应丢了, 客户端只知道 "没收到", 不知道账本写没写', fix: '第一次已入账 10 元, 再发一次又入账: 2 次请求写 2 行共 20 元; 只试 1 次就停在 unknown' },
+          { name: '服务端幂等键', pain: '客户端数不清, 只有副作用所在的服务端知道写没写', fix: '请求带键 task-1/payment-1, 服务端有收据就返回旧行: 2 次只写 1 行 10 元; 同键换金额拒' },
+          { name: '先查收据再重发', pain: '幂等键还是要重发整个请求; 权限拒绝也不该跟着重试', fix: '超时后先查 receipts, 有就 confirmed: 1 次请求 1 次查询; denied 永久拒绝, 不重试' },
+          { name: '首个合格再取消', pain: '一次任务扇出 3 路, 等全部要 10 个工作单位, 最快那个还不合格', fix: 'fast-wrong 不算; 时刻 3 的 correct 验收通过才取消其余: 工作量 7, 最后工作时刻 3' },
+          { name: '取消确认 + 代际', pain: '取消发出去了, 执行器还没确认, 中间它又写了一笔', fix: '请求取消到确认之间的 1 次副作用保留; 确认后拒新动作, 旧 generation 的结果丢弃' },
         ],
       },
       code: 'llm_agent/m22_runtime_reliability/demo.py',
@@ -2936,35 +3006,25 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-context-cost': {
       title: '上下文成本 · 压缩与缓存一起算',
-      subtitle: '读完你能用对照实验解释：输入短了, 为什么总费用反而更高?',
+      subtitle: '读完你能用对照实验解释: 输入短了, 为什么总费用反而更高?',
       tldr: '比较净成本, 同时检查范围、否定和来源是否保留。',
       question: '输入短了, 为什么总费用反而更高?',
       evolution: {
-        title: '压缩与缓存一起算',
-        subtitle: '根问题: 长会话反复发送历史, 成本和上下文同时增长',
+        title: '省下的和多花的要记在同一本账上',
+        subtitle: '根问题: 长会话每轮重发整段历史; 缓存只认不变的前缀, 摘要自己也是一次模型调用, 两笔账要一起算',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 长会话反复发送历史, 成本和上下文同时增长',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '长会话反复发送历史, 成本和上下文同时增长',
-            fix: '只看压缩后的长度, 漏掉摘要调用和缓存重建费用',
-          },
-          {
-            name: '本章实现',
-            pain: '只看压缩后的长度, 漏掉摘要调用和缓存重建费用',
-            fix: '统一统计读写缓存、摘要输入输出, 再单独验收关键约束',
-          },
+          { name: '每轮重发全部历史', pain: '(原点) 每轮把工具日志全发一遍, 输入随轮数线性涨', fix: '最直接; 6 轮固定日志, 第 6 轮上下文 1360 token, 每轮都重读前面轮次已经发过的块' },
+          { name: '前缀缓存', pain: '历史大半没变, 却每轮按全价重读', fix: 'm19 的前缀缓存, 命中前缀读价 ×0.1; 但把每轮都变的状态块放在最前面, 后面全失配: 6 轮 6075' },
+          { name: '动态状态挪到尾部', pain: '状态块每轮都变, 放在前面就让整条前缀失效', fix: 'policy + 历史在前, state 和 query 在后: 同样 6 轮降到 4925; 峰值仍是 1360' },
+          { name: '阈值触发摘要', pain: '缓存省的是单价, 窗口还在涨, 峰值 1360 一点没动', fix: '满 4 块就摘成 1 块: 峰值 530, 总价 3202.5, 摘要占 1327.5; 两轮反而 695 → 840' },
+          { name: '摘要单独验限定', pain: '账算对了, 但摘要丢了 scope 和否定, 费用一分不少', fix: '保限定和丢限定的摘要都是 3202.5; 前者保住 3 条事实, 后者只剩 language; 审计记录 12 块都在' },
         ],
       },
       code: 'llm_agent/m23_context_cache/demo.py',
       points: [
         {
           title: '动态状态放哪会影响前缀',
-          body: '固定同一批工具日志, 把变化状态放在最前部会破坏其后的复用。6 轮模拟费用 6075; 放到历史后为 4925。',
+          body: '固定同一批工具日志, 把每轮都变的状态块放在最前面, 它后面的前缀就全部失配。6 轮模拟费用 6075; 放到历史之后为 4925。',
         },
         {
           title: '摘要也有账单',
@@ -2973,7 +3033,7 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
         },
         {
           title: '便宜与正确分别验收',
-          body: '保留限定与丢限定的摘要费用相同, 但前者保住 3 条事实, 后者只保住语言值。两者原始审计记录都还有 12 个块。',
+          body: '保留限定与丢限定的摘要费用相同, 但前者保住 3 条事实, 后者只剩下 language 一条。两者原始审计记录都还有 12 个块。',
         },
         {
           title: '使用的是费用模型',
@@ -3002,28 +3062,18 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-evidence-chain': {
       title: '检索证据 · 从相关到足够回答',
-      subtitle: '读完你能用对照实验解释：相关文档找到了, 为什么还是不能回答?',
+      subtitle: '读完你能用对照实验解释: 相关文档找到了, 为什么还是不能回答?',
       tldr: '别名、对象、版本与答案形成完整证据链, 才能输出结果。',
       question: '相关文档找到了, 为什么还是不能回答?',
       evolution: {
-        title: '从相关到足够回答',
-        subtitle: '根问题: 相似块里有数字, 却可能来自旧版本或同名产品',
+        title: '相似只是起点, 证据链才是终点',
+        subtitle: '根问题: 相似块只证明 "长得像", 不证明它说的是这个对象、这个版本; 一个数字要有一条能核对的证据链才能当答案',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 相似块里有数字, 却可能来自旧版本或同名产品',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '相似块里有数字, 却可能来自旧版本或同名产品',
-            fix: '增加块的上下文能认出对象, 别名仍可能需要另一条资料',
-          },
-          {
-            name: '本章实现',
-            pain: '增加块的上下文能认出对象, 别名仍可能需要另一条资料',
-            fix: '按证据继续检索, 限制查询预算; 缺少关键来源就保留未知',
-          },
+          { name: '取最相似的一块', pain: '(原点) 4 个块都写着 upload limit, 相似度分不出 v1 和 v2', fix: 'plain 只取 top-1, 块里不带对象和版本: 连直接问 atlas v2 都答不出, 三题全是 None' },
+          { name: '块前加对象和版本', pain: 'top-1 可能是 orion 或 v1 的块, 数字对不上问题', fix: '检索文本前缀 "atlas v2", 命中后再按 entity / version 筛: 直接题一跳得 20 MB' },
+          { name: '别名再查一跳', pain: '问 comet 时, 命中的只有 "comet → atlas v2" 这条记录, 没有数字', fix: '第一跳只定对象, 不从别的产品块猜数; 第二跳查 atlas v2 的 limit, 两条来源都引用, 得 20 MB' },
+          { name: '查询预算 + 保留未知', pain: '多跳能一直跳下去; 没有别名证据的 nova 也可能被凑出一个数', fix: 'budget=2; comet 预算 1 就答 None; nova 没别名记录, 只能 insufficient' },
+          { name: '独立核对引用链', pain: '回答里有 20 这个数, 不等于引用的证据撑得住它', fix: 'supported 只核 sources: 错版本、少了别名记录、引到 orion-v2 的, 三种都判不支持' },
         ],
       },
       code: 'llm_agent/m24_agentic_rag/demo.py',
@@ -3072,29 +3122,19 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
       source: ['llm_agent/m24_agentic_rag/demo.py:retrieve', 'llm_agent/m24_agentic_rag/demo.py:answer', 'llm_agent/m24_agentic_rag/demo.py:supported'],
     },
     'agent-trajectory-learning': {
-      title: '轨迹学习 · 先验证，再造训练数据',
-      subtitle: '读完你能用对照实验解释：答案碰巧正确的轨迹, 应该拿去训练吗?',
+      title: '轨迹学习 · 先验证, 再造训练数据',
+      subtitle: '读完你能用对照实验解释: 答案碰巧正确的轨迹, 应该拿去训练吗?',
       tldr: '结果、来源、授权和预算一起决定轨迹能否进入训练集。',
       question: '答案碰巧正确的轨迹, 应该拿去训练吗?',
       evolution: {
-        title: '先验证，再造训练数据',
-        subtitle: '根问题: 只奖励最终答案, 没查证据的捷径也会得高分',
+        title: '奖励什么, 模型就学什么',
+        subtitle: '根问题: 训练信号来自轨迹; 只按最终答案打分, 猜中和偷看的轨迹也拿满分, 模型学到的就是捷径',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 只奖励最终答案, 没查证据的捷径也会得高分',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '只奖励最终答案, 没查证据的捷径也会得高分',
-            fix: '再扣调用成本, 反而更偏好碰巧猜中的短轨迹',
-          },
-          {
-            name: '本章实现',
-            pain: '再扣调用成本, 反而更偏好碰巧猜中的短轨迹',
-            fix: '先验证过程再生成 SFT、偏好对和逐步标签, 按实体划分留出集',
-          },
+          { name: '只奖励最终答案', pain: '(原点) 同题 5 条轨迹里, 猜中、偷看、正常查询都得到正确数字', fix: '答对记 1: lucky-guess、forbidden、verified 都 result=True, 分不出谁该学' },
+          { name: '再扣调用成本', pain: '结果分一样, 想靠长度惩罚挑出更好的那条', fix: 'reward = result − 0.05 × 步数; 1 步猜中的最高, 2 步先查再答的反而靠后' },
+          { name: '逐步重算过程标签', pain: '结果加成本都看不见 "答案有没有证据支持"', fix: '每步在环境里重放, 没查就答、偷看、超预算各有标签; 5 条里只有 verified 每步 True' },
+          { name: '按验收结果造三种数据', pain: '有了 eligible 标签, 还得变成 SFT、偏好、过程监督能吃的样本', fix: 'eligible 进 SFT, 同题好坏配成偏好对, 每步标签进 process: 16 题 → 16/64/80 条' },
+          { name: '留出集按实体切', pain: '同一实体的任务散在训练集和测试集, 测的是背答案', fix: '按 entity 的 sha256 分 split: 8 个实体 7 训 1 测; 导出的 64 对逐条重放验证' },
         ],
       },
       code: 'llm_agent/m25_trajectory_learning/demo.py',
@@ -3114,7 +3154,7 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
         },
         {
           title: '接到已有微调方法',
-          body: '数据先保留可读动作序列, token 化后把 prompt 标签置为 -100。SFT、DPO、PRM、GRPO 的实现仍在 llm_finetune; 本实验不另写算法, 也未训练模型。',
+          body: '数据先保留可读动作序列, token 化后把 prompt 标签置为 -100 (这些位置不算 loss)。SFT、DPO、PRM、GRPO 的实现仍在 llm_finetune; 本实验不另写算法, 也未训练模型。',
         },
       ],
       links: [
@@ -3149,28 +3189,18 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
     },
     'agent-learning-loop': {
       title: '持续改进 · 学会、迁移、变化与保持',
-      subtitle: '读完你能用对照实验解释：修好了新任务, 怎么知道旧任务没坏?',
+      subtitle: '读完你能用对照实验解释: 修好了新任务, 怎么知道旧任务没坏?',
       tldr: '先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。',
       question: '修好了新任务, 怎么知道旧任务没坏?',
       evolution: {
-        title: '学会、迁移、变化与保持',
-        subtitle: '根问题: 积累经验后总分上升, 旧任务却悄悄退步',
+        title: '学新的和守旧的要分开打分',
+        subtitle: '根问题: 规则会在时间轴上变; 策略既要跟上新规则又不能丢旧规则, 一个总分把两件事混在一起',
         steps: [
-          {
-            name: '朴素做法',
-            pain: '(原点) 积累经验后总分上升, 旧任务却悄悄退步',
-            fix: '先按最直接的策略执行, 记录结果作为基线',
-          },
-          {
-            name: '局部补救',
-            pain: '积累经验后总分上升, 旧任务却悄悄退步',
-            fix: '只反复测试刚学过的题, 看不到跨对象迁移和规则变化',
-          },
-          {
-            name: '本章实现',
-            pain: '只反复测试刚学过的题, 看不到跨对象迁移和规则变化',
-            fix: '按时间分四阶段, 反馈在验收后开放, 未变任务单独复测',
-          },
+          { name: '规则写死不学', pain: '(原点) alice 的语言写死成 Python, 规则变了跟不上', fix: '不更新: 学习 50%、变化 0%; 保持 50% (B 的 Python 对, A 改 Rust 后错)' },
+          { name: '反馈直接追加', pain: '要能学, 最省事是把每条反馈追加进笔记', fix: '按对象取首条, A 的 TypeScript 总排前, B 也答 TypeScript; 保持 0%, 负迁移 5 题' },
+          { name: '按范围版本化', pain: '追加让 A 的例外盖住了 B 的全局规则', fix: '复用 m20: 反馈按 (entity, scope) 发布版本; 迁移 100%、保持 100%, 负迁移只剩 1 题' },
+          { name: '四阶段分开报', pain: '总分涨了, 看不出是学会了、迁移了, 还是把旧的弄丢了', fix: 'learning / transfer / change / retention 各算通过率; 迁移和保持阶段禁止更新' },
+          { name: '先答题、再评分、再更新', pain: '阶段分开了, 可反馈要是在答题前到, change 也能拿 100%', fix: '每题固定 act → grade → update: C1 改 Rust 先错, C2 才对, change 50%' },
         ],
       },
       code: 'llm_agent/full_learning_loop/demo.py',
@@ -3220,71 +3250,71 @@ recall_at_1, recall_at_3, mrr = metrics(ranks)`,
 const supplements = {
   "agent-rag": [
     {
-      "title": "先学表示，再查是哪一层丢了答案",
-      "body": "m45 用平均池化和可训练投影做双编码器，再用查询/文档联合 MLP 重排。精确检索错误看表征，ANN 错误看剪枝，重排错误先看候选召回。改写、跨语言、否定、编号分开测；四个机制探针不能当线上准确率。",
+      "title": "先学表示, 再查是哪一层丢了答案",
+      "body": "m45 把词袋平均池化后过一个可训练投影做双编码器, 再用 query + 文档拼接的 MLP 做重排; 4 道探针: 同义改写、跨语言、否定、罕见编号。\n错在哪一层, 先定位再修:\n- exact 排错: 表征或训练覆盖的问题, 别怪 ANN。\n- ann 错而 exact 对: 两分区剪枝丢了赢家, 别重训 encoder。\n- rerank 排错: 先看 top-4 里有没有答案 (candidate_recall); 召回为假时重排救不回。\n- 编号 ZX91 / ZX92 都映射成 <unk>, 向量完全相同, 只能靠词面精确约束。\n4 道题是机制探针, 否定题还参与了重排训练, 不能当线上准确率。",
       "source": "llm_agent/m45_semantic_retrieval/demo.py:run"
     }
   ],
   "agent-vector-index": [
     {
       "title": "索引正确不等于表示有语义",
-      "body": "固定二维向量验证索引；m45 用真实参数训练表示层。exact 与分区近似使用同一组向量，才能隔离索引误差。编号映射为未知词时向量可能完全相同，应补精确词面约束。",
+      "body": "本章的索引实验用固定的二维向量, 只验证索引本身。m45 的 Encoder 是一个 24 维线性投影, 用 36 条 query / doc 对真的训了 160 步, 参数变化 > 0。\nexact 和两分区 ANN 用同一组向量打分, 差异只能来自剪枝: 这样才分得清 \"表示错了\" 和 \"索引错了\"。\n两个 ticket 编号 ZX91、ZX92 不在词表里, 都映射成 <unk>, 向量完全相同; 这类题要补词面精确约束, 不能指望向量。",
       "source": "llm_agent/m45_semantic_retrieval/demo.py:Encoder"
     }
   ],
   "agent-evals": [
     {
       "title": "从动作日志到 trace/span",
-      "body": "根 span 对应一次任务，模型/工具是子 span，API attempt 再挂在模型下面。线程显式携带父 id；并行耗时有重叠，不能把所有 span 相加当用户等待。",
+      "body": "Tracer 记的是一棵 span 树: 根 span 是一次 Agent.run, 模型请求和工具调用是子 span, 每次 API attempt 再挂在模型请求下面。\n工具在线程里跑, ContextVar 过不了线程池, 所以父 id 显式传入。\nsummary 里 wall_seconds 只加根 span, summed_span_seconds 加所有 span; 并行工具的区间重叠, 后者一定不小于前者, 不能当用户等待时间。\n导出只有结构、状态、error_type 和计数, 不收提示、参数、输出和异常正文。",
       "source": "llm_agent/core/tracing.py:Tracer"
     }
   ],
   "agent-eval-suite": [
     {
       "title": "让指标回到一次真实调用链",
-      "body": "新的离线实验走实际 Agent 和 ClaudeLLM，覆盖并行工具、限流重试、取消。成功请求 usage 汇总只取一层；失败尝试计费未知。默认不记录提示、参数和输出。",
+      "body": "trace_demo 跑的是真 Agent → 真 ClaudeLLM → 离线流式夹具, parallel / retry / cancel 三种情形用同一套 span 结构:\n- parallel: 两个工具过同一个线程屏障, 时间区间真实重叠; 2 个逻辑模型请求。\n- retry: 限流重试让模型 attempt 变成 3 个, 逻辑请求还是 2 个, 工具仍只执行 2 次。\n- cancel: 根 span 状态 cancelled, 没有一个 span 留在 running。\nusage 只按成功请求汇总; model 和 attempt 都附了 usage, 但只取一层。失败尝试 billing_complete=False, 不能当零费用。导出里搜不到 \"secret\": 提示、参数、输出都不记。",
       "source": "llm_agent/m31_eval_suite/trace_demo.py:experiment"
     }
   ],
   "agent-runtime-reliability": [
     {
-      "title": "流开始前和开始后，重试边界不同",
-      "body": "实际 ClaudeLLM 默认流式。仅对限流、部分服务端错误、连接/超时，在 message_start 前做有界退避；开始后不自动重发。SDK 重试关闭，避免两个预算相乘。未知停止原因、未闭合 JSON、断流不交出可执行动作。",
+      "title": "流开始前和开始后, 重试边界不同",
+      "body": "ClaudeLLM.next 默认流式, 重试只有一层: SDK 建成 max_retries=0, 自己的 max_attempts 默认 2, 两个预算不相乘。\n只对 408 / 429 / 500 / 502 / 503 / 504 / 529 和连接、超时类错误重试; 退避 0.25 s × 2^(attempt−1), 上限 5 s, 有 retry-after 就听它的。\n收到过 message_start 的尝试不自动重发: 它可能已经计费、已经展示了一部分文字。\nstop_reason 不认识、tool_use 的 JSON 没闭合、流在 message_stop 前断掉, 一律抛 StreamError, 不交出可执行动作。",
       "source": "llm_agent/core/claude_llm.py:next"
     }
   ],
   "agent-async-runtime": [
     {
-      "title": "增量可展示，副作用等完整消息",
-      "body": "文本 delta 可交给 on_text；工具 input_json_delta 先累积，block_stop 解析，message_stop 后整体校验。累计 output_tokens 要覆盖旧值，不逐块相加。流在 finally 关闭；离线事件通过不能代替真实 API 验证。",
+      "title": "增量可展示, 副作用等完整消息",
+      "body": "MessageStream 把 SSE 事件攒成完整消息, 攒完之前不交出任何可执行的工具调用。\n- text_delta: 立刻交给 on_text 显示。\n- input_json_delta: 只拼字符串; content_block_stop 时才 json.loads, 没闭合就报 \"工具参数 JSON 未完成\"。\n- message_stop: 还有 block 没关、或没有 stop_reason, 报错; finish() 再查 tool_use id 有没有重复。\nusage 字段 API 给的是累积值, 直接覆盖, 不逐块相加。流在 finally 里 close。离线夹具只能验协议, 真实 API 的行为要另测。",
       "source": "llm_agent/core/streaming.py:MessageStream"
     }
   ],
   "agent-full-loop": [
     {
       "title": "把适配器的运行时带进闭环",
-      "body": "真实适配器已支持流累积、有限重试和实报 usage。Agent.usage 保留字符估算，reported_usage 单列实报，不能混加。缓存计数可读，但尚未自动配置 cache_control。在线调用仍须主动设置凭据。",
+      "body": "所有模型调用 (含压缩时的摘要) 都走 _ask_model 记账, 两本账分开:\n- Agent.usage: 按 estimate_tokens 字符粗估, 教学 demo 一直用它。\n- reported_usage: 适配器有 last_usage 才追加, 是服务端实报。\n两者单位不同, 不能相加。实报里带 cache_read_input_tokens, 读得到; 但 Agent 还没自动给请求加 cache_control。真模型要 pip install anthropic 并设 ANTHROPIC_API_KEY, 默认 demo 不发网络请求。",
       "source": "llm_agent/core/agent.py:_ask_model"
     }
   ],
   "agent-trajectory-learning": [
     {
       "title": "从筛选导出走到真正更新参数",
-      "body": "RFT 在当前策略上采 256 次，只取独立验证通过的轨迹再做 CE。保留分布显示六个训练任务未入选；无成功样本时不更新。与示范 SFT、在线 RL 同起点对照，而不是把预设候选叫训练。",
+      "body": "m25 只筛数据, 不动参数; train_rft.py 接着真的训: 同一个小 LLaMA 初始化, SFT / RFT / RL 三个分支并排。\n- RFT: 冻结当前策略, 16 个训练任务各采 16 次共 256 条, 只留 m25 的 execute 判 eligible 的, 再做 40 步 CE; 留下 18 条, 覆盖 10/16 个任务, 6 个任务一条都没留下。\n- 零成功时 supervised([]) 直接返回 0, 参数不动, 不偷偷塞示范。\n三个分支留出通过率都从 0 到 1, RFT 没有赢过 SFT 和 RL; 这是协议迁移验收, 不是实体语义泛化。",
       "source": "llm_finetune/run_finetune/rft/train_rft.py:collect"
     }
   ],
   "agent-agent-training": [
     {
-      "title": "三种训练方式：谁提供标签",
-      "body": "SFT 的标签来自人工；RFT 来自模型自身合格轨迹；RL 用采样奖励改变概率。实验里三者留出通过率相同，必须保留这个结果，不预设新方法更好。协议状态编码未输入实体名，不能声称学会了新实体语义。",
+      "title": "三种训练方式: 谁提供标签",
+      "body": "三种训练方式的差别是标签从哪来:\n- SFT: 16 条人工轨迹, 拆成 32 个状态 / 动作样本。\n- RFT: 模型自己采的 256 条里, 独立验证通过的那 18 条。\n- RL: 每轮采 8 条、共 32 轮, 组内均值做基线, 奖励直接改动作概率。\n同起点 seed=7, 三者留出通过率都是 0 → 1, 没有哪个更好; 这个结果要原样留着。编码器只看协议状态和值域, 实体名没进模型, 所以测的是协议迁移, 不是学会了新实体。",
       "source": "llm_finetune/run_finetune/rft/train_rft.py:run"
     }
   ],
   "agent-context-engineering": [
     {
       "title": "能放进去、能连接到、能有效利用是三件事",
-      "body": "上下文上限描述可接受的 token 数；理论感受野描述结构上的信息通路；有效利用需长距离检索、多跳和干扰实测。压缩摘要变短或全注意力可见，不等于关键证据一定保留或被模型用到。",
+      "body": "\"放得进\"、\"连得到\"、\"用得上\" 是三件事:\n- 上下文上限: 模型接受多少 token。\n- 理论感受野: 结构上信息能不能从那个位置流到输出。\n- 有效利用: 证据在中间的时候模型真的用了没有, 要用长距离检索、多跳和干扰实测。\nm47 把同一条证据挪到头、中、尾, 18 种组合: 带首尾偏好的读法, 证据在两头质量 0.81, 在中间只剩 0.03; 先检索再读, 三个位置都 0.95。摘要变短、注意力全可见, 都不等于关键证据被保留或被用到。",
       "source": null
     }
   ]
@@ -3299,29 +3329,30 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.chapters.push({"route": "agent-verifiable-reasoning", "label": "可验证推理 · 形式证明与科学检验", "hint": "行动生成负责提出候选；独立检查器决定候选能支持多强的结论。"})
+topic.chapters.push({"route": "agent-verifiable-reasoning", "label": "可验证推理 · 形式证明与科学检验", "hint": "模型只管提候选; 证明看检查器, 假设看留出点。"})
 topic.pages["agent-verifiable-reasoning"] = {
   "title": "可验证推理 · 形式证明与科学检验",
-  "subtitle": "行动生成负责提出候选；独立检查器决定候选能支持多强的结论。",
-  "tldr": "给定公理、推理规则和形式化命题，检查证明每一步是否合法。自然语言说“证明了”不算；小型命题系统也不等于完整 Lean 或通用数学验证。",
-  "question": "候选结论看起来合理时，检查器应该根据什么拒绝缺步骤、错规则或偷看答案的推导？",
+  "subtitle": "读完你能说清: 一个证明过了检查器、一个假设在留出点上成立, 各自证明了什么, 又没证明什么。",
+  "tldr": "模型提候选, 检查器定结论。\n- 证明: 检查器只认假设和 modus ponens, 引用只能指向更早的步; 把 (0, 1) 写成 (0, 0) 的伪造证明被拒。\n- 假设: 3 点拟合 MSE 0.142 的直线, 在留出 4 点上 0.071; 拟合到 0 的二次式, 留出 3.06。",
+  "question": "推导读起来很顺, 检查器凭什么拒掉它? 缺步骤、用错规则、偷看答案, 各是怎么被抓出来的?",
   "code": "llm_agent/m51_formal_science/demo.py",
   "points": [
     {
-      "title": "形式证明有明确边界",
-      "body": "给定公理、推理规则和形式化命题，检查证明每一步是否合法。自然语言说“证明了”不算；小型命题系统也不等于完整 Lean 或通用数学验证。"
+      "title": "证明内核只认两条规则",
+      "key": true,
+      "body": "verify_proof 只收三样东西: 假设列表、每一步的公式、每一步用的规则和引用。规则只有两种:\n- assumption: 公式必须在假设列表里, 不能带引用。\n- mp: 引用两步, 一步是前提 P, 另一步必须正好是 (\"implies\", P, 本步公式)。\n合法证明: P、P→Q 各引一次假设, Q 由 mp 引用 (0, 1), 通过。伪造证明: 同样三步, Q 的引用改成 (0, 0); known[0] 是 P 不是蕴含式, 拒绝。引用负索引或指向还没出现的步, 同样拒绝。\n通过只说明 Q 相对于这两条假设成立。一句 \"显然\" 在证书里没有位置; 这个内核只有命题逻辑, 不是 Lean。"
     },
     {
-      "title": "科学假设需要留出检验",
-      "body": "拟合观测、提出假设和预测未见数据分开。搜索器不能反复读取最终验收集；测试通过只支持约定范围内的结论。"
+      "title": "假设要在没碰过的点上验",
+      "body": "3 次测量 x = -1, 0, 1, 真实规律是 y = 2x + 0.5, 中间那点多了 0.8 的异常。\n- 二次式 (overfit): 3 点拟合 MSE 0, 留出 4 点 MSE 3.06。\n- 直线 (validated): 拟合 MSE 0.142, 留出 0.071。\n拟合得越好的那个, 预测得越差。留出点 x = -2, -0.5, 0.5, 2 来自已知模拟器, 搜索假设的时候不能碰; 它也只能支持 \"在模拟器的假设下成立\", 真实实验还要量纲、误差和对照。"
     },
     {
       "title": "与程序化行动的区别",
-      "body": "程序化行动把意图变成可执行操作；本章处理操作或推理之后证据是否足够。需要同时理解命题、证明规则和独立验收。"
+      "body": "程序化行动解决的是 \"意图怎么变成可执行的操作\"。本章在它后面: 操作或推导做完了, 证据够不够下结论。\n三种 \"对\" 用的证据不同: 一个数算对了, 看执行结果; 一个命题证出来了, 看每一步的规则; 一条现实规律成立, 看独立数据。demo 把后两种并排放在同一份代码里: 一个证明内核, 一个留出检验。"
     },
     {
       "title": "怎样验收",
-      "body": "候选结论看起来合理时，检查器应该根据什么拒绝缺步骤、错规则或偷看答案的推导？"
+      "body": "experiment 跑三种模式, main 逐条 assert, 不看任何一句自然语言结论:\n- forged: 证明证书通过 = false。\n- validated: 证书 true, 拟合 MSE 0.14222, 独立模拟器 MSE 0.07111。\n- overfit: 证书 true, 拟合 MSE 0.0, 独立模拟器 MSE 3.06。\n断言的是关系, 不是绝对值: overfit 的拟合误差小于 validated, 留出误差大于 validated; 带负索引引用的 mp 一定不通过。实验边界: 命题逻辑只有 assumption 和 mp 两条规则, 数据是 3 个合成点; 不能外推成通用定理证明器或真实科研发现。"
     }
   ],
   "links": [],
@@ -3329,53 +3360,43 @@ topic.pages["agent-verifiable-reasoning"] = {
     {
       "concept": "实验与反例",
       "code": "llm_agent/m51_formal_science/demo.py:experiment",
-      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+      "takeaway": "三种模式并排: 伪造证明必须被拒, 过拟合必须在留出点上输给直线; 只看一个成功例子说明不了什么。"
     }
   ],
-  "snippetTitle": "先固定要改什么，再检查没有改什么",
+  "snippetTitle": "三种模式, 同一个检查器",
   "snippet": "result = experiment(mode)\n# 同时检查目标变化、无关任务保持与独立验证\nprint(result[\"metrics\"])",
   "source": [
     "llm_agent/m51_formal_science/demo.py:experiment"
   ],
   "run": "python -m llm_agent.m51_formal_science.demo"
 }
-topic.pages["agent-rag"].points.push({"title": "文档生命周期：旧答案什么时候必须失效", "body": "检索正确不仅是找到相似文本，还要确认此刻有权读、版本仍有效、答案能回到原文。 HTML 的段落和表格行保留原始字符偏移，chunk 带 source/version/parent 与 embedding 版本。PDF 解析要保留页码和坐标；扫描件还需 OCR 置信度与版面顺序，不能把失败文件当成空成功。"})
-topic.pages["agent-mcp"].points.push({"title": "MCP：旧握手、新报文与资源端授权", "body": "同名协议会修订，旧握手和新请求不能只靠改日期互换。工具权限与 HTTP 凭据校验也分属不同层。 m09/core 固定 2025-06-18：initialize → initialized。2026-07-28 改为逐请求 _meta 携带版本与能力，HTTP 同时带 MCP-Protocol-Version；server/discover 返回 supportedVersions。未知版本返回 -32022。"})
-topic.pages["agent-eval-suite"].points.push({"title": "评测到发布：均分变好，为什么仍要回滚", "body": "一次发布改变了模型、提示、索引或工具，就需要知道变好了什么、伤害了谁，以及怎样恢复旧版本。 离线同时检查均分、配对 bootstrap 与关键切片。小样本区间仅说明当前夹具；真实验收还需代表性任务、预先设定门槛和统计功效，不能反复挑显著结果。"})
-topic.pages['agent-mcp'].subtitle = 'm09 固定 2025-06-18 stdio 教学配置；本章另对照 2026-07-28 的逐请求元数据和 HTTP 授权。两个版本的报文不能混用。'
-topic.pages['agent-guardrails'].points.push({title:'四层证据分开看',body:'执行权限由服务端授权决定；模型有害输出需配对正常任务与攻击家族留出；群体差异需足够样本和切片；治理还要责任、记录、监控和回滚。四个 allowlist 案例只验证执行层，不代替其余三层。'})
-topic.pages["agent-agent-training"].related = [{"route": "agent-trajectory-learning", "label": "RFT：当前策略采样 → 验证筛选 → SFT", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-grpo-variants", "label": "异步 rollout 与策略版本", "reason": "Agent 轨迹被用于 RL 时，保留产生轨迹的行为策略和概率。"}]
-topic.pages["agent-runtime-reliability"].related = [{"route": "agent-async-runtime", "label": "流式消息：什么时候可以执行工具", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["agent-full-loop"].related = [{"route": "agent-async-runtime", "label": "流式消息：什么时候可以执行工具", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["agent-evals"].related = [{"route": "agent-eval-suite", "label": "一次任务里的并行、重试与取消", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["agent-rag"].related = [{"route": "agent-vector-index", "label": "语义表示、索引与重排分别错在哪里", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}]
-topic.pages["agent-memory-privacy"].related = [{"route": "finetune-knowledge-update", "label": "隐私：记忆提取、DP 与参数遗忘", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}, {"route": "agent-rag", "label": "检索库的撤权与删除", "reason": "个人记忆删除的相同约束如何进入文档索引。"}]
-topic.pages["agent-programmatic-actions"].related = [{"route": "agent-verifiable-reasoning", "label": "形式证明与科学假设：三种正确", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
-topic.pages["agent-tools-permissions"].related = [{"route": "agent-agent-training", "label": "工具学习：从候选调用到训练数据", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
-topic.pages["agent-verifiable-reasoning"].related = [{"route": "agent-completion-verification", "label": "完成条件与独立验收", "reason": "形式验证需要显式命题、规则和检查器；先掌握成功标准不能由执行者自行改写。"}]
-topic.pages["agent-vector-index"].related = [{"route": "agent-rag", "label": "文档来源与索引生命周期", "reason": "ANN 的输入来自文档解析与版本化入库；更新、撤权还要联动引用和缓存。"}]
-topic.pages["agent-system-design"].related = [{"route": "agent-eval-suite", "label": "发布门槛与回滚", "reason": "系统选择之后，还要验证变更是否值得发布并能恢复。"}]
+topic.pages["agent-rag"].points.push({"title": "文档生命周期: 旧答案什么时候必须失效", "body": "检索对了不只是文本相似, 还要三个条件同时成立: 此刻有权读、版本仍有效、答案能回到原文。m54 的实验:\n- 权限前过滤 vs 后过滤: 同一问题, 前过滤返回 1 段; 后过滤先取 top-k 再删无权项, 返回 0 段。两种都 0 条越权。\n- 更新、撤权、删除: 旧引用都失效; 删除后文档版本归 0。\n- 换编码器: 新向量和旧索引不兼容, embedding 被拒, 不混入。\nchunk 带 source / version / parent 和 embedding 版本, HTML 段落和表格行留原始字符偏移。PDF 要页码和坐标, 扫描件还要 OCR 置信度和版面顺序; 解析失败不能当成空成功。"})
+topic.pages["agent-mcp"].points.push({"title": "MCP: 旧握手、新报文与资源端授权", "body": "同名协议会修订, 把旧握手里的日期改成新的不算迁移。m09 和 core 固定在 2025-06-18: initialize → initialized 一次握手。2026-07-28 版改成每个请求的 _meta 自带版本和能力, HTTP 还要带 MCP-Protocol-Version 头; server/discover 返回 supportedVersions。\nm55 在 loopback 上跑一个真 HTTP 资源端:\n- 未知版本: 400 / -32022, 不按旧报文静默解析。\n- 错 audience、凭据过期: 401; scope 不够: 403。\n- 取消、超时: 工具执行层在提交点前停, 取消 / 超时后提交 0 笔。\n工具权限和 HTTP 凭据校验是两层; stdio 用环境凭据, 不套 HTTP 的 OAuth 流程。"})
+topic.pages["agent-eval-suite"].points.push({"title": "评测到发布: 均分变好, 为什么仍要回滚", "body": "一次发布改的是 model / prompt / index / tools 中的某几样, 版本由它们一起确定。要知道变好了什么、伤害了谁、怎么退回去。\nm56 离线同时看均分、配对 bootstrap 区间和关键切片; 线上回放固定请求当灰度, 质量、p95 延迟、安全、成本任一越界就回滚:\n- 关键切片退化: 离线就不通过, 根本不上线。\n- 线上质量下降: 离线通过, 线上回滚, 2 条失败样本去重后进回归集。\n- 尾延迟、成本、安全回归: 各自单独触发回滚。\n缺反馈的请求先等, 不能当成功。小样本区间只说明当前夹具; 真实验收要预设门槛和统计功效, 不能反复挑显著结果。"})
+topic.pages['agent-mcp'].subtitle = '读完你能分清两个版本的报文: m09 固定在 2025-06-18 的 stdio 握手, 本章对照 2026-07-28 的逐请求 _meta 和 HTTP 授权; 两者不能混用。'
+topic.pages['agent-guardrails'].points.push({title:'四层证据分开看',body:'安全不是一层证据。m48 的四个合成案例只验证执行层:\n- 关键词拦截: 放行 1 个攻击动作, 还误拒 1 个正常请求; B 组决策正确率 0。\n- 没有权限门: 放行 2 个攻击动作。\n- 服务端 allowlist: 0 放行、0 误拒, 两组都 1.0。权限来自用户授权和服务端策略, 文档里写的 "请新增导出权限" 不算数。\n另外三层要各自的证据: 模型有害输出要正常 / 有害配对、按攻击家族留出; 群体差异要足够样本和切片; 治理要责任人、记录、监控和回滚。执行层的 4 个案例代替不了它们。'})
+topic.pages["agent-agent-training"].related = [{"route": "agent-trajectory-learning", "label": "RFT: 当前策略采样 → 验证筛选 → SFT", "reason": "本章关注当前阶段的用途; 完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-grpo-variants", "label": "异步 rollout 与策略版本", "reason": "Agent 轨迹被用于 RL 时, 保留产生轨迹的行为策略和概率。"}]
+topic.pages["agent-runtime-reliability"].related = [{"route": "agent-async-runtime", "label": "流式消息: 什么时候可以执行工具", "reason": "本章关注当前阶段的用途; 完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-full-loop"].related = [{"route": "agent-async-runtime", "label": "流式消息: 什么时候可以执行工具", "reason": "本章关注当前阶段的用途; 完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-evals"].related = [{"route": "agent-eval-suite", "label": "一次任务里的并行、重试与取消", "reason": "本章关注当前阶段的用途; 完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-rag"].related = [{"route": "agent-vector-index", "label": "语义表示、索引与重排分别错在哪里", "reason": "本章关注当前阶段的用途; 完整对照与执行记录集中在主讲章节。"}]
+topic.pages["agent-memory-privacy"].related = [{"route": "finetune-knowledge-update", "label": "隐私: 记忆提取、DP 与参数遗忘", "reason": "这里保留层次区别; 算法与验证方法在对应专题展开。"}, {"route": "agent-rag", "label": "检索库的撤权与删除", "reason": "个人记忆删除的相同约束如何进入文档索引。"}]
+topic.pages["agent-programmatic-actions"].related = [{"route": "agent-verifiable-reasoning", "label": "形式证明与科学假设: 三种正确", "reason": "这里保留层次区别; 算法与验证方法在对应专题展开。"}]
+topic.pages["agent-tools-permissions"].related = [{"route": "agent-agent-training", "label": "工具学习: 从候选调用到训练数据", "reason": "这里保留层次区别; 算法与验证方法在对应专题展开。"}]
+topic.pages["agent-verifiable-reasoning"].related = [{"route": "agent-completion-verification", "label": "完成条件与独立验收", "reason": "形式验证需要显式命题、规则和检查器; 先掌握成功标准不能由执行者自行改写。"}]
+topic.pages["agent-vector-index"].related = [{"route": "agent-rag", "label": "文档来源与索引生命周期", "reason": "ANN 的输入来自文档解析与版本化入库; 更新、撤权还要联动引用和缓存。"}]
+topic.pages["agent-system-design"].related = [{"route": "agent-eval-suite", "label": "发布门槛与回滚", "reason": "系统选择之后, 还要验证变更是否值得发布并能恢复。"}]
 topic.pages["agent-guardrails"].related = [{"route": "agent-eval-suite", "label": "安全回归与发布治理", "reason": "执行权限、模型安全评测、群体差异与发布责任各需独立证据。"}]
 topic.pages["agent-verifiable-reasoning"].evolution = {
-  "title": "候选到证据",
-  "subtitle": "模型会提出推导，但提出不等于成立",
-  "steps": [
-    {
-      "name": "生成候选",
-      "pain": "语言流畅的推导也可能跳步或循环论证",
-      "fix": "把结论、前提和每一步规则明确写出来"
-    },
-    {
-      "name": "独立检查",
-      "pain": "生成器给自己打分会沿用原来的错误",
-      "fix": "用固定公理与规则检查形式证明或程序证书"
-    },
-    {
-      "name": "留出检验",
-      "pain": "在看过的观测上成立，不代表新预测可靠",
-      "fix": "科学假设另用未参与搜索的数据验证"
-    }
-  ]
+  title: '从 "说得通" 到 "查得出"',
+  subtitle: '根问题: 模型提出的推导是一段文本, 读起来顺不等于每一步成立; 谁来查、拿什么查, 决定结论能有多硬',
+  steps: [
+    { name: '信模型的最后一句', pain: '(原点) 推导是模型写的文本, 跳步和循环论证读起来一样流畅', fix: '最后一句写着 Q 就算证明了; 读者没法指出是哪一步错的' },
+    { name: '模型给自己复查', pain: '让模型再读一遍自己的推导, 它会沿用同一个错误', fix: '多问一句 "对吗" 只能得到同一个模型的同一种判断; 引用写错了照样过' },
+    { name: '结构化证书', pain: '要让外部查, 推导得先是可检查的对象, 不是一段话', fix: '每步写成 (公式, 规则, 引用) 元组; "显然" 这种词没有位置' },
+    { name: '固定内核逐步核对', pain: '有了证书, 还得有一个不信文本的检查器', fix: '检查器只认 assumption 和 mp, 引用只能指向更早的步; (0,0) 冒充 (0,1) 和负索引都拒' },
+    { name: '假设另用留出点', pain: '证明只在假设下成立; 假设本身对不对, 内核不知道', fix: '拟合用 3 点, 验证用另外 4 点: 二次式拟合 0、留出 3.06; 直线 0.142 → 0.071' },
+  ],
 }
 export default topic
 
@@ -3392,7 +3413,7 @@ const state = topic.pages['agent-state-subagents']
 const subagentPoint = state.points.pop()
 topic.pages['agent-orchestrator'].points.unshift(subagentPoint)
 state.title = '会话持久化与恢复 · 消息、权限与版本'
-state.tldr = '消息日志恢复对话上下文，执行状态决定任务从哪里继续。权限在恢复时重新建立；检查点还必须与新代码的状态格式和业务版本兼容。'
+state.tldr = '消息日志恢复的是对话上下文, 任务从哪继续看执行状态。权限在恢复时重新建立; 检查点还要和新代码的 schema_version、flow_version 对得上, 对不上就在副作用前拒绝。'
 state.related = [...(state.related || []), { route: 'agent-orchestrator', label: '子 Agent 的上下文与委托', reason: '子级隔离和多智能体协作集中在同一主讲章。' }]
 const runtime = topic.pages['agent-runtime-reliability']
 runtime.points = runtime.points.filter(p => p.title !== '取消不等于回滚')
@@ -3400,14 +3421,13 @@ runtime.related = [...(runtime.related || []), { route: 'agent-async-runtime', l
 const memory = topic.pages['agent-memory-lifecycle']
 memory.title = '长期记忆治理 · 证据、更新、授权与删除'
 const privacy = memory.sections[0]
-topic.pages['agent-context-memory'].points.push(privacy.points.shift())
+topic.pages['agent-context-memory'].points.push({ ...privacy.points.shift(), key: undefined }) // 目标章已有自己的重点
 privacy.points = privacy.points.filter(p => p.title !== '后台整理需要冲突策略')
-memory.points[0].body += '\n后台整理也遵守同一证据与版本规则；访问频率不是事实正确性的证明。'
-topic.pages['agent-verifiable-reasoning'].points[0].body = '形式检查器接收公理、规则和待证命题，逐步核对推导。可以通过一个合法证明与一个非法推导作对照；自然语言结论和实际可检查的证明对象需要分开。'
+memory.points[0].body += '\n后台整理也走同一条证据和版本规则; 一条记忆被读得多, 不证明它是对的。'
 
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 
-topic.pages["agent-state-subagents"].points.push({"title": "任务恢复：旧检查点遇到新代码", "body": "能读回旧消息不等于能继续旧任务。恢复前要核对状态格式、流程版本、工具约定和当前权限；已提交的动作还要查收据。\nflow_version 决定业务规则。新版代码不能静默改变旧任务承诺，也不能让旧任务继承已经撤销的权限；兼容性和执行授权分别检查。"})
+topic.pages["agent-state-subagents"].points.push({"title": "任务恢复: 旧检查点遇到新代码", "body": "能读回旧消息, 不等于能继续旧任务。m57 把一个停在审批节点的 v1 任务存到磁盘, 交给 v2 执行器, 7 种情况:\n- 兼容迁移: schema_version 1 → 2, 补上默认字段, 外部提交 1 笔 10 元。\n- 新业务版本 flow_version=2: 多一条限额 20 的规则, 这笔 10 元照过; 旧任务不被静默改写。\n- 节点被移除、缺必填字段、工具约定变了、权限被撤销: 4 种都在副作用前拒绝, 外部提交 0 笔。\n- 外部提交后强退: 子进程 os._exit(17), 本地检查点还停在旧节点; 重启后按操作键 invoice-1 查到收据, 外部仍只有 1 笔。\n兼容性和执行授权分开查; 已提交的动作靠收据, 不靠重放。"})
 topic.pages["agent-state-subagents"].source.push("llm_agent/m57_checkpoint_migration/demo.py:experiment")
 
 const persistence = topic.pages['agent-state-subagents']
@@ -3417,8 +3437,8 @@ persistence.sourceRows = persistence.sourceRows.filter(r => r.concept !== '隔�
 persistence.source = persistence.source.filter(s => !s.includes('subagents.py'))
 persistence.links = persistence.links.filter(l => !l.from.includes('DelegateTool'))
 persistence.snippet = persistence.snippet.split('# 子智能体')[0]
-persistence.snippetTitle = '恢复上下文，重新建立权限'
+persistence.snippetTitle = '恢复上下文, 重新建立权限'
 persistence.evolution.steps = persistence.evolution.steps.filter(s => !/子智能体|子 agent|委托/.test(s.name))
-topic.pages['agent-async-runtime'].related = [...(topic.pages['agent-async-runtime'].related || []), { route: 'agent-state-subagents', label: '跨版本检查点与强退恢复', reason: '执行状态不能只靠重新打开账本恢复；这里看实际进程故障的对照。' }]
+topic.pages['agent-async-runtime'].related = [...(topic.pages['agent-async-runtime'].related || []), { route: 'agent-state-subagents', label: '跨版本检查点与强退恢复', reason: '执行状态不能只靠重新打开账本恢复; 这里看实际进程故障的对照。' }]
 
 canonicalizeRelated(topic)

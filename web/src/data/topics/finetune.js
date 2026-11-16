@@ -23,7 +23,7 @@ const topic = {
     // ───────────────────────── SFT ─────────────────────────
     'finetune-sft': {
       title: 'SFT 数据与 loss · 只教模型回答, 不教模型提问',
-      subtitle: '全章围着一行 mask 转: 哪一格该盖 -100, 哪一格盖了就等于从没教模型怎么开口。',
+      subtitle: '读完你能说清 -100 该盖到哪一格: 多盖一格, 就等于从没教模型怎么开口。',
       tldr: 'labels 在数据侧已经左移一格, 所以 prompt 长 $P$ 时只能盖前 $P-1$ 格。盖成 $P$ 格会把第一个回复 token 一起盖掉。\n同配置实测: 正确写法留出集 exact-match 1.000, 多盖一位 0.000。',
       question: 'labels 已经错位之后, mask 的边界到底是 $P$ 还是 $P-1$? 多盖一格为什么从 loss 曲线上看不出来?',
       evolution: {
@@ -238,7 +238,7 @@ y = x @ W.T                                # 归一化作用于整行, 每步都
         steps: [
           { name: '只拿 chosen 做 SFT', pain: '(原点) 手里是 (x, chosen, rejected), 最省事是只用 chosen', fix: 'chosen 学得会, 但 rejected 里 "错在哪" 的信号整个扔掉了' },
           { name: '同时压 rejected', pain: '只用了一半数据, 模型不知道哪种写法是错的', fix: '再加一项把 rejected 的 log p 往下压: 没有下限, 两条共享的 token 也被一起压低' },
-          { name: 'DPO', year: 2023, pain: '往下压没有停手线, 也没有 "别离起点太远" 的约束', fix: '比相对冻结 ref 的 log 比之差, 过 $-\\log\\sigma$: 拉开就饱和, β 管离 ref 多远' },
+          { name: 'DPO', year: 2023, pain: '往下压没有停手线, 也没有 "别离起点太远" 的约束', fix: '两条回复各算相对冻结 ref 的 log 比, 相减后过 $-\\log\\sigma$: 拉开就饱和, β 管离 ref 多远' },
           { name: 'KTO', year: 2024, pain: '只看差值, 两边一起降也算赢; 还必须同一题凑成对', fix: '单条样本各对参考点 $z_0$ 比高低, 好样本自己往上推: log π(chosen) −4.03 → −3.73' },
         ],
       },
@@ -373,10 +373,10 @@ loss = -logsigmoid(z).mean()      # DPO / SimPO 共用的外壳`,
         {
           title: 'RM 只学分差',
           key: true,
-          body: 'Bradley-Terry: $P(A\\succ B) = \\sigma(r_A - r_B)$, loss $= -\\log\\sigma(r_w - r_l)$。\n给所有分数加同一个常数, loss 一点不变。分数没有量纲, 只有序。\n标注有 $\\varepsilon$ 的概率标反时, 期望 loss 的零梯度点落在 $\\sigma(\\Delta) = 1-\\varepsilon$, 最优分差停在 $\\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon=0.2$ 约 1.39, $\\varepsilon=0.5$ 时为 0。',
+          body: 'Bradley-Terry: $P(A\\succ B) = \\sigma(r_A - r_B)$, loss $= -\\log\\sigma(r_w - r_l)$ ($w$ / $l$ 是 chosen / rejected)。\n给所有分数加同一个常数, loss 一点不变。分数没有量纲, 只有序。\n标注有 $\\varepsilon$ 的概率标反时, 期望 loss 的零梯度点落在 $\\sigma(\\Delta) = 1-\\varepsilon$, 最优分差停在 $\\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon=0.2$ 约 1.39, $\\varepsilon=0.5$ 时为 0。',
         },
-        { title: '组内排名顶替 critic', body: '同一个 prompt 采 G 条, $\\hat{A} = (r - \\mu)/\\sigma$。组内均值就是 "这道题的期望得分" 的蒙特卡洛估计, 正是 value 网络想预测的东西。\n代价: 一组全对或全错时 $\\hat{A}$ 全为 0, 这批样本不产生任何梯度。实测每步约 32% 的 prompt 落在这种情况里。' },
-        { title: '暗知识在分布里', body: '- 硬标签: 只告诉 student 一个 token。\n- teacher 软化后的分布: 把所有相似 token 的相对排序都交出来。\nKD 项要乘 $T^2$: 软标签对 logits 的梯度按 $1/T^2$ 衰减, 不补偿的话, 调高温度等于偷偷关掉蒸馏项。\n数据有限时软标签明显更好 (forward KL 2.293 → 1.860), 数据无限时这个优势会消失。' },
+        { title: '组内排名顶替 critic', body: '同一个 prompt 采 G 条, $\\hat{A} = (r - \\mu)/\\sigma$。组内均值就是 "这道题的期望得分" 的蒙特卡洛估计, 正是 critic (value 网络) 想预测的东西。\n代价: 一组全对或全错时 $\\hat{A}$ 全为 0, 这批样本不产生任何梯度。实测每步约 32% 的 prompt 落在这种情况里。' },
+        { title: '暗知识在分布里', body: '- 硬标签: 只告诉 student 一个 token。\n- teacher 软化后的分布: 把所有相似 token 的相对排序都交出来。\nKD (蒸馏) 项要乘 $T^2$: 软标签对 logits 的梯度按 $1/T^2$ 衰减, 不补偿的话, 调高温度等于偷偷关掉蒸馏项。\n数据有限时软标签明显更好 (forward KL 2.293 → 1.860), 数据无限时这个优势会消失。' },
       ],
       links: [
         { from: 'PreferenceDataGenerator', to: 'RewardModel', body: '与 DPO 同一份数据, 两种用法: RM 学打分, DPO 直接学策略。' },
@@ -412,7 +412,7 @@ loss.backward(); opt.step()                # 5. 一次更新`,
     'finetune-grpo-variants': {
       title: 'GRPO 进阶 · 重要性比率、clip 与 DAPO / Dr.GRPO / GSPO',
       subtitle: '把三个变体各自在修的那一处偏置指出来。也别把四条噪声之内的最终分数读成"谁更强"。',
-      tldr: '一批采样只更新一次的话, $\\rho\\equiv 1$, clip 是死代码。\n想让昂贵的 rollout 多用几轮, 就得引入 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}}$ 和裁剪。三个变体分别修这个目标里的三处偏置: 熵塌缩、长度偏置、比率噪声。',
+      tldr: '一批采样只更新一次的话, 新旧策略比 $\\rho\\equiv 1$, clip 是死代码。\n想让昂贵的 rollout (采样出的回复) 多用几轮, 就得引入 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}}$ 和裁剪。三个变体分别修这个目标里的三处偏置: 熵塌缩、长度偏置、比率噪声。',
       question: '同一条"又长又错"的回答, 在 GRPO / Dr.GRPO / DAPO 下每个 token 分到的惩罚分别是多少?\n为什么上界 clip 只卡得住低概率 token?',
       evolution: {
         title: '一批 rollout 多用几遍, 偏置一处处修',
@@ -427,19 +427,19 @@ loss.backward(); opt.step()                # 5. 一次更新`,
       },
       code: 'llm_finetune/methods/grpo.py · llm_finetune/run_finetune/grpo/train_grpo.py',
       points: [
-        { title: 'clip 是停手线, 不是刹车', body: '$\\min(\\rho\\hat{A}, \\mathrm{clip}(\\rho)\\hat{A})$ 在越界那一侧是平的, 梯度为 0。\n$\\rho$ 最大只能到 $1/\\pi_{\\text{old}}$: $\\pi_{\\text{old}}=0.9$ 的 token 顶天涨到 1.11, 碰不到 1.2 的上界。被卡住的全是想翻身的低概率探索 token → 熵塌缩。\n所以 DAPO 的 clip-higher 只放宽上界 (0.2 / 0.28)。' },
+        { title: 'clip 是停手线, 不是刹车', body: '$\\min(\\rho\\hat{A}, \\mathrm{clip}(\\rho)\\hat{A})$ 在越界那一侧是平的, 梯度为 0。\n$\\rho$ 最大只能到 $1/\\pi_{\\text{old}}$: $\\pi_{\\text{old}}=0.9$ 的 token 顶天涨到 1.11, 碰不到 1.2 的上界。被卡住的全是想翻身的低概率探索 token → 熵塌缩 (分布越来越尖, 不再探索)。\n所以 DAPO 的 clip-higher 只放宽上界 (0.2 / 0.28)。' },
         {
           title: '两处偏置藏在分母里',
           key: true,
-          body: '- 1/|o_i|: 答错的长回复每个 token 罚得更轻。实测 3-token 回复的单 token 权重是 9-token 的 3.0 倍, 等于鼓励 "错就错得长一点"。\n- ÷σ: 组内 $\\sigma$ 越小, 优势被放得越大, 于是几乎全对、几乎全错的题权重偏高。\n÷σ 的实测: 难题 (8 条对 1 条) 相对中等题 (8 条对 4 条) 的权重, GRPO 0.66, 去掉 $\\sigma$ 的 Dr.GRPO 0.44。\nDr.GRPO 把两个分母都换成常数。',
+          body: '- 1/|o_i|: 按回复长度 $|o_i|$ 平均, 答错的长回复每个 token 罚得更轻。实测 3-token 回复的单 token 权重是 9-token 的 3.0 倍, 等于鼓励 "错就错得长一点"。\n- ÷σ: 组内 $\\sigma$ 越小, 优势被放得越大, 于是几乎全对、几乎全错的题权重偏高。\n÷σ 的实测: 难题 (8 条对 1 条) 相对中等题 (8 条对 4 条) 的权重, GRPO 0.66, 去掉 $\\sigma$ 的 Dr.GRPO 0.44。\nDr.GRPO 把两个分母都换成常数。',
         },
-        { title: '比率的粒度', body: '奖励是整条序列给的, token 级 $\\rho_t$ 却是单样本噪声估计。\nGSPO 改用 $s = \\exp(\\mathrm{mean}_t \\log\\rho_t)$, 整条回复共用一个权重一起裁剪。实测 $\\mathrm{std}\\,\\log\\rho$ 从 0.067 降到 0.027 (约小 $\\sqrt{C}$ 倍)。\n所以它的裁剪区间也要跟着收窄到 0.05。' },
+        { title: '比率的粒度', body: '奖励是整条序列给的, token 级 $\\rho_t$ 却是单样本噪声估计。\nGSPO 改用 $s = \\exp(\\mathrm{mean}_t \\log\\rho_t)$, 整条回复共用一个权重一起裁剪。实测 $\\mathrm{std}\\,\\log\\rho$ 从 0.067 降到 0.027 (约小 $\\sqrt{C}$ 倍, $C$ 是回复的 token 数)。\n所以它的裁剪区间也要跟着收窄到 0.05。' },
       ],
       links: [
         { from: 'GRPOTrainer.step', to: '多轮内层更新', body: '采样一次, 存下 logp_old, 对同一批做 $\\mu$ 次更新。实测第 1 个 epoch $|\\rho-1| = 0.000$, 第 2 个 epoch 才偏离。' },
         { from: 'PPO clipped surrogate', to: 'GRPO', body: '目标函数外形完全一样, GRPO 只换了优势的来源 (组内归一化)。' },
         { from: '组内奖励全相同', to: 'DAPO 动态采样', body: '$\\hat{A}$ 全 0 的组不贡献梯度。实测这类 prompt 占 32%。\n- DAPO: 把它们从 loss 里去掉, 进 loss 的 A=0 样本 32.1% → 0.0%。\n- 本实现: 只过滤不补采, batch 会变小。' },
-        { from: '采样温度 T', to: 'log-prob 的 T', body: '采样用 $\\pi^{1/T}$, 算 log-prob 也必须用同一个 $T$, 否则 $\\rho$ 的分母不是行为策略, 第 1 个 epoch 就已经 off-policy。' },
+        { from: '采样温度 T', to: 'log-prob 的 T', body: '采样用 $\\pi^{1/T}$, 算 log-prob 也必须用同一个 $T$, 否则 $\\rho$ 的分母不是行为策略 (真正采样用的分布), 第 1 个 epoch 就已经 off-policy。' },
       ],
       sourceRows: [
         { concept: '四个变体 = 五个开关', code: 'llm_finetune/methods/grpo.py:GRPOConfig', takeaway: 'clip_high / std_norm / loss_agg / seq_ratio / dynamic_sampling; VARIANTS 字典把 grpo · dapo · dr_grpo · gspo 写成开关组合。' },
@@ -495,7 +495,7 @@ for _ in range(K):                                    # 同一批样本更新 K 
         {
           title: 'KL 的方向决定性格',
           key: true,
-          body: '$\\mathrm{KL}(p\\,\\|\\,q) = \\sum p\\cdot\\log(p/q)$: 谁写在前面, 期望就在谁的分布上取。\n- forward KL: 在老师的样本上取期望。老师有质量而学生没有的地方, 惩罚趋于无穷。学生被迫全覆盖, 代价是往两峰之间的低谷里也放概率, 采样时半路串台。\n- reverse KL: 在学生自己的样本上取期望。学生不去的地方权重为 0, 于是它缩进一个峰。',
+          body: '$\\mathrm{KL}(p\\,\\|\\,q) = \\sum p\\cdot\\log(p/q)$: 谁写在前面, 期望就在谁的分布上取。\n- forward KL: 在老师的样本上取期望。老师给了概率而学生没给的地方, 惩罚趋于无穷。学生被迫全覆盖, 代价是往两峰之间的低谷里也放概率, 采样时半路串台。\n- reverse KL: 在学生自己的样本上取期望。学生不去的地方权重为 0, 于是它缩进一个峰。',
         },
         { title: '分布错配', body: '- 离线蒸馏: 只见过老师的前缀。推理时学生走进自己的前缀, 那是从没被教过的状态, 错误一步步累积。\n- on-policy: 直接在学生的前缀上训练, 训练分布就是推理分布。' },
         { title: '稠密 + on-policy, 但会丢多样性', body: '- RL: 每条序列只有 1 个标量奖励。\n- on-policy 蒸馏: 每个 token 位置都有老师的完整 $V$ 维分布, 而且解析求 KL, 不用 REINFORCE。\n实测对比离线: 合格率 0.402 vs 0.059, reverse KL 0.50 vs 2.07。\n代价: 老师 30% 概率的少数派答法被压到 $\\log\\pi = -33$ (离线只到 −17)。' },
@@ -557,7 +557,7 @@ loss.backward(); opt.step()`,
         { title: '真实 RLVR 天然看题', body: '数学答案比对、单元测试、格式校验都依赖题目本身。自己造玩具任务时要主动保证这一点。\n本仓库的 SeqTask 有 $13^6 \\approx 480$ 万种 prompt, 训练集与留出集按 token 和 mod 5 不相交, 背不下来。' },
       ],
       links: [
-        { from: 'SeqTask.verify', to: 'reward_fn(prompts, completions)', body: '奖励函数必须同时看到 prompt 和 completion。只看 completion 的奖励是个 bandit: 常数策略就能拿满分, 检验不出模型有没有在读题。' },
+        { from: 'SeqTask.verify', to: 'reward_fn(prompts, completions)', body: '奖励函数必须同时看到 prompt 和 completion。只看 completion 的奖励是个 bandit (不看输入的老虎机问题): 常数策略就能拿满分, 检验不出模型有没有在读题。' },
         { from: 'PromptDataGenerator', to: 'SeqTask', body: 'prompt 里编码题目 (copy / reverse / sort 一段序列), 答案由程序算出。' },
         { from: '组内零方差', to: 'DAPO 动态采样', body: '看题任务早期常见"整组全错": 这些组优势全为 0, 不产生梯度, 见 GRPO 进阶一章。' },
         { from: 'verify', to: '训练与验收', body: '同一个判分器既当奖励也当留出集指标。前提是它真的依赖 prompt。' },
@@ -667,7 +667,7 @@ tau = [x * (rand_like(x) >= p) / (1 - p) for x in tau]`,
       code: 'llm_finetune/methods/rlaif.py · llm_finetune/run_finetune/rlaif/train_rlaif.py',
       points: [
         { title: '人是瓶颈', body: 'RLHF 的偏好标签来自人: 贵、慢, 标注员之间还不一致。有害内容也得有人一条条看。\nConstitutional AI 的做法:\n- 写条文: 先把 "什么是好回答" 写成条文。\n- AI 反馈: AI 反馈者按条文批评、改写。\n- 成对: 改写前后两个版本天然就是一对, 改写后 ≻ 改写前。\n- 训练: 之后照旧用 DPO。' },
-        { title: '一轮怎么走', body: '- 采样: 起点是 "只求有用" 的模型, 什么都照抄, 包括脏话 15 和电话号码 13。温度 1 采 4096 条。\n- 批评: judge 逐条原则检查, 2539 条被指出问题。\n- 改写: 按批评把 15、13 打码成 3 (***)。\n- 成对: 被批评的才成对, 2539 条批评得到 2539 个偏好对。没问题的回复没有 "更好的版本", 直接丢掉。\n- 训练: 现成的 DPO 跑 150 步。' },
+        { title: '一轮怎么走', body: '- 采样: 起点是 "只求有用" 的模型, 什么都照抄, 包括脏话 (token 15) 和电话号码 (token 13)。温度 1 采 4096 条。\n- 批评: judge 逐条原则检查, 2539 条被指出问题。\n- 改写: 按批评把 15、13 打码成 3 (***)。\n- 成对: 被批评的才成对, 2539 条批评得到 2539 个偏好对。没问题的回复没有 "更好的版本", 直接丢掉。\n- 训练: 现成的 DPO 跑 150 步。' },
         {
           title: 'judge 没查的, DPO 学不到',
           key: true,
@@ -781,7 +781,7 @@ best = score.view(n, 8).argmax(1)              # best-of-8`,
           { name: 'REINFORCE', year: 1992, pain: '(原点) 整条回复只在末尾拿一个分, 要推出哪些 token 该加概率', fix: '每个 token 都拿整条回报乘 $\\nabla\\log\\pi$: 无偏, 但方差大, 好坏 token 一起奖' },
           { name: '减去 V(s_t)', pain: '回报全为正时每个 token 都被加概率, 方差大', fix: 'critic 学 $V(s_t)$ 估 "从这往后能拿多少" 并减掉: 逐 token 优势, 多养一个网络' },
           { name: 'TD(0)', pain: '回报要等到结尾, 后面每一步的随机性都累加进来', fix: '只看一步: $\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t)$; 方差小, 但 V 不准就有偏' },
-          { name: 'GAE', year: 2015, pain: 'MC 无偏但方差大, TD(0) 方差小但有偏, 只能二选一', fix: '把 δ 按 $(\\gamma\\lambda)^k$ 折扣累加, λ 在两端之间调; 本章取 λ=0.95' },
+          { name: 'GAE', year: 2015, pain: 'MC (直接用整条回报) 无偏但方差大, TD(0) 方差小但有偏, 只能二选一', fix: '把 δ 按 $(\\gamma\\lambda)^k$ 折扣累加, λ 在两端之间调; 本章取 λ=0.95' },
         ],
       },
       code: 'llm_finetune/methods/ppo.py · llm_finetune/run_finetune/ppo/train_ppo.py',
@@ -793,7 +793,7 @@ best = score.view(n, 8).argmax(1)              # best-of-8`,
         {
           title: '玩具规模上 critic 几乎没用',
           key: true,
-          body: '同一个 sort 任务、每步 256 条回复、60 步, 留出集 pass@1: PPO 0.381, GRPO 0.287。\n- 解释方差: $V(s_0)$ 只解释 2.5% 的回报方差, 免费的组均值解释 36.5%。"方差更小" 在这里不成立。\n- 冻结对照: critic 的 lr 设成 0, pass@1 0.389, 和 PPO 的 0.381 在噪声内。\n- 高出 GRPO 0.09 的来源: PPO 是 256 道不同的题各采 1 条。GRPO 的 32 道题里约 32% 的组全对或全错, $A\\equiv 0$, 白占预算。\n- 逐 token 信用分配: 在 60 步、64 维的 critic 上也没显出来。\n边界: 大模型上 critic 从 RM 或 SFT 初始化并先预热, 结论可能不同。',
+          body: '同一个 sort 任务、每步 256 条回复、60 步, 留出集 pass@1: PPO 0.381, GRPO 0.287。\n- 解释方差: $V(s_0)$ 只解释 2.5% 的回报方差, 免费的组均值解释 36.5%。"方差更小" 在这里不成立。\n- 冻结对照: critic 的 lr 设成 0, pass@1 0.389, 和 PPO 的 0.381 在噪声内。\n- 高出 GRPO 0.09 的来源: PPO 是 256 道不同的题各采 1 条。GRPO 是 32 道题各采 8 条, 其中约 32% 的组全对或全错, $A\\equiv 0$, 白占预算。\n- 逐 token 信用分配: 在 60 步、64 维的 critic 上也没显出来。\n边界: 大模型上 critic 从 RM 或 SFT 初始化并先预热, 结论可能不同。',
         },
         { title: '代价是实打实的', body: '- 要训的参数: 99,648 → 199,360 (×2)\n- 常驻参数: 99,648 → 299,008 (×3: policy + ref + critic)\n- 60 步耗时: 本机两次实测 GRPO 5.7–6.1 s, PPO 11.8–12.0 s, 约 ×2\n这就是 DeepSeek 用 GRPO 去掉 critic 的动机。' },
       ],
@@ -838,7 +838,7 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
     // ───────────────────────── 压轴: 训练脚本与选型 ─────────────────────────
     'finetune-runs': {
       title: '训练脚本与落盘 · 16 种方法的代价结构',
-      subtitle: '在"有什么数据 / 有多少显存 / 能不能在线采样"之后, 直接点名方法。还要说出它每步几次前向、常驻几份权重、最后落盘什么。',
+      subtitle: '读完你能按"有什么数据 / 有多少显存 / 能不能在线采样"三问直接点名方法, 还能说出它每步几次前向、常驻几份权重、最后落盘什么。',
       tldr: '方法之间的区别不在 loss 写得好不好看, 在代价结构:\n- 要不要常驻 reference model\n- 要不要在线采样\n- 落盘是全量权重还是 adapter\n实测 DPO 每步 2 次 LM 前向 (policy、ref 各 1 次) / 常驻 778 KiB / 5.4 s; SimPO 与 ORPO 1 次 / 389 KiB / 4.0 s。',
       question: '手上只有 (问, 答) 且显存紧张, 该用哪个? 换成成对偏好呢? 换成"答案能被程序判对错"呢?',
       evolution: {
@@ -911,17 +911,17 @@ const supplements = {
   "finetune-sft": [
     {
       "title": "消息对象还不是 token",
-      "body": "Chat Template 把结构化 role/content 变成角色头、正文、END/EOS 和生成前缀。训练和推理必须用同一套格式。下方字节级教学模板不冒充厂商 tokenizer；正文里的 EOS 字样不能注入特殊 token。",
+      "body": "API 给的是 role/content 消息对象, 模型只认 token。Chat Template 把它写成角色头、正文、END/EOS 和生成前缀; 训练和推理必须用同一套格式。\n- demo 的模板是字节级教学版: 正文按 UTF-8 字节 +32 编码, 0–8 留给控制标记, 不冒充厂商 tokenizer。\n- 正文里写下字符串 \"EOS\" 不会变成控制 token。\n- 七轮样本共 172 个 token, 训练序列与推理时的 assistant 前缀逐位一致。",
       "source": "llm_finetune/data/chat_template.py:serialize"
     },
     {
       "title": "多轮监督与工具配对",
-      "body": "只监督 assistant 正文和结束标记。工具调用是 assistant 动作，工具结果是可见观察，不计算其 loss。labels 左移后仍要保留第一个回复 token；padding 的 loss mask 与 attention mask 分开。错误角色、未配对调用、超长半条消息直接拒绝。",
+      "body": "只监督 assistant 正文和结束标记: 七轮样本 172 个 token 里有 75 个监督位置, 2 个被监督的 EOS。\n- 工具调用是 assistant 的动作, 算 loss; 工具结果是可见观察, labels 全填 −100。\n- labels 左移 (labels[t] = ids[t+1]) 后, 回复第一个 token 的目标落在它前一个位置上, 不能丢。\n- padding 的 loss mask 和 attention mask 分开: 不算 loss 的用户输入, 模型照样看得见。\n错误角色 (把工具结果伪装成 user)、未配对的工具调用、超长的半条消息 (上限设成 40) 直接拒绝, 不截半段工具 JSON。本实现每轮只支持一个工具调用。",
       "source": "llm_finetune/data/chat_template.py:training_example"
     },
     {
-      "title": "RFT：采样来源变了，监督 loss 没变",
-      "body": "示范 SFT 用人工成功轨迹；RFT 用当前策略采样后经独立执行验证的成功轨迹；在线 RL 在当前采样上计算策略梯度。三者共享小 LLaMA 初始化，RFT/RL 各采 256 条。更新步数不同；实体留出只检验同一协议和值域，不代表语义泛化。",
+      "title": "RFT: 采样来源变了, 监督 loss 没变",
+      "body": "三个分支共享同一个小 LLaMA 初始化, 只换样本来源:\n- 示范 SFT: 16 条人工成功轨迹, 拆成 32 个状态/动作样本, 40 步 CE。\n- RFT: 冻结当前策略, 每个任务采 16 次共 256 条, 只留经独立执行验证合格的 18 条 (覆盖 10/16 个任务), 同样 40 步 CE。\n- 在线 RL: 每轮当前策略采 8 条, 32 轮共 256 条, 在当前采样上算策略梯度。\n三者的留出通过率都从 0 到 1, RFT 没有胜过 SFT/RL。更新步数和前向成本不同, 算力预算并不公平。留出集只换实体名, 编码器只看协议状态和值域: 这是同一协议的迁移验收, 不是语义泛化。",
       "source": "llm_finetune/run_finetune/rft/train_rft.py:run"
     }
   ]
@@ -936,29 +936,30 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.chapters.push({"route": "finetune-knowledge-update", "label": "知识更新 · 编辑、隐私与遗忘", "hint": "先区分改参数、改检索文档和删除个人记忆，再讨论怎样验证目标变化与能力保持。"})
+topic.chapters.push({"route": "finetune-knowledge-update", "label": "知识更新 · 编辑、隐私与遗忘", "hint": "改对一个事实, 先数邻居伤了多少"})
 topic.pages["finetune-knowledge-update"] = {
   "title": "知识更新 · 编辑、隐私与遗忘",
-  "subtitle": "先区分改参数、改检索文档和删除个人记忆，再讨论怎样验证目标变化与能力保持。",
-  "tldr": "SFT 学任务分布；知识编辑针对特定事实，要求目标命中、改写泛化、邻域保持和关联推理分别验收。局部编辑成功不等于模型整体知识可靠更新。",
-  "question": "目标事实改对之后，怎样判断改写问题、无关事实和关联推理是否仍然可靠？",
+  "subtitle": "读完你能分清一次「知识更新」该改文档、改参数还是删记录, 并说出改完参数后要分别验收哪几项。",
+  "tldr": "改文档走检索更新, 删记录走记忆治理, 只有参数里的事实才做编辑。\n编辑要分开验收 efficacy / paraphrase / locality / portability: demo 里三种更新都把目标改到 7.0, 相关邻居却分别动了 10.8 / 4.8 / 0.0475。",
+  "question": "目标事实改对了, 改写问法、无关事实和关联推理就都没事了吗?",
   "code": "llm_finetune/run_finetune/knowledge_edit/demo.py · llm_finetune/run_finetune/privacy_unlearning/demo.py",
   "points": [
     {
       "title": "编辑和 SFT 的目标不同",
-      "body": "SFT 学任务分布；知识编辑针对特定事实，要求目标命中、改写泛化、邻域保持和关联推理分别验收。局部编辑成功不等于模型整体知识可靠更新。"
+      "key": true,
+      "body": "先确定修改对象: 文档变了走检索更新, 用户要求删除走外部记忆治理, 参数里的指定事实才进知识编辑实验。\nSFT 学的是任务分布; 知识编辑只针对一个事实, 验收要拆成四项: efficacy (原问)、paraphrase (改写和别名)、locality (无关事实)、portability (需要新事实的关联推理)。\n不能用一个命中率替代四项: 局部编辑成功不等于模型整体知识可靠更新。"
     },
     {
       "title": "删除数据不等于参数遗忘",
-      "body": "原文、索引和缓存删除改变应用存储；参数遗忘试图降低训练样本的影响。要比较遗忘集、保持集和重训参照，不能用目标题答错一次代替遗忘证据。"
+      "body": "删掉原文、索引和缓存, 改的是应用存储; 参数里训练样本留下的影响还在。demo 里直接查 one-hot 键就能读出待删记录的值 0.198, 成员推断 TPR 1.0 / FPR 0.0。\n参数遗忘要拿三样东西对照: 遗忘集、保持集、删除后独立重训的参照。demo 从岭回归的充分统计量里扣掉这条记录, 与重训逐元素核对到 1e-12: 待删记录输出 0.0, 保留集 MSE 0.00011 与删前相同。\n目标题答错一次不算遗忘证据。"
     },
     {
       "title": "差分隐私与遗忘不是同一保证",
-      "body": "训练时 DP 限制单个样本对输出分布的影响；训练后遗忘处理既有影响。玩具噪声实验不提供完整隐私会计或共享模型的用户级删除保证。"
+      "body": "DP 在训练时下手: 逐样本裁剪到 1 再加 σ=4 的高斯噪声, 40 步后给出 ε≈9.56 (δ=1e-6) 的分析界, 限制的是单个样本对输出分布的影响。代价是保留集 MSE 从 0.00011 涨到 0.343。\n遗忘在训练后下手, 处理已经学进去的影响。两者谁也替代不了谁: DP 路径的成员推断 TPR 降到 0.125, 这只是攻击没成功, 不是隐私证明。\n玩具噪声实验不提供完整隐私会计, 也不提供共享模型的用户级删除保证。"
     },
     {
       "title": "怎样验收",
-      "body": "目标事实改对之后，怎样判断改写问题、无关事实和关联推理是否仍然可靠？"
+      "body": "knowledge_edit 固定一个 1×3 的线性记忆 W, 对同一目标键做三种更新, 每种都同时报四个数:\n- 全局改 (W 整体 +6): 目标 7.0, 相关邻居变 10.8, 无关事实变 6.0, 别名回答 7.05。\n- 秩一编辑: 目标 7.0, 邻居 4.8, 无关 0.0, 别名 6.75。\n- 约束邻域 (协方差加 100·nnᵀ): 目标 7.0, 邻居 0.0475, 无关 0.0, 别名 6.51。\nprivacy_unlearning 同样对三条路径 (记忆 / DP / 删除) 报保留集 MSE、待删记录输出、成员推断 TPR/FPR 和 ε。\n验收的是整张对照表, 不是单个成功例子。portability 本例没测; 别名向量是给定的, 别名成功不能替代真实语言的改写泛化。"
     }
   ],
   "links": [],
@@ -966,15 +967,15 @@ topic.pages["finetune-knowledge-update"] = {
     {
       "concept": "实验与反例",
       "code": "llm_finetune/run_finetune/knowledge_edit/demo.py:experiment",
-      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+      "takeaway": "三种更新都把目标改到 7.0; 相关邻居变化 10.8 / 4.8 / 0.0475, 无关事实 6.0 / 0.0 / 0.0。"
     },
     {
       "concept": "实验与反例",
       "code": "llm_finetune/run_finetune/privacy_unlearning/demo.py:experiment",
-      "takeaway": "对照命中、保持与失败边界，不能只看单个成功例子。"
+      "takeaway": "记忆 / DP / 删除三条路径的成员推断 TPR 1.0 / 0.125 / 0.875; 删除后与独立重训核对到 1e-12。"
     }
   ],
-  "snippetTitle": "先固定要改什么，再检查没有改什么",
+  "snippetTitle": "先固定要改什么, 再检查没有改什么",
   "snippet": "result = experiment(mode)\n# 同时检查目标变化、无关任务保持与独立验证\nprint(result[\"metrics\"])",
   "source": [
     "llm_finetune/run_finetune/knowledge_edit/demo.py:experiment",
@@ -982,30 +983,20 @@ topic.pages["finetune-knowledge-update"] = {
   ],
   "run": "python -m llm_finetune.run_finetune.knowledge_edit.demo"
 }
-topic.pages["finetune-runs"].points.push({"title": "模型交付：新进程里还是同一个模型吗", "body": "权重相同而 tokenizer 或模板不同，读到的输入就不同。交付要保存模型解释输入和生成输出所需的全部约定。 交付包包含架构、权重、词表与特殊 token、模板、生成参数、基座标识和量化格式。恢复训练还需要优化器与 RNG；推理交付则必须证明新进程解释输入的方式一致。"})
-topic.pages["finetune-grpo-variants"].points.push({"title": "异步 RL：样本来自哪一版策略", "body": "训练器更新了策略，不会让队列里已经采出的答案自动变成新策略样本。 rollout 固定采样时策略版本和行为 logp；权重同步只影响新任务。队列容量限制积压，过期拒收限制偏移，取消要回收任务计数。"})
-topic.pages["finetune-sft"].related = [{"route": "agent-trajectory-learning", "label": "RFT：当前策略采样 → 验证筛选 → SFT", "reason": "本章关注当前阶段的用途；完整对照与执行记录集中在主讲章节。"}, {"route": "finetune-knowledge-update", "label": "知识编辑：改对一个事实，伤到多少邻居", "reason": "这里保留层次区别；算法与验证方法在对应专题展开。"}]
-topic.pages["finetune-rlhf"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式，基础页集中演示分布变化；本章讨论采样或策略优化中的用途。"}]
-topic.pages["finetune-knowledge-update"].related = [{"route": "agent-memory-privacy", "label": "应用记忆的删除", "reason": "先区分数据记录删除与模型参数遗忘。"}]
+topic.pages["finetune-runs"].points.push({"title": "模型交付: 新进程里还是同一个模型吗", "body": "权重相同而 tokenizer 或模板不同, 新进程读到的输入就不同。交付包要带上模型解释输入、生成输出的全部约定: 架构、权重、词表与特殊 token、模板、生成参数、基座标识、量化格式。恢复训练还要优化器与 RNG。\ndemo 训一个小 LLaMA, 在新 Python 进程加载, 固定输入核对 token、logits 和 greedy 输出:\n- 完整 FP32: logits 最大误差 0.0, token 和 greedy 一致。\n- int8 反量化: 误差 0.008654, 单独定容限, 不说成整数算子加速。\n- 词表、模板、基座错配: 加载直接拒绝 (误差 0 表示没跑推理)。\n文件摘要只防损坏, 不认证来源: 改了词表再重算摘要, 仍由可信 manifest 里的语义约定拒绝。"})
+topic.pages["finetune-grpo-variants"].points.push({"title": "异步 RL: 样本来自哪一版策略", "body": "训练器更新了策略, 队列里已经采出的答案不会自动变成新策略的样本。rollout 要固定采样时的策略版本和行为 logp; 权重同步只影响新任务。\ndemo 用两个动作算期望, 目标奖励 0.8:\n- 直接用旧样本: 0.2。\n- 重要性校正: 回到 0.8, 相对 ESS 只剩 0.3077。\n- 裁剪权重: 0.24, ESS 0.968, 用偏差换稳定。\n- 拒收过期样本: 期望 0, 表示没有更新, 不是奖励降为零。\n分母必须是实际采样分布, 不能用当前模型重算的概率代替。队列容量限制积压 (背压 1 次), 过期拒收限制偏移, 取消要回收任务计数 (未回收 0)。"})
+topic.pages["finetune-sft"].related = [{"route": "agent-trajectory-learning", "label": "RFT: 当前策略采样 → 验证筛选 → SFT", "reason": "本章只讲 RFT 换了样本来源; 三个分支的对照和执行记录在那一章。"}, {"route": "finetune-knowledge-update", "label": "知识编辑: 改对一个事实, 伤到多少邻居", "reason": "SFT 学的是任务分布; 改单个事实的算法和四项验收在那一章。"}]
+topic.pages["finetune-rlhf"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式: 基础页演示它怎么改变分布, 本章讲它在采样和策略优化里怎么用。"}]
+topic.pages["finetune-knowledge-update"].related = [{"route": "agent-memory-privacy", "label": "应用记忆的删除", "reason": "删一条记忆记录是应用层的事; 参数里的影响要另外遗忘、另外验证。"}]
 topic.pages["finetune-knowledge-update"].evolution = {
-  "title": "先区分更新对象，再谈保持",
-  "subtitle": "目标事实、应用数据和模型参数需要不同的验收",
+  "title": "改一个事实, 先数邻居伤了多少",
+  "subtitle": "根问题: 事实存在共享的参数里, 改一个数会牵动所有用到它的键",
   "steps": [
-    {
-      "name": "替换文档",
-      "pain": "知识变了，但应用仍在检索旧内容",
-      "fix": "先版本化更新原文与索引，并让旧缓存失效"
-    },
-    {
-      "name": "局部参数编辑",
-      "pain": "只更新文档不能改变模型内已有的参数知识",
-      "fix": "定向修改后测原问、改写、邻域与关联事实"
-    },
-    {
-      "name": "遗忘与保持",
-      "pain": "删除训练记录不会自动消除参数中的影响",
-      "fix": "用遗忘集、保持集和重训参照分别验证"
-    }
+    { "name": "改文档不改参数", "pain": "(原点) 事实变了, 模型参数里存的还是旧值", "fix": "版本化更新原文与索引, 让旧缓存失效; 参数里的旧知识原样留着" },
+    { "name": "全局改参数", "pain": "问题没经过检索, 或检索没命中, 模型照旧按参数答", "fix": "demo 把 W 整体 +6: 目标到 7.0, 但无关事实也变了 6.0, 邻居变 10.8" },
+    { "name": "秩一编辑", "year": 2022, "pain": "全局改动把无关事实也改了 6.0", "fix": "ROME 式 ΔW = u vᵀ 只沿 key 方向改: 无关事实 0.0, 相关邻居仍动 4.8" },
+    { "name": "约束邻域", "pain": "key 相近的邻居被连带改了 4.8", "fix": "协方差加 100·nnᵀ 保护邻居: 邻居只动 0.0475; 别名回答降到 6.51, 目标与邻居重合时无解" },
+    { "name": "删除对照重训", "pain": "改值能让目标答新值; 删除请求要的是记录影响消失的证据", "fix": "从充分统计量扣掉记录, 与独立重训核对到 1e-12; 再报遗忘集、保持集和成员推断" }
   ]
 }
 export default topic
@@ -1013,9 +1004,8 @@ export default topic
 mergePage(topic, 'finetune-dora', 'finetune-lora', '进阶 · DoRA 的幅值与方向', ["FtDoraLab"])
 
 topic.pages['finetune-lora'].title = '参数高效微调 · LoRA 与 DoRA'
-topic.pages['finetune-lora'].subtitle = '先理解低秩增量与初始化，再读进阶部分的幅值/方向解耦。冲刺路线读完 LoRA 即可。'
-topic.pages['finetune-lora'].points[2].body = topic.pages['finetune-lora'].points[2].body.replace('它站不住。', '本次 copy → sort、300 步实验没有观察到这一点，不能外推到所有任务与训练配置。')
-topic.pages['finetune-knowledge-update'].points[0].body = '先确定修改对象：文档变化走检索更新；用户信息删除走外部记忆治理；参数中的指定事实才进入知识编辑实验。编辑后分别检查目标事实、改写问法和邻近事实，不能用一个命中率替代所有验收。'
+topic.pages['finetune-lora'].subtitle = '读完你能说清 LoRA 为什么只训 A、B 两个小矩阵, B 为什么从 0 起步; 进阶段再看 DoRA 把幅值和方向拆开。冲刺路线读完 LoRA 部分即可。'
+topic.pages['finetune-lora'].points[2].body = topic.pages['finetune-lora'].points[2].body.replace('它站不住。', '本次 copy → sort、300 步实验没有观察到这一点, 不能外推到所有任务与训练配置。')
 
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 

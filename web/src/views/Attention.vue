@@ -3,7 +3,7 @@
     <h1 class="page-title">注意力的四代演进</h1>
     <div class="page-subtitle lead-group">
       <p>
-        每生成一个 token, 模型都要把整段 KV cache 读一遍。上下文拉到 128K 时, 这份 cache 比模型权重还占地方,
+        每生成一个 token, 模型都要把整段 KV cache (历史 token 的 K/V) 读一遍。上下文拉到 128K 时, 这份 cache 比模型权重还占地方,
         而且每一步都在重读。
       </p>
       <p>
@@ -297,7 +297,7 @@
           <li><b>改 mask (Mistral / StreamingLLM / DSA):</b> 谁能看见谁。</li>
           <li>
             <b>线性注意力</b> (Gated DeltaNet, <RepoLink path="llm_models/layers/sparse/linear_attention.py" label="linear_attention.py" tiny />):
-            最狠, 用一个固定大小的状态矩阵把整个 KV cache 顶掉。Qwen3-Next 拿它换掉了 75% 的层, 剩下 25% 留全注意力兜底精确召回。
+            最狠, 用一个固定大小的状态矩阵把整个 KV cache 顶掉。Qwen3-Next 拿它换掉了 75% 的层, 剩下 25% 留全注意力, 给精确召回兜底。
           </li>
         </ul>
         <p>三条路线互不冲突, 可以叠着用。细节在「SWA · MTP · 混合线性」那一章。</p>
@@ -459,7 +459,7 @@ const conceptStory = computed(() => {
     dsa: {
       mechanism: `MLA 的压缩照旧 + 每个 query 只挑 ${Math.min(p.sparse_top_k, p.T)} 个位置算`,
       mechanismNote: 'K/V 还是全存着 (每个旧位置都可能被未来某个 query 选中), 省的是 softmax 要处理多少个位置。',
-      takeaway: 'DSA 分两刀砍: MLA 那一刀砍显存, top-k 这一刀砍超长上下文的算力, 不省 cache。',
+      takeaway: 'DSA 分两刀砍: MLA 那一刀砍显存, top-k 这一刀只砍超长上下文的算力, 不省 cache。',
     },
   }
 

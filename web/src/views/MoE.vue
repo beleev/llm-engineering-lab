@@ -10,6 +10,7 @@
       <p>
         本页把两套路由哲学并排放:
         <strong>Mixtral (softmax + 外挂 aux loss)</strong> 对 <strong>DeepSeek (sigmoid + 共享专家 + aux-free bias)</strong>。
+        aux loss 是为了把专家负载拉平而额外加的一项损失; aux-free 就是不加它, 改用一个不收梯度的 bias。
       </p>
     </div>
 
@@ -199,7 +200,7 @@
           <li>不做均衡, 就会滚雪球滚成路由坍缩。</li>
           <li>用 aux loss 做均衡, 又会跟语言建模抢梯度。</li>
         </ul>
-        <p>DeepSeek 的每一列都是对左边那一列的回答。</p>
+        <p>每一行里, DeepSeek 那一格都是对 Mixtral 那一格的回答。</p>
       </div>
       <div class="card">
         <table class="compare">
@@ -224,8 +225,8 @@
               <td>✅ 每个 token 都过, 专管通用知识, 路由专家才腾得出容量去分化</td>
             </tr>
             <tr><td class="row-label">负载均衡</td>
-              <td>Switch 那套外挂 aux loss, 梯度直接压热门专家的路由分数</td>
-              <td>aux-loss-free bias: 不收梯度, 只改 top-k 选谁 (demo 实测负载 CV 从 0.273 降到 0.124, LM loss 几乎不动: 2.979 vs 2.982)</td>
+              <td>Switch Transformer 那套外挂 aux loss, 梯度直接压热门专家的路由分数</td>
+              <td>aux-loss-free bias: 不收梯度, 只改 top-k 选谁 (demo 实测负载 CV (变异系数) 从 0.273 降到 0.124, LM loss 几乎不动: 2.979 vs 2.982)</td>
             </tr>
             <tr><td class="row-label">专家粒度</td>
               <td>8 个大专家</td>
@@ -282,7 +283,7 @@ const evoSteps = [
     pain: '被选多的专家学得更好、更常被选, 最后少数专家包揽 token',
     fix: 'softmax top-2 加外挂 aux loss 压热门专家; 8 个大专家各自都得重学一遍通用能力' },
   { name: 'DeepSeekMoE', year: 2024, color: 'var(--right)',
-    pain: '专家少而大, 通用能力重复学了好几份, 腾不出容量分工',
+    pain: '专家少而大, 通用能力重复学了好几份, 腾不出容量分工; aux loss 还抢梯度',
     fix: '切成 64–256 个细粒度专家, 加每个 token 必过的共享专家; 均衡交给不收梯度的 bias' },
 ]
 

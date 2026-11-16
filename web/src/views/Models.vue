@@ -41,7 +41,11 @@
     />
 
     <ModelArchitectureLab />
-    <MultimodalPathLab />
+    <p class="lead">
+      图像和音频怎样切成 token、从哪一扇门进语言模型, 单独成章:
+      <router-link :to="{ name: 'models-multimodal' }">图像与音频怎样接入语言模型</router-link>。
+      那一章带着 CLIP / Qwen2-VL / Whisper / Omni 四套模型的阅读实验台。
+    </p>
 
     <section class="section">
       <h2>阶段 2 的阅读顺序</h2>
@@ -133,7 +137,6 @@ import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
-import MultimodalPathLab from '@/components/labs/MultimodalPathLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
 import { timeline, learningPath } from '@/data/models.js'
 

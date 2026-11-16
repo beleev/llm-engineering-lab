@@ -263,7 +263,7 @@ if not outcome.allowed:
   {
     name: 'Memory',
     tag: 'context',
-    desc: '透明文件记忆按需检索进入上下文; 超预算先清旧工具结果, 不够再让模型写摘要。',
+    desc: '记忆是普通 .md 文件, 按需检索进入上下文; 超预算先清旧工具结果, 不够再让模型写摘要。',
     file: 'llm_agent/core/memory.py',
     code: `base += memory_messages(memory, prompt)
 view = clear_tool_results(messages, keep_last=1)

@@ -17,6 +17,7 @@ const topic = {
     { route: 'models-gptoss', label: 'GPT-OSS 结构', hint: '滑窗/全注意力隔层交替 + 可学 sink logit + MoE' },
     { route: 'models-llada', label: 'LLaDA 扩散语言模型', hint: '随机比例遮盖训练, 采样时把没把握的遮回去' },
     { route: 'models-var', label: 'VAR 逐尺度生成', hint: '1×1 → 2×2 → …, 由粗到细, 每级内部并行' },
+    { route: 'models-multimodal', label: '图像与音频怎样接入语言模型', hint: '图切 patch 当前缀, 声谱走 cross-attention' },
   ],
   pages: {
     'models-mtp': {
@@ -37,7 +38,7 @@ const topic = {
       },
       code: 'llm_models/models/language_models/{mistral.py,mtp.py,qwen3_next.py} · llm_models/layers/sparse/linear_attention.py',
       points: [
-        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层理论感受野上界 $1+L(W-1)$，位置 t 再取不超过 t+1 (Mistral 32 层、W=4096 时为 131041)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
+        { title: '深度换宽度', body: 'T=64、W=8 时, 带状 mask 把可见格子从 2080 降到 484。\n单层只看 W 个位置。但第 2 层的邻居已经各自汇总过它们的邻居, 信息跨层接力。\nL 层理论感受野上界 $1+L(W-1)$, 位置 t 再取不超过 t+1 (Mistral 32 层、W=4096 时为 131041)。\ndemo 特意用 1 层模型验证: 改位置 0, 只影响位置 0..7 的输出。' },
         { title: 'mask 即架构', body: '- 全因果: LLaMA\n- 带状: Mistral\n- 带状加 sink: GPT-OSS\n- top-k: DSA\nQKV 投影一行不改, 谁能看见谁全由 mask 决定。所以 Mistral 和 LLaMA 参数量完全相同 (demo: 都是 3,076,352)。', key: true },
         { title: '级联保因果', body: 'MTP 第 k 级在位置 i: 拼上真实 token $t_{i+k}$ 的 embedding → 过一个 Block → 预测 $t_{i+k+1}$。\n每深一级, 多看一个真 token、多预测一步, 因果链没断。\n总损失 $= \\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$。DeepSeek-V3 的 $\\lambda$ 取 0.3, 后期降到 0.1。' },
         { title: '状态替代缓存', body: 'Gated DeltaNet 是一种线性注意力: 不存历史 K/V, 只维护一个 Dh×Dh 的状态矩阵 (Dh 是每头维度)。\n- delta rule: 先擦掉 k 方向的旧值, 再写入新值。\n- α 门: 负责整体遗忘。\n它的 “cache” 与读了多少 token 无关。demo 里 T 从 8 涨到 32, 同类层加总的缓存元素数 (batch 2):\n- 注意力层 (共 2 层): 4096 → 16384。\n- delta 层 (共 6 层): 恒为 49152。\n代价是压缩有损。所以 Qwen3-Next 每 4 层留 1 层全注意力, 兜底精确召回。' },
@@ -192,7 +193,7 @@ mscale = 0.1 * ln(s) + 1`,
       code: 'llm_models/layers/sparse/ssm.py · llm_models/models/language_models/mamba.py',
       points: [
         { title: '一个 Δ 同时当写入门和遗忘门', body: 'SSM 原本是连续时间的方程 $h^\\prime(t) = A h(t) + B x(t)$。按步长 $\\Delta$ 走一步, 得到离散的递推:\n- 旧状态的保留率: $\\bar A = \\exp(\\Delta\\cdot A) \\in (0,1)$。\n- 新输入的写入强度: $\\bar B \\approx \\Delta\\cdot B$。\n$\\Delta$ 取两头时:\n- Δ 大: 保留率 → 0、写入变强。“忘掉过去, 记住这个”。\n- Δ → 0: 保留率 → 1、写入 → 0。“这个 token 当没看见”。\n一个标量控制两扇门。', key: true },
-        { title: 'LTI 只能按距离加权', body: '$\\Delta$ 固定时, token j 对最终状态的贡献只取决于它离结尾多远。\n它没法表达 “这个词重要、那个是废话”。语言建模 (以及 induction / selective copying 这类任务) 要的恰恰是这个。\n实验台里 LTI 模式下, 关键 token “7” 的占比上限只有 1/10。\n让 $\\Delta$ 随输入变就能挑着记, 代价是系统不再时不变, 写不成一个固定的卷积核。S4 那种卷积训练用不上, 只能换成 scan。' },
+        { title: 'LTI 只能按距离加权', body: '$\\Delta$ 固定时, token j 对最终状态的贡献只取决于它离结尾多远。\n它没法表达 “这个词重要、那个是废话”。语言建模 (以及 induction / selective copying 这类要挑着复制特定 token 的任务) 要的恰恰是这个。\n实验台里 LTI 模式下, 关键 token “7” 的占比上限只有 1/10。\n让 $\\Delta$ 随输入变就能挑着记, 代价是系统不再时不变, 写不成一个固定的卷积核。S4 那种卷积训练用不上, 只能换成 scan。' },
         { title: '状态大小与序列长度无关', body: '每层的 “cache” 就是 h [D_inner, N] 加一小段卷积缓冲, 生成 100 万 token 也不增长。\ndemo 生成 300 个 token: 递推约 0.4 s, 每步重算约 7 s, 快 16×。\n代价是压缩有损: 要精确召回很久以前的某个 token, 它不如注意力。Jamba、Qwen3-Next 这类混合架构就是为补这一刀出现的。' },
       ],
       links: [
@@ -476,6 +477,74 @@ image = decoder(f_hat + upsample(codebook[indices[-1]], H))
       source: ['llm_models/models/generative/var.py:sample_tokens'],
       run: `${RUN}.generative.var.infer_var`,
     },
+
+    'models-multimodal': {
+      title: '图像与音频怎样接入语言模型 · 前缀、交叉注意力与 Talker',
+      subtitle: 'CLIP、Whisper、Qwen2-VL、Qwen2.5-Omni 四套模型都在回答同一个问题: 不是文本的输入怎么变成 Transformer 认的 token, 又从哪一扇门进语言模型。\n读完你能对着任意一个多模态模型说出它的 token 化、接入点和训练目标, 并算出一张图要占多少上下文。',
+      tldr: '- token 化: 图像切成不重叠的 patch (224×224、16×16 patch → 196 个), mel 声谱沿时间卷积切帧 (Whisper: 3000 帧 → 1500 帧)。\n- 接入: CLIP 只对齐向量, 不生成; Qwen2-VL 把视觉 token 当前缀拼进 decoder; Whisper 的 decoder 用 cross-attention 读编码器; Omni 的 Talker 用 cross-attention 读 Thinker 的隐状态。\n- 训练目标: 双向对比 CE / 文本位置的 next-token CE / 文本 CE + 0.5×语音 CE。',
+      question: '一张图要占语言模型多少个 token? 把它拼在文本前面, 和让 decoder 用 cross-attention 去看, 差在哪?',
+      evolution: {
+        title: '把眼睛和耳朵接到同一个 Transformer 上',
+        subtitle: '根问题: Transformer 只吃 token 序列, 图像和声音都不是 token; 接进去之后, 前缀越长注意力越贵',
+        steps: [
+          { name: '各训各的专用模型', pain: '(原点) 视觉模型只认固定 N 类标签, 语音识别是声学 + 语言 + 对齐三级流水线', fix: '每种模态一套结构、一套标签; 换个类别就要重新标注, 彼此的表示对不上' },
+          { name: 'CLIP 对比对齐', year: 2021, pain: '标签要人标, 类别定死; 网上 4 亿图文对里的自然语言没法当监督', fix: 'ViT 和文本塔各出一个向量, batch 内配对拉近、其余 B−1 个推开; 只能打分, 不能生成' },
+          { name: 'Whisper 交叉注意力', year: 2022, pain: 'CLIP 只会打分; 要从声音生成文字, 得有一个 decoder 去读模态编码器', fix: 'mel 经卷积切成帧, 编码器双向读完; decoder 每层用 cross-attention 取它当 K/V' },
+          { name: 'Qwen2-VL 前缀', year: 2024, pain: 'cross-attention 要在 LLM 每层加一块, 预训练好的结构得改; 多图交错不好排', fix: 'patch 经 ViT、projector 变成 token 拼在文本前, LLM 不改; 文本看得到图, 反之不行' },
+          { name: 'Thinker / Talker', year: 2025, pain: '前缀路线只出文本; 要说话得再接一个 TTS, 语气丢了, 还得等整句写完', fix: 'Thinker 出文本, Talker 用 cross-attn 读它的隐状态, 吐语音 codec token' },
+        ],
+      },
+      code: 'llm_models/models/multimodal/{clip,whisper,qwen2_vl,qwen2_5_omni}.py · llm_models/layers/multimodal/multimodal.py',
+      points: [
+        { title: '四套模型只有两扇门: 拼前缀, 或 cross-attention', body: '非文本输入先被各自的编码器变成一串向量, 再从两扇门之一进语言模型:\n- 拼前缀 (Qwen2-VL、Omni 的 Thinker): 视觉 token 拼在文本 token 前面, 同一个因果 decoder 从头读到尾。LLM 一行不改, 天然支持多图交错和 KV cache; 代价是每张图占掉 N_v 个上下文位置。\n- cross-attention (Whisper、Omni 的 Talker): 编码器输出只当 K/V, decoder 每层多一块 cross-attention 去读。不占 decoder 的序列; 代价是每层要加一块, 结构得改。\nCLIP 两扇门都不走: 它把图和文各压成一个向量比相似度, 没有 decoder, 只能打分。', key: true },
+        { title: 'token 化: 图切 patch, 声谱切帧', body: '- 图像: PatchEmbed2D 用 kernel = stride = patch 的无重叠卷积切块, 等价于 “切块 → 展平 → Linear”。224×224 配 16×16 patch 得 14×14 = 196 个 token (不计 CLS); Qwen2-VL 原版 patch 是 14, 同一张图 16×16 = 256 个。\n- 音频: 波形先经采样率对齐、分帧 / STFT、mel 滤波和 log, 变成 mel 声谱 [80, T_mel]。Whisper 再用两层 Conv1d (第二层 stride=2) 沿时间切帧: 30 秒 3000 帧 → 1500 帧 (50 Hz)。demo 里 mel (2, 80, 100) 进去, 编码器出 (2, 50, 128)。\n- Omni 的音频走另一条路: 把 mel 声谱当 1 通道的图像, 和图像共用 PatchEmbed2D 切 patch。' },
+        { title: '一张图占多少上下文', body: '视觉 token 和文本 token 一样要过注意力、一样要存 KV。\n- 边长翻倍, patch 数变 4 倍: 224 → 448 时 196 → 784 个。\n- 拼成前缀后序列长度从 T 变成 T+N, 注意力分数矩阵按 $(T+N)^2$ 涨, KV cache 按 T+N 涨。\n压缩能省: 本库的 Qwen2-VL 用 Perceiver Resampler 把 16 个 patch 压成 8 个 latent (demo), 输出长度只由可学 latent 的个数决定。代价是 latent 不再对应具体的空间位置, 小字和细节会丢; 所以原版 Qwen2-VL 不用 Resampler, 用相邻 2×2 patch 合并加 MLP。' },
+        { title: '前缀是单向的: 文本看图, 图看不到文本', body: 'Qwen2-VL 整条序列都走因果 mask, 视觉 token 在前。infer 脚本的三条断言:\n- 换图 → 文本位置 logits 变化 0.0034: 文本看得到视觉前缀。\n- 换文本 → 视觉位置输出变化 0.0e+00: 前缀看不到后面的文本。\n- 改 pad 处的 token → 其余位置变化 0.0e+00: 文本的 padding mask 自动在前面补了 N_v 个 1。\nloss 只算文本位置, 视觉位置 label = −100: 它们是条件, 不是预测目标。\nM-RoPE 把 head 维切成 (时间, 行, 列) 三段各自旋转: patch 的位置是 (0, 行, 列), 文本三轴取同一个值。所以纯文本时它与 1-D RoPE 逐位相等 (demo 数值差 0.0e+00); 对调视觉 patch 的行列坐标, 输出变 5.3e-05, 未训练的 4×4 小网格上很小但非零。' },
+        { title: '三种训练目标, 都靠一条下界验收', body: '- CLIP: B×B 相似度矩阵, 对角线是配对。$\\mathrm{logits} = \\exp(t)\\cdot I\\,T^\\top$, loss 是图→文和文→图两个方向 CE 的平均。$\\exp(t)$ 是可学的 $1/\\tau$, 初值 1/0.07 ≈ 14.3, 上限 100 (否则模型靠无限放大 logits 压 loss)。demo: 初始 loss 2.180 ≈ ln 8, 30 步后 0.0004, 对角线 top-1 从 0.12 到 1.00。\n- Qwen2-VL / Whisper: 文本位置的 next-token CE。train 脚本故意让 2 条样本文本相同、图 (或音频) 不同、标签不同: 只看文本最多二选一, loss 下界 ln 2 = 0.693。Qwen2-VL 100 步后 0.198, Whisper 150 步后 0.041, 都低于下界, 说明文本位置真的读到了另一个模态。\n- Omni: total = 文本 CE + 0.5 × 语音 CE。text_loss 6.269 → 0.006, audio_loss 5.294 → 0.025; codec 输入相同、标签不同, 不读 Thinker 时 audio_loss 的下界也是 ln 2。' },
+        { title: 'Thinker → Talker 前向单向, 反向不隔离', body: 'Omni 的 Talker 不读 Thinker 生成的文本, 读的是它最后一层 norm 之后的隐状态 thinker_hidden: 文本只是隐状态的有损投影, 语气这类信息留在隐状态里。\ninfer 脚本 (text_logits [2, 4+4+4+10, 500], audio_logits [2, 12, 200]):\n- 换图 → 语音 logits 变化 4.0e-05: 图 → Thinker → Talker 这条通路是通的; 未训练时权重 std 0.02, 所以数值很小。\n- 换 codec 输入 → 文本 logits 变化 0.0e+00: 前向不走回头路。\n- 改未来 codec → 过去位置变化 0.0e+00: Talker 自己也是因果的。\n两套词表、两个 head: Thinker 的 lm_head 和 embedding 共享权重, Talker 的不共享。训练时梯度会回流: thinker_hidden 传给 Talker 前没有 detach, audio_loss 的梯度一路流回 Thinker; 要隔离就在传之前 .detach()。' },
+        { title: '实验边界: 通路可学, 不等于会看会听', body: '- 数据是固定的随机 batch: 图是 randn, 文本是随机 token; Whisper 的 mel 也是 randn 直接构造的, 不是从波形算的。loss 降到 0 只说明模型背下了这个 batch。\n- 规模: CLIP 两塔各 2 层、d=64, batch 8 (原版 32768); Qwen2-VL 的 LLM 和 ViT 各 2 层、d=128, 图 56×56; Omni Tiny 总参数 504,352。\n- 没有的东西: 音频前处理 (重采样、分帧、mel 滤波)、把 codec token 还原成波形的 codec 和声码器、Qwen2-VL 与 Omni 的 generate() 和 KV cache、原版的动态分辨率和 TMRoPE。\n- 本库约定: Qwen2-VL 和 Omni 的 Thinker 绑 lm_head 权重且 embedding 乘 √D; Whisper 绑权重但不乘 √D; CLIP 不乘; Omni 的 Talker 乘 √D 但不绑。换成默认 N(0,1) 初始化加绑权重, 初始 loss 变成 Qwen2-VL 130.29、Whisper 82.30、Omni 的 text_loss 124.15。' },
+      ],
+      links: [
+        { from: 'Qwen2VLDecoder', to: 'LLaMA', body: 'decoder 就是 LLaMA 式的 GQA + SwiGLU + RMSNorm + RoPE, 多出来的只是 inputs_embeds 入口和 M-RoPE 开关。Omni 的 Thinker 直接复用这个类。' },
+        { from: 'PreLNCrossBlock', to: 'Transformer (2017) 的 decoder', body: 'Whisper 的 decoder 和 Omni 的 Talker 都是 2017 原版 decoder 的样子: 因果 self-attn + cross-attn + FFN。Whisper 和原版 Transformer 同构, 只把 encoder 的输入从 token 换成 log-mel。' },
+        { from: '视觉前缀', to: 'KV cache 生成', body: 'prefix 路线天然支持 KV cache: 图像 token 只在 prefill 时算一次。本库的 Qwen2VLDecoder 没接 GenerationMixin, 只能整段前向。' },
+        { from: 'PatchEmbed2D', to: 'diffusion · DiT', body: '多模态理解和图像生成在 “先切 patch 再过 Transformer block” 这一步是一回事; DiT 切的是 VAE latent, 这里切的是像素和声谱。' },
+      ],
+      sourceRows: [
+        { concept: '切 patch', code: 'multimodal.py:PatchEmbed2D', takeaway: 'kernel = stride = patch 的 Conv2d: 无重叠卷积等价于 “切块 → 展平 → Linear”。N = (H/p)·(W/p), 图像 (C=3) 和 mel 声谱 (C=1) 共用。' },
+        { concept: '对比 logits', code: 'clip.py:CLIPModel.forward', takeaway: '只返回归一化特征和 logit_scale = exp(t).clamp(max=100); [B, B] 相似度矩阵在 loss 里算, 对角线是配对, 其余 B−1 个是免费的负样本。' },
+        { concept: '拼前缀', code: 'embeds = torch.cat([vision_embeds, embeds], dim=1)', takeaway: '视觉在前。文本的 padding mask 前面补 N_v 个 1。视觉 token 不乘 √D, 尺度由 projector 末尾的 LayerNorm 定。' },
+        { concept: 'M-RoPE 位置', code: 'qwen2_vl.py:build_mrope_position_ids', takeaway: '返回 [3, B, H·W + T]: patch 是 (0, 行, 列), 文本三轴同值、从 max(H, W) 起步。' },
+        { concept: '声谱切帧', code: 'whisper.py:WhisperAudioEncoder.forward', takeaway: '两层 Conv1d, 第二层 stride=2 把帧数减半, 再加 sin PE; 整段音频互相可见, 无 mask。' },
+        { concept: '唯一通道', code: 'layer(x, context=encoder_hidden, self_mask=self_mask, context_mask=None)', takeaway: 'encoder_hidden 是音频进 decoder 的唯一通道 (cross-attn 的 K/V)。cross-attn 不设 mask: 整段音频在解码前已完整可得, 每个文本位置都能看。' },
+        { concept: 'Thinker → Talker', code: 'qwen2_5_omni.py:Qwen2_5_OmniModel.forward', takeaway: 'Thinker 以 return_hidden=True 返回 (logits, hidden); hidden 不 detach 直接当 Talker 的 context, 维度不同时先过 thinker_to_talker。' },
+      ],
+      snippetTitle: '两扇门: 拼前缀, 或 cross-attention',
+      snippet: `# 1) token 化: 图切 patch, 声谱切帧
+v = projector(resampler(vit(patch_embed(image))))     # [B, N_v, D]      Qwen2-VL
+a = encoder(gelu(conv2(gelu(conv1(mel)))))            # [B, T_mel/2, D]  Whisper
+
+# 2a) 拼前缀: 视觉在前, 同一个因果 decoder 从头读到尾
+x = cat([v, emb(text) * sqrt(D)], dim=1)              # [B, N_v + T, D]
+logits = decoder(inputs_embeds=x)                     # loss 只算文本位置 (视觉 label = -100)
+
+# 2b) cross-attention: 编码器输出只当 K/V, 不占 decoder 序列
+for layer in decoder.layers:
+    h = h + self_attn(h, mask=causal)
+    h = h + cross_attn(q=h, kv=a)                     # 每个文本位置都能看整段音频
+    h = h + ffn(h)
+
+# 3) Omni: Thinker 出文本, Talker 用 cross-attention 读 Thinker 的隐状态
+text_logits, hidden = thinker(inputs_embeds=cat([v, a, emb(text)]), return_hidden=True)
+audio_logits = talker(codec_ids, context=hidden)      # 没有 detach: 语音 loss 的梯度会流回 Thinker
+loss = ce(text_logits) + 0.5 * ce(audio_logits)`,
+      source: [
+        'llm_models/models/multimodal/qwen2_vl.py:Qwen2VLModel',
+        'llm_models/models/multimodal/whisper.py:WhisperAudioEncoder',
+        'llm_models/models/multimodal/qwen2_5_omni.py:Qwen2_5_OmniModel',
+      ],
+      run: `${RUN}.multimodal.qwen2_vl.infer_qwen2_vl`,
+    },
   },
 }
 
@@ -484,14 +553,14 @@ const supplements = {
   "models-mtp": [
     {
       "title": "精确范围与实际能力分开",
-      "body": "纯因果滑窗、窗口 W 含当前位置、无 dilation 或全局通路时：位置 t 的可达输入数为 min(t+1, 1+L×(W−1))。L×W 只是大窗口近似。模型上下文上限和长距离检索成功率还需另测。",
+      "body": "可达范围是结构上限, 实际能力要另测。纯因果滑窗、窗口 W 含当前位置、没有 dilation 和全局通路时, 位置 t 的可达输入数 = min(t+1, 1+L×(W−1))。\n- W=8、L=4: 29, 不是 32。L×W 只是大窗口下的近似。\n- Mistral 32 层、W=4096: 131041。\n模型的上下文上限和长距离检索成功率都不由这个数决定, 要另外测。",
       "source": "llm_models/models/language_models/mistral.py:receptive_field"
     }
   ],
   "models-gptoss": [
     {
       "title": "全局可达不等于有效利用",
-      "body": "交替全注意力可以建立远处信息通路，但训练分布、注意力权重和中间表示决定是否真正用上。下方滑窗实验展示可达范围，不展示长上下文任务准确率。",
+      "body": "隔一层插一层全注意力, 结构上任何位置一步就能够到全部历史。能不能真用上, 由训练分布、注意力权重和中间表示决定。\n下方滑窗实验展示的是可达范围, 不是长上下文任务的准确率。",
       "source": null
     }
   ]
@@ -506,25 +575,25 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.pages["models-mtp"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定可见关系；这里分别关注缓存布局和多 token 预测，避免重复同一滑杆实验。"}]
+topic.pages["models-mtp"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码决定谁能看见谁; 这里只讲多 token 预测, 滑杆实验不再重复。"}]
 export default topic
 
 const qkYarn = topic.pages['models-qknorm-yarn']
 const mixed = topic.pages['models-mtp']
 const supplement = (page, id, title, points, labNames) => ({ ...page, id, title, points, labNames, evolution: null, links: [], related: [], widgets: [] })
 topic.pages.attention = { sections: [
-  { ...supplement(qkYarn, 'qk-norm', 'QK-Norm · 控制注意力数值', qkYarn.points.slice(0, 2), ['ModelQkNormLab']), tldr: '在 RoPE 之前归一化 Q/K，分开观察方向与增益。' },
-  { ...supplement(mixed, 'swa', '滑窗与跨层感受野', [mixed.points[0], mixed.points[1], mixed.points[5]], []), tldr: '掩码实验台展示单层可见范围；这里追踪信息跨层传播，并区分可达范围与实际检索能力。' },
+  { ...supplement(qkYarn, 'qk-norm', 'QK-Norm · 控制注意力数值', qkYarn.points.slice(0, 2), ['ModelQkNormLab']), tldr: '在 RoPE 之前对 Q/K 各做一次 RMSNorm: logit 只剩夹角和一个可学增益, 不再随范数涨。' },
+  { ...supplement(mixed, 'swa', '滑窗与跨层感受野', [mixed.points[0], mixed.points[1], mixed.points[5]], []), tldr: '掩码实验台只看单层的 W 个位置; 这里看信息怎么跨层接力 (上界 $1+L(W-1)$), 以及可达范围为什么不等于实际检索能力。' },
 ] }
 topic.pages.position = { sections: [
-  { ...supplement(qkYarn, 'yarn', 'YaRN · 位置频率怎样外推', qkYarn.points.slice(2), ['ModelRopeScaleLab']), tldr: '按训练期旋转圈数调整频率；用 PI、NTK-aware 和 YaRN 比较局部区分与长距离外推。' },
+  { ...supplement(qkYarn, 'yarn', 'YaRN · 位置频率怎样外推', qkYarn.points.slice(2), ['ModelRopeScaleLab']), tldr: '按训练期转过的圈数给每个 RoPE 频率分段缩放: 高频不动, 低频 $\\div s$; 实验台拿 PI、NTK-aware、YaRN 比局部区分和长距离外推。' },
 ] }
 topic.pages['models-mamba'].sections = [
-  { ...supplement(mixed, 'linear-hybrid', '进阶 · DeltaNet 与混合线性架构', mixed.points.slice(3, 5), ['ModelLinearAttnLab']), tldr: 'DeltaNet 维护状态矩阵；它与 Mamba 的选择性状态空间机制不同，但都需要检验有损状态对精确召回的影响。' },
+  { ...supplement(mixed, 'linear-hybrid', '进阶 · DeltaNet 与混合线性架构', mixed.points.slice(3, 5), ['ModelLinearAttnLab']), tldr: 'DeltaNet 用固定大小的状态矩阵代替 KV cache, 机制和 Mamba 的选择性 SSM 不同; 两者都压缩有损, 所以 Qwen3-Next 每 4 层留 1 层全注意力兜底精确召回。' },
 ]
-mixed.title = '多 token 预测 MTP · 训练目标与草稿生成'
-mixed.subtitle = '一处位置得到多个未来目标的监督；训练中的真 token 与推理时的草稿不能混淆。'
-mixed.tldr = '级联模块共享输出头，保持因果依赖；生成的草稿仍需推理端验证。'
+mixed.title = 'MTP 多 token 预测 · 一次前向, K+1 份监督'
+mixed.subtitle = '读完你能说清 MTP 第 k 级为什么能看到 t+k 却不算偷看, 以及训练时拼的真 token 和推理时的草稿为什么不能混为一谈。'
+mixed.tldr = '- 第 k 级在位置 i 拼上真 token $t_{i+k}$ 的 embedding, 过一个 Block, 预测 $t_{i+k+1}$: 每深一级多看一个真 token、多预测一步, 因果链不断。\n- 损失 $\\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$, DeepSeek-V3 的 $\\lambda$ 取 0.3, 后期 0.1。\n- 级联模块借主干的 embedding 和 lm_head, 每级只新增一个拼接投影和 1 个 Block; 丢掉它, 主 logits 与同权重 LLaMA 逐元素相等。它对 t+2 的预测只是投机草稿, 仍要目标模型验证。'
 mixed.points = [mixed.points[2]]
 mixed.evolution = null
 mixed.related = [{ route: 'attention', label: '滑窗与跨层感受野', reason: '可见范围归注意力主章。' }, { route: 'models-mamba', label: '状态空间与混合线性架构', reason: '状态与 KV 的取舍放在同一学习路径。' }, { route: 'infer-tree-speculation', label: '草稿怎样被验证', reason: 'MTP 训练目标不替代解码时的验收。' }]
@@ -544,33 +613,34 @@ yarn.sourceRows = qkYarn.sourceRows.filter(r => !qk.sourceRows.includes(r))
 qk.source = qkYarn.source.filter(s => /[Nn]orm/.test(s))
 yarn.source = qkYarn.source.filter(s => !qk.source.includes(s))
 qk.snippet = 'q, k = q_norm(q), k_norm(k)\nq, k = rope(q, k)\nscores = q @ k.transpose(-1, -2) / sqrt(head_dim)'
-yarn.snippet = 'turns = train_length * inv_freq / (2 * pi)\n# 高频保持，低频按扩展倍率缩放，中频插值\ninv_freq = yarn_scale(inv_freq, turns, factor)'
+yarn.snippet = 'turns = train_length * inv_freq / (2 * pi)\n# 高频保持, 低频按扩展倍率缩放, 中频插值\ninv_freq = yarn_scale(inv_freq, turns, factor)'
 swa.sourceRows = mixed.sourceRows.filter(r => ['带状掩码', 'KV 上限'].includes(r.concept))
 delta.sourceRows = mixed.sourceRows.filter(r => ['delta rule', '混合排布'].includes(r.concept))
 swa.source = mixed.source.filter(s => s.includes('mistral'))
 delta.source = mixed.source.filter(s => s.includes('linear_attention'))
 swa.snippet = 'visible = (j <= i) & (j > i - window_size)\nreachable = min(position + 1, 1 + layers * (window_size - 1))'
-delta.snippet = 'state = alpha * (state - beta * outer(k, k @ state)) + beta * outer(k, v)\ny = q @ state  # 压缩有损；混合架构另保留全注意力层'
+delta.snippet = 'state = alpha * (state - beta * outer(k, k @ state)) + beta * outer(k, v)\ny = q @ state  # 压缩有损; 混合架构另保留全注意力层'
 mixed.sourceRows = mixed.sourceRows.filter(r => ['级联输入', '标签对齐'].includes(r.concept))
 mixed.source = mixed.source.filter(s => s.includes('/mtp.py'))
 mixed.links = mixed.links.filter(l => !l.from.includes('sliding'))
 mixed.snippet = mixed.snippet.slice(mixed.snippet.indexOf('# MTP'))
 mixed.snippetTitle = 'MTP 的监督与级联'
 mixed.code = 'llm_models/models/language_models/mtp.py'
-mixed.evolution = { title: '从下一 token 到级联监督', subtitle: '同一位置怎样得到更多未来监督', steps: [
-  { name: '下一 token', pain: '每个位置只有一个预测目标', fix: '主干预测紧接当前位置的 token' },
-  { name: '级联监督', pain: '多个头不能偷看自己的预测目标', fix: '逐级加入前一个真 token，预测再下一个位置' },
-  { name: '推理草稿', pain: '训练时有真 token，生成时没有', fix: '生成草稿后交给目标模型验证，不直接全收' },
+mixed.evolution = { title: '从一份监督到 K+1 份', subtitle: '根问题: 每个位置只有下一个 token 这 1 份监督, 生成时也一步只出 1 个 token', steps: [
+  { name: '下一 token 预测', pain: '(原点) 位置 i 只学 t_{i+1}: 一条序列每个位置只有 1 份监督', fix: '主干 → lm_head 预测紧接的 token; 训练和生成都是一步一个' },
+  { name: '并行多头 MTP', year: 2024, pain: '监督稀, hidden 不用为更远处打算; 生成也一步只出 1 个', fix: 'Gloeckle: K 个独立 head 各自预测 t+k; 第 k 头看不到中间 token, 头之间没有因果链' },
+  { name: '级联 MTP', year: 2024, pain: '各头独立猜 t+k, 中间的 token 全靠猜, 因果链断了', fix: 'DeepSeek-V3: 第 k 级拼上真 token t_{i+k}, 过一个 Block; 输出头借主干的' },
+  { name: '当投机草稿', pain: '训练时有真 token 可拼, 生成时没有, 仍一步只出 1 个', fix: '主干出 t+1 后喂给 MTP-1 得 t+2 草稿, 交目标模型验证, 不直接全收 (llm_infer m07)' },
 ] }
 for (const route of ['attention', 'position']) Object.assign(topic.pages[route], { points: [], links: [], sourceRows: [], widgets: [] })
 
 canonicalizeRelated(topic)
 
 qk.source = ['llm_models/layers/core/attention.py:GroupedQueryAttention']
-qk.question = '除以 sqrt(d) 后，为什么还要控制 Q/K 的范数？'
-yarn.question = '长度外推时，局部区分与低频越界怎样分别验收？'
-swa.question = '每层只看最近 W 个位置，跨层可达范围为何不同于实际检索能力？'
-delta.question = '固定大小的状态矩阵省下了什么，又丢掉了什么？'
-mixed.question = '每级加入前一个真 token，为什么不等于泄露该级预测目标？'
+qk.question = '除以 sqrt(d) 之后, 为什么还要管 Q/K 的范数?'
+yarn.question = '长度外推时, 局部区分和低频越界怎么分开验收?'
+swa.question = '每层只看最近 W 个位置, 跨层可达范围为什么不等于实际检索能力?'
+delta.question = '固定大小的状态矩阵省下了什么, 又丢掉了什么?'
+mixed.question = '每级都拼进前一个真 token, 为什么不算泄露这一级的预测目标?'
 qk.related = [{ route: 'position', anchor: 'yarn', label: '继续看 YaRN 的频率外推' }]
 yarn.related = [{ route: 'attention', anchor: 'qk-norm', label: '对照 QK-Norm 的数值控制' }]
