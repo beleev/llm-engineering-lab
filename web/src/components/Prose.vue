@@ -8,7 +8,8 @@
   <div class="prose">
     <template v-for="(b, i) in blocks" :key="i">
       <ul v-if="b.items">
-        <li v-for="x in b.items" :key="x.body"><b v-if="x.label"><Tex :text="x.label" /></b><Tex :text="x.body" /></li>
+        <!-- 正文包一层 span: 实验台说明把「标签 / 正文」排成两列网格时要两个元素 -->
+        <li v-for="x in b.items" :key="x.body" :class="{ labeled: x.label }"><b v-if="x.label"><Tex :text="x.label" /></b><span class="li-body"><Tex :text="x.body" /></span></li>
       </ul>
       <div v-else-if="b.display" class="tex-row"><Tex :text="b.text" /></div>
       <p v-else><Tex :text="b.text" /></p>

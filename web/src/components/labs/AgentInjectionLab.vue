@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="Prompt injection — 假设模型已经上当, 哪几层还拦得住?"
-    sub="用户只说了一句「总结 release.md」。fetch 回来的文档里藏着三件坏事: 读沙箱外的私钥、把它发到外网、文档里还夹着一个 API key。
-      切换各层防御和「模型是否上当」, 看每个动作的下场。路径可以自己改着试。"
+    title="Prompt injection — 假设模型已经上当, 四层防御里哪几层还拦得住?"
+    sub="- 模拟什么: prompt injection (提示注入): agent 用工具抓回来的文档里混着一句「指令」, 模型分不清这是用户的要求还是文档里的字, 就可能照着做。场景是用户只说了一句「总结 release.md」, fetch_doc 抓回来的文档里却藏着三件坏事: 让 agent 去读沙箱外的私钥 (../../.ssh/id_rsa), 再用邮件工具 mcp__mail__send 把它发到外网地址, 而且文档本身还夹着一个 API key (sk-live 开头)。这个台子不赌模型会不会上当, 而是问: 假设它上当了, 哪几层防御还能兜住。
+- 图上是什么: 上面的代码框是模型实际看到的 fetch_doc 结果 (tool_result): 开了「标记不可信数据」, 整段会被包进 untrusted_data 标签, 正则认出注入句式时标签上还会多一个 injection_suspected 属性; 开了「密钥脱敏」, 里面的 key 会变成 [REDACTED]。下面三行是这一轮会发生的三个动作, 按顺序是 fetch_doc (用户要的), read_file (注入让它读的那个路径), mcp__mail__send (注入让它外发); 每行右侧是这个动作的下场: 红色是执行了而且造成了伤害, 绿色是被某一层拦下, 黄色是执行了但没伤害, 普通边框是正常执行。点任意一行, 下方会解释为什么是这个下场。
+- 可以做什么: 第一排选注入的写法: 「直白的注入」用 Ignore previous instructions 这种教科书句式, 「改写过的注入」换成一段像运维备注的话, 意思一样但正则认不出来; 「模型上当了 / 没上当」切换模型会不会照着文档里的指令去做。第二排是四层防御, 可以任意组合: 「标记不可信数据 + 特征检测」把工具结果包进 untrusted_data 标签, 并用几条正则扫可疑句式, 这一层只是提醒模型; 「污点规则」是确定性代码, 本轮上下文一旦混进过不可信数据, 高风险工具 (这里是外发邮件) 一律拒绝, 不管权限怎么配; 「路径围栏 confine()」先把路径 resolve 成真实路径 (展开 ..), 再检查它是否还在沙箱根目录 /work 之内; 「密钥脱敏」在内容进入上下文和日志之前把 key 替换掉。最下面的输入框是注入让 agent 读的路径, 可以自己改, 比如改成 notes/a.txt (沙箱内) 或 /work/../etc/passwd (字面上以 /work 开头, 实际在外面)。
+- 应该看到: 默认只开了「标记」而且模型上当了: 文档被标记、特征检测报警, 但模型照样读到了沙箱外的私钥并把它发了出去, 右侧「执行了的危险动作」是 2。打开「路径围栏」, read_file 被拦, 邮件还是发了但里面没有私钥 (变黄); 再打开「污点规则」, 邮件根本发不出去。右侧读数: 「执行了的危险动作」是三个动作里标红的个数; 「进入 transcript 的密钥」数的是模型看到的那段文本里还剩几个 sk- 开头的 key, 开「密钥脱敏」后归 0; 「特征检测」是正则有没有在文档里认出注入句式, 换成「改写过的注入」就会漏过; 「路径: 朴素前缀 / resolve」对比两种判断路径有没有越界的方法, 朴素前缀只看拼出来的字符串是不是以 /work 开头, resolve 先展开 .. 再看真实位置, 两边结论不一致时标红, 那就是朴素方法被骗了。"
     module="llm_agent/m12"
     run="python -m llm_agent.m12_guardrails.demo"
     :challenge="{
-      ask: '只开「标记不可信数据」, 把注入换成「改写过的」: 标记还在, 特征检测却没报警。如果模型这次上当了, 私钥会被发出去吗? 关掉哪一条链路才一定安全?',
-      answer: '会发出去。标记和特征检测都只是在「劝」模型: 正则挡不住换个说法的注入, 模型也可能就是不听。这一层只能让攻击更难成功, 不能让它不可能。\n确定性的防线有两条:\n- 路径围栏: 让私钥根本读不到。resolve 之后再判断是否还在 root 内。\n- 污点规则: 本轮上下文混入过不可信数据之后, 高风险工具一律拒绝, 对外通道被切断。\n这就是 lethal trifecta 的拆法: 私有数据 + 不可信内容 + 对外通道, 三者不能同时成立。',
+      ask: '只开「标记不可信数据」, 把注入换成「改写过的」: 标签还在, 特征检测却没报警。如果模型这次上当了, 私钥会被发出去吗? 要关掉哪一条链路才一定安全?',
+      answer: '会发出去。\n一步步看: 「改写过的注入」里没有 Ignore previous instructions 之类的固定句式, 几条正则一个都没命中, 所以标签上没有 injection_suspected, 右侧「特征检测」显示漏过。但就算报警了也一样: 标记和特征检测都只是在「劝」模型, 把文档包进 untrusted_data 标签, 模型也可能就是不听。这一层能降低上当的概率, 不能让攻击不可能。\n要一定安全, 得靠不看模型脸色的确定性防线, 有两条, 开任意一条就够:\n- 路径围栏: 让私钥根本读不到。confine() 把 ../../.ssh/id_rsa 接在 /work 后面 resolve 成真实路径 /.ssh/id_rsa, 发现它不在 /work 之内, 直接抛错。read_file 读不到私钥, 邮件里就没有私钥可发。\n- 污点规则: 本轮上下文里混进过不可信数据 (fetch_doc 的结果) 之后, 高风险工具一律拒绝, mcp__mail__send 发不出去, 对外通道被切断。\n这就是 lethal trifecta (致命三件套) 的拆法: 私有数据 + 不可信内容 + 对外通道, 三者同时成立才会出事, 切断任意一个就安全。',
     }"
   >
     <template #controls>
@@ -39,11 +41,14 @@
     <p class="why">{{ actions[sel]?.why }}</p>
 
     <template #stats>
-      <div class="kv"><span>执行了的危险动作</span><b :class="harm ? 'bad' : 'good'">{{ harm }}</b></div>
-      <div class="kv"><span>进入 transcript 的密钥</span><b :class="leaked ? 'bad' : 'good'">{{ leaked }}</b></div>
-      <div class="kv"><span>特征检测</span><b :class="hits.length ? 'good' : 'bad'">{{ on.wrap ? (hits.length ? '报警' : '漏过') : '未开' }}</b></div>
-      <div class="kv"><span>路径: 朴素前缀 / resolve</span><b :class="confine.naive === confine.safe ? '' : 'bad'">{{ confine.naive ? '放行' : '拦' }} / {{ confine.safe ? '放行' : '拦' }}</b></div>
-      <p class="lab-note">resolve 后的真实路径: <code class="inline">{{ confine.real }}</code>。先拼接再查字符串前缀是经典漏洞: <code class="inline">/work/../etc</code> 以 /work 开头, 却早已在沙箱之外。</p>
+      <div class="kv"><span>执行了的危险动作 (标红的行)</span><b :class="harm ? 'bad' : 'good'">{{ harm }}</b></div>
+      <div class="kv"><span>进入 transcript 的密钥 (模型看到的文本里剩几个 sk- key)</span><b :class="leaked ? 'bad' : 'good'">{{ leaked }}</b></div>
+      <div class="kv"><span>特征检测 (正则认出注入句式了吗)</span><b :class="hits.length ? 'good' : 'bad'">{{ on.wrap ? (hits.length ? '报警' : '漏过') : '未开' }}</b></div>
+      <div class="kv"><span>路径越界判断: 朴素前缀 / 先 resolve</span><b :class="confine.naive === confine.safe ? '' : 'bad'">{{ confine.naive ? '放行' : '拦' }} / {{ confine.safe ? '放行' : '拦' }}</b></div>
+      <div class="lab-note">
+        <p>输入框里的路径接在沙箱根 /work 后面、展开 .. 之后的真实位置是 <code class="inline">{{ confine.real }}</code>。「先 resolve」看的就是这个真实位置在不在 /work 之内。</p>
+        <p>「朴素前缀」是先把字符串拼起来再查它是不是以 /work 开头, 这是经典漏洞: <code class="inline">/work/../etc</code> 以 /work 开头, 却早已在沙箱之外。两边结论不一致时标红, 说明朴素方法被这条路径骗过了。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

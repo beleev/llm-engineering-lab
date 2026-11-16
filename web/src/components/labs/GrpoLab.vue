@@ -6,15 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="GRPO 入门 — 组内排名替代 critic"
-    sub="同一个 prompt 采 $G$ 条回复, 奖励减组均值、除组标准差就是优势 $\hat{A}$, 不需要任何 value 网络。
-      上图是奖励, 拖柱顶的横条改某一条的分数; 下图是算出来的优势。
-      这里只看「奖励 → 优势」这一步。每个 token 分到多少梯度, 见「GRPO 进阶」一章的实验台。"
+    title="GRPO — 同一道题采 G 条回复互相比较, 顶替 PPO 的 critic"
+    sub="- 模拟什么: 强化学习微调里, 模型对同一个 prompt 采样 $G$ 条回复, 每条由规则或奖励模型打一个分 $r$ (0 到 1)。要把「这条回复好不好」变成训练信号, 得先知道「这道题平均能得几分」当基准 (baseline): 高于基准的回复推高概率, 低于的压低。PPO 另外训一个和策略同样大的 critic 网络来估这个基准; GRPO 直接拿这 $G$ 条回复的组内均值 $\mu$ 当基准, 再除以组内标准差 $\sigma$, 得到每条回复的优势 $\hat{A} = (r - \mu)/\sigma$。这个台子只看「奖励 → 优势」这一步; 每个 token 分到多少梯度, 见「GRPO 进阶」一章的实验台。
+      - 图上是什么: 上图每根柱子是一条回复的奖励 $r$, 柱顶的横条可以拖; 黄色虚线是组均值 $\mu$。下图是算出来的优势 $\hat{A}$: 绿色向上是正优势 (这条回复会被推高), 红色向下是负优势 (会被压低), 柱上的数字是 $\hat{A}$ 的值。
+      - 可以做什么: 拖任意柱顶的横条改那条回复的分数 (键盘上下键每次 0.05)。「重新采样」换一组随机分数。「全组 +0.1 / −0.1」把所有回复的分数一起抬高或压低。「全组同分」把所有分数设成 0.5。拖「组大小 G」(4 到 16) 改一组有几条回复, 已有的柱子不会变, 只是多几条或少几条。
+      - 应该看到: 拖一条奖励, 不只它自己, 全组的优势柱都在变, 因为 $\mu$ 和 $\sigma$ 是全组共用的。「全组 +0.1」时优势一根都不动。「全组同分」时优势全是 0。右侧「组均值 μ」「组标准差 σ」是当前这组的数; 「max Â / min Â」是最好和最差的那条回复的优势; 「被推高 / 被压低的回复」是正优势和负优势各几条。下面的表把 PPO 和 GRPO 并排: GRPO 不要 critic, 训练时同时驻留的模型就少一个。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
-      ask: '先猜: 点「全组 +0.1」把每条奖励一起抬高, 下面的优势柱怎么变? 再只拖一条奖励, 有几条回复的优势跟着变? 最后点「全组同分」。',
-      answer: '全组 +0.1: 优势一根都不动。$r - \\mu$ 把整体平移消掉了, 判分器宽松还是严格不影响梯度。\n只拖一条: 全组的优势都变, 因为 $\\mu$ 和 $\\sigma$ 是全组共用的。一条回复好不好, 要看同组的其他回复。\n全组同分: $\\hat{A}$ 全为 0, 这组采样没有梯度。训练脚本实测 grpo 有 32.1% 的 prompt 属于这种情况。\n这就是省掉 critic 的代价: baseline 只来自这 $G$ 条采样, 组里分不出高低就学不到东西。',
+      ask: '先猜: 点「全组 +0.1」把每条奖励一起抬高, 下面的优势柱怎么变? 再只拖一条奖励, 有几条回复的优势跟着变? 最后点「全组同分」, 优势变成什么?',
+      answer: '答案: 全组 +0.1 优势不变; 只拖一条, 全组 G 条的优势都变; 全组同分时优势全是 0。\n为什么:\n- 全组 +0.1: 优势一根都不动。$\\hat{A} = (r - \\mu)/\\sigma$ 里 $r - \\mu$ 把整体平移消掉了 (每条都加 0.1, 均值也加 0.1), $\\sigma$ 也不变。所以判分器整体宽松还是严格, 不影响梯度; 只有组内的相对高低有用。\n- 只拖一条: 全组的优势都变, 因为 $\\mu$ 和 $\\sigma$ 是用全组算的, 一条动了, 基准就动了。一条回复好不好, 要看同组的其他回复。\n- 全组同分: $r - \\mu$ 全为 0, $\\hat{A}$ 全为 0, 这组采样对梯度没有任何贡献 (代码里分母加了 1e-4 防止除以 0)。训练脚本实测: 60 步 GRPO 里平均 32.1% 的 prompt 属于这种全对或全错的情况, 它们白占 batch。\n这就是省掉 critic 的代价: 基准只来自这 $G$ 条采样, 组里分不出高低就学不到东西。DAPO 的动态采样专门针对它: 把这种 prompt 丢掉再补采。',
     }"
   >
     <template #controls>
@@ -28,11 +29,11 @@
     </template>
 
     <svg ref="svgEl" viewBox="0 0 640 300" role="group" aria-label="一组回复的奖励与优势">
-      <text x="40" y="12" class="t">奖励 r (0–1)</text>
+      <text x="40" y="12" class="t">每条回复的奖励 r (0–1), 拖柱顶横条可改</text>
       <line x1="40" y1="130" x2="630" y2="130" class="axis" />
       <line x1="40" :y1="yR(st.mu)" x2="630" :y2="yR(st.mu)" class="mean" />
       <text x="630" :y="yR(st.mu) - 3" text-anchor="end" class="t warn">组均值 μ = {{ st.mu.toFixed(3) }}</text>
-      <text x="40" y="162" class="t">优势 Â = (r − μ) / σ</text>
+      <text x="40" y="162" class="t">优势 Â = (r − μ) / σ: 绿色推高, 红色压低</text>
       <line x1="40" y1="230" x2="630" y2="230" class="axis" />
       <g v-for="(o, i) in rows" :key="i">
         <rect :x="o.x" :y="yR(o.r)" :width="bw" :height="130 - yR(o.r)" fill="var(--eye)" opacity="0.7" />
@@ -49,10 +50,10 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="组均值 $\mu$" /></span><b>{{ st.mu.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="组标准差 $\sigma$" /></span><b :class="{ bad: st.sd === 0 }">{{ st.sd.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="$\max\hat{A}$ / $\min\hat{A}$" /></span><b>{{ st.max.toFixed(2) }} / {{ st.min.toFixed(2) }}</b></div>
-      <div class="kv"><span>被推高 / 被压低的回复</span><b :class="{ bad: st.sd === 0 }">{{ st.up }} / {{ st.down }}</b></div>
+      <div class="kv"><span><Tex text="组均值 $\mu$ (当基准用, 顶替 critic)" /></span><b>{{ st.mu.toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="组标准差 $\sigma$ (0 = 全组同分, 没梯度)" /></span><b :class="{ bad: st.sd === 0 }">{{ st.sd.toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="$\max\hat{A}$ / $\min\hat{A}$ (最好 / 最差那条的优势)" /></span><b>{{ st.max.toFixed(2) }} / {{ st.min.toFixed(2) }}</b></div>
+      <div class="kv"><span>被推高 / 被压低的回复条数</span><b :class="{ bad: st.sd === 0 }">{{ st.up }} / {{ st.down }}</b></div>
       <table class="cmp">
         <thead>
           <tr><th></th><th>PPO</th><th>GRPO</th></tr>
@@ -65,9 +66,9 @@
         </tbody>
       </table>
       <div class="lab-note">
-        <p v-if="st.sd === 0"><Tex text="组内奖励全相同: $\hat{A}$ 全为 0, 这 $G$ 次采样对梯度没有贡献。" /></p>
-        <p v-else>正优势的回复 → 提高概率; 负优势 → 压低。把「比组里平均好」变成监督信号, 这是 R1 训练配方的主干。</p>
-        <p><Tex text="目标里还有一项 $\beta\cdot\mathrm{KL}$ 惩罚: KL 把策略锚在参考模型附近, $\beta$ 越大越保守。它不参与优势的计算。" /></p>
+        <p v-if="st.sd === 0"><Tex text="组内奖励全相同: $\hat{A}$ 全为 0, 这 $G$ 次采样对梯度没有贡献, 白占 batch。" /></p>
+        <p v-else>正优势的回复会被提高概率, 负优势的被压低。把「比组里平均好」变成监督信号, 不需要人标注、也不需要 critic, 这是 DeepSeek-R1 训练配方的主干。</p>
+        <p><Tex text="训练目标里还有一项 $\beta\cdot\mathrm{KL}$ 惩罚: KL 是策略和参考模型 (训练起点) 之间的距离, 它把策略锚在起点附近, $\beta$ 越大越保守。它不参与优势的计算, 所以这个台子里没有它。" /></p>
       </div>
     </template>
   </LabFrame>

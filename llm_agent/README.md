@@ -1,8 +1,8 @@
 # llm_agent — LLM 应用层 / Agent 教学章节
 
-[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+[![Agent loop — 消息列表怎么一块一块长出来, 每问一次模型为什么都要重发全部历史 llm_agent/m01](../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
 
-[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
+[打开相关交互实验：Agent loop — 消息列表怎么一块一块长出来, 每问一次模型为什么都要重发全部历史 llm_agent/m01](https://beleev.github.io#/agent/loop)
 
 [项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/agent)
 
@@ -139,29 +139,29 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 
 | 模块 | 读完能解释什么 |
 |---|---|
-| [m26_tool_discovery](m26_tool_discovery/README.md) | 模型初次只看到 discover 这 1 个工具; 查目录命中才注册, 下一轮可见 Schema 从 1 变 2, 而不是 103 个。 |
-| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 同一份 5 条事实: 平铺检索只答出 [Atlas], 树摘要答全 [Atlas, Boreal], 图遍历两跳答出负责人 Lin。 |
-| [m28_coding_agent](m28_coding_agent/README.md) | 改一行不等于修好: 首个候选 return total 只过 1/3 测试。 |
-| [m29_async_runtime](m29_async_runtime/README.md) | 取消是两段式: cancel-request 之后要等执行器的 cancel-ack。 |
-| [m30_collaboration](m30_collaboration/README.md) | 两个 worker 各改一个文件, 没有文本冲突, 合起来总量 12 超过上限 10。 |
-| [m31_eval_suite](m31_eval_suite/README.md) | 同一份题集 (suite 191d7ed87046) 跑三种条件: baseline 1/3, 只开授权门 2/3, 再开澄清 3/3; 分层报才看得出 safety 是授权门救的, hard 是澄清救的。 |
-| [m32_agent_training](m32_agent_training/README.md) | 4 个符号动作、16 个训练实体: SFT 用 5 条示范跑 60 步学会 lookup→answer, 留出的 16 个实体全过; 在线 RL 按温度 3 每步采 8 条、跑 35 步, 参数动了, 留出仍 100%。 |
-| [m33_skill_evolution](m33_skill_evolution/README.md) | 项目 A 的失败只改 projects[A]=Rust, 不动 default: 全局改法过三道门是 [True, False, False] 被拒; 局部改法三门全过才发布成版本 1, A=Rust、B=Python。 |
-| [m34_voice_interaction](m34_voice_interaction/README.md) | 同一条 10 个事件的时间线: 半双工打不断, 3 条输出全是旧任务的; 全双工只停播放器会重播 2 条过期音频; 按 generation 丢弃后只剩 "正在查"、"已停止" 2 条, 过期 0 条。 |
-| [m35_visual_grounding](m35_visual_grounding/README.md) | 同一个绿色按钮, 截图之后和红色按钮换了位: 按旧坐标 (29, 17) 点开的是 other, 刷新后 (29, 52) 才是 target。 |
-| [m36_embodied_control](m36_embodied_control/README.md) | 同一段动作块, 增益 1.0 刚好到 1.0, 增益 1.8 冲到 1.8。 |
-| [m37_midtraining](m37_midtraining/README.md) | 只训新域 120 步: 新域 0% → 100%, 旧域 100% → 0%, loss 全程在降。 |
-| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 把规则写成代码只保证可重复: total * (1 - percent) 每次都算出 -900。 |
-| [m39_meta_optimization](m39_meta_optimization/README.md) | 训练树上 prior 策略 0.9 赢过 breadth 0.8; 换到留出树, prior 只拿 0.2, breadth 0.95。 |
-| [m40_agent_society](m40_agent_society/README.md) | 背叛对合作 6 轮拿 30 分, 双方都背叛各 6 分、总共 12; 互惠对互惠各 18、总共 36, 对背叛者只让它拿 10。 |
-| [m41_system_design](m41_system_design/README.md) | 有清单走 workflow, 没清单走 Agent, 歧义和高风险交人: hybrid 4 个请求全处理完, 费用 4 单位; 全 Agent 也是 4 个, 费用 6。 |
-| [m42_memory_privacy](m42_memory_privacy/README.md) | 授权在召回之前查, 不是召回后过滤: flat 模式一次就漏 1 条别家租户的、1 条过期的。 |
+| [m26_tool_discovery](m26_tool_discovery/README.md) | 目录里有 102 个工具, 全塞进请求 (flat 模式) 的话模型每轮都看到 103 个 Schema (工具的参数说明)。 |
+| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 知识库里的事实是一堆带来源 id 的小块, 一次只能取回几块, 取哪几块决定了答得全不全。 |
+| [m28_coding_agent](m28_coding_agent/README.md) | demo 里一个写死的修复策略 (RepairPolicy, 代替真实模型) 去修 pricing.py 里的折扣函数。 |
+| [m29_async_runtime](m29_async_runtime/README.md) | demo 用真实的 asyncio 任务模拟一个会往账本里记 10 元的工具, 分三种时序跑: 跑完、提交前被取消、提交后被取消。 |
+| [m30_collaboration](m30_collaboration/README.md) | 两个 worker 并行改一份共享计划, 各改自己负责的那个资源, 合并时没有任何文本冲突; 可合起来总量 12 超过上限 10。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 同一份 3 道题的题集 (内容哈希成 suite id 191d7ed87046) 跑三种条件: 什么机制都不开的 baseline 过 1/3; 只开授权门 (不允许写的题真的不写) 过 2/3; 再开澄清 (账户不明时问用户一句) 过 3/3。 |
+| [m32_agent_training](m32_agent_training/README.md) | demo 让一个极小的 LLaMA 模型 (在 CPU 上真的更新参数) 学一个只有 4 个动作的工具协议, 训练用 16 个实体, 验收用另外 16 个没见过的实体 (留出集)。 |
+| [m33_skill_evolution](m33_skill_evolution/README.md) | demo 里的 Skill 是一条 "按项目选编程语言" 的规则: 默认 Python, 可以给单个项目设例外。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音助手分四段: VAD 判断有没有人在说话, ASR 把语音转成文字, LLM 想答案, TTS 把答案变成声音。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 视觉定位 (visual grounding) 是从截图像素里算出目标在哪。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | demo 是一个一维的小车: 位置 x 从 0 出发, 目标 1.0, 每步 x 增加 增益 × 动作。 |
+| [m37_midtraining](m37_midtraining/README.md) | 中期训练指的是: 预训练之后, 继续用 "预测下一个 token" 的目标在新领域语料上训练模型, 把新知识写进权重。 |
+| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序化行动指让模型把规则写成代码交给解释器算, 而不是在文字里心算。 |
+| [m39_meta_optimization](m39_meta_optimization/README.md) | 元优化改的不是模型知道什么, 而是 agent "怎么探索": 本章比较两个搜索策略, breadth (按发现顺序展开节点) 和 prior (先展开先验分 prior 最高的节点)。 |
+| [m40_agent_society](m40_agent_society/README.md) | demo 是一个重复的囚徒困境: 两个 agent 每轮各选合作 (C) 或背叛 (D), 按一张收益表拿分, 连玩 6 轮。 |
+| [m41_system_design](m41_system_design/README.md) | 两种做法: workflow 是事先写好步骤清单的固定流程, 便宜但清单里没有的事做不了; Agent 是让模型每一步自己决定下一步, 什么都能做但贵。 |
+| [m42_memory_privacy](m42_memory_privacy/README.md) | 权限要在召回之前查, 不是先把记忆全取出来再过滤。 |
 
 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
 
-- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 精确扫描 288 次距离计算, recall 1.0; 单叶投影树 36 次, recall 0.8333; 预算 12 的图搜索 144 次, recall 0.6667, 预算放到 24 才回到 1.0。
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 向量检索要做的事: 给一个查询向量, 在库里找离它最近的那个。
 
-- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师和学生是同一个 nn.Linear(2, 2), 教师分支多看一列已验证的方向提示。
+- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师和学生是同一个 nn.Linear(2, 2) (一个 2 进 2 出的线性层, 一共 4 个参数)。
 
 ## 机制实验
 
@@ -176,14 +176,14 @@ m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 S
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [RAG: 答案误差如何反传到检索器](m46_joint_rag/README.md) | 检索器冻结时, 正确文档概率停在 0.1142, 答案边缘似然 0.2013, top-1 是错的那篇。让答案损失反传到检索 logits, 100 步后正确文档概率 0.9802; 两侧一起训时检索也到 0.9771, 但生成器在错文档下答对的概率从 0.1 涨到 0.2613, 这就是背答案的苗头。 |
-| [有效上下文: 看得到, 不等于用得上](m47_context_utilization/README.md) | 同一个读出器, 证据放在 64 个 token 的开头、中间、末尾, 带首尾偏好时拿到的质量是 0.8132、0.0286、0.8132; 去掉偏好三处都是 0.4643, 仍被 63 个干扰稀释到 0.5 以下。先检索出 top-4 再读, 三处都到 0.9479, 18 组组合全部够用。能装下、能召回、能组合是三件事。 |
-| [安全与治理: 误拒、漏拦和责任记录](m48_safety_governance/README.md) | 同样 4 个案例, 关键词拦截误拒了 1 条引用 "ignore previous instructions" 的正常请求, 又放过了 1 条换了说法的外发攻击, B 组正确率 0; 不设权限门则 2 条攻击全放行。执行器只核对服务端 allowlist 时, 误拒 0、漏放 0。正常文档可以讨论攻击, 恶意文档也可以不含关键词, 权限只能来自可信的用户授权。 |
-| [学习世界模型: 预测和反馈的差别](m49_learned_world/README.md) | demo 用 120 条转移样本拟合出 A/B = 0.9002/0.7007, 动力学匹配时一步 MPC 把状态从 2 收到 0.0062。部署时执行器增益从 0.7 掉到 0.35: 开环照着预测走, 预测说已经到 0.006, 真实状态还在 0.286, 终态 0.28553; 每步重新观察的闭环终态 0.00706。世界模型负责预测, 控制器还得在预测出错后回去看现实。 |
-| [代码任务: 跨文件修改与独立验收](m50_repository_verification/README.md) | 把折扣接口从百分数改成小数后, 只改 rates.py 不改 invoice.py 的补丁, 在工作区外的 4 个独立用例里只过 1 个, 退出码 1; 同步调用方的完整补丁 4/4。候选把 total 硬编码成 80、把本地测试改成 assert True 自报全绿, 独立用例照样只过 1/4。一个函数过了测试, 不等于整个仓库对了。 |
-| [形式证明与科学假设: 三种正确](m51_formal_science/README.md) | 引用写成 (0, 0) 的伪造证书, 最后一行同样是 Q, 内核逐步核对引用后拒绝; 引用 (0, 1) 的证书通过。三点测量里有一处异常, 二次式把训练 MSE 拟到 0.0, 在独立模拟器的 4 个留出点上 MSE 3.06; 线性假设训练 MSE 0.14222, 留出 0.07111。算对一个数、证出一个命题、发现一条现实规律, 靠的是三种不同的证据。 |
-| [专业领域: 证据时效、地域与复核](m52_domain_workflows/README.md) | 同样 3 个虚构场景, 只按领域取第一篇资料: 医疗引了过期的 med-old, 法律引了 B 地区的 law-B, 0 对。按地域和日期过滤后医疗、法律各对 1 条, C 地区没有金融资料就拒答, 3/3; 专家复核状态来自场景里的 expert 标志, 模型自己写不出 "已复核"。专业任务的错误常常不是句子不通, 而是引错了版本、地域或人群。 |
-| [工具学习: 从候选调用到训练数据](m53_tool_data/README.md) | 同一个加法工具, 全部收录时留出 40 题全调用, 复述题也被答成 a+b, 只对 20 题; 按有/无工具的答案似然收益过滤后, 只在算术题上调用 (20 次), 40 题全对; 把成本门槛提到 6, 算术题的收益也不够, 0 次调用, 又只对 20 题。工具执行成功, 不代表值得教给模型; 训练数据应保留能帮助后续预测的调用, 并把额外成本算进去。 |
+| [RAG: 答案误差如何反传到检索器](m46_joint_rag/README.md) | RAG (retrieval-augmented generation, 检索增强生成) 先由检索器从文档库里挑文档, 再由生成器看着挑出的文档写答案。 |
+| [有效上下文: 看得到, 不等于用得上](m47_context_utilization/README.md) | 窗口装得下、证据被召回、多条证据被一起用上, 是三件要分开测的事。 |
+| [安全与治理: 误拒、漏拦和责任记录](m48_safety_governance/README.md) | 正常文档可以讨论攻击, 恶意文档也可以不含关键词, 所以权限只能来自可信的用户授权, 不能看文字。 |
+| [学习世界模型: 预测和反馈的差别](m49_learned_world/README.md) | 世界模型负责预测, 控制器还得在预测出错之后回去看现实。 |
+| [代码任务: 跨文件修改与独立验收](m50_repository_verification/README.md) | 一个函数过了测试, 不等于整个仓库对了。 |
+| [形式证明与科学假设: 三种正确](m51_formal_science/README.md) | 这组实验区分三种「正确」: 算对一个数、证出一个命题、发现一条现实规律, 各要各的证据。 |
+| [专业领域: 证据时效、地域与复核](m52_domain_workflows/README.md) | 专业任务的错误常常不是句子不通, 而是引错了版本、地域或人群。 |
+| [工具学习: 从候选调用到训练数据](m53_tool_data/README.md) | 工具执行成功, 不代表值得教给模型; 训练数据应保留能帮助后续预测的调用, 并把额外成本算进去。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。
 

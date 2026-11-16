@@ -1,16 +1,16 @@
 <!-- KV cache 实验台 (对应 llm_infer/m01_kv_cache): 每步到底前向了几个 token。 -->
 <template>
   <LabFrame
-    title="KV cache — 每一步到底重算了多少 token"
-    sub="柱子 = 这一步送进模型前向的 token 数。
-      - 没有 cache: 第 $t$ 步要把 prompt + 已生成的 $t$ 个 token 全部重跑。
-      - 有 cache: prefill 只跑一次, 之后每步只前向 1 个新 token。
-      点柱子 (或聚焦图后按左右方向键) 跳到那一步, 看下方 token 条里谁被重算、谁直接从 cache 读。"
+    title="KV cache — 没有它, 每生成一个 token 都要把前面的全部重算一遍"
+    sub="- 模拟什么: 自回归生成每一步只新增 1 个 token, 但注意力要用到前面所有 token 的 K 和 V (每个 token 经过每一层时算出的两个向量, 新 token 靠和它们做点积来决定看谁)。因果 mask 下旧 token 的 K/V 不会因为后面来了新 token 而改变, 所以没必要每步重算: 存下来, 这就是 KV cache。没有 cache 时, 第 $t$ 步要把 prompt 加上已生成的 $t$ 个 token 全部重新送进模型; 有 cache 时, prompt 只在第 0 步算一次 (prefill), 之后每步只送 1 个新 token 进模型, 它的 K/V 追加到 cache 尾部。
+      - 图上是什么: 每一步两根柱子, 高度是这一步送进模型前向的 token 数: 黄色是没有 cache 的做法, 绿色是有 cache 的做法, 当前选中的做法是实色, 另一种半透明。横轴是生成的第几步 (第 0 步含 prefill)。下面一排小格是第 $t$ 步送进注意力的 $P + t$ 个位置, p 是 prompt 里的 token, g 是已生成的 token: 黄色表示这一步要重新前向 (重算 K/V 和 MLP), 绿色表示直接从 cache 读, 紫色是这一步新算并写进 cache 的 token。
+      - 可以做什么: 点「无 cache」或「有 KV cache」切换做法; 拖「prompt 长度 P」和「生成 token 数 N」; 用播放器逐步播放, 或点一根柱子 (或聚焦图后按左右方向键) 跳到那一步。
+      - 应该看到: 无 cache 的黄色柱子一步比一步高 (每步都要重跑整段), 有 cache 的绿色柱子只有第 0 步高, 之后都是 1。右侧读数: 「本步前向 token 数」是当前步送进模型的 token 数 (比重跑整段少就绿); 「累计前向」是到这一步为止一共过了多少 token; 「全程总量」是 N 步加起来无 cache 和有 cache 各要多少, 括号里是倍数 (默认 P = 6、N = 32 时 688 对 37, 18.6×, 和 demo 一致); 「cache 里存着的 token 数」是有 cache 时当前存了几个 token 的 K/V, 每层各一份。"
     module="llm_infer/m01"
     run="python -m llm_infer.m01_kv_cache.demo"
     :challenge="{
       ask: '把生成长度 N 从 32 拖到 8, 长度变成 1/4。无 cache 的总前向 token 数也变成 1/4 吗?',
-      answer: '降得更多: 688 降到 76, 约 1/9。\n- 无 cache: 总量 $= N \\cdot P + N(N-1)/2$, 含 $N^2$ 项。\n- 有 cache: 总量 $= P + N - 1$, 只从 37 降到 13。\ncache 用 $O(T)$ 的显存换掉了 $O(T^2)$ 的重复计算。所以后面所有章节都在管这块显存。',
+      answer: '降得更多: 无 cache 的总量从 688 降到 76, 约 1/9, 不是 1/4。\n- 无 cache: 第 $t$ 步要前向 $P + t$ 个 token, $N$ 步加起来 $= N \\cdot P + N(N-1)/2$, 里面有 $N^2$ 项, 所以 $N$ 缩到 1/4 时总量缩得比 1/4 多得多。\n- 有 cache: 总量 $= P + N - 1$ (prefill 的 $P$ 个, 加上之后每步 1 个), 只从 37 降到 13, 随 $N$ 线性变化。\ncache 用 $O(T)$ 的显存 (每个 token 每层存一份 K/V) 换掉了 $O(T^2)$ 的重复计算。这块显存怎么省、怎么分、怎么复用, 是后面所有章节的主题。',
     }"
   >
     <template #controls>
@@ -57,16 +57,16 @@
 
     <template #stats>
       <div class="kv"><span>本步前向 token 数</span><b :class="nowCls">{{ cur.now }}</b></div>
-      <div class="kv"><span>累计前向 (到第 {{ t }} 步)</span><b>{{ cur.cum }}</b></div>
+      <div class="kv"><span>累计前向 (到第 {{ t }} 步一共过了多少 token)</span><b>{{ cur.cum }}</b></div>
       <div class="kv"><span>全程总量: 无 / 有 cache</span><b>{{ total.no }} / {{ total.yes }} ({{ (total.no / total.yes).toFixed(1) }}×)</b></div>
-      <div class="kv"><span>显存里攥着的 KV 条目</span><b>{{ cache ? P + t : 0 }} × 层数</b></div>
+      <div class="kv"><span>cache 里存着的 token 数 (每层各一份 K/V)</span><b>{{ cache ? P + t : 0 }} × 层数</b></div>
       <div class="lab-note">
         <p>
           闭式: 无 cache <Tex text="$= N \cdot P + N(N-1)/2 =$" /> {{ N * P + N * (N - 1) / 2 }}; 有 cache <Tex text="$= P + N - 1 =$" /> {{ P + N - 1 }}。
           与上面逐步累加的数相同。
         </p>
-        <p>cache 省掉的是旧 token 的 K/V 投影和 MLP 重算。</p>
-        <p>新 token 的 query 仍要和全部 {{ P + t }} 个 key 做点积, 每步访存依旧是 <Tex text="$O(t)$" />。所以长上下文 decode 是带宽瓶颈。</p>
+        <p>cache 省掉的是旧 token 的 K/V 投影和 MLP 重算, 也就是「把旧 token 重新跑一遍所有层」。</p>
+        <p>但新 token 的 query 仍要和全部 {{ P + t }} 个 key 做点积, 每步的访存量依旧是 <Tex text="$O(t)$" />: 要把整个 cache 读一遍只为算 1 个 token。所以长上下文 decode 是带宽瓶颈, 不是算力瓶颈。</p>
       </div>
     </template>
   </LabFrame>

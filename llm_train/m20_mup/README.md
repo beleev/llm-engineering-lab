@@ -1,8 +1,8 @@
 # M20 — μP: 超参随宽度迁移
 
-[![μP — 小模型调好的 lr 能直接搬到大模型吗? llm_train/m20](../../docs/screenshots/train-scaling-2.png)](https://beleev.github.io#/train/scaling)
+[![μP — 在小模型上调好的学习率, 能直接搬到大模型吗? llm_train/m20](../../docs/screenshots/train-scaling-2.png)](https://beleev.github.io#/train/scaling)
 
-[打开相关交互实验：μP — 小模型调好的 lr 能直接搬到大模型吗? llm_train/m20](https://beleev.github.io#/train/scaling)
+[打开相关交互实验：μP — 在小模型上调好的学习率, 能直接搬到大模型吗? llm_train/m20](https://beleev.github.io#/train/scaling)
 
 ## 直觉
 

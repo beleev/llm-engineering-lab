@@ -1,8 +1,8 @@
 # M10 — Planning: todo、plan 模式、并行工具调用
 
-[![Plan 模式 — 只读是门强制的, 不是模型自觉的 llm_agent/m10](../../docs/screenshots/agent-planning-1.png)](https://beleev.github.io#/agent/planning)
+[![Plan 模式 — 计划批准之前「只许看不许动」, 是权限门强制的, 不是模型自觉的 llm_agent/m10](../../docs/screenshots/agent-planning-1.png)](https://beleev.github.io#/agent/planning)
 
-[打开相关交互实验：Plan 模式 — 只读是门强制的, 不是模型自觉的 llm_agent/m10](https://beleev.github.io#/agent/planning)
+[打开相关交互实验：Plan 模式 — 计划批准之前「只许看不许动」, 是权限门强制的, 不是模型自觉的 llm_agent/m10](https://beleev.github.io#/agent/planning)
 
 ## 直觉
 

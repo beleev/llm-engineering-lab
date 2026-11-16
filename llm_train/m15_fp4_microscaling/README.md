@@ -1,8 +1,8 @@
 # M15 — Microscaling FP4 (MXFP4 / NVFP4)
 
-[![Block scaling — 一个 outlier 会连累多少邻居? llm_train/m13 · m15](../../docs/screenshots/train-low-precision-1.png)](https://beleev.github.io#/train/low-precision)
+[![Block scaling — 低位宽量化时, 一个 outlier 会连累多少邻居? llm_train/m13 · m15](../../docs/screenshots/train-low-precision-1.png)](https://beleev.github.io#/train/low-precision)
 
-[打开相关交互实验：Block scaling — 一个 outlier 会连累多少邻居? llm_train/m13 · m15](https://beleev.github.io#/train/low-precision)
+[打开相关交互实验：Block scaling — 低位宽量化时, 一个 outlier 会连累多少邻居? llm_train/m13 · m15](https://beleev.github.io#/train/low-precision)
 
 ## 直觉
 

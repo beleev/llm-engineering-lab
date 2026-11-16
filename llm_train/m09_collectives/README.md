@@ -1,8 +1,8 @@
 # M09 — 通信原语
 
-[![Ring all-reduce — 每张卡每步只给右邻居发一块 llm_train/core](../../docs/screenshots/train-collectives-loop-1.png)](https://beleev.github.io#/train/collectives-loop)
+[![Ring all-reduce — 梯度沿环接力相加, 卡数翻倍, 每张卡发的字节数却几乎不变 llm_train/core](../../docs/screenshots/train-collectives-loop-1.png)](https://beleev.github.io#/train/collectives-loop)
 
-[打开相关交互实验：Ring all-reduce — 每张卡每步只给右邻居发一块 llm_train/core](https://beleev.github.io#/train/collectives-loop)
+[打开相关交互实验：Ring all-reduce — 梯度沿环接力相加, 卡数翻倍, 每张卡发的字节数却几乎不变 llm_train/core](https://beleev.github.io#/train/collectives-loop)
 
 ## 直觉
 

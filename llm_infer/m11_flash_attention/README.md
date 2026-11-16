@@ -1,8 +1,8 @@
 # M11 — FlashAttention: 分块 + online softmax, 永不落地 (T,T) 矩阵
 
-[![FlashAttention — 分块 + online softmax llm_infer/m11](../../docs/screenshots/infer-compute-1.png)](https://beleev.github.io#/infer/compute)
+[![FlashAttention — 分块算注意力, online softmax 让分块结果能精确拼起来 llm_infer/m11](../../docs/screenshots/infer-compute-1.png)](https://beleev.github.io#/infer/compute)
 
-[打开相关交互实验：FlashAttention — 分块 + online softmax llm_infer/m11](https://beleev.github.io#/infer/compute)
+[打开相关交互实验：FlashAttention — 分块算注意力, online softmax 让分块结果能精确拼起来 llm_infer/m11](https://beleev.github.io#/infer/compute)
 
 ## 直觉
 

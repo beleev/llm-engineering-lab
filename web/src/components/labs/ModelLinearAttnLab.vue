@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="固定大小的状态 vs 越长越大的 KV"
-    sub="逐 token 播放: 每来一个 token, 把 $(k, v)$ 写进 4×4 的状态 $S$。点上排任意旧 token, 用它的 key 去读 $S$, 看读回来的 value 和当初写进去的差多少。
-      注意 t6 故意复用了 t1 的 key: 同一个 “变量” 被重新赋值。"
+    title="线性注意力 — 固定大小的状态矩阵 vs 越读越长的 KV cache"
+    sub="- 模拟什么: 两种「记住历史」的方式。普通 softmax 注意力把每个 token 的 key 和 value 原件都存进 KV cache, 读多少 token 就存多少行。线性注意力 (这里是 Qwen3-Next 用的 Gated DeltaNet) 只有一块固定大小的状态矩阵 $S$: 每来一个 token, 就把它的 $(k, v)$ 写进 $S$; 以后想取某个 token 的 value, 就用它的 key 去乘 $S$ 读回来。省内存, 但容量有限, 而且「怎么写」决定了记性好不好。
+      - 图上是什么: 最上面一排 t0 到 t9 是 10 个 token, 高亮的是播放到的当前 token, 虚线框的 t1 和 t6 故意用了同一个 key (同一个「变量名」被赋了两次值)。左边 4×4 的格子是 $S$ 的 16 个数, 颜色深浅是绝对值大小, 紫色正、粉色负; 它永远是 16 个数。中间是 softmax 注意力对照组的 KV cache, 每读一个 token 就多一行 (4 个 k 加 4 个 v)。右边的柱子是「用每个旧 token 的 key 去读 $S$, 读回来的 value 和它应该读回的 value 差多少」(相对误差): 绿色小于 15%, 黄色 15% 到 50%, 红色超过 50%。
+      - 可以做什么: 「delta rule (先擦后写)」是 DeltaNet 的写法: 先用 $k$ 读出 $S$ 里这个方向当前存的值, 减掉, 再写入新值; 「纯累加」是最原始的线性注意力, 只往 $S$ 里加 $k \cdot v^\top$。「换一组」换一组随机的 key 和 value。拖「衰减门 α」(1 是不遗忘, 越小旧内容衰减越快); 拖「写入强度 β」(1 是完全覆写, 小了只写进去一部分)。用播放控件逐 token 看 $S$ 怎么变。点上排任意一个已经读过的 token, 右侧就显示用它的 key 读 $S$ 的结果。
+      - 应该看到: 前 4 个 token 写进去时误差都接近 0 (4 维空间里最多放得下 4 个互相正交的 key); 从 t4 开始, 新 key 不可避免地和旧 key 有夹角, 写它就污染旧的槽位, 所有旧 token 的误差一起上升。到 t6 之后: delta rule 下点 t1, 读回的是 t6 的新值 (误差小); 纯累加下读回的是 $v_1$ 和 $v_6$ 的混合 (误差大)。右侧「KV cache 大小」是对照组存的数字个数 (t+1) × 8, 超过 16 就比 $S$ 大了; 「查询 tj 的读回误差」是你点的那个 token 的误差; 「所有旧 token 平均误差」反映整体记性; 下面两行是应该读回的 value 和实际读回的 value。"
     module="llm_models/layers/sparse/linear_attention.py"
     run="python -m llm_models.run_models.language_models.qwen3_next.infer_qwen3_next"
     :challenge="{
-      ask: '播放到最后, 先用 “纯累加” 点 t1, 再切到 delta rule 点 t1。哪个读回的是 t6 写入的新值? 然后想: key 只有 4 维。写入第 5 个不同的 key 之后, 为什么所有旧 token 的误差都开始上升?',
-      answer: '- 纯累加 $S \\mathrel{+}= k \\cdot v^\\top$: 只会叠加。t1 和 t6 的 key 相同, 读回来是 $v_1 + v_6$ 的混合, 旧值永远擦不掉。\n- delta rule: 先用 $k$ 读出 $S$ 里这个方向当前存的值 $k^\\top S$, 减掉它, 再写新值。$S \\leftarrow \\alpha(S - \\beta \\cdot k \\cdot k^\\top S) + \\beta \\cdot k \\cdot v^\\top$, $\\beta=1$ 时等于精确覆写, 读回的就是 $v_6$。\n容量问题两者都有: 4 维空间最多只有 4 个互相正交的 key。第 5 个 key 必然和旧 key 有夹角, 写它就会污染旧槽位。\n状态大小固定的代价是 “有损”。$\\alpha<1$ 让旧内容整体衰减, 给新内容腾地方。所以 Qwen3-Next 每 4 层留 1 层全注意力, 兜底精确召回。',
+      ask: '播放到最后 (t = 9), 先用「纯累加」点 t1, 再切到「delta rule」点 t1。哪个读回的是 t6 写入的新值? 然后想: key 只有 4 维, 写入第 5 个不同的 key 之后, 为什么所有旧 token 的误差都开始上升?',
+      answer: '答案: delta rule 读回的是 t6 的新值; 纯累加读回的是 t1 和 t6 两个 value 的混合。\n为什么:\n- 纯累加 $S \\mathrel{+}= k \\cdot v^\\top$ 只会往上叠。t1 和 t6 的 key 相同, 用这个 key 去读, 读回来是 $v_1 + v_6$ (再乘上衰减), 旧值永远擦不掉, 「应读回」和「实际读回」两行对不上。\n- delta rule 写入前先擦: 用 $k$ 读出 $S$ 里这个方向当前存的值 $k^\\top S$, 减掉它, 再写新值。公式是 $S \\leftarrow \\alpha(S - \\beta \\cdot k \\cdot k^\\top S) + \\beta \\cdot k \\cdot v^\\top$; $\\beta = 1$ 时等于精确覆写, 读回的就是 $v_6$。把 β 拖小, 擦得不干净, 误差又回来。\n容量问题两种写法都有: 4 维空间里最多只有 4 个互相正交的 key, 正交的 key 互不干扰。第 5 个 key 必然和某些旧 key 有夹角, 写它的时候就会顺带改掉旧 key 方向上存的值, 所以 t4 之后所有旧 token 的误差一起上升, 而且越早的 token 被污染的次数越多。\n这就是状态大小固定的代价: 有损。$\\alpha < 1$ 让旧内容整体衰减, 给新内容腾地方, 是用「忘旧」换「记新」。所以 Qwen3-Next 每 4 层留 1 层全注意力, 兜底精确召回。',
     }"
   >
     <template #controls>
@@ -35,19 +37,19 @@
 
     <div class="wrap">
       <div>
-        <p class="cap">线性注意力的全部记忆: S (4×4 = 16 个数, 永不增长)</p>
+        <p class="cap">线性注意力的全部记忆: 状态 S (4×4 = 16 个数, 永不增长; 紫正粉负)</p>
         <div class="cells" style="grid-template-columns: repeat(4, 34px)">
           <span v-for="(x, i) in now.S.flat()" :key="i" class="cell big mono" :style="{ background: heat(Math.abs(x) / 1.5, x >= 0 ? 'var(--accent)' : 'var(--right)') }">{{ x.toFixed(1) }}</span>
         </div>
       </div>
       <div>
-        <p class="cap">softmax 注意力的 KV cache: {{ t + 1 }} 行 × 8 = {{ (t + 1) * 8 }} 个数</p>
+        <p class="cap">对照: softmax 注意力的 KV cache, 每个 token 一行 (4 个 k + 4 个 v): {{ t + 1 }} 行 × 8 = {{ (t + 1) * 8 }} 个数</p>
         <div class="kvlist">
           <div v-for="j in t + 1" :key="j" class="kvrow" :class="{ hit: j - 1 === qj }"><i v-for="c in 4" :key="'k' + c" class="k" /><i v-for="c in 4" :key="'v' + c" class="v" /></div>
         </div>
       </div>
       <div class="errs">
-        <p class="cap">用各旧 token 的 key 读 S 的相对误差</p>
+        <p class="cap">用各旧 token 的 key 读 S, 读回的 value 相对误差 (绿 &lt; 15%, 红 &gt; 50%)</p>
         <div class="ebars">
           <div v-for="(e, j) in now.errs" :key="j" class="eb" :class="{ hit: j === qj }">
             <div class="col"><div :class="e > 0.5 ? 'bad' : e > 0.15 ? 'mid' : 'ok'" :style="{ height: Math.min(1, e) * 100 + '%' }" /></div>
@@ -58,11 +60,14 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>KV cache 大小 (状态 S 恒为 16)</span><b :class="(t + 1) * 8 > 16 ? 'bad' : ''">{{ (t + 1) * 8 }}</b></div>
-      <div class="kv"><span>查询 t{{ qSafe }} 的读回误差</span><b :class="now.errs[qSafe] < 0.15 ? 'good' : 'bad'">{{ (now.errs[qSafe] * 100).toFixed(0) }}%</b></div>
-      <div class="kv"><span>所有旧 token 平均误差</span><b>{{ (mean(now.errs) * 100).toFixed(0) }}%</b></div>
-      <p class="lab-note mono">应读回 {{ vec(now.target[qSafe]) }}<br>实际读回 {{ vec(now.read[qSafe]) }}</p>
-      <p class="lab-note">KV cache 那一列对应误差恒为 0: 原件都在, 代价是它会一直长下去。</p>
+      <div class="kv"><span>softmax 注意力的 KV cache 存了几个数 (状态 S 恒为 16)</span><b :class="(t + 1) * 8 > 16 ? 'bad' : ''">{{ (t + 1) * 8 }}</b></div>
+      <div class="kv"><span>用 t{{ qSafe }} 的 key 读 S 的相对误差</span><b :class="now.errs[qSafe] < 0.15 ? 'good' : 'bad'">{{ (now.errs[qSafe] * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>所有旧 token 的平均误差 (整体记性)</span><b>{{ (mean(now.errs) * 100).toFixed(0) }}%</b></div>
+      <p class="lab-note mono">t{{ qSafe }} 应读回 {{ vec(now.target[qSafe]) }}<br>实际读回 {{ vec(now.read[qSafe]) }}</p>
+      <div class="lab-note">
+        <p>「应读回」是这个 key 最近一次写入的 value: t1 和 t6 共用 key, 所以 t6 写过之后, 点 t1 也应该读回 t6 的 value。</p>
+        <p>softmax 注意力的 KV cache 对应的误差恒为 0: 原件都在, 想读谁就读谁。代价是它随 token 数一直长下去, 而 S 永远是 16 个数。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

@@ -1,8 +1,8 @@
 # M12 — 上下文并行 (Context Parallel): Ring Attention + zigzag
 
-[![Ring Attention 步进器 — KV 块沿环传递 llm_train/m12](../../docs/screenshots/train-moe-seq-2.png)](https://beleev.github.io#/train/moe-seq-parallel)
+[![Ring Attention — 序列切给 D 张卡, KV 块沿环传一圈, 每张卡都算出精确的注意力 llm_train/m12](../../docs/screenshots/train-moe-seq-2.png)](https://beleev.github.io#/train/moe-seq-parallel)
 
-[打开相关交互实验：Ring Attention 步进器 — KV 块沿环传递 llm_train/m12](https://beleev.github.io#/train/moe-seq-parallel)
+[打开相关交互实验：Ring Attention — 序列切给 D 张卡, KV 块沿环传一圈, 每张卡都算出精确的注意力 llm_train/m12](https://beleev.github.io#/train/moe-seq-parallel)
 
 ## 直觉
 

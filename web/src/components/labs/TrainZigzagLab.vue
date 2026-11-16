@@ -4,15 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="Zigzag — 因果注意力下谁在等谁?"
-    sub="- 左: 32 个 token 的因果 mask (行 = query, 列 = key)。颜色 = 这个 $q \cdot k$ 由哪张卡算; 亮的格子 = 环上当前这一轮在算的。
-      - 右: 每轮每卡的工作量 ($q \cdot k$ 对数)。每轮耗时由最忙的那张卡决定, 它的格子带描边和 ▲。
-      切换切法, 单步播放, 点卡号只看一张卡。"
+    title="Zigzag 序列切分 — 因果注意力分给多张卡时, 谁在等谁?"
+    sub="- 模拟什么: 一条序列长到一张卡放不下时, 可以切成 D 段分给 D 张卡 (上下文并行)。每张卡常驻自己那段的 Q (query), K 和 V 块像击鼓传花一样沿着一个环每轮传给下一张卡, 传完 D 轮每张卡都见过整条序列的 KV, 用 online softmax 逐块合并, 结果和整条序列一次算完全一样, 这叫 Ring Attention。因果 mask (每个 token 只能看自己和前面的 token) 下, 整块落在未来的 KV 可以直接跳过, 总计算量省将近一半。但环是同步的, 每一轮所有卡都要等最慢的那张, 所以序列怎么切决定省下的计算能不能变成省下的时间。连续切分是卡 r 拿第 r 段; zigzag 是把序列切成 2D 段, 卡 r 拿第 r 段和第 2D−1−r 段, 一头一尾配对。
+      - 图上是什么: 左边是 32 个 token 的因果 mask, 行是 query、列是 key, 只有下三角有格子 (query 只看自己和前面的 key)。格子颜色表示这一对 $q \cdot k$ 由哪张卡算 (由 q 所在的卡决定), 最上面一条色带标每个位置属于哪张卡。亮的格子是环上当前这一轮正在算的, 半透明的是已经算过的, 几乎透明的是还没轮到的。右边表格每一行是环上的一轮, 每一列是一张卡, 格子里的数字是这张卡在这一轮要算的 $q \cdot k$ 对数, 带描边和 ▲ 的是这一轮最忙的卡; 最后一行「合计」是每张卡的总工作量。
+      - 可以做什么: 点「连续切分」或「Zigzag (一头一尾配对)」切换切法; 点「D = 2 / 4 / 8 卡」改卡数; 用播放器一轮一轮走, 看每一轮各卡在算哪些格子。点表头的卡号只看一张卡 (左图其余卡变淡, 表格下面会列出它持有哪些 token), 再点一次取消。
+      - 应该看到: 连续切分时 ▲ 每轮都落在最后一张卡上, 卡 0 从第 1 轮起全是 0 (它拿的是序列开头, 后面传来的 KV 全在它的未来, 全部跳过); zigzag 时每一轮各卡的数字相同 (D=4 时第 0 轮 36, 之后每轮 32)。右侧「每卡总工作量 max / min」两数相等时变绿; 「墙钟」是把每一轮最忙那张卡的工作量加起来, 代表实际要等的时间; 「不利用因果性的墙钟」是不跳过任何块时的 D × 块大小, 当参照 (D=4 时 256); 「zigzag 相对连续切分」是两种切法的墙钟之比, D=4 时快 1.73 倍。"
     module="llm_train/m12"
     run="python -m llm_train.m12_sequence_parallel.demo"
     :challenge="{
       ask: 'D = 4, 连续切分。因果 mask 省掉了将近一半的计算, 墙钟时间也省一半吗? 换成 zigzag 再看。',
-      answer: '没有。\n- 连续切分: 卡 3 拿序列最后一段, 每一轮收到的 KV 块全在它的过去, 每轮都要算满 64 对。卡 0 除了第 0 轮全部跳过。每轮耗时 = 最忙的卡, 墙钟 $= 36 + 64 \\times 3 = 228$, 相比不用因果性的 256 只省了 11%。\n- zigzag: 序列切成 $2D$ 段, 卡 $r$ 拿第 $r$ 段和第 $2D-1-r$ 段 (一头一尾)。每张卡每一轮都恰好是 32 对 (第 0 轮 36), 墙钟 132, 快 1.73 倍。\n总计算量、通信量完全没变, 变的只是负载均衡。',
+      answer: '没有, 连续切分只省了 11%; zigzag 才把省下的计算变成省下的时间。\n- 先算总计算量: 32 个 token 不利用因果性要算 32 × 32 = 1024 对 q·k, 因果 mask 下只算下三角 528 对, 省了将近一半。这个数两种切法都一样。\n- 连续切分: 卡 3 拿序列最后 8 个 token, 它的 query 在所有 key 后面, 所以每一轮收到的 KV 块全在它的过去, 每轮都要算满 8 × 8 = 64 对 (第 0 轮算自己那块的下三角, 36 对)。卡 0 拿开头 8 个 token, 除了第 0 轮的 36 对, 后面传来的 KV 全在它的未来, 全部跳过, 每轮 0。环上每一轮大家都得等最忙的卡 3, 所以墙钟是 $36 + 64 \\times 3 = 228$, 相比不用因果性的 256 只省了 11%, 右表「合计」一行 [36, 100, 164, 228] 也能看出卡越靠后越忙。\n- zigzag: 序列切成 $2D$ = 8 段, 每段 4 个 token, 卡 $r$ 拿第 $r$ 段和第 $2D-1-r$ 段: 卡 0 拿第 0 段和第 7 段, 卡 3 拿第 3 段和第 4 段, 每张卡都有一段靠前 (轻) 和一段靠后 (重)。这样每张卡每一轮都恰好是 32 对 (第 0 轮 36), 合计 [132, 132, 132, 132], 墙钟 132, 比 228 快 1.73 倍。\n总计算量 528 对和通信量 (每轮传一个 KV 块) 完全没变, 变的只是负载均衡: 省下的计算只有摊平到每张卡上, 才会变成省下的时间。',
     }"
   >
     <template #controls>
@@ -52,19 +53,19 @@
           <span class="rl mono">合计</span>
           <span v-for="(w, r) in sim.perRank" :key="'t' + r" class="cell tot">{{ w }}</span>
         </div>
-        <p class="lab-note">颜色 = 卡号, 对照表头的色块。▲ = 这一轮最忙的卡。</p>
-        <p class="lab-note">卡 r 持有的 token: <span class="mono">{{ focus >= 0 ? posText(focus) : '点上面的卡号查看' }}</span></p>
+        <p class="lab-note">表格: 行是环上的一轮, 列是一张卡, 数字是这一轮这张卡要算的 q·k 对数。颜色 = 卡号, 对照表头的色块。▲ = 这一轮最忙的卡, 其他卡都在等它。</p>
+        <p class="lab-note">选中的卡持有的 token 位置: <span class="mono">{{ focus >= 0 ? posText(focus) : '点上面的卡号查看' }}</span></p>
       </div>
     </div>
 
     <template #stats>
-      <div class="kv"><span>每卡总工作量 max / min</span><b :class="sim.imb < 1.01 ? 'good' : 'bad'">{{ Math.max(...sim.perRank) }} / {{ Math.min(...sim.perRank) }}</b></div>
-      <div class="kv"><span><Tex text="墙钟 $\sum$(每轮最忙的卡)" /></span><b :class="sim.wall <= Math.min(walls.cont, walls.zz) ? 'good' : 'bad'">{{ sim.wall }}</b></div>
-      <div class="kv"><span>不利用因果性的墙钟</span><b>{{ D * sim.block }}</b></div>
-      <div class="kv"><span>zigzag 相对连续切分</span><b :class="{ good: speedup > 1 }">快 {{ speedup.toFixed(2) }}×</b></div>
+      <div class="kv"><span>每卡总工作量 max / min (相等才是负载均衡)</span><b :class="sim.imb < 1.01 ? 'good' : 'bad'">{{ Math.max(...sim.perRank) }} / {{ Math.min(...sim.perRank) }}</b></div>
+      <div class="kv"><span><Tex text="墙钟 = $\sum$(每轮最忙那张卡的工作量), 代表实际要等的时间" /></span><b :class="sim.wall <= Math.min(walls.cont, walls.zz) ? 'good' : 'bad'">{{ sim.wall }}</b></div>
+      <div class="kv"><span>不利用因果性的墙钟 (每轮都算满一整块, D × 块大小)</span><b>{{ D * sim.block }}</b></div>
+      <div class="kv"><span>zigzag 相对连续切分 (两种切法的墙钟之比)</span><b :class="{ good: speedup > 1 }">快 {{ speedup.toFixed(2) }}×</b></div>
       <div class="lab-note">
-        <p>★ 同步的环上, 每一轮所有卡要等最慢的那张。省下的计算只有摊平到每张卡上, 才会变成省下的时间。</p>
-        <p>两种切法的总计算量相同, 都是 {{ sim.total }} 对。</p>
+        <p>★ 同步的环上, 每一轮所有卡要等最慢的那张。因果 mask 省下的计算只有摊平到每张卡上, 才会变成省下的时间; 堆在一张卡上, 别的卡省下的只是空等。</p>
+        <p>两种切法的总计算量相同, 都是 {{ sim.total }} 对 q·k; 通信量也相同, 每轮每卡传一个 KV 块。变的只是负载均衡。</p>
       </div>
     </template>
   </LabFrame>

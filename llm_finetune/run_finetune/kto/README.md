@@ -1,8 +1,8 @@
 # KTO — 只有 👍 / 👎, 没有成对偏好
 
-[![KTO: 好坏 1:9 时, λ 为什么必须跟着调 llm_finetune/methods/kto.py](../../../docs/screenshots/finetune-dpo-2.png)](https://beleev.github.io#/finetune/dpo)
+[![KTO — 单条 👍/👎 也能训, 但好坏 1:9 时 λ 必须跟着调 llm_finetune/methods/kto.py](../../../docs/screenshots/finetune-dpo-2.png)](https://beleev.github.io#/finetune/dpo)
 
-[打开相关交互实验：KTO: 好坏 1:9 时, λ 为什么必须跟着调 llm_finetune/methods/kto.py](https://beleev.github.io#/finetune/dpo)
+[打开相关交互实验：KTO — 单条 👍/👎 也能训, 但好坏 1:9 时 λ 必须跟着调 llm_finetune/methods/kto.py](https://beleev.github.io#/finetune/dpo)
 
 ## 直觉
 

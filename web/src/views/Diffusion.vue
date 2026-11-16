@@ -2,21 +2,29 @@
   <div>
     <h1 class="page-title">扩散生成 · DDPM 与 Flow Matching</h1>
     <div class="page-subtitle lead-group">
-      <p>"直接生成一张图" 太难, "把一张稍微脏一点的图擦干净" 很容易。扩散就是把前者拆成几十次后者。</p>
       <p>
-        拖下面的 timestep 滑条, 看 <Tex text="$x_0$" /> 一路糊成纯噪声。再切换调度器, 比较
-        <strong>DDPM (ε-pred, cosine 调度)</strong> 和
-        <strong>Flow Matching (v-pred, 直线路径)</strong> 这两条路的形状差别。
+        扩散模型 (diffusion model) 是现在生图、生视频的主流做法。它的出发点是:
+        「从一堆随机数直接生成一张图」太难, 但「把一张稍微脏一点的图擦干净一点」很容易。扩散就是把前者拆成几十次后者。
+      </p>
+      <p>
+        训练时往真图里加噪声, 让网络学会从加噪后的图里认出加了什么噪声; 生成时从纯噪声出发, 一步一步把认出的噪声减掉。
+      </p>
+      <p>
+        拖下面的 timestep 滑条, 看原图 <Tex text="$x_0$" /> 一路糊成纯噪声。再切换调度器, 比较
+        <strong>DDPM (让网络预测噪声 ε, 用 cosine 噪声调度)</strong> 和
+        <strong>Flow Matching (让网络预测速度 v, 噪声和原图之间走直线)</strong> 这两条路的差别。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="扩散把「生成」换成了「学一个去噪函数」。DDPM 让网络预测噪声 $\varepsilon$, Flow Matching 让它预测速度 $v = \varepsilon - x_0$, 后者把弯路拉成了直线。"
-      question="训练目标只换了一个符号 ($\varepsilon \to v$), 推理步数为什么能从 50 降到 28? 「直线路径」直在哪?"
+      tldr="扩散把「生成一张图」换成了「学一个去噪函数」: 训练时给真图加噪声, 让网络从加噪后的图里猜出加了什么; 生成时从纯噪声出发, 几十步把噪声减掉。
+        - DDPM (2020): 网络预测加进去的噪声 $\varepsilon$。推理用 DDIM 采样器, 要 50 步左右。
+        - Flow Matching (2023): 噪声和原图之间走直线, 网络预测这条直线的速度 $v = \varepsilon - x_0$。路径是直的, 用最简单的欧拉法几步就能走完, SD3 推荐 28 步。"
+      question="训练目标只换了一个符号 (预测 $\varepsilon$ 换成预测 $v$), 推理步数为什么能从 50 降到 28? 「直线路径」到底直在哪?"
       :goals="[
-        '把生成问题翻译成「学去噪」, 并说清训练和采样各在做什么',
-        '讲清 $\\varepsilon$-prediction 和 v-prediction 的几何差别, 以及它怎么换成步数',
-        '看懂 DiT 用 adaLN-Zero 把扩散嫁接到 Transformer 骨架上的那一步',
+        '把生成问题翻译成「学去噪」, 说清训练时网络在学什么、采样时每一步在做什么',
+        '讲清 $\\varepsilon$-prediction 和 v-prediction 在几何上的差别, 以及为什么直线路径能换来更少的步数',
+        '看懂 DiT 用 adaLN-Zero 把时间步和条件注入 Transformer 的那一步, 以及零初始化为什么让每个 block 从恒等映射起步',
       ]"
       :codes="[
         { path: 'llm_models/layers/diffusion/adaln.py', label: 'adaln.py · AdaLNZeroBlock' },
@@ -28,7 +36,7 @@
 
     <EvolutionChain
       title="演进逻辑链 · 一步太难, 就拆成很多小步"
-      subtitle="根问题: 从纯噪声直接变出一张图, 一个网络要学的映射太陡"
+      subtitle="根问题: 从纯噪声一步变出一张图, 一个网络要学的「噪声到图」的映射太陡、太复杂"
       :steps="evoSteps"
     />
 
@@ -59,6 +67,23 @@
         <button type="button" @click="t = 1">置为纯噪声 (t=1)</button>
         <button type="button" @click="t = 0">置为原图 (t=0)</button>
       </div>
+      <p class="desc" style="margin-top: 12px;">
+        <strong>模拟什么:</strong> 扩散训练里「正向加噪」这一步。拿一张真图 x_0 和一份固定的高斯噪声 ε, 按时间 t 把两者混在一起得到 x_t:
+        t = 0 是原图, t = 1 是纯噪声。本页不跑任何神经网络, 三张图全是按公式算出来的。
+      </p>
+      <p class="desc" style="margin-top: 6px;">
+        <strong>图上是什么:</strong> 左图 x_0 是原图 (教学用的合成环形图案); 中图 x_t 是当前 t 下的加噪图, 它下面两个读数是混合时用的信号系数、噪声系数, 以及由它们算出的信噪比;
+        右图是网络训练时要回归的目标: DDPM 下是噪声 ε 本身, Flow Matching 下是速度 v, 等于噪声减原图。
+      </p>
+      <p class="desc" style="margin-top: 6px;">
+        <strong>可以做什么:</strong> 「调度器」在 DDPM 和 Flow Matching 之间切换, 它决定 t 和两个系数怎么对应, 也决定右图是 ε 还是 v;
+        拖「timestep t」从 0 到 1 看加噪过程; 「播放完整去噪」让 t 从 1 自动退回 0, 相当于把加噪倒着放一遍; 两个「置为」按钮直接跳到两端。
+      </p>
+      <p class="desc" style="margin-top: 6px;">
+        <strong>应该看到:</strong> 拖 t 时噪声是同一份 (随机种子固定), 只是占比越来越大, 所以中图不是在随机闪烁, 而是原图被同一张噪声逐渐盖住。
+        同一个 t 下切换调度器, 两个系数和信噪比都会变, 因为两种调度对「t 对应多少噪声」的定义不同。
+        右图不随 t 变: DDPM 的目标就是那一份噪声, Flow Matching 的目标是直线的速度, 处处相同; 它只在切换调度器时变。
+      </p>
     </div>
 
     <!-- 主可视化: 三格 x_0 / x_t / 回归目标。三张图都是按公式算出来的, 本页不跑网络 -->
@@ -72,6 +97,7 @@
       <div class="card panel">
         <h3><Tex text="$x_t$" /> <span class="tag">加噪后</span></h3>
         <p class="desc"><Tex :text="noiseFormula" /></p>
+        <p class="desc" style="margin-top: 6px;">这个式子在说: 加噪图 x_t 等于原图乘一个信号系数, 再加上噪声乘一个噪声系数; 两个系数由 t 和调度器决定。</p>
         <canvas ref="canvasXt" width="128" height="128" class="canvas" role="img"
                 :aria-label="`t = ${t.toFixed(2)} 时的加噪图, 信噪比 ${snrText}`" />
         <div>
@@ -82,15 +108,15 @@
           <div class="stat" style="margin-top: 8px;">
             <div class="k">信噪比 = (信号系数 / 噪声系数)²</div>
             <div class="v mono">{{ snrText }}</div>
-            <div class="hint">由当前 t 和调度器算出; t = 0 时没有噪声, 记作 ∞</div>
+            <div class="hint">大于 1 表示图里原图成分多于噪声, 越接近 0 越接近纯噪声。由当前 t 和调度器算出; t = 0 时没有噪声, 记作 ∞</div>
           </div>
         </div>
       </div>
 
       <div class="card panel">
         <h3><Tex :text="scheduler === 'ddpm' ? '$\\varepsilon$' : '$v = \\varepsilon - x_0$'" /> <span class="tag">回归目标</span></h3>
-        <p class="desc">网络要回归的目标真值, 用的就是中间那张图里的同一份噪声。</p>
-        <p class="desc" style="margin-top: 6px;">本页不跑网络, 这张图不是网络输出。显示时幅度除以 2, 大部分像素才不会被截断。</p>
+        <p class="desc">训练时网络看到的输入是中图 x_t 和时间 t, 要输出的就是这张图。它用的是中图里那同一份噪声 ε, 所以这是「标准答案」, 不是网络的输出。</p>
+        <p class="desc" style="margin-top: 6px;">本页不跑网络。显示时幅度除以 2, 大部分像素才不会超出显示范围被截断。</p>
         <canvas ref="canvasPred" width="128" height="128" class="canvas" role="img"
                 :aria-label="scheduler === 'ddpm' ? '回归目标: 噪声 ε' : '回归目标: 速度 v, 等于噪声减原图'" />
       </div>
@@ -100,14 +126,19 @@
     <section class="section">
       <h2>噪声调度曲线</h2>
       <div class="lead-group">
-        <p>这条曲线就是 "在时刻 t, 原图还剩多少"。</p>
+        <p>
+          噪声调度 (noise schedule) 回答一个问题: 在时刻 t, 加噪图里原图还剩多少、噪声占多少。
+          下面这条曲线画的就是「原图还剩多少」随 t 的变化: 纵轴 1 是完整原图, 0 是一点不剩; 竖线和圆点标的是滑杆当前的 t。
+        </p>
         <ul class="pts">
           <li>
-            <b>DDPM:</b> 用 cosine <Tex text="$\beta$" /> 让 <Tex text="$\bar\alpha_t$" /> 两端更平缓,
-            避开 linear 调度在 <Tex text="$t \to 1$" /> 时把图糊得过头。
+            <b>DDPM:</b> 把加噪看成很多小步, 第 t 步加进去的噪声方差记作 <Tex text="$\beta_t$" />; 一路累乘下来, 原图还剩的比例记作 <Tex text="$\bar\alpha_t$" /> (图中实线)。
+            本库用 cosine 调度, 也就是直接把 <Tex text="$\bar\alpha_t$" /> 定成一条余弦曲线, 让它在两端都更平缓;
+            这是为了避开 linear 调度在 <Tex text="$t \to 1$" /> 时把图糊得过头的问题。
           </li>
           <li>
-            <b>Flow Matching:</b> 干脆走直线 <Tex text="$x_t = (1-t)\cdot x_0 + t\cdot\varepsilon$" />。训练公式最短, 采样步数也最少。
+            <b>Flow Matching:</b> 不走小步累乘, 直接规定 <Tex text="$x_t = (1-t)\cdot x_0 + t\cdot\varepsilon$" /> (图中虚线):
+            原图成分按 1 − t 线性减少, 噪声按 t 线性增加。训练公式最短, 采样步数也最少。
           </li>
         </ul>
       </div>
@@ -164,13 +195,13 @@
     <div class="card" style="margin-top: 20px;">
       <h3>为什么 DiT / MM-DiT / Sora 后来都换成了 Flow Matching?</h3>
       <p class="desc">
-        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型, 全部从 <Tex text="$\varepsilon$" />-pred 切到了 v-pred + Rectified Flow (走直线的 Flow Matching)。
+        SD3、FLUX、HunyuanVideo、Wan 2.2 这些 2024 年之后的生图/生视频模型, 全部从预测噪声 (<Tex text="$\varepsilon$" />-pred) 切到了预测速度 (v-pred) + Rectified Flow (走直线的 Flow Matching)。
         三个理由:
       </p>
       <ul class="desc" style="padding-left: 20px; list-style: disc; line-height: 1.9; margin-top: 6px;">
-        <li><strong>训练更稳</strong>: 直线路径上速度目标的量级从头到尾差不多, 不像 <Tex text="$\varepsilon$" /> 在 t 接近 0 时方差剧烈变化</li>
-        <li><strong>推理更快</strong>: 路径是直的, 欧拉法几步就走完了: SD3 推荐 28 步, DDIM 要 50 步</li>
-        <li><strong>可调的东西更少</strong>: 没有 noise schedule 要挑, 超参数少一截, 别人复现起来也更容易</li>
+        <li><strong>训练更稳</strong>: 直线路径上速度目标 v = ε − x_0 和 t 无关, 量级从头到尾差不多; 预测 <Tex text="$\varepsilon$" /> 时, t 接近 0 那一头目标的方差变化剧烈, 网络要从一张几乎干净的图里猜出很小的噪声</li>
+        <li><strong>推理更快</strong>: 路径是直的, 用最简单的欧拉法几步就走完了: SD3 推荐 28 步, DDPM 的少步采样器 DDIM 要 50 步</li>
+        <li><strong>可调的东西更少</strong>: 不用再挑噪声调度 (直线本身就是调度), 超参数少一截, 别人复现起来也更容易</li>
       </ul>
     </div>
 
@@ -209,16 +240,16 @@ const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${l
 const evoSteps = [
   { name: '一步生成', color: 'var(--text-muted)',
     pain: '(原点) 从纯噪声一步变出整张图, 网络要学的映射又陡又复杂',
-    fix: 'GAN 一步出图, 靠判别器对抗训练: 容易训崩, 也容易只会画少数几种' },
+    fix: 'GAN 一步出图, 靠一个判别器和它对抗训练: 容易训崩, 也容易只会画少数几种图' },
   { name: 'DDPM', year: 2020, color: 'var(--accent)',
     pain: '一步跨得太远, 对抗训练又不稳',
-    fix: '拆成 T=1000 级小去噪, 网络只回归加进去的噪声 $\\varepsilon$, loss 就是 MSE; 采样也得一级级走回去' },
+    fix: '把去噪拆成 T=1000 级小步, 网络只回归每一步加进去的噪声 $\\varepsilon$, loss 就是 MSE; 采样也得一级级走回去' },
   { name: 'Latent + DiT', year: 2023, color: 'var(--left)',
-    pain: '采样要走几十步, 每步都在整张像素图上跑一遍去噪网络',
-    fix: 'VAE 压成 latent (元素 ÷48), 切 patch 过 Transformer; 条件经 adaLN 注入' },
+    pain: '采样要走几十步, 每步都在整张像素图上跑一遍去噪网络, 太贵',
+    fix: '先用 VAE 把图压成小的 latent (元素数 ÷48), 切成 patch 当 token 过 Transformer; 时间步和条件经 adaLN 注入每一层' },
   { name: 'Flow Matching', year: 2023, color: 'var(--right)',
-    pain: '$\\varepsilon$-pred 的去噪轨迹是弯的, 步子一大就偏, DDIM (少步采样器) 仍要 50 步',
-    fix: '噪声和数据之间走直线, 网络回归速度 $v=\\varepsilon-x_0$: 欧拉法几步就到, SD3 推荐 28 步' },
+    pain: '$\\varepsilon$-pred 的去噪轨迹是弯的, 步子一迈大就偏, DDIM (少步采样器) 仍要 50 步',
+    fix: '让噪声和数据之间走直线, 网络回归直线的速度 $v=\\varepsilon-x_0$: 欧拉法沿直线几步就到, SD3 推荐 28 步' },
 ]
 
 const t = ref(0.5)
@@ -277,12 +308,16 @@ const noiseFormula = computed(() => {
 })
 
 const ddpmMath = `$$\\begin{aligned} x_t &= \\sqrt{\\bar\\alpha_t}\\cdot x_0 + \\sqrt{1-\\bar\\alpha_t}\\cdot\\varepsilon, \\qquad \\varepsilon \\sim \\mathcal{N}(0, I) \\\\ \\text{target} &= \\varepsilon \\\\ \\text{loss} &= \\mathrm{MSE}(\\mathrm{model}(x_t, t), \\varepsilon) \\end{aligned}$$
-训练时网络预测噪声。推理 (DDIM, 确定性少步):
-$$\\begin{aligned} \\hat x_0 &= \\big(x_t - \\sqrt{1-\\bar\\alpha_t}\\cdot\\hat\\varepsilon\\big) / \\sqrt{\\bar\\alpha_t} \\\\ x_{t-1} &= \\sqrt{\\bar\\alpha_{t-1}}\\cdot\\hat x_0 + \\sqrt{1-\\bar\\alpha_{t-1}}\\cdot\\hat\\varepsilon \\end{aligned}$$`
+这三行在说: 训练时随机挑一个 $t$, 按第一行把原图 $x_0$ 和一份随机噪声 $\\varepsilon$ 混成 $x_t$; 网络拿到 $x_t$ 和 $t$, 要猜出那份 $\\varepsilon$; 猜的和真值差多少 (均方误差 MSE), 就是 loss。
+推理用 DDIM (一种确定性的少步采样器), 从纯噪声出发, 每一步做两件事:
+$$\\begin{aligned} \\hat x_0 &= \\big(x_t - \\sqrt{1-\\bar\\alpha_t}\\cdot\\hat\\varepsilon\\big) / \\sqrt{\\bar\\alpha_t} \\\\ x_{t-1} &= \\sqrt{\\bar\\alpha_{t-1}}\\cdot\\hat x_0 + \\sqrt{1-\\bar\\alpha_{t-1}}\\cdot\\hat\\varepsilon \\end{aligned}$$
+第一行把加噪公式反过来解: 用网络猜出的噪声 $\\hat\\varepsilon$ 从 $x_t$ 里扣掉噪声, 得到对原图的一个估计 $\\hat x_0$。第二行用同一份 $\\hat\\varepsilon$, 按下一步更小的噪声比例重新加噪, 得到 $x_{t-1}$。这样一步步走到 $t=0$, 本库默认 50 步。`
 
 const fmMath = `$$\\begin{aligned} x_t &= (1-t)\\cdot x_0 + t\\cdot\\varepsilon && \\text{线性路径} \\\\ v_t &= \\mathrm{d}x_t/\\mathrm{d}t = \\varepsilon - x_0 && \\text{velocity} \\\\ \\text{target} &= v \\\\ \\text{loss} &= \\mathrm{MSE}(\\mathrm{model}(x_t, t), v) \\end{aligned}$$
-训练时网络预测速度。推理 (Euler ODE, 极少步), 沿直线反推:
-$$\\begin{aligned} \\hat v &= \\mathrm{model}(x_t, t) \\\\ x_{t-\\Delta t} &= x_t - \\Delta t\\cdot\\hat v \\end{aligned}$$`
+这几行在说: 在原图 $x_0$ 和噪声 $\\varepsilon$ 之间连一条直线, $t$ 是直线上的位置 (0 在原图, 1 在噪声); 沿直线走的速度 $v$ 就是终点减起点, 和 $t$ 无关; 网络拿到 $x_t$ 和 $t$, 要猜出这个速度, loss 同样是均方误差。
+推理用欧拉法 (最简单的常微分方程求解器), 从纯噪声出发沿直线反着走:
+$$\\begin{aligned} \\hat v &= \\mathrm{model}(x_t, t) \\\\ x_{t-\\Delta t} &= x_t - \\Delta t\\cdot\\hat v \\end{aligned}$$
+每一步让网络猜一次速度 $\\hat v$, 再把当前点往速度的反方向挪一小段 $\\Delta t$ (速度指向噪声, 我们要往原图走, 所以是减)。路径本来就接近直线, 步子可以迈得大: 本库教学默认 20 步, SD3 推理 28 步左右。`
 
 // --- Canvas 渲染 ---
 // 画一个合成的环形/辐射图案作为 x_0, 再按公式算出 x_t 和回归目标

@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="温度实验台 — 一根滑杆连接采样与蒸馏"
-    sub="$\mathrm{softmax}(z/T)$。$T \lt 1$ 让分布更尖 (采样更确定), $T \gt 1$ 把分布压平 (蒸馏的「暗知识」显形)。
-      柱高是绝对概率, 每根柱上的横线是 $T = 1$ 时的位置。点一根柱子, 右边给出它相对 $T = 1$ 变了几倍。"
+    title="温度实验台 — 一根滑杆把同一组 logits 调尖或压平"
+    sub="- 模拟什么: 模型每生成一步, 都对词表里每个候选 token 给一个分数, 叫 logit; softmax 把这些分数变成加起来等于 1 的概率, 分越高概率越大。采样前常先把所有 logit 除以一个温度 $T$ 再做 softmax: $\mathrm{softmax}(z/T)$。$T$ 小于 1 把高分和低分的差距拉大, 分布更尖, 几乎只会抽到最高分; $T$ 大于 1 把差距缩小, 分布更平, 低分 token 也有机会被抽到。推理时的采样 (llm_infer/m10_sampling) 和知识蒸馏里的软标签 (让学生模型学老师模型的整个分布, 而不只是正确答案) 用的都是这一个公式。
+      - 图上是什么: 8 根柱子是 8 个候选 token, 按 logit 从高到低排, tok0 永远是分最高的那个。柱高是这个 token 此刻的概率, 刻度是 0 到 1 的绝对值, 柱顶写着数值; 每根柱上的橙色横线是 $T = 1$ 时它的概率, 方便对比。
+      - 可以做什么: 拖「温度 T」从 0.1 到 5。「重新随机 logits」换一组分数, 「回到 T = 1」复位。点一根柱子, 右侧显示它相对 $T = 1$ 时涨了或缩了几倍 (默认选的是最矮的 tok7, 它的变化倍数最大)。
+      - 应该看到: $T$ 往小拖, tok0 的柱子涨到接近 1, 其他柱子贴地; $T$ 往大拖, 最高的柱子矮下去, 矮的长起来, 最终趋向 8 根一样高。右侧「top-1 概率」是最高分 token 的概率。「熵 $H(p)$」衡量分布有多「散」: 全押一个 token 时是 0, 8 个一样高时最大 ($\ln 8 \approx 2.08$)。「有效候选数 $\exp(H)$」把熵换算成「相当于在几个 token 里等概率抽」, 更直观: 默认这组 logits 在 $T = 1$ 时约 3.9 个, $T = 2$ 时 6.0 个。下面三行标出当前 $T$ 落在哪个区间。"
     module="llm_infer/m10"
     run="python -m llm_infer.m10_sampling.demo"
     :challenge="{
       ask: '默认这组 logits, 把 T 从 1 拖到 2。先猜: top-1 的柱子会矮一半吗? 最右边的 tok7 涨了几倍?',
-      answer: 'top-1 从 0.435 降到 0.294, 只矮了约三分之一。tok7 从 0.003 涨到 0.025, 约 8 倍。\n- 原因: 除以 T 缩小的是 logit 之间的差距。两个 token 的概率比是 $e^{(z_i - z_j)/T}$, 差距越大的一对被拉近得越多。\n- 采样: 长尾 token 被抽到的机会成倍增加, 有效候选数从 3.9 变成 6.0。\n- 蒸馏: teacher 给错误答案排的序这时才看得见。梯度随之缩小到约 $1/T^2$, 所以 KL 项要乘 $T^2$ 补回来。',
+      answer: '不会矮一半: top-1 从 0.435 降到 0.294, 只矮了约三分之一; tok7 从 0.003 涨到 0.025, 约 8 倍。\n- 原因: 除以 T 缩小的是 logit 之间的差距, 不是概率本身。两个 token 的概率之比是 $e^{(z_i - z_j)/T}$, T 从 1 变 2 等于把所有 logit 差距减半; 原来差距越大的一对 (比如 tok0 和 tok7), 比值被拉近得越厉害, 所以最矮的那根涨得最猛。\n- 对采样的意义: 长尾 token 被抽到的机会成倍增加, 右侧有效候选数从 3.9 变成 6.0, 生成的文本更多样, 也更容易出错。\n- 对蒸馏的意义: T = 1 时老师模型给各个错误答案排的先后几乎看不见 (概率都接近 0), 压平之后才显形, 学生模型能学到「哪些错误答案更接近正确」。代价是梯度随之缩小到约 $1/T^2$, 所以蒸馏的 KL 损失项要乘 $T^2$ 补回来。',
     }"
   >
     <template #controls>
@@ -20,7 +22,7 @@
         <button type="button" @click="seed++">重新随机 logits</button>
         <button type="button" :class="{ active: T === 1 }" @click="T = 1">回到 T = 1</button>
       </div>
-      <LabSlider v-model="T" label="温度 T" :min="0.1" :max="5" :step="0.1" :format="(v) => v.toFixed(1)" />
+      <LabSlider v-model="T" label="温度 T (logit 先除以它再做 softmax)" :min="0.1" :max="5" :step="0.1" :format="(v) => v.toFixed(1)" />
     </template>
 
     <div class="chart">
@@ -43,17 +45,17 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>top-1 概率</span><b>{{ probs[0].toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="熵 $H(p)$ (nats)" /></span><b>{{ H.toFixed(2) }}</b></div>
-      <div class="kv"><span><Tex text="有效候选数 $\exp(H)$" /></span><b>{{ Math.exp(H).toFixed(1) }} / {{ N }}</b></div>
-      <div class="kv"><span>tok{{ pick }} 相对 T = 1</span><b>{{ ratio }}</b></div>
-      <p class="regime" :class="{ now: T < 1 }"><Tex text="$T \to 0$: 退化为 argmax (greedy 解码)" /></p>
-      <p class="regime" :class="{ now: T === 1 }"><Tex text="$T = 1$: 模型原始分布" /></p>
+      <div class="kv"><span>top-1 概率 (分最高的 tok0)</span><b>{{ probs[0].toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="熵 $H(p)$ (分布有多散, 单位 nats)" /></span><b>{{ H.toFixed(2) }}</b></div>
+      <div class="kv"><span><Tex text="有效候选数 $\exp(H)$ (相当于在几个里等概率抽)" /></span><b>{{ Math.exp(H).toFixed(1) }} / {{ N }}</b></div>
+      <div class="kv"><span>选中的 tok{{ pick }} 的概率相对 T = 1 时</span><b>{{ ratio }}</b></div>
+      <p class="regime" :class="{ now: T < 1 }"><Tex text="$T$ 趋向 0: 退化为 argmax, 永远选分最高的那个 (greedy 解码)" /></p>
+      <p class="regime" :class="{ now: T === 1 }"><Tex text="$T = 1$: 模型原始分布, 不做任何调整" /></p>
       <p class="regime" :class="{ now: T > 1 }">
-        <Tex text="$T \gt 1$: 次优 token 的相对排序被放大, 蒸馏时 student 学到的不止正确答案 (KL 项要乘 $T^2$ 补偿梯度)" />
+        <Tex text="$T \gt 1$: 次优 token 之间的相对排序被放大。蒸馏时学生模型学到的不止正确答案 (KL 项要乘 $T^2$ 补偿变小的梯度)" />
       </p>
       <p class="lab-note">
-        同一公式两处复用: 解码采样 llm_infer/m10_sampling, 知识蒸馏 llm_finetune/run_finetune/distill。
+        同一个公式两处复用: 解码采样在 llm_infer/m10_sampling (temperature_sample 就是 softmax(logits / temperature) 再抽样), 知识蒸馏在 llm_finetune/run_finetune/distill (老师和学生的 logits 都除以同一个 T 再比分布)。
       </p>
     </template>
   </LabFrame>

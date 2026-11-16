@@ -1,8 +1,8 @@
 # LLaMA — 现代开源 LLM 的模板
 
-[![残差流 — norm 挪一个位置, 深层网络就能开训 llm_models/layers/core/blocks.py](../../../../docs/screenshots/blocks-1.png)](https://beleev.github.io#/blocks)
+[![残差流 — norm 挪一个位置, 几十层的网络才训得动 llm_models/layers/core/blocks.py](../../../../docs/screenshots/blocks-1.png)](https://beleev.github.io#/blocks)
 
-[打开相关交互实验：残差流 — norm 挪一个位置, 深层网络就能开训 llm_models/layers/core/blocks.py](https://beleev.github.io#/blocks)
+[打开相关交互实验：残差流 — norm 挪一个位置, 几十层的网络才训得动 llm_models/layers/core/blocks.py](https://beleev.github.io#/blocks)
 
 ## 直觉
 

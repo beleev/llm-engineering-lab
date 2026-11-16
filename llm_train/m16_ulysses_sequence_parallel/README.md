@@ -1,8 +1,8 @@
 # M16 — DeepSpeed-Ulysses 序列并行
 
-[![Ulysses — all-to-all 把「切序列」换成「切头」 llm_train/m16](../../docs/screenshots/train-ulysses-1.png)](https://beleev.github.io#/train/ulysses)
+[![Ulysses 序列并行 — 用 all-to-all 把「切序列」换成「切头」, 注意力核一行不改 llm_train/m16](../../docs/screenshots/train-ulysses-1.png)](https://beleev.github.io#/train/ulysses)
 
-[打开相关交互实验：Ulysses — all-to-all 把「切序列」换成「切头」 llm_train/m16](https://beleev.github.io#/train/ulysses)
+[打开相关交互实验：Ulysses 序列并行 — 用 all-to-all 把「切序列」换成「切头」, 注意力核一行不改 llm_train/m16](https://beleev.github.io#/train/ulysses)
 
 ## 直觉
 

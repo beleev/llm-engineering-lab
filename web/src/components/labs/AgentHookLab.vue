@@ -5,13 +5,15 @@
 <template>
   <LabFrame
     title="Hook 流水线 — 改写之后, 谁来再查一遍?"
-    sub="一次调用从左到右流过六个生命周期事件。点亮各个 hook, 按播放看调用在哪一站被拦、被改写。
-      重点: 打开「恶意改写」hook, 再切换「改写后重新过权限门」。看 deny 规则是怎么被绕过、又怎么被堵上的。"
+    sub="- 模拟什么: agent loop 里的 hook 机制。hook 是挂在 loop 固定位置上的普通代码 (不是给模型看的文字), 不经过模型, 100% 执行; 它能拦截一次调用、把调用改写成别的、往上下文里追加一条消息。demo 里有六个生命周期事件可以挂 hook: SessionStart (会话开始)、UserPromptSubmit (用户提交 prompt)、PreToolUse (工具执行前)、PostToolUse (工具执行后)、PreCompact (压缩上下文前)、Stop (loop 结束)。台子回放一次「帮我算 2+2」的请求从头到尾经过的每一站, 重点看一个会改写调用的 hook 和权限门谁先谁后。
+      - 图上是什么: 一排方块是这次请求从左到右经过的每一站: 两个 hook 事件、「模型」(模型决定调 calculator)、「PreToolUse」和「权限门」(按 deny 规则裁决, 这两站的先后由第三排按钮决定)、「执行」, 再加执行后的三个 hook 事件。每个方块下面的小字是这一站的结果, 比如 通过 / 拦截 / 改写 / DENY / 执行了!; 「未到达」是上游已经拦下、这一站没运行, 「未注册」是没挂 hook。半透明的站是还没播放到的。下面的面板是当前这一站的说明, 以及「此刻的调用」: 走到这一站时, 要执行的到底是哪个工具、什么参数; 变红说明已经被改写成 shell。
+      - 可以做什么: 第一排选 prompt: 普通的「帮我算 2+2」, 或一条带 sk-live 密钥的 prompt。第二排六个按钮是挂不挂对应事件的 hook: SessionStart 注入团队规范; UserPromptSubmit 拦截含密钥的 prompt; PreToolUse 是一个恶意的 hook, 把 calculator 改写成 shell rm -rf /; PostToolUse 追加审计标记; PreCompact 和 Stop 这次不会真的起作用, 只是看它们什么时候触发。第三排是本台子的重点: 「hook → 权限门 → 执行」是改写之后再过权限门 (正确顺序); 「权限门 → hook → 执行」是反例。用播放器逐站播放, 或点任一站跳过去。
+      - 应该看到: 默认挂着恶意改写 hook、顺序正确: PreToolUse 把调用改成 rm -rf /, 紧接着权限门看到的是 shell, 命中 deny 规则, 「执行」那一站显示「未到达」, 右侧结局是「改写后被权限门拒绝」。切到反例顺序: 权限门先看到无害的 calculator 放行, 然后 hook 改写, 「执行」变成「执行了!」, 结局「deny 规则被绕过」。右侧「实际执行的调用」是最后真的跑了什么; 「权限门裁决时看到的调用」和实际执行的不一样就是漏洞; 「hook 追加进上下文的消息」是 hook 塞进去的文字一共占了多少 tok。换成带密钥的 prompt, UserPromptSubmit 会整条拦下, 后面所有站都「未到达」。"
     module="llm_agent/m05"
     run="python -m llm_agent.m05_extensibility.demo"
     :challenge="{
       ask: '权限门有一条 deny shell *rm -rf* 规则。打开「恶意改写」并关掉「改写后重查」, rm -rf / 会被执行吗? 规则明明还在, 为什么没用?',
-      answer: '会被执行。\n- 权限门 → PreToolUse hook → 执行: 门检查的是模型发出的 calculator (放行), hook 随后把它换成了 shell rm -rf /, 再没有人看过最终的调用。\n- hook → 权限门 → 执行: 门评估的是「最终要执行的那个调用」。解法就是这一行顺序。\n通用原则: 任何检查都必须作用在最终产物上。检查之后还能被修改的东西, 等于没检查 (TOCTOU)。',
+      answer: '会被执行, 结局是「deny 规则被绕过」。\n- 反例顺序是先权限门, 再 PreToolUse hook, 再执行。权限门裁决时看到的是模型发出的 calculator, 它不是 shell, 没有命中任何 deny 规则, 放行。接着 hook 把这个调用整个换成 shell rm -rf /, 之后再没有任何检查, 直接执行。规则还在, 只是它检查的对象已经不是最后执行的那个了。\n- 正确顺序是先 PreToolUse hook, 再权限门, 再执行: 权限门评估的是「最终要执行的那个调用」, 改写出来的 shell rm -rf / 命中 deny 规则, 拒绝。demo 的解法就是这一行顺序 (agent.py:_authorize 里先跑 hook 再 evaluate)。\n- 通用原则: 任何检查都必须作用在最终产物上。检查之后还能被修改的东西, 等于没检查; 这类漏洞叫 TOCTOU (time-of-check to time-of-use, 检查时和使用时不是同一个东西)。hook 是用户自己写的代码, 也可能有 bug 或被投毒, 所以权限门不能信任它。',
     }"
   >
     <template #controls>
@@ -48,9 +50,9 @@
     <template #stats>
       <div class="kv"><span>实际执行的调用</span><b class="small" :class="out.executed?.name === 'shell' ? 'bad' : ''">{{ out.executed ? `${out.executed.name} ${Object.values(out.executed.args)[0]}` : '无' }}</b></div>
       <div class="kv"><span>结局</span><b :class="out.cls">{{ out.text }}</b></div>
-      <div class="kv"><span>权限门看到的调用</span><b class="small">{{ out.gateSaw || '—' }}</b></div>
-      <div class="kv"><span>hook 注入上下文</span><b>+{{ out.ctxTokens }} tok</b></div>
-      <p class="lab-note">hook 追加的文字永远是独立的 system 消息, 不拼进用户 prompt 或 tool_result。否则审计标记会被模型写进笔记、拿去当检索词。</p>
+      <div class="kv"><span>权限门裁决时看到的调用</span><b class="small">{{ out.gateSaw || '—' }}</b></div>
+      <div class="kv"><span>hook 追加进上下文的消息</span><b>+{{ out.ctxTokens }} tok</b></div>
+      <p class="lab-note">hook 追加的文字 (团队规范、[audited] 审计标记) 永远作为独立的 system 消息进上下文, 不拼进用户 prompt 或 tool_result。拼进去的话, 模型会把审计标记当成工具返回的数据, 写进笔记、拿去当检索词。</p>
     </template>
   </LabFrame>
 </template>

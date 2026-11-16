@@ -170,10 +170,10 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [机制解释: 可读出, 不等于起作用](run_models/foundation/interpretability/README.md) | demo 里两个通道都和标签完美相关, 线性探针在第二通道上准确率 1.0, 但输出的读出权重是 [2, 0], 它根本不参与。破坏输入后恢复第一通道, 输出误差回到 0.0; 只动第二通道, 误差还是 4.0。能读出来可能只是旁观者, 要说明它参与决策, 得改它再看输出。 |
-| [视觉任务: OCR、图表与不确定性](run_models/multimodal/vision_tasks/README.md) | 同一个 5×3 的字形 "3", 清晰时像素差 0、前两候选差 2, 读出 "3"; 中间三行被遮住后像素差 5, 2 和 3 的混合字形像素差 2 但前两候选差 0, 两种情况都答 "证据不足"。柱图从像素连通列读出位置 [1, 5, 9]、高度 [3, 6, 4], 最高的是第 2 根。看到图像 token 不代表读对了字, 读对了字也不代表理解了坐标轴, 感知错误和推理错误要分开查。 |
-| [语音信号: 波形、Mel 与 codec](run_models/multimodal/audio_pipeline/README.md) | 同一段 0.5 秒、4000 个采样点的合成音, 分成 47 帧 × 24 个 Mel 通道, 帧步长 10 ms, 末帧起点 460 ms。量化到 ±127 级再解码, 还原 SNR 45.853 dB; 只剩 7 级掉到 19.875 dB; 加 σ=0.15 的噪声掉到 9.213 dB。语音系统处理的是连续的声音和时间, 压缩、噪声和延迟各自改变可用信息。 |
-| [媒体生成: 一致性、水印与来源](run_models/generative/media_evaluation/README.md) | demo 生成 8 帧移动矩形: 每帧位移都是 1.0, 运动连贯, 但身份漂移片段后 4 帧的矩形强度从 0.8 换成 0.3, 最大跳变 0.5。嵌入 ±0.02 的扩频水印后相关 0.02; 把其中一帧的 16 个像素清零, 水印相关还有 0.01885, HMAC 签名却立刻失败。单帧漂亮不代表视频连贯; 检测到水印, 也不代表画面内容真实。 |
-| [递归记忆与分层读取: 压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 8 个块、24 个细节查询: 保留全部 token 命中 24/24, 每次查询读 64 个单元; 把每块压成一个均值只读 8 个单元, 命中 0/24, 第 1 块是第 0 块的倒序, 均值相同、答案全不同。先按块 ID 路由再读块内位置, 24/24 命中、查询读 16 个单元, 但持久存储涨到 72。摘要能把前后两段连起来, 不一定能还原细节; 结构连通和信息保存要分别证明。 |
+| [机制解释: 可读出, 不等于起作用](run_models/foundation/interpretability/README.md) | 能读出来可能只是旁观者, 要说明它参与决策, 得改它再看输出。 |
+| [视觉任务: OCR、图表与不确定性](run_models/multimodal/vision_tasks/README.md) | 多模态模型会把图像切块编码成图像 token 送进去, 但看到图像 token 不代表读对了字, 读对了字也不代表理解了坐标轴, 感知错误和推理错误要分开查。 |
+| [语音信号: 波形、Mel 与 codec](run_models/multimodal/audio_pipeline/README.md) | 语音系统处理的是连续的声音和时间, 压缩、噪声和延迟各自改变可用信息。 |
+| [媒体生成: 一致性、水印与来源](run_models/generative/media_evaluation/README.md) | 单帧漂亮不代表视频连贯; 检测到水印, 也不代表画面内容真实。 |
+| [递归记忆与分层读取: 压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 摘要能把前后两段连起来, 不一定能还原细节; 结构连通和信息保存要分别证明。 |
 
 全量入口: 在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。

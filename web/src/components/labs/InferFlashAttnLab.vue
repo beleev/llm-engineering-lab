@@ -1,14 +1,16 @@
 <!-- FlashAttention 实验台 (llm_infer/m11): 按 tile 走 N×N 分数矩阵, 跟着一行 query 看 online softmax 的 m / l 怎么更新。 -->
 <template>
   <LabFrame
-    title="FlashAttention — 分块 + online softmax"
-    sub="左边是 $N \times N$ 的注意力分数矩阵 (因果, 右上角被 mask)。它从不完整存在: 每次只有一个 tile (高亮的那块) 进 SRAM。
-      点左侧的 q 行号, 跟踪一行 query。这一行只靠「运行最大值 $m$」和「运行分母 $l$」两个数。看完最后一个 tile 时, 就得到和整行 softmax 完全相同的结果。"
+    title="FlashAttention — 分块算注意力, online softmax 让分块结果能精确拼起来"
+    sub="- 模拟什么: 注意力要算 softmax 之后再乘 V。朴素做法先把 $N \times N$ 的分数矩阵 (每个 query 对每个 key 的点积) 整个算出来写进显存 (HBM, 大但慢), 再读回来做 softmax。FlashAttention 把 Q 和 K/V 都切成小块 (tile), 每次只把一个 tile 搬进 GPU 的片上缓存 (SRAM, 小但快) 算, $N \times N$ 矩阵从头到尾不存在。难点是 softmax 需要整行的最大值和分母 (整行所有 exp 之和), 但一次只能看到一小块。online softmax 的解法: 每行只维护两个数, 运行最大值 $m$ 和运行分母 $l$; 来一个新 tile 就更新它们, 如果新 tile 里出现了更大的分数, 先把旧的 $l$ 乘上 $\exp(m_{\text{old}} - m_{\text{new}})$ 换到新基准, 再把新的项加进去。走完所有 tile, 结果和整行 softmax 完全一样。
+      - 图上是什么: 左边是 $N \times N$ 的注意力分数矩阵, 每一行是一个 query (从上到下 q0、q1 …), 每一列是一个 key; 右上角灰掉的格子是因果 mask (一个 token 不能看它后面的 token)。黄色的那块是当前正在 SRAM 里算的 tile, 绿色是已经算过的, 白色还没轮到; 被跟踪的那一行会显示分数的整数值。右边的柱状图只看被跟踪的那一行: 空心柱是整行 softmax 的真值, 紫色实心柱是只看了目前已见 key 时算出的部分 softmax $\exp(s-m)/l$。柱状图下面是这一行的更新记录: 每来一个 K 块, $m$ 从多少变成多少, $l$ 等于旧值乘上重缩放系数再加上新项; 系数小于 1 的那几步标 ★重缩放。
+      - 可以做什么: 拖「序列长度 N」和「块大小」改矩阵和 tile 的大小 (tile 数会变); 点「换一组分数」换随机分数; 点左侧的 q 行号换一行跟踪; 用播放器逐个 tile 播放。tile 顺序和 FlashAttention-2 一样: 外层按 Q 块, 内层按 K 块, 整块都被 mask 的 tile 直接跳过。
+      - 应该看到: 刚看过几个 key 时实心柱比空心柱高 (分母还小, 每个权重被高估), 后面的 key 进来后被稀释, 走到这一行最后一个 tile 时实心柱和空心柱完全重合。右侧读数: 「一个 tile 的元素数 vs 整矩阵」是 SRAM 里的工作集 (块大小的平方) 对比 $N \times N$, 括号里是省了多少倍; 「运行最大值 m / 分母 l」是跟踪行当前的两个状态数; 「lse」是分母的对数 $m + \ln l$, 真实 kernel 把它存下来供反向和分段合并用; 「与整行 softmax 的最大差」是所有行走完全部 tile 后和整行 softmax 的最大差, 应该是 0 或 1e-16 量级的浮点误差。"
     module="llm_infer/m11"
     run="python -m llm_infer.m11_flash_attention.demo"
     :challenge="{
       ask: '单步播放, 盯着右下角的更新记录: 什么时候旧的 l 会被乘上一个小于 1 的数?',
-      answer: '当新 tile 里出现了比 $m$ 更大的分数时。\n$l$ 里存的是 $\\sum \\exp(s - m_{\\text{old}})$。基准换成 $m_{\\text{new}}$ 后, 旧的每一项都要乘 $\\exp(m_{\\text{old}} - m_{\\text{new}}) < 1$, 才和新项在同一个基准下。\n- 不乘: 旧 key 的权重会被高估。\n- 干脆不减最大值: exp 在 fp16 下 $s > 11$ 就溢出。\nonline softmax 的全部内容就是这一行重缩放。它让 softmax 变成可以分块累加的量, $N \\times N$ 矩阵不用落地, 显存从 $O(N^2)$ 降到 $O(\\text{块}^2)$。',
+      answer: '当新 tile 里出现了比当前运行最大值 $m$ 更大的分数时。\n$l$ 里存的是 $\\sum \\exp(s - m_{\\text{old}})$, 每一项都是相对旧最大值算的。基准换成 $m_{\\text{new}}$ 后, 旧的每一项都要乘 $\\exp(m_{\\text{old}} - m_{\\text{new}})$ (一个小于 1 的数), 才和新项在同一个基准下相加。\n- 不乘: 旧 key 的权重相对新 key 被高估, 结果就错了。\n- 干脆不减最大值: $\\exp(s)$ 在 fp16 下 $s \\gt 11$ 就溢出, 所以减最大值不是可选项。\nonline softmax 的全部内容就是这一行重缩放。它让 softmax 变成可以分块累加的量: 任何时候只要有 $(m, l)$ 就能把两段合并, 所以 $N \\times N$ 的矩阵不用落地, 临时工作集从 $O(N^2)$ 降到 $O(\\text{块}^2)$, 与 $N$ 无关。',
     }"
   >
     <template #controls>
@@ -35,25 +37,25 @@
           </g>
           <line x1="0" :x2="BW" y1="100" y2="100" class="axis" />
         </svg>
-        <p class="legend"><span class="sw truth" />整行 softmax (真值) <span class="sw part" />已见 key 上的 <Tex text="$\exp(s-m)/l$" /></p>
+        <p class="legend"><span class="sw truth" />整行 softmax (真值) <span class="sw part" />只看已见 key 的部分 softmax <Tex text="$\exp(s-m)/l$" /></p>
         <ol class="log mono">
           <li v-for="(u, i) in state.log" :key="i" :class="{ hot: u.rescale < 1, cur: i === state.log.length - 1 }">
-            K块{{ u.b }}: m {{ fmt(u.mOld) }}→{{ fmt(u.m) }} · l = {{ fmt(u.lOld) }}×{{ u.rescale.toFixed(3) }} + {{ fmt(u.add) }} = {{ fmt(u.l) }}{{ u.rescale < 1 ? ' ★重缩放' : '' }}
+            K 块 {{ u.b }}: m {{ fmt(u.mOld) }}→{{ fmt(u.m) }} · l = {{ fmt(u.lOld) }}×{{ u.rescale.toFixed(3) }} + {{ fmt(u.add) }} = {{ fmt(u.l) }}{{ u.rescale < 1 ? ' ★重缩放' : '' }}
           </li>
-          <li v-if="!state.log.length">q{{ row }} 所在的 Q 块还没轮到。</li>
+          <li v-if="!state.log.length">q{{ row }} 所在的 Q 块还没轮到, 往后播放。</li>
         </ol>
       </div>
     </div>
 
     <template #stats>
-      <div class="kv"><span>SRAM 工作集 vs 整矩阵</span><b :class="bs * bs < N * N ? 'good' : ''">{{ bs * bs }} vs {{ N * N }} ({{ (N * N / (bs * bs)).toFixed(0) }}×)</b></div>
-      <div class="kv"><span>q{{ row }} 的运行最大值 <Tex text="$m$" /> / 分母 <Tex text="$l$" /></span><b>{{ state.log.length ? `${fmt(state.m)} / ${fmt(state.l)}` : '—' }}</b></div>
-      <div class="kv"><span><Tex text="$\mathrm{lse} = m + \ln l$" /></span><b>{{ state.log.length ? fmt(state.m + Math.log(state.l)) : '—' }}</b></div>
-      <div class="kv"><span><Tex text="全部行: $\max|\text{online} - \text{整块}|$" /></span><b :class="maxDiff < 1e-6 ? 'good' : 'bad'">{{ maxDiff === 0 ? '0' : maxDiff.toExponential(1) }}</b></div>
-      <p class="lab-note">
-        每个 tile 只进 SRAM 一次, 共 {{ tiles.length }} 个 (因果: 整块被 mask 的 tile 直接跳过)。
-        真实 kernel 还同步累计输出 O (同样乘 <Tex text="$\exp(m_{\text{old}} - m_{\text{new}})$" />), 并把 lse 存下来供反向和分段合并 (ring attention / chunked prefill) 使用。
-      </p>
+      <div class="kv"><span>一个 tile 的元素数 vs 整矩阵 (SRAM 工作集)</span><b :class="bs * bs < N * N ? 'good' : ''">{{ bs * bs }} vs {{ N * N }} ({{ (N * N / (bs * bs)).toFixed(0) }}×)</b></div>
+      <div class="kv"><span>q{{ row }} 的运行最大值 <Tex text="$m$" /> / 运行分母 <Tex text="$l$" /></span><b>{{ state.log.length ? `${fmt(state.m)} / ${fmt(state.l)}` : '—' }}</b></div>
+      <div class="kv"><span>分母的对数 <Tex text="$\mathrm{lse} = m + \ln l$" /></span><b>{{ state.log.length ? fmt(state.m + Math.log(state.l)) : '—' }}</b></div>
+      <div class="kv"><span><Tex text="全部行走完后与整行 softmax 的最大差 $\max|\text{online} - \text{整行}|$" /></span><b :class="maxDiff < 1e-6 ? 'good' : 'bad'">{{ maxDiff === 0 ? '0' : maxDiff.toExponential(1) }}</b></div>
+      <div class="lab-note">
+        <p>每个 tile 只进 SRAM 一次, 共 {{ tiles.length }} 个 (因果: 整块被 mask 的 tile 直接跳过, 连乘法都不做)。</p>
+        <p>真实 kernel 除了 <Tex text="$m$" /> 和 <Tex text="$l$" />, 还同步累计输出 O (同样乘 <Tex text="$\exp(m_{\text{old}} - m_{\text{new}})$" /> 重缩放), 并把 lse 存下来: 反向传播靠它重算概率矩阵而不用存 <Tex text="$N \times N$" />, ring attention 和 chunked prefill 靠它把分段算出的结果合并。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

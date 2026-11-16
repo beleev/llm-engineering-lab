@@ -5,16 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="GSPO — 比率该按 token 算, 还是按整条序列算"
-    sub="每根柱子是一条回答里某个 token 的 $\log\rho_t = \log\pi_{\text{new}} - \log\pi_{\text{old}}$, 上下拖动柱顶。
-      - 黄线之外: 这个 token 在 GRPO 里被单独 clip, 变灰 = 没有梯度。
-      - 绿线: GSPO 的序列级比率 $\log s$ = 所有柱子的平均。
-      拖「噪声」或「漂移」滑杆会重新生成 12 根柱子, 手拖过的位置不保留。"
+    title="GSPO — 重要性比率该按 token 算, 还是按整条序列算"
+    sub="- 模拟什么: GRPO 的奖励是给整条回答的, 但重要性比率 $\rho_t = \pi_{\text{new}}/\pi_{\text{old}}$ (新策略比旧策略给这个 token 的概率涨了几倍) 却是每个 token 各算一个、各自 clip。单个 token 的比率只基于「这个位置采到的这一个 token」, 是方差很大的单样本估计, 噪声一大就有些 token 被随机 clip 掉。GSPO 改成序列级: 把整条回答的 $\log\rho_t$ 取平均得到 $\log s$ (等价于按长度做几何平均), 整条序列共用一个比率, 要 clip 就整条一起。
+      - 图上是什么: 12 根柱子, 每根是一条回答里一个 token 的 $\log\rho_t$ (0 表示新旧策略给它的概率一样, 正表示涨了, 负表示跌了)。两条黄线是 GRPO 的 token 级裁剪边界 $\log(1 \pm 0.2)$; 柱子越过有利方向的那条黄线就变灰, 表示这个 token 在 GRPO 里被 clip, 没有梯度。绿色横线是 GSPO 的序列级比率 $\log s$, 就是 12 根柱子的平均。
+      - 可以做什么: 「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」切换这条回答是好是坏 (决定往哪个方向越界才算越界); 「换一组」换随机数; 拖「token 级比率噪声」改柱子的散布; 拖「整体漂移」改策略整体变了多少 (柱子的平均); 拖「GSPO 的 ε」改序列级的裁剪范围。上下拖任意柱顶 (或聚焦后按方向键) 单独改一个 token。注意拖噪声或漂移滑杆会重新生成 12 根柱子, 手拖过的位置不保留。
+      - 应该看到: 把噪声拖大, 越来越多柱子变灰, 但绿线几乎不动。右侧读数: 「GRPO: 被 clip 的 token」是变灰的根数; 「GSPO: 序列比率 s」是 $e^{\log s}$, 通常很接近 1; 「GSPO: 整条序列」显示整条是保留还是一起被 clip; 「不归一的 Πρ_t」是不做长度平均、直接把 12 个比率乘起来的结果, 看它离 1 有多远。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
       ask: '把噪声拖到 0.3 以上: GRPO 下有几个 token 被 clip? 此时 GSPO 的 s 离 1 有多远? 再看「不做长度归一的 Πρ_t」: 如果序列有 1000 个 token 它会怎样?',
-      answer: '每个 $\\rho_t$ 都只基于「这个位置采到的这一个 token」, 是方差很大的单样本重要性权重。\n- 噪声 0.3 时: 常有三四个 token 越界被 clip, 剩下的照常更新。同一条序列、同一个 $\\hat{A}$, 有的 token 学有的不学, 哪些被 clip 基本是随机的。\n- MoE 模型里: 路由一变, token 级比率抖得更厉害。这是 GSPO 论文报告的 GRPO 训练崩溃来源。\n序列级比率取平均后, 噪声按 $1/\\sqrt{T}$ 缩小, $s$ 通常离 1 很近。所以 GSPO 的 $\\varepsilon$ 取得极小 (论文里是 3e-4 ~ 4e-4 量级), 越界时整条序列一起放弃。\n必须取几何平均: 不做长度归一的 $\\prod\\rho_t = \\exp(\\sum\\log\\rho_t)$ 会随长度指数发散或归零, 长序列几乎必然被 clip。',
+      answer: '答案: 噪声 0.3 以上时常有三四个 token 被 clip; GSPO 的 $s$ 仍离 1 很近; 不归一的 $\\prod\\rho_t$ 在 1000 个 token 时会指数爆炸或归零, 几乎必然被 clip。\n一步步看:\n- 每个 $\\rho_t$ 都只基于「这个位置采到的这一个 token」, 是方差很大的单样本重要性权重。噪声 0.3 时常有三四根柱子越界变灰, 其余照常更新: 同一条序列、同一个 $\\hat{A}$, 有的 token 学有的不学, 而哪些被 clip 基本是随机的。\n- MoE 模型里路由一变, token 级比率抖得更厉害。这是 GSPO 论文报告的 GRPO 训练崩溃来源。\n- 序列级比率 $\\log s = \\frac{1}{T}\\sum_t \\log\\rho_t$, 这个式子在说: 把 T 个 token 的 log 比率取平均。平均后噪声按 $1/\\sqrt{T}$ 缩小, $s$ 通常离 1 很近, 所以 GSPO 的 $\\varepsilon$ 取得极小 (论文里是 3e-4 到 4e-4 量级; 本仓库 grpo.py 的 gspo 配置用 0.05), 越界时整条序列一起放弃。\n- 必须取平均 (几何平均): 不做长度归一的 $\\prod\\rho_t = \\exp(\\sum_t\\log\\rho_t)$ 会随长度指数发散或归零, 长序列几乎必然被 clip。',
     }"
   >
     <template #controls>
@@ -51,13 +51,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>GRPO: 被 clip 的 token</span><b :class="nClip ? 'bad' : 'good'">{{ nClip }} / {{ N }}</b></div>
-      <div class="kv"><span><Tex text="GSPO: 序列比率 $s$" /></span><b>{{ Math.exp(logS).toFixed(3) }}</b></div>
-      <div class="kv"><span>GSPO: 整条序列</span><b :class="seqClipped ? 'bad' : 'good'">{{ seqClipped ? '整条被 clip' : '整条保留' }}</b></div>
-      <div class="kv"><span><Tex text="不归一的 $\prod\rho_t$" /></span><b>{{ Math.exp(logS * N).toFixed(3) }}</b></div>
+      <div class="kv"><span>GRPO: 被 clip 的 token (变灰的柱子)</span><b :class="nClip ? 'bad' : 'good'">{{ nClip }} / {{ N }}</b></div>
+      <div class="kv"><span><Tex text="GSPO: 序列比率 $s = e^{\log s}$" /></span><b>{{ Math.exp(logS).toFixed(3) }}</b></div>
+      <div class="kv"><span>GSPO: 整条序列 (按 ε 判断)</span><b :class="seqClipped ? 'bad' : 'good'">{{ seqClipped ? '整条被 clip' : '整条保留' }}</b></div>
+      <div class="kv"><span><Tex text="不做长度归一的 $\prod_t\rho_t$" /></span><b>{{ Math.exp(logS * N).toFixed(3) }}</b></div>
       <p class="lab-note">
-        clip 只拦"对自己有利方向"的越界: <Tex text="$\hat{A} \gt 0$" /> 拦 <Tex text="$\rho$" /> 过大, <Tex text="$\hat{A} \lt 0$" /> 拦 <Tex text="$\rho$" /> 过小。
-        噪声只改变柱子的散布, 不改变平均, 所以拖噪声时绿线几乎不动, 被 clip 的 token 数却一直在变。
+        clip 只拦「对自己有利方向」的越界: <Tex text="$\hat{A} \gt 0$" /> 时拦 <Tex text="$\rho$" /> 过大 (好 token 涨太多), <Tex text="$\hat{A} \lt 0$" /> 时拦 <Tex text="$\rho$" /> 过小 (坏 token 压太狠)。
+        噪声只改变柱子的散布, 不改变平均, 所以拖噪声时绿线几乎不动, 被 clip 的 token 数却一直在变: 这就是 token 级 clip 的随机性。
       </p>
     </template>
   </LabFrame>

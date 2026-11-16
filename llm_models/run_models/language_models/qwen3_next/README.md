@@ -1,8 +1,8 @@
 # Qwen3-Next — 混合线性注意力
 
-[![固定大小的状态 vs 越长越大的 KV llm_models/layers/sparse/linear_attention.py](../../../../docs/screenshots/models-mtp-3.png)](https://beleev.github.io#/models/swa-mtp)
+[![线性注意力 — 固定大小的状态矩阵 vs 越读越长的 KV cache llm_models/layers/sparse/linear_attention.py](../../../../docs/screenshots/models-mtp-3.png)](https://beleev.github.io#/models/swa-mtp)
 
-[打开相关交互实验：固定大小的状态 vs 越长越大的 KV llm_models/layers/sparse/linear_attention.py](https://beleev.github.io#/models/swa-mtp)
+[打开相关交互实验：线性注意力 — 固定大小的状态矩阵 vs 越读越长的 KV cache llm_models/layers/sparse/linear_attention.py](https://beleev.github.io#/models/swa-mtp)
 
 ## 直觉
 

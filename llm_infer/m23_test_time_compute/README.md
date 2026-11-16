@@ -1,8 +1,8 @@
 # M23 — Test-Time Compute: 模型不变, 推理时多花 token 换正确率
 
-[![Test-time compute — 采 N 条之后靠什么挑 llm_infer/m23](../../docs/screenshots/infer-test-time-compute-1.png)](https://beleev.github.io#/infer/test-time-compute)
+[![Test-time compute — 采 N 条之后靠什么挑, 决定能涨到多高 llm_infer/m23](../../docs/screenshots/infer-test-time-compute-1.png)](https://beleev.github.io#/infer/test-time-compute)
 
-[打开相关交互实验：Test-time compute — 采 N 条之后靠什么挑 llm_infer/m23](https://beleev.github.io#/infer/test-time-compute)
+[打开相关交互实验：Test-time compute — 采 N 条之后靠什么挑, 决定能涨到多高 llm_infer/m23](https://beleev.github.io#/infer/test-time-compute)
 
 ## 直觉
 

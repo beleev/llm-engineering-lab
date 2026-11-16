@@ -1,8 +1,8 @@
 # M18 — KV cache 账本: MHA / MQA / GQA / MLA
 
-[![KV 体积 — MHA / GQA / MQA / MLA 各占多少显存 llm_infer/m18](../../docs/screenshots/infer-kv-footprint-1.png)](https://beleev.github.io#/infer/kv-footprint)
+[![KV 体积 — MHA / GQA / MQA / MLA 每个 token 各占多少显存, 一张卡能同时服务几条 llm_infer/m18](../../docs/screenshots/infer-kv-footprint-1.png)](https://beleev.github.io#/infer/kv-footprint)
 
-[打开相关交互实验：KV 体积 — MHA / GQA / MQA / MLA 各占多少显存 llm_infer/m18](https://beleev.github.io#/infer/kv-footprint)
+[打开相关交互实验：KV 体积 — MHA / GQA / MQA / MLA 每个 token 各占多少显存, 一张卡能同时服务几条 llm_infer/m18](https://beleev.github.io#/infer/kv-footprint)
 
 ## 直觉
 

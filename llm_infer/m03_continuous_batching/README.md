@@ -1,8 +1,8 @@
 # M03 — Continuous Batching: 每一步都重新组 batch
 
-[![连续批处理 — 静态 batch vs 逐步重组 llm_infer/m03](../../docs/screenshots/infer-scheduler-1.png)](https://beleev.github.io#/infer/scheduler)
+[![连续批处理 — 静态 batch 整批进出, 连续批每一步重组 llm_infer/m03](../../docs/screenshots/infer-scheduler-1.png)](https://beleev.github.io#/infer/scheduler)
 
-[打开相关交互实验：连续批处理 — 静态 batch vs 逐步重组 llm_infer/m03](https://beleev.github.io#/infer/scheduler)
+[打开相关交互实验：连续批处理 — 静态 batch 整批进出, 连续批每一步重组 llm_infer/m03](https://beleev.github.io#/infer/scheduler)
 
 ## 直觉
 

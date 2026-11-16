@@ -1,8 +1,8 @@
 # GPT-OSS — 交替 SWA/全注意力 + attention sink + MoE
 
-[![滑窗 × 全注意力交替 — 信息怎么一层层传过来 llm_models/models/moe/gpt_oss.py](../../../../docs/screenshots/models-gptoss-1.png)](https://beleev.github.io#/models/gptoss)
+[![滑窗与全注意力交替 — 远处的信息怎么一层一层接力传过来 llm_models/models/moe/gpt_oss.py](../../../../docs/screenshots/models-gptoss-1.png)](https://beleev.github.io#/models/gptoss)
 
-[打开相关交互实验：滑窗 × 全注意力交替 — 信息怎么一层层传过来 llm_models/models/moe/gpt_oss.py](https://beleev.github.io#/models/gptoss)
+[打开相关交互实验：滑窗与全注意力交替 — 远处的信息怎么一层一层接力传过来 llm_models/models/moe/gpt_oss.py](https://beleev.github.io#/models/gptoss)
 
 ## 直觉
 

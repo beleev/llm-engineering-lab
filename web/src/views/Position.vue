@@ -2,16 +2,22 @@
   <div>
     <h1 class="page-title">位置编码 · 从 Sinusoidal 到 RoPE 再到 M-RoPE</h1>
     <div class="page-subtitle lead-group">
-      <p>不给位置编码, attention 就是一袋 token: 把句子里的词打乱顺序, 算出来一模一样。</p>
+      <p>
+        注意力只看内容, 不看顺序: 一个 token 的 Q 和另一个 token 的 K 做内积得到分数, 分数里没有「谁在前谁在后」。
+        所以不给位置编码, attention 就是一袋 token: 把句子里的词打乱顺序, 每个词算出来的结果一模一样 (本仓库的 attention demo 断言了这一点, 误差 8.9e-08)。
+      </p>
       <p>
         本章拖一根滑条就能看明白一件事。
-        <strong>为什么 RoPE 一旋转, <Tex text="$Q\cdot K$" /> 内积就只剩下「隔了多远」, 绝对位置自动消失</strong>。
+        <strong>为什么 RoPE 把 Q 和 K 各转一个角之后, <Tex text="$Q\cdot K$" /> 内积 (也就是注意力分数) 就只剩下「隔了多远」, 绝对位置自动消失</strong>。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="位置信息的注入点一路往后挪: 先加在 embedding 上, 再乘到 Q/K 上, 最后按轴拆开。越挪越靠近 attention 用得上的地方。"
-      question="如果 $Q\cdot K$ 内积只依赖 $(m-n)$、跟绝对位置 $m$ 和 $n$ 无关, 模型剩下要学的是什么?"
+      tldr="- 位置信息的注入点一路往后挪, 越挪越靠近 attention 真正用它的地方。
+- Sinusoidal / Learnable (2017 / 2018): 给每个位置配一个向量, 加到 token 的 embedding 上。编的是绝对位置: 第 5 个就是第 5 个。
+- RoPE (2021): 不加向量, 改成把 Q 和 K 按位置各转一个角。两个转过的向量做内积, 角度相减, 只剩「隔了多远」。零参数, 位置超出训练长度也能转。
+- M-RoPE (2024): 图像 patch 有行有列, 把旋转的维度切成三段, 分别按 (时间, 行, 列) 转。文本三个位置号相同, 结果和普通 RoPE 逐位相等 (demo 实测差 0.0e+00)。"
+      question="RoPE 之后, 一个 query 和一个 key 的分数只看它们隔了多远 $(m-n)$, 跟各自是第几个 ($m$、$n$) 无关。那模型剩下要学的是什么? 丢掉绝对位置, 会不会有问题?"
       :goals="[
         '分清绝对位置 / 可学位置 / RoPE / M-RoPE 各自解决什么',
         '自己推一遍 RoPE 为什么让内积只剩相对距离',
@@ -41,14 +47,21 @@
         <div class="card">
           <h3>Sinusoidal PE <span class="tag">加在 embedding 上</span></h3>
           <p class="desc">
-            每个位置算一个固定向量, 直接加到 token embedding 上。不同维度用不同频率, 合起来就是这个位置的 "指纹"。
+            每个位置算一个固定向量, 直接加到 token 的 embedding 上 (embedding: 查表得到的、代表这个 token 本身的向量)。
+            下面代码里的 pos 是第几个位置, 2i 是第几个维度: 维度 0 的正弦随 pos 抖得最快, 越往后的维度分母里 10000 的指数越大, 抖得越慢。
+            不同维度用不同频率, 合起来每个位置都得到一组独一无二的数, 就是这个位置的「指纹」。
           </p>
-          <p class="desc" style="margin: 6px 0 12px;">它编的是绝对位置, 训练长度之外推不出去。</p>
+          <p class="desc" style="margin: 6px 0 12px;">
+            它编的是绝对位置: 第 5 个位置的指纹永远是那一组数。模型只在训练长度内见过这些指纹, 更远的位置虽然也能算出向量, 模型却没学过怎么用, 所以推不出去。
+          </p>
           <CodeBlock :code="sinCode" />
         </div>
         <div class="card">
           <h3>频率谱 <span class="tag">d_model=64</span></h3>
-          <p class="desc" style="margin-bottom: 8px;">一条线是一个维度, 横轴是位置。低维波长短、抖得快, 高维波长长、几乎是条斜线。</p>
+          <p class="desc" style="margin-bottom: 8px;">
+            图上是什么: 画的是 d_model=64 的编码里前 16 个维度, 一条线是一个维度, 横轴是位置 0 到 79, 纵轴是这个维度的值 (正弦或余弦, 在 -1 到 1 之间)。
+            应该看到: 靠前的维度波长短、抖得快, 位置挪一步值就变很多; 靠后的维度波长长, 在 80 个位置内几乎是一条斜线。
+          </p>
           <svg viewBox="0 0 480 320" width="100%" height="320" role="img" aria-label="Sinusoidal 位置编码的 16 个维度随位置变化的曲线">
             <path v-for="(line, idx) in sinLines" :key="idx"
                   :d="line" fill="none"
@@ -64,10 +77,14 @@
         <div class="card">
           <h3>RoPE 旋转可视化 <span class="tag">拖动滑条体验</span></h3>
           <p class="desc">
-            RoPE 把 Q/K 的相邻两维当成一个复数 <Tex text="$z = a + ib$" />,
-            在位置 <Tex text="$m$" /> 处乘上 <Tex text="$e^{im\theta}$" />, 也就是转了 <Tex text="$m\theta$" /> 这么大的角。
+            RoPE 不往 embedding 里加东西, 它直接改 Q 和 K: 把向量的维度两两配对, 每一对 <Tex text="$(a, b)$" /> 当成一个复数 <Tex text="$z = a + ib$" />,
+            在位置 <Tex text="$m$" /> 处乘上 <Tex text="$e^{im\theta}$" />。复数乘 <Tex text="$e^{i\phi}$" /> 就是在平面上把这个点转 <Tex text="$\phi$" /> 角、长度不变,
+            所以这一步等于把每一对转了 <Tex text="$m\theta$" /> 这么大的角: 位置越靠后, 转得越多。
           </p>
-          <p class="desc" style="margin: 6px 0 16px;">下面 4 个点是 4 个维度对, 频率不同, 转速就不同。拖滑条看它们分开。</p>
+          <p class="desc" style="margin: 6px 0 16px;">
+            图上是什么: 圆上的 4 个点是 4 个维度对 (d0、d2、d4、d6), 每对有自己的转速 <Tex text="$\theta_i$" />。图里的转速是示意值, 真实 RoPE 用 <Tex text="$\theta_i = 10000^{-2i/d}$" />, 越靠后的对越慢。
+            可以做什么: 拖「位置 m」从 0 到 64。应该看到: m=0 时四个点都在正右方重合; m 变大后 d0 转得最快, 到 64 已经转了 5 圈多, d6 还没转过四分之一圈。
+          </p>
 
           <div class="form-row">
             <label for="position-rope-m">位置 m</label>
@@ -100,22 +117,34 @@
           </svg>
 
           <ul class="desc pts" style="font-size: 12px;">
-            <li><b>低维 (d0):</b> 频率高、转得快, 分得清相邻 token 谁先谁后。像秒针。</li>
-            <li><b>高维 (d6):</b> 频率低、转得慢, 管的是远距离。像时针。</li>
+            <li><b>低维 (d0):</b> 频率高、转得快, 相邻两个 token 的角度差很大, 分得清谁先谁后。像秒针。</li>
+            <li><b>高维 (d6):</b> 频率低、转得慢, 隔了很远角度才差出一点, 管的是远距离。像时针。</li>
           </ul>
-          <p class="desc" style="font-size: 12px; margin-top: 6px;">长度外推出事的, 正是 "时针" 那一端。</p>
+          <p class="desc" style="font-size: 12px; margin-top: 6px;">
+            长度外推 (让模型处理比训练时更长的序列) 出事的, 正是「时针」那一端: 低频的对在训练长度内连一圈都没转完, 位置一超出训练长度, 指针就指向从未见过的角度。
+            修法叫 YaRN: 把这些转得慢的对再放慢 s 倍 (s 是上下文要扩几倍), 转得快的对原样不动, 中间的线性过渡; 再把注意力分数乘一个 <Tex text="$(0.1\ln s + 1)^2$" /> 的系数, 补偿长序列 softmax 变平。
+            本仓库 demo 用 s=4, 把越界 4 倍的低频维全拉回 1.00 倍。
+          </p>
         </div>
 
         <div class="card">
           <h3>相对位置的关键证明 <span class="tag">核心直觉</span></h3>
-          <p class="desc" style="margin-bottom: 12px;">两个 token 各自旋转之后再做内积, 绝对位置会被约掉, 只剩位置差 <Tex text="$(m-n)$" />:</p>
+          <p class="desc" style="margin-bottom: 12px;">
+            把「转 <Tex text="$m\theta$" /> 角」写成矩阵 <Tex text="$R(m\theta)$" />。query 在位置 <Tex text="$m$" />, key 在位置 <Tex text="$n$" />, 各自转完再做内积, 绝对位置会被约掉, 只剩位置差 <Tex text="$(m-n)$" />:
+          </p>
           <Prose text="$$\begin{aligned} Q_m &= R(m\theta)\cdot q \\ K_n &= R(n\theta)\cdot k \\ \langle Q_m, K_n \rangle &= \langle R(m\theta)\cdot q,\ R(n\theta)\cdot k \rangle \\ &= q^\top \cdot R(m\theta)^\top \cdot R(n\theta)\cdot k \\ &= q^\top \cdot R((n-m)\theta)\cdot k && \leftarrow \text{只依赖 } (n-m) \end{aligned}$$" />
 
-          <p class="desc" style="margin-top: 12px;"><strong>转过的 Q 和 K 一做内积, 相对距离就自己冒出来了</strong>。</p>
-          <p class="desc" style="margin-top: 6px;">
-            没有一个可学参数, 位置往外推也不会遇到 "没训过的参数"。现代 LLM 几乎全换成了 RoPE, 原因就是这个。
+          <p class="desc" style="margin-top: 12px;">
+            这个式子在说: 先把 q 转 <Tex text="$m\theta$" />, 再把 k 转 <Tex text="$n\theta$" />, 两个点之间的夹角只差 <Tex text="$(n-m)\theta$" />。内积只和两个向量的长度、夹角有关, 旋转不改长度, 所以结果等于「不转 q, 只把 k 转 <Tex text="$(n-m)\theta$" />」。
+            <strong>转过的 Q 和 K 一做内积, 相对距离就自己冒出来了</strong>, 绝对位置 <Tex text="$m$" />、<Tex text="$n$" /> 被约掉。
           </p>
-          <p class="desc" style="margin-top: 6px;">下面两根滑条随便拖: 只要 <Tex text="$|m-n|$" /> 不变, 相似度就不动。</p>
+          <p class="desc" style="margin-top: 6px;">
+            整个过程没有一个可学参数, 位置往外推也不会遇到「没训过的参数」(会遇到的是上面说的没见过的角度)。现代 LLM 几乎全换成了 RoPE, 原因就是这个。
+          </p>
+          <p class="desc" style="margin-top: 6px;">
+            可以做什么: 下面两根滑条随便拖。读数是 d0 这一对的模拟相似度: 假设 q 和 k 都是 (1, 0), 各自转完再做内积, 就是 <Tex text="$\cos((n-m)\theta_0)$" />。
+            应该看到: 两根一起挪, 只要 <Tex text="$|m-n|$" /> 不变, 读数就不动; 只挪一根, 读数才变。
+          </p>
 
           <div class="form-row" style="margin-top: 16px;">
             <label for="position-q-pos">Q 位置 m</label>
@@ -129,7 +158,7 @@
           </div>
 
           <div class="stat" style="margin-top: 10px;" aria-live="polite" aria-atomic="true">
-            <div class="k">模拟相似度 (低维对)</div>
+            <div class="k">模拟相似度 (只看 d0 这一对)</div>
             <div class="v accent">{{ cosSim.toFixed(3) }}</div>
             <div class="hint">相对距离 <Tex text="$|m-n|$" /> = {{ Math.abs(qPos - kPos) }}; 与绝对位置 <Tex text="$m, n$" /> 无关</div>
           </div>
@@ -143,40 +172,40 @@
         <div class="card">
           <h3>M-RoPE: 三轴位置 <span class="tag">Qwen2-VL · 2024</span></h3>
           <p class="desc" style="margin-bottom: 16px;">
-            视觉 patch 天生是个网格 (时间 × 高 × 宽), 一根一维位置轴装不下。
-            M-RoPE 把 head_dim 切成三段, 每段拿对应轴的位置各转各的, 于是同一个 attention 能同时喂两种输入:
+            图片进模型前会切成小方块 (patch), 每个 patch 当一个 token; 视频再多一个帧号。所以视觉 token 天生是个网格 (时间 × 高 × 宽), 一根一维的位置轴装不下。
+            M-RoPE 把每个头的维度 head_dim 切成三段, 每段用对应轴的位置号各转各的, 于是同一个 attention 能同时喂两种输入:
           </p>
           <ul class="desc" style="padding-left: 16px; line-height: 1.9; list-style: disc;">
-            <li><strong>文本 token</strong>: 三轴 id 都是 (t, t, t) → 严格退化成 1-D RoPE</li>
-            <li><strong>视觉 patch</strong>: 三轴 id 各不相同 (t, h, w) → 二维结构保住了</li>
+            <li><strong>文本 token</strong>: 三个位置号都填同一个 t, 写成 (t, t, t), 结果和普通一维 RoPE 逐位相等</li>
+            <li><strong>视觉 patch</strong>: 三个号分别填 (帧号, 行号, 列号), 同一行的 patch 行号相同, 二维结构保住了</li>
           </ul>
 
           <div class="trade" style="margin-top: 16px;">
             <div class="tr-item">
               <span class="ok">✓</span>
-              <span>图和文共用一个 decoder, 不用再加一套 cross-attention</span>
+              <span>图和文共用一个 decoder, 不用再加一套 cross-attention (让文本去查另一个视觉编码器输出的额外注意力层)</span>
             </div>
             <div class="tr-item">
               <span class="ok">✓</span>
-              <span>动态分辨率随便来: patch 网格多大都是同一套编码</span>
+              <span>动态分辨率随便来: patch 网格多大都是同一套编码, 行号列号接着数就行</span>
             </div>
           </div>
 
           <p class="desc" style="margin-top: 14px; font-size: 12px;">
-            "纯文本下退化成 1-D RoPE" 的前提: 三轴共用同一条频率轴 (按段分给 T/H/W)。
+            「纯文本下退化成 1-D RoPE」有个前提: 三轴共用同一条频率轴。RoPE 一共有 head_dim/2 个转速, 从快到慢排成一列; M-RoPE 是把这一列按段切开分给 T/H/W, 而不是每段各建一列。
           </p>
           <ul class="desc pts" style="font-size: 12px; margin-top: 6px;">
-            <li><b>共用频率轴:</b> demo 实测纯文本下与 1-D RoPE 数值差 0.0e+00, 写进了断言。</li>
-            <li><b>不共用:</b> 纯文本下差 3.3e-3。</li>
+            <li><b>共用频率轴:</b> 三个号相同时, 每一对拿到的角度和一维 RoPE 完全一样。demo 实测纯文本下与 1-D RoPE 数值差 0.0e+00, 写进了断言。</li>
+            <li><b>不共用:</b> 每段都从最快的转速起算, 文本的角度就对不上。纯文本下差 3.3e-3。</li>
           </ul>
           <p class="desc" style="font-size: 12px; margin-top: 6px;">
-            但 H/W 分到的是较低频率。4×4 小网格上未训练时, 它们的影响约 1e-5~1e-4, 不是零。
+            代价是 H/W 分到的是这一列里靠后、较慢的转速。4×4 的小网格上, 未训练时对调行列坐标, 输出只变约 1e-5~1e-4 (demo 里是 5.3e-05), 不是零, 但很小。
           </p>
         </div>
 
         <div class="card">
           <h3>位置索引示意</h3>
-          <p class="desc" style="margin-bottom: 12px;">文本 "Hi" 后面接一张 3×3 的 patch 网格, 再接文本 "there"。看每个 token 拿到的 (t, h, w):</p>
+          <p class="desc" style="margin-bottom: 12px;">文本「Hi」后面接一张 3×3 的 patch 网格, 再接文本「there」。每个格子下面是这个 token 拿到的三个位置号 (t, h, w):</p>
           <div class="mrope-grid mono">
             <!-- 文本 "Hi" -->
             <div v-for="(tok, i) in ['H', 'i']" :key="'t1-'+i" class="tok text">
@@ -197,7 +226,7 @@
             </div>
           </div>
           <p class="desc" style="font-size: 12px; margin-top: 10px;">
-            9 个视觉 patch 在时间轴上都算位置 2 (所以后面的文本从 3 接着数), h/w 轴则按它在网格里的行列填。
+            H、i 是第 0、1 个 token, 三个号都填自己的序号。整张图算时间轴上的一个位置 2, 所以 9 个 patch 的 t 都是 2, h 和 w 按它在网格里的行、列填 0 到 2。后面的文本从 3 接着数, 三个号又回到相同。
           </p>
         </div>
       </div>
@@ -207,9 +236,9 @@
       <h2>代码路径</h2>
       <p class="lead">这三个类都在 <RepoLink path="llm_models/layers/core/position_encoding.py" label="llm_models/layers/core/position_encoding.py" tiny /> 里, 住在 <RepoLink path="llm_models/layers/core/" label="core/" tiny /> 子包下。任何一个 Transformer 都得从中挑一个用。</p>
       <div class="grid grid-3">
-        <div class="card"><h3 style="font-size: 13px;">SinPositionalEncoding</h3><p class="desc">原始 Transformer 那一版, 加在 embedding 上。绝对位置, 推不到训练长度之外。</p></div>
-        <div class="card"><h3 style="font-size: 13px;">RotaryPositionalEncoding</h3><p class="desc">旋转 Q/K, 内积只剩相对距离。零可学参数, 长度能往外推 (配 YaRN 推得更远)。</p></div>
-        <div class="card"><h3 style="font-size: 13px;">MultimodalRotaryEmbedding</h3><p class="desc">head_dim 切成 T/H/W 三段各转各的; 文本三轴 id 相同时, 结果和标准 RoPE 逐位相等。</p></div>
+        <div class="card"><h3 style="font-size: 13px;">SinPositionalEncoding</h3><p class="desc">原始 Transformer 那一版: 按公式算好一张位置表, 加在 embedding 上。编的是绝对位置, 推不到训练长度之外。</p></div>
+        <div class="card"><h3 style="font-size: 13px;">RotaryPositionalEncoding</h3><p class="desc">按位置旋转 Q 和 K, 内积只剩相对距离。零可学参数, 长度能往外推; 配上面说的 YaRN 缩放 (同一个类的 scaling 参数) 能把上下文扩到训练长度的 4 到 32 倍。</p></div>
+        <div class="card"><h3 style="font-size: 13px;">MultimodalRotaryEmbedding</h3><p class="desc">把 head_dim 切成 T/H/W 三段各转各的, 内部复用上面的 RoPE 类和它的频率表; 文本三轴位置号相同时, 结果和标准 RoPE 逐位相等 (文件末尾的自检断言了这一点)。</p></div>
       </div>
     </section>
 
@@ -257,17 +286,17 @@ const variant = ref('rope')
 
 const evoSteps = [
   { name: 'Sinusoidal', year: 2017, color: 'var(--text-muted)',
-    pain: '(原点) 不给位置 = 一袋 token, 打乱顺序结果不变',
-    fix: '按不同频率算一组正余弦, 加到 embedding 上, 编的是绝对位置' },
+    pain: '(原点) attention 只看内容不看顺序: 不给位置信息, 把句子打乱, 每个 token 算出来的结果一模一样',
+    fix: '给每个位置算一个固定向量 (不同维度用不同频率的正弦、余弦), 加到 token 的 embedding 上。编的是绝对位置: 第 5 个就是第 5 个' },
   { name: 'Learnable', year: 2018, color: 'var(--accent)',
-    pain: 'Sin 是写死的公式, 不一定贴合数据',
-    fix: '每个位置配一个可学向量 (BERT / ViT), 但训练长度之外的位置从没被训过' },
+    pain: 'Sin 的向量是写死的公式算出来的, 不一定贴合数据',
+    fix: '每个位置配一个可以训练的向量, 像查词表一样查位置 (BERT / ViT)。但表只有训练长度那么长, 之外的位置从没被训过' },
   { name: 'RoPE', year: 2021, color: 'var(--left)',
-    pain: '训练长度之外推不出去; 而且加在 embedding 上, 不需要位置的 V 也带上了',
-    fix: '把 Q/K 的相邻两维当复数, 在位置 $m$ 处旋转 $e^{im\\theta}$: 内积自动只剩 $(m-n)$, 零参数, 能往外推' },
+    pain: '训练长度之外推不出去; 而且位置加在 embedding 上, 会一路带进 V, 可 V 装的是内容, 并不需要位置',
+    fix: '不加向量, 改成旋转: 把 Q、K 每两维当一个复数, 位置 $m$ 处转 $m\\theta$ 角。两个转过的向量做内积, 角度相减, 只剩距离 $(m-n)$。零参数, 能往外推' },
   { name: 'M-RoPE', year: 2024, color: 'var(--eye)',
-    pain: '视觉 patch 是二维网格, 一根一维的位置轴装不下',
-    fix: 'head_dim 切成 (T, H, W) 三段各转各的; 文本三轴 id 相同, 严格退化成 1-D RoPE → 图文共用一个 decoder' },
+    pain: '图像切成的 patch 排成二维网格, 有行有列, 一根一维的位置轴装不下',
+    fix: '把每个头的维度切成三段, 分别按 (时间, 行, 列) 三个位置号旋转。文本 token 三个号相同, 结果和普通 RoPE 逐位相等, 于是图和文能共用一个 decoder' },
 ]
 
 // --- Sinusoidal 曲线 ---

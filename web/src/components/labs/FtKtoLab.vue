@@ -5,15 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="KTO: 好坏 1:9 时, λ 为什么必须跟着调"
-    sub="上面 10 个格子是一个 batch 的样本比例, 绿 = 👍, 红 = 👎。
-      下图是单条样本对隐式奖励 $r = \log\pi/\pi_{\text{ref}}$ 的推力 $|\partial v/\partial r|$, 拖竖线改 $r$。
-      条形是整批的总推力 $\lambda \cdot n \cdot |\partial v/\partial r|$: 好样本往上推 $r$, 坏样本往下压。"
+    title="KTO — 单条 👍/👎 也能训, 但好坏 1:9 时 λ 必须跟着调"
+    sub="- 模拟什么: KTO 不需要成对的偏好, 每条回复只要一个「好」或「坏」的标签就能训。它给每条回复算一个隐式奖励 $r = \log(\pi/\pi_{\text{ref}})$ (policy 比 ref 给这条回复的 log 概率多了多少); 好样本的目标是把 $r$ 推到参考点 $z_0$ 之上, 坏样本是把 $r$ 压到 $z_0$ 之下, 本例 $z_0 = 0$。推力是一条 $\sigma$ 曲线的斜率, 离 $z_0$ 太远的样本斜率趋近 0, 就不再推。好坏两类各有一个权重 $\lambda_D$ (好) 和 $\lambda_U$ (坏); 一个 batch 里好坏数量不均时, 两类的总推力「权重乘条数」必须拉平, 否则多的那一类会把所有回复一起拖走。
+      - 图上是什么: 顶部 10 个格子是一个 batch 里的样本比例, 绿 👍 是好样本, 红 👎 是坏样本。中间的曲线是单条样本在不同隐式奖励 $r$ 处的推力大小 $|\partial v/\partial r| = \lambda\beta\sigma(1-\sigma)$: 绿线是好样本 ($\lambda_D = 1$), 红线是坏样本 ($\lambda_U$ 由滑杆给), $\beta = 0.5$ 和 kto.py 一致; 紫色竖线是当前的 $r$。下面两根横条是整批的总推力: 好样本条数乘单条推力, 坏样本条数乘单条推力。
+      - 可以做什么: 「好:坏 = 1:1 / 1:9」一键设比例; 拖「好样本条数 n_D」自己定比例; 拖「坏样本权重 λ_U」改红线的高度; 拖紫色竖线 (或聚焦后按方向键) 改 $r$, 看在不同位置两类的推力各是多少。
+      - 应该看到: 1:9 且 $\lambda_U = 1$ 时, 坏样本那根横条是好样本的 9 倍。右侧读数: 「好样本 λ_D·n_D」和「坏样本 λ_U·n_U」是两类的总权重; 「两者之比」落在论文建议的 1 到 1.33 之间变绿; 「整批净推力」告诉你现在是偏向推高、偏向压低还是大致拉平。下面的表格是 train_kto.py 在留出集上的实测, 不随左侧变化: 「准确率」是偏好准确率, 「log π(chosen)」是模型给正确回复的 log 概率 (越负越不会写), 「贪心 EM」是贪心解码的完全匹配率。"
     module="llm_finetune/methods/kto.py"
     run="python -m llm_finetune.run_finetune.kto.train_kto"
     :challenge="{
       ask: '点「好:坏 = 1:9」, $\\lambda_U$ 先不动。坏样本的总推力是好样本的几倍? 模型会怎样应对? 再拖 $\\lambda_U$, 找到两边推力相等的位置。',
-      answer: '$\\lambda_D = \\lambda_U = 1$ 时, 同一个 $r$ 上每条样本推力一样, 9 条坏样本的总推力就是 1 条好样本的 9 倍。\n模型最省力的办法是把所有回复一起往下压。实测 log π(chosen) 从 −4.03 掉到 −30.02, 准确率 0.492, EM 0.000。偏好方向丢了, 生成全崩。\n$\\lambda_U$ 拖到 0.11 (约 1/9) 时两边拉平, 满足 $\\lambda_D n_D \\approx \\lambda_U n_U$: 实测准确率 0.988, EM 0.254。论文建议的范围是 $\\lambda_D n_D / (\\lambda_U n_U) \\in [1, 4/3]$。\n这份 1:9 的数据 DPO 一对也凑不出, 因为每个 prompt 只出现一条回复。',
+      answer: '答案: 坏样本的总推力是好样本的 9 倍; 模型会把所有回复一起往下压; $\\lambda_U$ 拖到 0.11 (约 1/9) 时两边拉平。\n一步步看:\n- 推力的式子 $\\lambda\\beta\\sigma(1-\\sigma)$ 在说: 同一个 $r$ 上, 每条样本的推力只差一个 $\\lambda$。$\\lambda_D = \\lambda_U = 1$ 时每条一样, 9 条坏样本的总推力就是 1 条好样本的 9 倍。\n- 坏样本的目标是把 $r = \\log(\\pi/\\pi_{\\text{ref}})$ 压低, 最省力的办法是让 policy 对什么回复都不给概率, 好样本那 1 条拦不住。实测「KTO 1:9, 不调 λ」: log π(chosen) 从 −4.03 掉到 −30.02, 准确率 0.492, 贪心 EM 0.000, 偏好方向丢了, 生成全崩。\n- 拉平的条件是 $\\lambda_D n_D \\approx \\lambda_U n_U$, 代入 $1\\times 1 = \\lambda_U\\times 9$ 得 $\\lambda_U \\approx 0.11$。实测这一档: 准确率 0.988, EM 0.254。论文建议把 $\\lambda_D n_D / (\\lambda_U n_U)$ 控制在 1 到 4/3 之间。\n- 这份 1:9 的数据 DPO 一对也凑不出, 因为每个 prompt 只出现一条回复, 这正是 KTO 的用武之地。',
     }"
   >
     <template #controls>
@@ -57,19 +58,19 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>好样本 λ_D·n_D</span><b>{{ (LAM_D * nD).toFixed(2) }}</b></div>
-      <div class="kv"><span>坏样本 λ_U·n_U</span><b>{{ (lamU * nU).toFixed(2) }}</b></div>
-      <div class="kv"><span>两者之比 (论文建议 1 – 1.33)</span><b :class="inBand ? 'good' : 'bad'">{{ balance.toFixed(2) }}</b></div>
+      <div class="kv"><span>好样本总权重 λ_D·n_D</span><b>{{ (LAM_D * nD).toFixed(2) }}</b></div>
+      <div class="kv"><span>坏样本总权重 λ_U·n_U</span><b>{{ (lamU * nU).toFixed(2) }}</b></div>
+      <div class="kv"><span>两者之比 (论文建议 1 到 1.33)</span><b :class="inBand ? 'good' : 'bad'">{{ balance.toFixed(2) }}</b></div>
       <div class="kv"><span>整批净推力</span><b :class="inBand ? 'good' : 'bad'">{{ balance > 4 / 3 ? '偏向推高' : balance < 0.99 ? '偏向压低' : '大致拉平' }}</b></div>
       <p class="tcap">train_kto.py 留出集 (实测, 不随左侧变化)</p>
       <table class="cmp mono">
-        <thead><tr><th>配置</th><th>准确率</th><th>log π(chosen)</th><th>贪心 EM</th></tr></thead>
+        <thead><tr><th>配置</th><th>偏好准确率</th><th>log π(chosen)</th><th>贪心 EM</th></tr></thead>
         <tbody>
           <tr v-for="m in MEASURED" :key="m.name"><td>{{ m.name }}</td><td>{{ m.acc }}</td><td>{{ m.lpc }}</td><td>{{ m.em }}</td></tr>
         </tbody>
       </table>
       <p class="lab-note">
-        同样的前向预算, KTO 每步有标签的回复只有 64 条, DPO 是 128 条。
+        代价: 同样的前向预算下, KTO 每步有标签的回复只有 64 条, DPO 是 128 条, 因为 KTO 每步有一半前向花在估参考点 z0 用的错配样本上 (本例 z0 被 clamp 成 0)。
       </p>
     </template>
   </LabFrame>

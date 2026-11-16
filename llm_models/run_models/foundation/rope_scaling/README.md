@@ -1,8 +1,8 @@
 # RoPE 长度外推: NTK / YaRN
 
-[![YaRN / NTK — 每个频率该不该被压缩 llm_models/layers/core/position_encoding.py](../../../../docs/screenshots/models-qknorm-yarn-2.png)](https://beleev.github.io#/models/qknorm-yarn)
+[![RoPE 长度外推 — 哪些频率该压缩, 哪些该放着不动 llm_models/layers/core/position_encoding.py](../../../../docs/screenshots/models-qknorm-yarn-2.png)](https://beleev.github.io#/models/qknorm-yarn)
 
-[打开相关交互实验：YaRN / NTK — 每个频率该不该被压缩 llm_models/layers/core/position_encoding.py](https://beleev.github.io#/models/qknorm-yarn)
+[打开相关交互实验：RoPE 长度外推 — 哪些频率该压缩, 哪些该放着不动 llm_models/layers/core/position_encoding.py](https://beleev.github.io#/models/qknorm-yarn)
 
 ## 直觉
 

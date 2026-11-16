@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="Aux-loss-free 均衡 — 偏置只管选人, 不管权重"
-    sub="256 个 token、8 个专家、top-2 路由, 路由器天生偏爱前几个专家。
-      按播放看每一步负载柱怎么被拉平。点任意专家的柱子, 下方折线会叠加它的偏置轨迹。拖 $\gamma$ 感受「太小追不上、太大来回震」。"
+    title="Aux-loss-free 均衡 — 一个不收梯度的偏置, 只改「选谁」, 不改「信多少」"
+    sub="- 模拟什么: 一个 MoE 层在训练。MoE 是把 FFN 换成 8 个小专家, 每个 token 只送给路由器打分最高的 2 个专家 (top-2 路由)。这里的路由器天生偏心: 它给编号靠前的专家打分总是偏高, 于是这几个专家接到的 token 太多, 别的专家闲着。aux-loss-free 均衡是 DeepSeek-V3 的办法: 给每个专家配一个偏置 b, 选专家时用「分数 + b」排序, 但乘到专家输出上的权重仍用原始分数; 每步训练后看谁过载就把谁的 b 减一点 (步长 $\gamma$), 谁欠载就加一点。对照组是传统 aux loss: 往总损失里加一项惩罚, 用梯度直接把热门专家的路由分数压低。
+      - 图上是什么: 上面 8 根柱子是本步每个专家 (e0 到 e7) 接到的 token 数, 虚线是均值 (256 个 token × 2 个专家 / 8 = 64)。红色表示超过均值 20% (过载), 黄色表示低于均值 20% (欠载), 绿色正常。每根柱子底下的数字, 在偏置模式下是这个专家当前的偏置 b, 在 aux loss 模式下是 aux loss 累计把它的路由 logit 改了多少。下面的折线图横轴是训练步 (0 到 120): 粗线是不均衡度 max/mean (左轴, 虚线 1.0 是完全均衡), 细线是你点选的那个专家的偏置轨迹 (右轴, 零线居中), 竖虚线是当前步。
+      - 可以做什么: 三个按钮切换均衡方法: 「Aux-loss-free (偏置 b)」「传统 aux loss」「不做均衡」。「换一批 token」换一组随机数。偏置模式下拖「偏置步长 γ」(0.001 到 0.1); aux loss 模式下拖「aux 权重×学习率 η」, 它决定每步把路由 logit 改多狠。「路由器偏心程度」拖到 0 是公平的路由器, 拖到 2 非常偏心。点任意一根柱子, 折线图的细线就换成那个专家。用播放控件逐步看。
+      - 应该看到: 偏置模式下, 红柱子一步步矮下去、黄柱子长上来, 几十步内 8 根柱子齐平; 被点选专家的偏置先单调走到某个值, 然后在附近小幅抖动。右侧「不均衡度 max/mean」是最忙专家的负载除以均值, 1.0 是理想, 1.2 以内算好 (256 个 token 随机抽样本身就有这么大的噪声); 「首次 < 1.3 的步数」是均衡起效要几步; 「路由分数被改动量」是每个 token 对每个专家的路由分数, 和「不做任何均衡」时相比平均改了多少, 偏置模式下恒为 0, aux loss 模式下大于 0, 这是两种方法的本质区别; 「最后 20 步负载 CV」是 train_deepseek 脚本打印的同一个指标: 各专家负载的标准差除以均值, 越小越均衡。"
     module="llm_models/models/moe/deepseekV3.py"
     run="python -m llm_models.run_models.moe.deepseek.train_deepseek"
     :challenge="{
-      ask: '两种方法都能把 max/mean 压到 1.2 左右 (256 个 token 的抽样噪声下限)。先猜: “路由分数被改动量” 这一项, 两者分别是多少? 再把 γ 拖到 0.1 看会发生什么。',
-      answer: '- Aux-loss-free: 偏置 b 只加在 top-k 的排序分数上, 门控权重仍取自原始 sigmoid 分数, 分数改动量恒为 0。均衡和语言建模目标互不干扰。\n- Aux loss: 往总 loss 里加 $\\alpha \\cdot E \\cdot \\sum f_e \\cdot P_e$, 梯度直接把热门专家的路由分数往下压。负载是平了, 但 “这个 token 本该更信任哪个专家” 的信息也被改了。$\\alpha$ 大了伤效果, 小了不均衡。\n$\\gamma=0.1$ 时偏置每步跳 0.1, 而 sigmoid 分数之间的差距也就 0.1 量级, 于是每步都矫枉过正, 负载来回震荡。\n只用 sign, 所以步长与 batch 大小无关, 好调。但必须足够小 (DeepSeek-V3 用 0.001)。',
+      ask: '「Aux-loss-free」和「传统 aux loss」都能把 max/mean 压到 1.2 左右 (256 个 token 的抽样噪声下限)。先猜: 右侧「路由分数被改动量」这一项, 两种方法分别是多少? 再把 γ 拖到 0.1 看会发生什么。',
+      answer: '答案: 偏置模式下改动量恒为 0; aux loss 模式下是一个明显大于 0 的数。γ = 0.1 时负载来回震荡, 压不平。\n为什么:\n- Aux-loss-free: 偏置 b 只加在 top-k 的排序分数上 (决定谁上场), 门控权重 (上场后信多少) 仍取自原始 sigmoid 分数。原始分数一个字都没改, 所以改动量恒为 0, 均衡和语言建模目标互不干扰。\n- Aux loss: 往总损失里加 $\\alpha \\cdot E \\cdot \\sum_e f_e \\cdot P_e$ ($f_e$ 是专家 e 实际接到的 token 占比, $P_e$ 是路由给它的平均概率), 它的梯度直接把热门专家的路由分数往下压。负载是平了, 但「这个 token 本该更信任哪个专家」的信息也被改了。$\\alpha$ 大了伤模型效果, 小了又不均衡。\n- γ = 0.1 时偏置每步跳 0.1, 而 sigmoid 分数之间的差距本来也就 0.1 量级, 于是每一步都矫枉过正: 这一步过载的专家下一步变欠载, 负载来回震荡。\n偏置更新只用符号 (过载 −γ, 欠载 +γ), 步长和 batch 大小无关, 所以好调; 但必须足够小, DeepSeek-V3 用 0.001。',
     }"
   >
     <template #controls>
@@ -35,7 +37,7 @@
         <span class="mono b">{{ now.adj[e] >= 0 ? '+' : '' }}{{ now.adj[e].toFixed(2) }}</span>
       </button>
     </div>
-    <p class="cap">柱 = 本步每个专家接到的 token 数 · 底下的数 = {{ mode === 'aux' ? 'aux loss 累计把该专家 logit 改了多少' : '该专家的路由偏置 b' }}</p>
+    <p class="cap">柱子 = 本步每个专家接到的 token 数 (红 = 过载, 黄 = 欠载) · 底下的数 = {{ mode === 'aux' ? 'aux loss 累计把该专家的路由 logit 改了多少' : '该专家当前的路由偏置 b' }}</p>
 
     <!-- 两条线各用一根轴: 左轴读不均衡度, 右轴读偏置 (零线居中, 上下各到 ±最大值) -->
     <svg viewBox="0 0 560 120" role="img" aria-label="不均衡度和所选专家的偏置随训练步变化">
@@ -52,10 +54,10 @@
     </p>
 
     <template #stats>
-      <div class="kv"><span>不均衡度 max/mean</span><b :class="now.imb < 1.3 ? 'good' : 'bad'">{{ now.imb.toFixed(2) }}</b></div>
-      <div class="kv"><span>首次 &lt; 1.3 的步数</span><b>{{ firstOk < 0 ? '未达到' : firstOk }}</b></div>
-      <div class="kv"><span>路由分数被改动量</span><b :class="now.distort < 1e-9 ? 'good' : 'bad'">{{ now.distort.toFixed(3) }}</b></div>
-      <div class="kv"><span>最后 20 步负载 CV (std/mean)</span><b :class="cvTail < 0.15 ? 'good' : 'bad'">{{ cvTail.toFixed(3) }}</b></div>
+      <div class="kv"><span>不均衡度 max/mean (最忙专家 / 均值, 1.0 最均衡)</span><b :class="now.imb < 1.3 ? 'good' : 'bad'">{{ now.imb.toFixed(2) }}</b></div>
+      <div class="kv"><span>首次 &lt; 1.3 的步数 (均衡起效要几步)</span><b>{{ firstOk < 0 ? '未达到' : firstOk }}</b></div>
+      <div class="kv"><span>路由分数被改动量 (和不均衡时比, 每个分数平均改了多少)</span><b :class="now.distort < 1e-9 ? 'good' : 'bad'">{{ now.distort.toFixed(3) }}</b></div>
+      <div class="kv"><span>最后 20 步负载 CV (std/mean, 越小越均衡)</span><b :class="cvTail < 0.15 ? 'good' : 'bad'">{{ cvTail.toFixed(3) }}</b></div>
       <p class="lab-note"><Tex :text="MODES.find((m) => m.id === mode).note" /></p>
     </template>
   </LabFrame>
@@ -73,9 +75,9 @@ import { mulberry32, randn, range, sum } from '@/utils/labmath.js'
 const N = 256, E = 8, K = 2, STEPS = 120
 const PREF = [1.5, 1.0, 0.5, 0.1, -0.1, -0.4, -0.7, -1.0] // 路由器对各专家的先天偏好 (logit)
 const MODES = [
-  { id: 'bias', label: 'Aux-loss-free (偏置 b)', note: 'b 不进计算图、不收梯度, 每步训练后按负载用 sign 更新。选人用 $s+b$, 加权用 $s$。' },
-  { id: 'aux', label: '传统 aux loss', note: '$L_{\\text{aux}} = \\alpha \\cdot E \\cdot \\sum f_e \\cdot P_e$ 的梯度直接压低热门专家的路由 logit: 分数本身被改了, 门控权重跟着变。' },
-  { id: 'none', label: '不做均衡', note: '热门专家被选得多 → 学得好 → 更被偏爱, 真实训练里会滚雪球直到路由坍缩。' },
+  { id: 'bias', label: 'Aux-loss-free (偏置 b)', note: '偏置 b 不进计算图、不收梯度, 每步训练之后看负载用符号更新: 过载的专家 $-\\gamma$, 欠载的 $+\\gamma$。选专家时用 $s+b$ 排序, 算门控权重时只用原始分数 $s$, 所以语言建模这一边完全感觉不到均衡在进行。' },
+  { id: 'aux', label: '传统 aux loss', note: '往总损失里加 $L_{\\text{aux}} = \\alpha \\cdot E \\cdot \\sum f_e \\cdot P_e$, 它的梯度直接压低热门专家的路由 logit。分数本身被改了, 门控权重跟着变: 均衡是靠扭曲「该信谁」换来的。' },
+  { id: 'none', label: '不做均衡', note: '热门专家被选得多, 就学得更好, 于是更被偏爱。真实训练里这是个正反馈, 会滚雪球直到少数专家包揽所有 token (路由坍缩)。这里路由器不更新, 所以只看到偏心停在原地。' },
 ]
 const mode = ref('bias'), gExp = ref(-2), eta = ref(0.5), skew = ref(1), seed = ref(1), selE = ref(0)
 const sig = (x) => 1 / (1 + Math.exp(-x))

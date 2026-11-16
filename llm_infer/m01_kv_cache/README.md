@@ -1,8 +1,8 @@
 # M01 — KV Cache: 一切推理优化的起点
 
-[![KV cache — 每一步到底重算了多少 token llm_infer/m01](../../docs/screenshots/infer-kv-memory-2.png)](https://beleev.github.io#/infer/kv-memory)
+[![KV cache — 没有它, 每生成一个 token 都要把前面的全部重算一遍 llm_infer/m01](../../docs/screenshots/infer-kv-memory-2.png)](https://beleev.github.io#/infer/kv-memory)
 
-[打开相关交互实验：KV cache — 每一步到底重算了多少 token llm_infer/m01](https://beleev.github.io#/infer/kv-memory)
+[打开相关交互实验：KV cache — 没有它, 每生成一个 token 都要把前面的全部重算一遍 llm_infer/m01](https://beleev.github.io#/infer/kv-memory)
 
 ## 直觉
 

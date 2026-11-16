@@ -1,8 +1,8 @@
 # llm_finetune — 微调与对齐
 
-[![LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](../docs/screenshots/finetune-lora-1.png)](https://beleev.github.io#/finetune/lora)
+[![LoRA — 微调要学的 ΔW 本来就低秩, 所以两个瘦矩阵 B·A 就能拟合它 llm_finetune/methods/lora.py](../docs/screenshots/finetune-lora-1.png)](https://beleev.github.io#/finetune/lora)
 
-[打开相关交互实验：LoRA — 用 B·A 拟合一个低秩的 ΔW llm_finetune/methods/lora.py](https://beleev.github.io#/finetune/lora)
+[打开相关交互实验：LoRA — 微调要学的 ΔW 本来就低秩, 所以两个瘦矩阵 B·A 就能拟合它 llm_finetune/methods/lora.py](https://beleev.github.io#/finetune/lora)
 
 [项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/finetune)
 

@@ -50,7 +50,7 @@ defineProps({
 }
 .evo-step {
   flex: 1 1 0;
-  min-width: 180px;
+  min-width: 200px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-top-width: 3px;
@@ -74,8 +74,8 @@ defineProps({
   font-weight: 400;
 }
 .evo-pain, .evo-fix {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 .evo-pain .lbl, .evo-fix .lbl {
   display: block;

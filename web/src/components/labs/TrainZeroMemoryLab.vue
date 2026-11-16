@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="ZeRO 显存账 — 2 + 2 + 12 字节, 先切哪一块?"
-    sub="四根柱子是同一个模型在 DDP / ZeRO-1 / ZeRO-2 / ZeRO-3 下每张卡的常驻显存。
-      上下拖动横着的虚线设定单卡显存上限, 看哪一级开始放得下。点柱子选中一级, 点图例或悬停色块看它是什么。纵轴跟着最高的柱子伸缩。"
+    title="ZeRO 显存账 — 每参数 2 + 2 + 12 字节, 分三档切给多张卡, 先切哪一块?"
+    sub="- 模拟什么: 混合精度 Adam 训练时, 每个参数在显存里常驻 16 字节: 2 字节 fp16 参数 (算前向反向用), 2 字节 fp16 梯度, 12 字节 fp32 的优化器状态 (master 权重、动量 m、二阶矩 v 各 4 字节)。DDP (每卡一份完整模型的数据并行) 让 N 张卡每张都存一整份, 加多少卡每卡都是 $16\Psi$ 字节 ($\Psi$ 是参数个数)。ZeRO 把这些状态切成 N 片, 每卡只保管自己那片, 用到完整张量时临时通信, 分三档: ZeRO-1 只切优化器状态 (12 字节那块), ZeRO-2 再切梯度 (2 字节), ZeRO-3 (也叫 FSDP) 连参数一起切, 算到哪层临时 all-gather (各卡把自己那片发出去, 拼成完整的) 哪层, 用完就释放。这个台子按公式算每张卡的常驻显存 (1 GB 按 1e9 字节算, 所以 1B 参数 × 1 字节 = 1 GB)。激活不在这张账里。
+      - 图上是什么: 四根柱子是同一个模型在 DDP / ZeRO-1 / ZeRO-2 / ZeRO-3 下每张卡的常驻显存, 每根从下到上堆三块: fp16 参数、fp16 梯度、fp32 master+m+v, 颜色对照柱子下面的图例。ZeRO-3 的柱顶还有一小块虚线框, 是算某一层时临时 all-gather 进来的那层完整参数, 用完就释放, 不算常驻。柱顶的数字是总量 GB, 绿色表示放得进上限, 红色是放不下。横着的红色虚线是单卡显存上限。纵轴跟着最高的柱子伸缩。
+      - 可以做什么: 拖「模型参数量 Ψ」(1B 到 405B) 和「数据并行卡数 N」(1 到 1024) 看四根柱子怎么变; 上下拖红色虚线 (或聚焦后按上下方向键) 设定单卡显存上限; 点柱子或下面的 DDP / ZeRO 按钮选中一级, 右侧读数换成它的; 点图例按钮或悬停柱子里的色块, 图下会显示这一块在选中级别下占多少 GB 和它是什么。
+      - 应该看到: 加卡时 DDP 的柱子纹丝不动; ZeRO-1 降到 $4\Psi$ 就不再降, ZeRO-2 降到 $2\Psi$ 就不再降, 只有 ZeRO-3 随卡数一直降。右侧「单卡常驻」是选中级别每卡要常驻的 GB 数, 绿色表示放得进上限; 「公式」是它的显存公式; 「放得进 ... 的最低级别」是四级里第一个放得下的, 级别越低通信越省; 「每步通信量」相对 DDP 的倍数, ZeRO-1/2 持平, ZeRO-3 约 1.5 倍。"
     module="llm_train/m05"
     run="python -m llm_train.m05_zero_fsdp.demo"
     :challenge="{
       ask: '7B 模型、80 GB 的卡。卡数从 8 加到 64, ZeRO-1 的单卡显存能降到多少? 为什么再加卡也没用?',
-      answer: 'ZeRO-1 只切 $12\\Psi$ 的优化器状态: $4\\Psi + 12\\Psi/N$。7B 时 $4\\Psi$ = 28 GB 是切不掉的地板:\n- $N=8$: 38.5 GB\n- $N=64$: 29.3 GB\n- $N \\to \\infty$: 也只到 28 GB\n想继续降, 只能把梯度 (ZeRO-2) 和参数 (ZeRO-3/FSDP) 也切掉。代价是 ZeRO-3 每层前向、反向各多一次 all-gather, 通信量约 1.5×。',
+      answer: '从 38.5 GB 降到 29.3 GB, 再加卡也降不到 28 GB 以下。\n- 怎么算: ZeRO-1 只切 $12\\Psi$ 的优化器状态, 每卡常驻 $4\\Psi + 12\\Psi/N$。那 $4\\Psi$ 是 fp16 参数 (2 字节) 加 fp16 梯度 (2 字节), 每张卡都要整份, 7B 时是 28 GB, 这是切不掉的地板。\n- $N=8$: 28 + 84/8 = 38.5 GB。\n- $N=64$: 28 + 84/64 = 29.3 GB。\n- $N \\to \\infty$: 也只能无限接近 28 GB。拖「数据并行卡数 N」滑杆看 ZeRO-1 那根柱子, 它越降越慢, 最后贴在 28 GB 上。\n想继续降, 只能把梯度 (ZeRO-2, 地板变成 $2\\Psi$ = 14 GB) 和参数 (ZeRO-3 / FSDP, 地板为 0) 也切掉。代价是 ZeRO-3 每层前向、反向都要先 all-gather 一次完整参数才能算, 每步通信量约 1.5 倍; ZeRO-1 和 ZeRO-2 的通信和 DDP 持平, 因为 all-reduce 本来就等于 reduce-scatter 加 all-gather, 它们只是在两半中间插了一步「各自更新自己那片」。',
     }"
   >
     <template #controls>
@@ -66,15 +68,15 @@
     </p>
 
     <template #stats>
-      <div class="kv"><span>{{ stages[stage].name }} 单卡常驻</span><b :class="cur.total <= limit ? 'good' : 'bad'">{{ gb(cur.total) }}</b></div>
-      <div class="kv"><span>公式</span><b class="formula"><Tex :text="stages[stage].formula" /></b></div>
-      <div class="kv"><span>放得进 {{ limit }} GB 的最低级别</span><b :class="firstFit < 0 ? 'bad' : 'good'">{{ firstFit < 0 ? '都放不下' : stages[firstFit].name }}</b></div>
-      <div class="kv"><span>每步通信量 (相对 DDP)</span><b :class="stages[stage].commX > 1 ? 'bad' : ''">{{ stages[stage].comm }}</b></div>
+      <div class="kv"><span>{{ stages[stage].name }} 每卡常驻显存 (绿色 = 放得进上限)</span><b :class="cur.total <= limit ? 'good' : 'bad'">{{ gb(cur.total) }}</b></div>
+      <div class="kv"><span>公式 (Ψ 是参数个数, N 是卡数)</span><b class="formula"><Tex :text="stages[stage].formula" /></b></div>
+      <div class="kv"><span>放得进 {{ limit }} GB 的最低级别 (级别越低通信越省)</span><b :class="firstFit < 0 ? 'bad' : 'good'">{{ firstFit < 0 ? '都放不下' : stages[firstFit].name }}</b></div>
+      <div class="kv"><span>每步通信量 (相对 DDP 的倍数)</span><b :class="stages[stage].commX > 1 ? 'bad' : ''">{{ stages[stage].comm }}</b></div>
       <div class="lab-note">
-        <p>这里只算模型状态, 激活另算 (见下面的重算实验台)。</p>
+        <p>这里只算模型状态 (参数、梯度、优化器状态), 激活另算 (见下面的激活重算实验台)。</p>
         <ul class="pts">
-          <li><b>显存地板:</b> <Tex text="ZeRO-1 是 $4\Psi$, ZeRO-2 是 $2\Psi$。只有 ZeRO-3 随 $N$ 无限下降: 用到哪层 gather 哪层, 算完立刻 free, 瞬时只多出一层的完整参数。" /></li>
-          <li><b>通信:</b> ZeRO-2 不比 DDP 贵, 因为 all-reduce 本来就 = reduce-scatter + all-gather。ZeRO-1 若朴素地用 all-reduce + all-gather 实现会是 1.5×, DeepSpeed 改用 reduce-scatter 后持平。</li>
+          <li><b>显存地板:</b> <Tex text="加卡也切不掉的部分。ZeRO-1 是 $4\Psi$ (fp16 参数 + fp16 梯度), ZeRO-2 是 $2\Psi$ (只剩 fp16 参数)。只有 ZeRO-3 随 $N$ 无限下降: 用到哪层 gather 哪层, 算完立刻 free, 瞬时只多出一层的完整参数 (柱顶的虚线块)。" /></li>
+          <li><b>通信:</b> ZeRO-2 不比 DDP 贵, 因为 DDP 的 all-reduce 本来就等于 reduce-scatter (求和后每卡只留自己那片) 加 all-gather (各片拼回整份), ZeRO-2 只是在两半中间插了一步「各自更新自己那片」。ZeRO-1 若朴素地用 all-reduce + all-gather 实现会是 1.5×, DeepSpeed 改用 reduce-scatter 后持平。ZeRO-3 每层前向、反向都要先 all-gather 参数, 约 1.5×。</li>
         </ul>
       </div>
     </template>

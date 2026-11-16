@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="交错 1F1B — 把气泡再除以 v"
-    sub="每张卡不再拿连续的一大段层, 而是拿 $v$ 个小段 (颜色深浅 = 第几段)。一个 micro-batch 要在所有卡上绕 $v$ 圈。
-      悬停或点击任意一格 (或按下面的编号), 同一个 micro-batch 的全部足迹会亮起来。拖 $v$, 看气泡怎么缩、在途激活怎么涨。"
+    title="交错 1F1B — 每张卡拿 v 个不相邻的小段, 把流水线气泡再除以 v"
+    sub="- 模拟什么: 流水线并行 (PP) 把模型按层切成 PP 段 (每段叫一个 stage), 一段放一张卡, 一个 batch 切成 M 个 micro-batch 依次流过各卡。开头和结尾总有卡在空等, 空等时间的占比叫气泡。1F1B 是一种执行顺序: 每张卡先做几个前向热身, 之后严格一个前向 (F)、一个反向 (B) 交替。交错 1F1B 更进一步: 每张卡不再拿连续的一大段层, 而是拿 $v$ 个不相邻的小段 (叫虚拟 stage), 一个 micro-batch 要在所有卡上绕 $v$ 圈。每个小段的计算量只有原来的 $1/v$, 流水线灌满和排空的空等也缩到 $1/v$, 气泡公式从 $(PP-1)/(M+PP-1)$ 变成 $(PP-1)/(vM+PP-1)$。代价是跨卡传输次数变成约 $v$ 倍, 在途激活 (已经前向、还没反向的 micro-batch 攥着的中间结果) 也更多。这个台子按 Megatron 的交错顺序逐格模拟出时间表。
+      - 图上是什么: 每一行是一张卡, 从左到右是时间, 一格是 $1/v$ 个 stage 的前向时长, 反向 B 占 2 格。蓝色格子是前向 F, 绿色格子是反向 B, 格子开头的 F3、B3 这样的标签说明是第几个 micro-batch; 同一种颜色的深浅表示这张卡的第几个小段, 越深越靠后。空白格就是气泡, 这张卡在这一刻没活干。
+      - 可以做什么: 拖「流水线级数 PP」改卡数; 拖「M」改 micro-batch 数 (交错要求 M 是 PP 的整数倍, 所以按倍数拖); 拖「每卡虚拟 stage 数 v」, v=1 就是普通 1F1B。点「跟踪 micro-batch」里的编号, 或悬停、点击时间表里任意一格, 同一个 micro-batch 的全部足迹会亮起来、其余变暗, 能看出它怎么在卡之间绕 $v$ 圈。用播放器按时间一步步走, 还没到的时刻是暗的。
+      - 应该看到: PP=4、M=8 时 v 从 1 调到 2, 右侧「气泡」从 27.3% 降到 15.8%, 模拟出来的值和公式值一致。「在途激活峰值」是每张卡同一时刻最多攥着几份激活, 单位是 $1/v$ 个 stage, 所以要折算: 「折算成整 stage (卡 0)」是卡 0 的峰值除以 $v$, 和普通 1F1B (括号里) 比, 变红表示比 v=1 时还多; 「每个 micro-batch 的 P2P 次数」是一个 micro-batch 在卡之间传了几次激活和梯度, 等于 $2(PP \cdot v - 1)$, 变红表示比 v=1 时多。气泡变小了, 但另外两个数都涨了, 这就是交错的交易。"
     module="llm_train/m04"
     run="python -m llm_train.m04_pipeline_parallel.demo"
     :challenge="{
       ask: 'PP=4, M=8。v 从 1 调到 2, 气泡从 27.3% 降到多少? 卡 0 的在途激活 (折算成整 stage) 是升还是降?',
-      answer: '气泡 $= (PP-1)/(v \\cdot M + PP - 1)$: $3/11$ = 27.3% → $3/19$ = 15.8%。\n直觉: 每个小段只有原来 $1/v$ 的计算量, 流水线「灌满」和「排空」的空等时间也缩成 $1/v$。\n但不是白来的:\n- 在途激活: 卡 0 的峰值从 4 个 stage 升到 11 份 1/2-stage = 5.5 个 stage (warmup 更长)。\n- 跨卡传输: 每个 micro-batch 从 $2(PP-1)$ 次变成 $2(PP \\cdot v - 1)$ 次, 约 $v$ 倍。\n所以 Megatron 只在 PP 跨机、M 又受显存限制加不上去时, 才开交错。',
+      answer: '气泡降到 15.8%; 卡 0 的在途激活不降反升, 从 4 个 stage 升到 5.5 个。\n- 气泡: 公式 $(PP-1)/(v \\cdot M + PP - 1)$, v=1 时是 $3/11$ = 27.3%, v=2 时是 $3/19$ = 15.8%。直觉是: 气泡的绝对长度正比于单个 stage 的计算量 (流水线要等第一个 micro-batch 走完全部 stage 才能满载)。交错把每个 stage 切成 $v$ 个小段, 单段计算量变成 $1/v$, 「灌满」和「排空」的空等也缩成 $1/v$, 总有效工作量没变, 所以公式里的 $M$ 等效变成了 $vM$。\n- 在途激活: 读数里卡 0 的峰值是 11 份, 但每份只是半个 stage 的激活 (因为每个小段只有一半的层), 折算成整 stage 是 11 × 1/2 = 5.5 个, 比普通 1F1B 的 4 个还多。原因是交错的热身 (warmup) 段更长: 卡 s 要先做 $(PP-1-s) \\cdot 2 + (v-1) \\cdot PP$ 个前向才开始一 F 一 B 交替, 热身越长、攥着没反向的 micro-batch 越多。\n- 跨卡传输: 每个 micro-batch 从 $2(PP-1)$ = 6 次变成 $2(PP \\cdot v - 1)$ = 14 次, 约 $v$ 倍。这个台子把传输时间记为 0, 真实收益还要扣掉这部分。\n所以 Megatron 只在 M 已经被显存卡住加不上去、气泡又还嫌大的时候才开交错; 能直接加大 M 的话, 加大 M 更划算。',
     }"
   >
     <template #controls>
@@ -41,13 +43,13 @@
 
     <template #stats>
       <!-- 颜色都是和 v=1 (普通 1F1B) 的数值比出来的 -->
-      <div class="kv"><span><Tex text="气泡: 模拟 / 公式 $\frac{PP-1}{v \cdot M + PP - 1}$" /></span><b :class="{ good: sim.bubble < base.bubble - 1e-9 }">{{ (sim.bubble * 100).toFixed(1) }}% / {{ (formula * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span>在途激活峰值 (份 1/{{ v }}-stage)</span><b>[{{ sim.peak.join(', ') }}]</b></div>
-      <div class="kv"><span>折算成整 stage (卡 0)</span><b :class="{ bad: sim.peak[0] / v > base.peak }">{{ (sim.peak[0] / v).toFixed(1) }} <small>(v=1 时 {{ base.peak }})</small></b></div>
-      <div class="kv"><span>每个 micro-batch 的 P2P 次数</span><b :class="{ bad: 2 * (pp * v - 1) > base.p2p }">{{ 2 * (pp * v - 1) }} <small>(v=1 时 {{ base.p2p }})</small></b></div>
+      <div class="kv"><span><Tex text="气泡 (卡空等的时间占比): 模拟 / 公式 $\frac{PP-1}{v \cdot M + PP - 1}$" /></span><b :class="{ good: sim.bubble < base.bubble - 1e-9 }">{{ (sim.bubble * 100).toFixed(1) }}% / {{ (formula * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>各卡在途激活峰值 (同时攥着几份, 每份是 1/{{ v }} 个 stage)</span><b>[{{ sim.peak.join(', ') }}]</b></div>
+      <div class="kv"><span>折算成整 stage (卡 0, 除以 v 后和普通 1F1B 比)</span><b :class="{ bad: sim.peak[0] / v > base.peak }">{{ (sim.peak[0] / v).toFixed(1) }} <small>(v=1 时 {{ base.peak }})</small></b></div>
+      <div class="kv"><span>每个 micro-batch 的 P2P 次数 (跨卡传激活和梯度的次数)</span><b :class="{ bad: 2 * (pp * v - 1) > base.p2p }">{{ 2 * (pp * v - 1) }} <small>(v=1 时 {{ base.p2p }})</small></b></div>
       <p class="lab-note">
-        <Tex text="时间轴 1 格 = $1/v$ 个 stage 的前向, B 占 2 格。★ 与普通 1F1B 唯一的区别是 warmup 更长:" />
-        <code class="inline">(PP−1−s)·2 + (v−1)·PP</code> 个 F 之后才开始 1F1B 交替。
+        <Tex text="时间轴 1 格 = $1/v$ 个 stage 的前向时长, 反向 B 约是前向的 2 倍所以占 2 格。★ 交错调度与普通 1F1B 唯一的区别是热身 (warmup) 更长: 卡 s 先连做" />
+        <code class="inline">(PP−1−s)·2 + (v−1)·PP</code> 个 F, 之后才开始一 F 一 B 交替。热身越长, 攥着没反向的 micro-batch 越多, 在途激活就越多。
       </p>
     </template>
   </LabFrame>

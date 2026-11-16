@@ -1,8 +1,8 @@
 # VAR — next-scale prediction (Tian et al., 2024)
 
-[![VAR — 下一个尺度, 而不是下一个像素 llm_models/models/generative/var.py](../../../../docs/screenshots/models-var-1.png)](https://beleev.github.io#/models/var)
+[![VAR 逐尺度生成 — 自回归的一步是「下一个分辨率」, 不是「下一个像素」 llm_models/models/generative/var.py](../../../../docs/screenshots/models-var-1.png)](https://beleev.github.io#/models/var)
 
-[打开相关交互实验：VAR — 下一个尺度, 而不是下一个像素 llm_models/models/generative/var.py](https://beleev.github.io#/models/var)
+[打开相关交互实验：VAR 逐尺度生成 — 自回归的一步是「下一个分辨率」, 不是「下一个像素」 llm_models/models/generative/var.py](https://beleev.github.io#/models/var)
 
 ## 直觉
 

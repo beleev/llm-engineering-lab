@@ -6,15 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="蒸馏为什么要乘 T² — 温度一高, 软标签梯度就悄悄消失"
-    sub="- 左边: 温度 $T$ 下 teacher (紫) 与 student (绿) 的分布。点某个 token, 把它设为硬标签。
-      - 右边: 软标签项对 student logits 的梯度范数随 $T$ 的变化。橙 = 不补偿, 绿 = 乘 $T^2$ 之后。
-      拖 $T$, 看竖线扫过两条曲线。"
+    title="蒸馏为什么要乘 T² — 温度一高, 软标签的梯度就悄悄消失"
+    sub="- 模拟什么: 知识蒸馏让 student 去学 teacher 的输出分布。为了让 teacher 分布里「第二、第三像的 token」也显出来 (暗知识), 两边的 logits 都先除以温度 $T$ 再做 softmax, $T$ 越大分布越平。总 loss 是 $\alpha$ 倍的硬标签 CE 加 $(1-\alpha)$ 倍的软标签 KL。问题是: 软标签项对 student logits 的梯度是 $(q^T - p^T)/T$ ($p^T$、$q^T$ 是 teacher 和 student 软化后的分布), 而 $T$ 大时 $q^T - p^T$ 本身也按 $1/T$ 缩小, 整体按 $1/T^2$ 衰减; 这个式子在说: 不补偿的话, 调高温度等于偷偷把蒸馏项关掉。Hinton 2015 的做法是给软标签项乘 $T^2$, 本仓库 distill.py 的 DistillLoss 也这样做。
+      - 图上是什么: 左边 6 组成对的柱子是 6 个 token 在温度 $T$ 下的概率, 紫色是 teacher, 绿色是 student, 标着「标签」的那个是硬标签。右边是软标签项的梯度范数随 $T$ 的变化曲线: 橙线不补偿, 绿线乘了 $T^2$, 绿色虚线是 $T\to\infty$ 时的极限值; 竖线和圆点标出当前 $T$ 在哪。
+      - 可以做什么: 「未乘 T² / 已乘 T²」切换补偿开关 (决定右侧读数按哪条线算); 「换一组 logits」换随机数; 拖「温度 T」看竖线扫过两条曲线, 同时左图的分布变平或变尖; 拖「α」改硬标签 CE 的权重; 拖「student 离 teacher 多远」改 student 的 logits 离 teacher 的差距。点左图任意 token 把它设为硬标签。
+      - 应该看到: 不补偿时, $T$ 一拖大橙线迅速贴地; 补偿后绿线趋于一个常数。右侧读数: 「‖∇CE‖」是硬标签项的梯度大小; 「‖∇KD‖ 不补偿」和「‖∇KD‖ × T²」是软标签项补偿前后的梯度大小; 「软标签占总梯度」是按当前 $\alpha$ 和开关算出的软标签项在总梯度里的实际占比, 它应该接近名义上的 $1-\alpha$, 偏离太远 (红) 说明 $\alpha$ 的含义已经被 $T$ 带跑了。"
     module="llm_finetune/methods/distill.py"
     run="python -m llm_finetune.run_finetune.distill.train_distill"
     :challenge="{
       ask: '默认这组 logits, 保持「未乘 T²」, α 固定 0.5, 把 T 从 1 拖到 8: 「软标签占总梯度」从多少掉到多少? 点「乘 T²」再拖一遍。',
-      answer: '- 不补偿: 占比从 43.4% 掉到 1.5%。软标签梯度范数大约按 $1/T^2$ 掉, $T = 8$ 时只剩 $T = 1$ 时的 2% 左右。「$\\alpha = 0.5$」名义上五五开, 实际上几乎全是硬标签 CE 在训练, 等于在做普通 SFT。\n- 乘上 $T^2$: 占比从 43.4% 升到 50.1%, 之后停在 50% 上下。软标签梯度随 $T$ 增大趋于一个常数 (虚线), 等于两边「去均值 logits 之差」除以 $V$。高温极限下蒸馏退化成 logits 回归 (Hinton 2015 的原话)。\n这样 $T$ 只负责「暗知识展开多少」, $\\alpha$ 只负责「软硬各占多少」, 两个超参才互不干扰。',
+      answer: '答案: 不补偿时占比从 43.4% 掉到 1.5%; 乘 $T^2$ 后从 43.4% 升到 50.1%, 之后停在 50% 上下。\n一步步看:\n- 不补偿: 软标签梯度范数大约按 $1/T^2$ 掉, $T = 8$ 时只剩 $T = 1$ 时的 2% 左右。「$\\alpha = 0.5$」名义上五五开, 实际上几乎全是硬标签 CE 在训练, 等于在做普通 SFT, 温度白调了。\n- 乘 $T^2$: 软标签梯度随 $T$ 增大趋于一个常数 (图上的虚线)。这个极限有闭式: 两边「去均值 logits 之差」除以词表大小 $V$。也就是说高温极限下蒸馏退化成 logits 回归, 这是 Hinton 2015 的原话。\n- 补偿之后 $T$ 只负责「暗知识展开多少」, $\\alpha$ 只负责「软硬各占多少」, 两个超参才互不干扰。本仓库 128 条固定数据上软标签明显比硬标签好 (forward KL 2.293 到 1.860), 前提就是这一项没被温度关掉。',
     }"
   >
     <template #controls>
@@ -55,12 +56,12 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="$\|\nabla\mathrm{CE}\|$ (硬标签)" /></span><b>{{ ceNorm.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="$\|\nabla\mathrm{KD}\|$ 不补偿" /></span><b>{{ kdNorm(T, false).toFixed(4) }}</b></div>
-      <div class="kv"><span><Tex text="$\|\nabla\mathrm{KD}\| \times T^2$" /></span><b>{{ kdNorm(T, true).toFixed(4) }}</b></div>
-      <div class="kv"><span>软标签占总梯度</span><b :class="share < 0.1 && alpha < 0.9 ? 'bad' : 'good'">{{ (share * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span><Tex text="硬标签项的梯度大小 $\|\nabla\mathrm{CE}\|$" /></span><b>{{ ceNorm.toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="软标签项的梯度大小 $\|\nabla\mathrm{KD}\|$, 不补偿" /></span><b>{{ kdNorm(T, false).toFixed(4) }}</b></div>
+      <div class="kv"><span><Tex text="软标签项的梯度大小 $\|\nabla\mathrm{KD}\| \times T^2$, 补偿后" /></span><b>{{ kdNorm(T, true).toFixed(4) }}</b></div>
+      <div class="kv"><span>软标签占总梯度 (按当前开关算)</span><b :class="share < 0.1 && alpha < 0.9 ? 'bad' : 'good'">{{ (share * 100).toFixed(1) }}%</b></div>
       <p class="lab-note">
-        <Tex text="占比 $= (1-\alpha)\cdot\|\nabla\mathrm{KD}\| \,/\, \big(\alpha\cdot\|\nabla\mathrm{CE}\| + (1-\alpha)\cdot\|\nabla\mathrm{KD}\|\big)$。" /><Tex text="$\alpha$" /> = {{ alpha.toFixed(2) }} 名义上给软标签 {{ ((1 - alpha) * 100).toFixed(0) }}%;
+        <Tex text="占比 $= (1-\alpha)\cdot\|\nabla\mathrm{KD}\| \,/\, \big(\alpha\cdot\|\nabla\mathrm{CE}\| + (1-\alpha)\cdot\|\nabla\mathrm{KD}\|\big)$, 这个式子在说: 两项各乘自己的权重后, 软标签项占了总梯度的几成。" /><Tex text="$\alpha$" /> = {{ alpha.toFixed(2) }} 名义上给软标签 {{ ((1 - alpha) * 100).toFixed(0) }}%;
         实际占比偏离它多少, 就是 <Tex text="$T^2$" /> 补没补到位的度量。
       </p>
     </template>

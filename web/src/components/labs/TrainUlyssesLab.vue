@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="Ulysses — all-to-all 把「切序列」换成「切头」"
-    sub="格子 = 激活张量的一块 (行 = 第几段序列, 列 = 第几个注意力头), 颜色 = 此刻在哪张卡上。
-      单步播放, 看两次 all-to-all 怎么换切法。悬停或点击一个格子看它走哪条链路, 点下方图例只看某一张卡。"
+    title="Ulysses 序列并行 — 用 all-to-all 把「切序列」换成「切头」, 注意力核一行不改"
+    sub="- 模拟什么: 长序列一张卡放不下时, 注意力之外的层 (MLP、norm) 都是逐 token 算的, 按序列切开分给 P 张卡不需要任何通信; 只有注意力要看到整条序列。Ulysses 的办法是: 进注意力前用一次 all-to-all (每张卡给每张卡各发一份不同的数据) 把「按序列切」换成「按头切」。换之前每卡拿一段序列的全部注意力头, 形状 [T/P, H, d] ($T$ 个 token, $H$ 个头, 每头 $d$ 维); 换之后每卡拿完整序列的 $H/P$ 个头, 形状 [T, H/P, d]。各个头之间本来互不相干, 所以每卡直接对完整序列跑普通的注意力核, 算完再 all-to-all 换回按序列切。代价是 P 必须整除头数 H。这个台子把激活张量画成格子, 按步播出两次换切法。
+      - 图上是什么: 表格的每一行是序列的一段 (共 P 段), 每一列是一个注意力头 (共 H 个), 一个格子就是激活张量的一块, 格子里的数字和颜色是它此刻在哪张卡上。表格上方的一行文字说明当前步骤在做什么。换卡的那一步, 要搬动的格子带黄色描边。表格下面的图例按钮是卡号。最下面的折线图是每卡通信量随并行度 P 的变化: 虚线是 Ring Attention (另一种序列并行, KV 块沿环逐卡传), 实线是 Ulysses, 空心点表示那个 P 除不尽 H、Ulysses 用不了。纵轴单位是一份完整张量的大小。
+      - 可以做什么: 拖「序列并行度 P」改卡数, 拖「注意力头数 H」改头数, H 除不尽 P 时表格上方会报错。用播放器走四步: ① 按序列切, ② all-to-all, ③ 本地注意力, ④ all-to-all 换回。悬停或点击一个格子, 图例右侧会显示它在哪两张卡之间搬 (或者不用动); 点图例里的卡号只看那张卡持有的格子, 再点一次取消。
+      - 应该看到: 第 ② 步之后, 同一列 (同一个头) 的格子全部变成同一种颜色, 也就是整条序列的这个头都集中到了一张卡上; 第 ④ 步又变回同一行一个颜色。右侧「每卡负责的头」是 H/P; 「Ulysses 每卡发送」是 $4(P-1)/P^2$ 份完整张量, 随 P 增大反而下降; 「Ring 每卡发送」是 $2(P-1)/P$ 份, 随 P 增大趋近 2; 「Ring / Ulysses」是两者之比, P=8 时 4.0 倍。"
     module="llm_train/m16"
     run="python -m llm_train.m16_ulysses_sequence_parallel.demo"
     :challenge="{
       ask: 'H = 8 个头, 把 P 从 4 拖到 8、再拖到 6, 分别发生什么? P = 8 时 Ring 的通信量是 Ulysses 的几倍?',
-      answer: '- P=8: 每卡只分到 1 个头, 已经到顶。\n- P=6: 8 个头分不匀, Ulysses 直接不可用。GQA 模型 KV 头更少, 限制更紧。\n通信量:\n- Ulysses: 每卡发 $4(P-1)/P^2$ 份完整张量, 随 P 增大而下降。\n- Ring: 发 $2(P-1)/P$ 份, 趋近于 2 不再下降。P=8 时是 1.75 vs 0.44, Ring 是 4 倍。\n但 all-to-all 要求任意两卡之间都有带宽, 适合机内 NVLink; Ring 只和邻居说话, 适合跨机。所以实战常把两者叠起来: 机内 Ulysses × 机间 Ring。',
+      answer: 'P=8 刚好到顶, P=6 直接不可用; P=8 时 Ring 是 Ulysses 的 4 倍。\n- P=8: 每卡只分到 8/8 = 1 个头, 这是 Ulysses 的上限, 再加卡就没有头可分了。GQA / MQA 模型 (多个 Q 头共用一个 KV 头) 的 KV 头更少, 这个上限更紧。\n- P=6: 8 个头分不成 6 份一样多的, 表格上方报错, 读数显示「除不尽」, 折线图上 P=6 的点是空心的。Ring Attention 没有这个限制, 因为它切的是序列不是头。\n- 通信量: Ulysses 做 4 次 all-to-all (Q、K、V 各一次, 输出一次), 每次每卡把自己那 $1/P$ 片里不属于自己的 $(P-1)/P$ 发出去, 合计 $4(P-1)/P^2$ 份完整张量, P 越大每卡的片越小, 发得越少。Ring 要把 K、V 两份 $1/P$ 的块绕环传 $P-1$ 轮, 合计 $2(P-1)/P$ 份, P 越大越接近 2。P=8 时是 1.75 对 0.44, Ring 是 4 倍 (m16 实测字节 28672 对 7168)。\n但 all-to-all 要求任意两张卡之间都有带宽, 适合一台机器内的 NVLink; Ring 只和左右邻居说话, 适合跨机器。所以实战常把两者叠起来: 机内 8 路 Ulysses × 机间几路 Ring, 并行度相乘。',
     }"
   >
     <template #controls>
@@ -60,15 +62,15 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>每卡负责的头</span><b :class="valid ? '' : 'bad'">{{ valid ? Hn / P : '除不尽' }}</b></div>
-      <div class="kv"><span>Ulysses 每卡发送</span><b :class="!valid ? 'bad' : ulyVol(P) < ringVol(P) ? 'good' : ''">{{ valid ? ulyVol(P).toFixed(2) + '×' : '不可用' }}</b></div>
-      <div class="kv"><span>Ring 每卡发送</span><b>{{ ringVol(P).toFixed(2) }}×</b></div>
-      <div class="kv"><span>Ring / Ulysses</span><b>{{ valid && P > 1 ? (ringVol(P) / ulyVol(P)).toFixed(1) + ' 倍' : '—' }}</b></div>
+      <div class="kv"><span>每卡负责的头 (H / P)</span><b :class="valid ? '' : 'bad'">{{ valid ? Hn / P : '除不尽' }}</b></div>
+      <div class="kv"><span>Ulysses 每卡发送 (单位: 一份完整张量)</span><b :class="!valid ? 'bad' : ulyVol(P) < ringVol(P) ? 'good' : ''">{{ valid ? ulyVol(P).toFixed(2) + '×' : '不可用' }}</b></div>
+      <div class="kv"><span>Ring 每卡发送 (同样单位)</span><b>{{ ringVol(P).toFixed(2) }}×</b></div>
+      <div class="kv"><span>Ring / Ulysses (通信量之比)</span><b>{{ valid && P > 1 ? (ringVol(P) / ulyVol(P)).toFixed(1) + ' 倍' : '—' }}</b></div>
       <div class="lab-note">
-        <p>单位 = 一份完整的 [T, H, d] 张量。</p>
+        <p>通信量的单位 = 一份完整的 [T, H, d] 张量 (整条序列、全部头)。两条公式:</p>
         <ul class="pts">
-          <li><b>Ulysses:</b> <Tex text="4 次 all-to-all (Q、K、V 各一次 + 输出一次), 每次每卡只发自己那 $1/P$ 里不属于自己的 $(P-1)/P$。" /></li>
-          <li><b>Ring:</b> <Tex text="要把 K、V 两份 $1/P$ 的块绕环传 $P-1$ 轮。" /></li>
+          <li><b>Ulysses:</b> <Tex text="4 次 all-to-all (Q、K、V 各一次, 注意力输出一次), 每次每卡只发自己那 $1/P$ 片里不属于自己的 $(P-1)/P$, 合计 $4(P-1)/P^2$。P 越大每卡的片越小, 发得越少。" /></li>
+          <li><b>Ring:</b> <Tex text="要把 K、V 两份 $1/P$ 的块绕环传 $P-1$ 轮, 合计 $2(P-1)/P$。P 越大越接近 2, 不再下降。" /></li>
         </ul>
       </div>
     </template>

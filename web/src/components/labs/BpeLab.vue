@@ -4,14 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="BPE 分词实验台 — 看着词表长出来"
-    sub="从单字符出发, 每一步把语料中最高频的相邻 token 对合并成一个新 token。
-      黄 (橙) 色高亮的是最近一次合并出来的 token。点右边任意一条合并记录, 看那个 token 现在落在哪里。语料可以直接改。"
+    title="BPE 分词实验台 — 看着词表一条一条长出来"
+    sub="- 模拟什么: 分词器 (tokenizer) 的训练过程。模型不直接读字符, 它读的是 token: 文本被切成的一个个小片段, 每个片段在词表里有一个编号。BPE (Byte Pair Encoding, 字节对编码) 造词表的办法只有一步, 反复做: 数一数语料里哪两个相邻的 token 挨在一起出现得最多, 把这一对粘成一个新 token, 加进词表。这里从单个字符出发; Python 版 bpe.py 从 256 个字节出发, 思想一样。
+      - 图上是什么: 中间那片格子是语料此刻被切成的 token 序列, 一格一个 token, 顺序就是原文顺序。没上色的格子是还没被合并过的单字符, 上了色的是合并出来的多字符 token, 黄 (橙) 色高亮的是「选中的那次合并」造出来的 token 此刻出现在哪些位置 (默认跟着最新一次合并走)。␣ 表示空格, ⏎ 表示换行。
+      - 可以做什么: 上面的文本框是语料, 可以直接改, 改完所有数字立刻重算。拖「合并次数」决定做多少轮合并, 0 就是纯字符级。右侧「合并记录」每一行是一次合并: 哪两个 token 粘成了什么, 粘之前这一对在语料里出现过几次; 点任意一行, 中间的高亮就换成那个 token。
+      - 应该看到: 默认语料 145 个字符, 合并 0 次时 token 数等于字符数; 拖到 12 次剩 113 个 token, 40 次剩 65 个。右侧「压缩率」是字符数除以 token 数, 越大说明同样的文本用的 token 越少、序列越短。「词表大小」是语料里不同字符的个数 (默认语料 33 个) 加上合并次数, 每合并一次词表多一条。合并记录里的「出现 N 次」会一路变小: 第 1 次合并的 e + 空格出现 5 次, 到后面每次只出现 1 次, 合出来的 token 也越来越长, 越来越像在背这一段原文。"
     module="llm_basic/bpe.py"
     run="cd llm_basic && python bpe.py"
     :challenge="{
       ask: '默认语料 145 个字符。先猜: 合并次数从 12 拖到 40, 每次合并省下的 token 是越来越多还是越来越少? 最后一条合并出来的 token 有多长?',
-      answer: '越来越少。第 1 次合并 (e + 空格) 出现 5 次, 省 5 个 token; 第 6 到 32 次每次只省 2 个; 最后 8 次每次只省 1 个。\n- 压缩率: 12 次合并 1.28, 40 次合并 2.23。\n- 过拟合: 第 40 条是一个 25 字符的 token, 整段语料里只出现 1 次。它只是把这段文字背了下来, 换一段文字用不上。\n真实 GPT-2 在大得多的语料上合并, 高频对才是「词」和「词缀」。语料太小时, 合并次数一多就开始背原文。',
+      answer: '越来越少; 最后一条合出来的是一个 25 个字符的 token。\n- 每合并一次省多少: 一对相邻 token 在语料里出现 N 次, 把它们粘起来就少 N 个 token。BPE 每次挑的是当前最高频的一对, 所以 N 只会一路往下走: 第 1 次合并 (e + 空格) 出现 5 次, 省 5 个; 第 6 到 32 次每次只出现 2 次; 最后 8 次每次只出现 1 次, 合并它只是把两个本来就只挨过一次的 token 粘在一起。\n- 压缩率: 12 次合并时 145 ÷ 113 = 1.28, 40 次时 145 ÷ 65 = 2.23。\n- 过拟合: 第 40 条合出来的 token 是「First Citizen:⏎Before we␣」, 25 个字符, 整段语料里只出现 1 次。它不是「词」, 只是把这段文字背了下来, 换一段文字根本用不上。\n真实 GPT-2 在大得多的语料上做 5 万次合并, 那时出现成千上万次的高频对才是「词」和「词缀」。语料太小时, 合并次数一多就开始背原文。',
     }"
   >
     <template #controls>
@@ -28,22 +30,28 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>token 数 / 字符数</span><b>{{ tokens.length }} / {{ charCount }}</b></div>
-      <div class="kv"><span>压缩率 (字符数 ÷ token 数)</span><b :class="{ good: tokens.length < charCount }">{{ compression }}</b></div>
-      <div class="kv"><span>词表大小 (字符 + 合并)</span><b>{{ baseVocab }} + {{ merges.length }}</b></div>
-      <div class="kv"><span>选中的 token 现在出现</span><b>{{ picked === null ? '—' : pickedCount + ' 处' }}</b></div>
+      <div class="kv"><span>现在的 token 数 / 语料字符数</span><b>{{ tokens.length }} / {{ charCount }}</b></div>
+      <div class="kv"><span>压缩率 (字符数 ÷ token 数, 越大序列越短)</span><b :class="{ good: tokens.length < charCount }">{{ compression }}</b></div>
+      <div class="kv"><span>词表大小 (不同字符数 + 合并次数)</span><b>{{ baseVocab }} + {{ merges.length }}</b></div>
+      <div class="kv"><span>选中的 token 此刻在语料里出现</span><b>{{ picked === null ? '—' : pickedCount + ' 处' }}</b></div>
       <div class="merge-log">
-        <p class="log-title">合并记录 (最新的在最上面)</p>
+        <p class="log-title">合并记录 (最新的在最上面; 点一行, 中间高亮它合出来的 token)</p>
         <button
           v-for="m in log" :key="m.idx" type="button" class="log-line mono" :class="{ on: m.idx === pickIdx }"
           :aria-pressed="m.idx === pickIdx" @click="pick = m.idx"
         >{{ m.idx + 1 }}. '{{ disp(m.a) }}'+'{{ disp(m.b) }}' → '{{ disp(m.a + m.b) }}' (出现 {{ m.count }} 次)</button>
         <p v-if="merges.length === 0" class="log-line mono">(拖动滑块开始合并)</p>
       </div>
-      <p class="lab-note">
-        词表大小是「序列长度 ↔ embedding 参数量」的权衡旋钮; 真实 GPT-2 在 50 万倍大的语料上做
-        5 万次合并, 思想与这里完全一致 (Python 版是 byte-level, 可处理任意 UTF-8)。
-      </p>
+      <div class="lab-note">
+        <p>
+          词表大小是一个权衡旋钮。词表越大, 同一段文本切出的 token 越少, 序列越短, 注意力 (按序列长度的平方计算) 越省;
+          但 embedding 表 (每个 token 一行向量) 和输出层 lm_head 也跟着变大, 每个 token 在语料里被见到的次数也更少。
+        </p>
+        <p>
+          真实 GPT-2 在 50 万倍大的语料上做 5 万次合并, 思想与这里完全一致。Python 版 bpe.py 是 byte-level:
+          从 256 个字节而不是字符出发, 所以能处理任意 UTF-8 文本, 永远不会遇到词表外的字符。
+        </p>
+      </div>
     </template>
   </LabFrame>
 </template>

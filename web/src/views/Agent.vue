@@ -3,9 +3,9 @@
     <h1 class="page-title">Agent 应用层 · 把模型接成可行动系统</h1>
     <div class="page-subtitle lead-group">
       <p>
-        <RepoLink path="llm_agent/" label="llm_agent/" tiny /> 默认不接真实 API, 用行为完全确定的
-        <code class="inline">RuleBasedLLM</code> 顶上。这样每个 demo 都能用 <code class="inline">assert</code>
-        证明自己声称的事。
+        <RepoLink path="llm_agent/" label="llm_agent/" tiny /> 默认不接真实 API, 用
+        <code class="inline">RuleBasedLLM</code> 顶上: 一个按规则回话的假模型, 同样的输入永远给同样的输出。
+        这样每个 demo 都能用 <code class="inline">assert</code> 证明自己声称的事。
       </p>
       <p>这一阶段要看的不是模型多聪明, 而是它的输出怎么被结构化、检查、执行和记录。</p>
       <p>
@@ -182,14 +182,14 @@ const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${l
 
 // 最后一个模块的编号从数据里取, 不写死 (agentModules 里除了 mNN 还有一行 full)
 const lastModule = agentModules.filter((m) => /^m\d+$/.test(m.id)).at(-1).id
-const tldr = `loop 本身只有十几行, 从 m01 到 ${lastModule} 几乎没改过。可靠性全在它周围: 工具注册表、权限门、上下文与记忆、hooks、JSONL transcript、子智能体隔离。`
+const tldr = `Agent 的核心是一个 loop: 模型看对话历史, 决定调哪个工具; 程序执行工具, 把结果追加回历史; 再让模型看一次, 直到它给出最终回答。这个 loop 本身只有十几行, 从 m01 到 ${lastModule} 几乎没改过。可靠性全在它周围的几道边界: 工具注册表 (模型只能选这里登记过的动作)、权限门 (每次执行前裁决能不能做)、上下文与记忆 (历史太长时怎么压)、hooks (固定事件点跑的检查和改写)、JSONL transcript (逐条追加的对话记录, 可恢复)、子智能体隔离 (子任务单独跑, 只交回摘要)。`
 
 const agentChain = [
   {
     name: 'Loop',
     year: 'm01',
-    pain: 'completion 只能给文本, 不能把观察结果接回下一轮。',
-    fix: 'messages → ModelAction → ToolResult → messages 的最小闭环。',
+    pain: 'completion (一问一答的文本补全) 只能给文本, 不能把工具跑出来的结果接回下一轮。',
+    fix: '最小闭环: 模型看 messages 给出一个动作 (ModelAction), 程序执行得到 ToolResult, 再追加回 messages 进入下一轮。',
     color: 'var(--left)',
   },
   {
@@ -203,7 +203,7 @@ const agentChain = [
     name: 'Permission',
     year: 'm03',
     pain: '能行动后就有破坏面。',
-    fix: 'deny > ask > allow + 六种模式兜底, 风险可控地放权。',
+    fix: '每次调工具前先过权限门: 规则按 deny、ask、allow 的优先级裁决, 没命中规则的由六种权限模式兜底, 风险可控地放权。',
     color: 'var(--warn)',
   },
   {
@@ -217,7 +217,7 @@ const agentChain = [
     name: 'Extensible',
     year: 'm05',
     pain: '所有能力都写进 prompt 会越来越贵。',
-    fix: 'Hooks / 渐进披露的 Skills / MCP 工具分层接入。',
+    fix: 'Hooks (在固定事件点跑的确定性代码)、Skills (用到时才加载正文的说明书)、MCP 工具 (外部进程提供的工具) 分层接入。',
     color: 'var(--right)',
   },
   {

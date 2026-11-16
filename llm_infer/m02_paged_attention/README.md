@@ -1,8 +1,8 @@
 # M02 — Paged Attention: KV cache 的"虚拟内存"
 
-[![PagedAttention — 把 KV 显存切成 block 按需分配 llm_infer/m02](../../docs/screenshots/infer-kv-memory-3.png)](https://beleev.github.io#/infer/kv-memory)
+[![PagedAttention — 把 KV 显存切成 block 按需分配, 看浪费少了多少 llm_infer/m02](../../docs/screenshots/infer-kv-memory-3.png)](https://beleev.github.io#/infer/kv-memory)
 
-[打开相关交互实验：PagedAttention — 把 KV 显存切成 block 按需分配 llm_infer/m02](https://beleev.github.io#/infer/kv-memory)
+[打开相关交互实验：PagedAttention — 把 KV 显存切成 block 按需分配, 看浪费少了多少 llm_infer/m02](https://beleev.github.io#/infer/kv-memory)
 
 ## 直觉
 

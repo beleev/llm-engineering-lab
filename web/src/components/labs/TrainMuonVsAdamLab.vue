@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="Muon vs Adam — 把病态方向转一下会怎样?"
-    sub="病态的矩阵回归: 输入各主轴的尺度从 1 到 0.01 (条件数 1e4)。两种优化器各扫 5 个学习率、各跑 150 步, 真的在你的浏览器里跑。
-      图上默认画各自最好的那个学习率。切换「病态方向是否与坐标轴对齐」, 再点学习率格子看别的 loss 曲线。"
+    title="Muon vs Adam — 同一个病态问题, 把病态方向转一下, 谁还修得动?"
+    sub="- 模拟什么: 一个病态的矩阵回归问题: 要学一个 16×16 的矩阵, 输入数据在 16 个主轴方向上的尺度从 1 等比降到 0.01 (条件数 1e4), 也就是有的方向梯度很大、有的方向梯度很小, 一个统一的步长管不住所有方向。Adam 的办法是逐元素缩放: 每个参数按自己梯度的二阶矩 $1/\sqrt{v}$ 调步长, 这只能修「病态方向恰好沿坐标轴」的情况。Muon 把整个更新矩阵用 Newton–Schulz 迭代正交化, 让每个奇异方向迈同样大的步, 和坐标轴怎么摆无关。这个台子让两种优化器各扫 5 个学习率、各跑 150 步, 真的在你的浏览器里跑 (bias 两边都用 Adam, 学习率线性退火到 0, 与 Python demo 一致)。
+      - 图上是什么: 横轴是训练步数 (0 到 150), 纵轴是 loss, 对数刻度。两条折线是 Adam 和 Muon 各自在选中学习率下的 loss 曲线, 颜色对应控件区的名字, 线尾标着学习率和最终 loss。控件区的两排格子是两种优化器在 5 个学习率下的最终 loss, 带绿色描边的是各自最好的那个, 高亮的是当前画在图上的。
+      - 可以做什么: 点「病态方向与坐标轴对齐」或「随机旋转 (不对齐)」切换问题的摆法 (难度不变, 只是把病态方向转到坐标轴之外); 「换一组数据」换随机种子重跑 (要等一下, 10 条曲线 × 150 步)。点任一学习率格子把那条曲线画到图上; 「选最好」回到各自最好的。
+      - 应该看到: 轴对齐时 Adam 的最好成绩和 Muon 相当甚至更好; 切到随机旋转, Adam 的最好成绩明显变差, Muon 几乎不变。右侧「Adam 最好 / Muon 最好」是各自 5 个学习率里最低的最终 loss (括号里是对应的学习率); 「各自最好的相比」是两者之比, 写成谁好几倍; 「图上画的是不是各自最好」提醒你现在比的是不是公平的那一对, 不是的话「不是」变红。"
     module="llm_train/m14"
     run="python -m llm_train.m14_muon_optimizer.demo"
     :challenge="{
       ask: '先看「轴对齐」: 谁赢? 再切到「随机旋转」: 问题的难度 (条件数) 一点没变, 为什么 Adam 的最好成绩明显变差, Muon 几乎不受影响?',
-      answer: '- 轴对齐: 每个输入坐标的梯度量级各不相同, Adam 的 $1/\\sqrt{v}$ 正好逐坐标把它们拉平。这是 Adam 的主场, 它赢 (换几组数据看, 从小胜到大胜都有)。\n- 旋转之后: 病态方向变成所有坐标的线性组合。每个坐标上的梯度都混着大小尺度, 逐元素的缩放无从下手。\nNewton–Schulz 作用在奇异值上: 旋转只改变奇异向量、不改变奇异值, 所以 Muon 的轨迹几乎不变。\n真实网络的权重没有理由与坐标轴对齐, 这就是 Muon 在 LLM 预训练上省算力的来源。\n(Python demo 用 32×32: 旋转时 Muon 好 9.2×, 轴对齐时 Adam 好 1.9×。)',
+      answer: '轴对齐时 Adam 赢或打平; 旋转之后 Muon 赢, 因为 Adam 的缩放是按坐标轴做的, Muon 的是按奇异方向做的。\n- 轴对齐: 病态方向就是 16 个输入坐标本身, 每个坐标的梯度量级各不相同, 正好一个坐标一个尺度。Adam 对每个参数单独按 $1/\\sqrt{v}$ 缩放步长, 等于逐坐标把量级拉平, 这是它的主场 (换几组数据看, 从小胜到大胜都有; Python demo 用 32×32 时 Adam 好 1.9 倍)。\n- 旋转之后: 问题的条件数没变, 但每个病态方向变成了所有坐标的线性组合。任何一个坐标上的梯度都混着大尺度和小尺度方向的贡献, 逐元素的缩放不知道该放大还是缩小, 无从下手, 所以 Adam 的最好成绩明显变差。\n- Muon 为什么不受影响: Newton–Schulz 正交化作用在奇异值上, 旋转数据只改变梯度的奇异向量 (方向怎么摆), 不改变奇异值 (各方向多强), 所以 Muon 的更新在两种摆法下几乎一样, 轨迹几乎不变 (Python demo: 旋转时 Muon 好 9.2 倍)。\n真实网络里权重矩阵的病态方向没有理由恰好沿坐标轴, 更像旋转后的情况, 这就是 Muon 在 LLM 预训练上省算力的来源。比较时记得看右侧「图上画的是不是各自最好」, 两边都调到最好的学习率再比才公平, 否则比的是调参。',
     }"
   >
     <template #controls>
@@ -49,15 +51,15 @@
 
     <template #stats>
       <template v-if="sweep">
-        <div class="kv"><span>Adam 最好 (lr {{ LRS[sweep.best.adam] }})</span><b>{{ bestOf('adam').toExponential(2) }}</b></div>
-        <div class="kv"><span>Muon 最好 (lr {{ LRS[sweep.best.muon] }})</span><b>{{ bestOf('muon').toExponential(2) }}</b></div>
-        <div class="kv"><span>各自最好的相比</span><b>{{ ratio > 1 ? `Muon 好 ${ratio.toFixed(1)}×` : `Adam 好 ${(1 / ratio).toFixed(1)}×` }}</b></div>
-        <div class="kv"><span>图上画的是不是各自最好</span><b :class="{ bad: !onBest }">{{ onBest ? '是' : '不是' }}</b></div>
+        <div class="kv"><span>Adam 5 个学习率里最好的最终 loss (lr {{ LRS[sweep.best.adam] }})</span><b>{{ bestOf('adam').toExponential(2) }}</b></div>
+        <div class="kv"><span>Muon 5 个学习率里最好的最终 loss (lr {{ LRS[sweep.best.muon] }})</span><b>{{ bestOf('muon').toExponential(2) }}</b></div>
+        <div class="kv"><span>各自最好的相比 (loss 之比)</span><b>{{ ratio > 1 ? `Muon 好 ${ratio.toFixed(1)}×` : `Adam 好 ${(1 / ratio).toFixed(1)}×` }}</b></div>
+        <div class="kv"><span>图上画的是不是各自最好的学习率</span><b :class="{ bad: !onBest }">{{ onBest ? '是' : '不是' }}</b></div>
       </template>
       <div class="lab-note">
-        <p>★ 公平比较 = 各自调到最好的学习率再比。格子里的小字是该学习率的最终 loss, 描边的是各自最好的那个。</p>
-        <p>两边的 bias 都用 Adam (Muon 只管 2-D 矩阵)。学习率线性退火到 0, 与 Python demo 相同。</p>
-        <p>优化器状态: Adam 每个矩阵存 2 份 (一阶、二阶矩), Muon 存 1 份 (动量)。</p>
+        <p>★ 公平比较 = 各自调到最好的学习率再比, 否则比的是调参而不是优化器。格子里的小字是该学习率的最终 loss, 绿色描边的是各自最好的那个; 发散成 NaN 的学习率不参与「最好」的比较。</p>
+        <p>两边的 bias 都用 Adam, 因为 Muon 只管 2-D 矩阵, 向量参数没有「正交化」可言。学习率线性退火到 0, 与 Python demo 相同。</p>
+        <p>优化器状态: Adam 每个矩阵存 2 份 (一阶矩、二阶矩), Muon 只存 1 份 (动量), 反而更省显存。</p>
       </div>
     </template>
   </LabFrame>

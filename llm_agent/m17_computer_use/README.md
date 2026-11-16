@@ -1,8 +1,8 @@
 # M17 — Computer use / 浏览器 agent
 
-[![Computer use — 看完再点, 中间页面挪了 llm_agent/m17](../../docs/screenshots/agent-computer-use-1.png)](https://beleev.github.io#/agent/computer-use)
+[![Computer use — 看完再点, 中间页面挪了, 坐标会点到谁 llm_agent/m17](../../docs/screenshots/agent-computer-use-1.png)](https://beleev.github.io#/agent/computer-use)
 
-[打开相关交互实验：Computer use — 看完再点, 中间页面挪了 llm_agent/m17](https://beleev.github.io#/agent/computer-use)
+[打开相关交互实验：Computer use — 看完再点, 中间页面挪了, 坐标会点到谁 llm_agent/m17](https://beleev.github.io#/agent/computer-use)
 
 ## 直觉
 

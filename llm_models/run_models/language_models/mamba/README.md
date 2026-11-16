@@ -1,8 +1,8 @@
 # Mamba (Selective SSM)
 
-[![Mamba 选择性扫描 — Δ 决定记谁、忘谁 llm_models/layers/sparse/ssm.py](../../../../docs/screenshots/models-mamba-1.png)](https://beleev.github.io#/models/mamba)
+[![Mamba 选择性扫描 — 每个 token 自带的步长 Δ 决定它被记住还是被略过 llm_models/layers/sparse/ssm.py](../../../../docs/screenshots/models-mamba-1.png)](https://beleev.github.io#/models/mamba)
 
-[打开相关交互实验：Mamba 选择性扫描 — Δ 决定记谁、忘谁 llm_models/layers/sparse/ssm.py](https://beleev.github.io#/models/mamba)
+[打开相关交互实验：Mamba 选择性扫描 — 每个 token 自带的步长 Δ 决定它被记住还是被略过 llm_models/layers/sparse/ssm.py](https://beleev.github.io#/models/mamba)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # MTP — Multi-Token Prediction (DeepSeek-V3 式)
 
-[![MTP 实验台 — 一次前向, 多步预测 llm_models/mtp](../../../../docs/screenshots/models-mtp-2.png)](https://beleev.github.io#/models/swa-mtp)
+[![MTP 多 token 预测 — 一次前向, 每个位置多预测几步 llm_models/mtp](../../../../docs/screenshots/models-mtp-2.png)](https://beleev.github.io#/models/swa-mtp)
 
-[打开相关交互实验：MTP 实验台 — 一次前向, 多步预测 llm_models/mtp](https://beleev.github.io#/models/swa-mtp)
+[打开相关交互实验：MTP 多 token 预测 — 一次前向, 每个位置多预测几步 llm_models/mtp](https://beleev.github.io#/models/swa-mtp)
 
 ## 直觉
 

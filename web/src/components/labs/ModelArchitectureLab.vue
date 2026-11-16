@@ -7,8 +7,11 @@
     <header class="lab-header">
       <div>
         <span class="lab-kicker">模型结构浏览器</span>
-        <h2 id="architecture-lab-title">模型结构与运行态实验台</h2>
-        <p>选一个模型, 拖画布看组件怎么接, 点节点右下角的 + 看内部。再切换运行态, 看同一张图上权重、激活、梯度和缓存各在哪。</p>
+        <h2 id="architecture-lab-title">模型结构与运行态实验台 — 零件怎么接, 跑起来时各在干什么</h2>
+        <p>模拟什么: 选一个模型, 看它由哪些组件接成, 以及同一张图在四种运行态下每个组件各在干什么。「结构」只看接线; 「训练态」是整段 token 并行前向、再反向算梯度; 「并行前向」(prefill) 是推理时把整段 prompt 一次送进去并写下 KV cache; 「迭代推理」(decode) 是之后每步只送 1 个新 token, 复用前面留下的状态。</p>
+        <p>图上是什么: 画布里每个方块是一个组件, 箭头是数据流向, 从上到下是执行顺序; 带 + 号的方块可以展开看内部, 展开后内部组件圈在一个框里, 虚线是内部接线。方块里的小字是这个组件在当前运行态下的角色 (比如「只读 W」「写缓存」)。颜色图例: 权重是训练要学的参数; 激活是一次前向算出来的中间张量; 梯度是反向传播时每个权重要改的方向; 持久状态是推理时跨步保留的东西, Transformer 是 KV cache, Mamba 是 SSM state。</p>
+        <p>可以做什么: 上排标签切模型; 「结构 / 训练态 / 并行前向 / 迭代推理」切运行态; 拖节点可以挪, 空白处拖拽平移, 滚轮缩放; 点一个方块, 右侧面板显示它的权重形状、激活的生命周期、公式和源码入口; 「展开全部 / 收起」一键展开或收起所有可展开的组件。</p>
+        <p>应该看到: 「规模读数」一行随模型变: 层数 N 和隐藏维 D 是构造函数的默认配置; 「每层跨步保留的状态」是推理时每生成一个 token、每层要多存几个数 (LLaMA 是 K 和 V 各 32 头 × 128 维, 共 8192 个; Mamba 不随 token 增长, 是固定大小的状态; DiT 没有跨步状态); 最后一格把它换算成序列长 1024、fp16 (每个数 2 字节) 时整个模型要占多少显存。切到「迭代推理」看 LLaMA: attention 方块标成「读 / 追加」, 其他都是「临时激活」或「只读 W」, 这就是 KV cache 存在的理由。</p>
       </div>
       <RepoLink :path="currentModel.source" label="当前模型源码" tiny />
     </header>
@@ -52,10 +55,10 @@
         </button>
       </div>
       <div class="runtime-legend" aria-label="运行态颜色图例">
-        <span><i class="weight"></i>权重</span>
-        <span><i class="activation"></i>激活</span>
-        <span><i class="gradient"></i>梯度</span>
-        <span><i class="cache"></i>持久状态</span>
+        <span><i class="weight"></i>权重 (要学的参数)</span>
+        <span><i class="activation"></i>激活 (前向的中间张量)</span>
+        <span><i class="gradient"></i>梯度 (反向算出的更新方向)</span>
+        <span><i class="cache"></i>持久状态 (KV cache / SSM state)</span>
       </div>
     </div>
 
@@ -78,7 +81,7 @@
         <div class="canvas-toolbar">
           <div class="canvas-hint">
             <span aria-hidden="true">↔</span>
-            拖节点可以挪 · 空白处拖拽平移 · 滚轮缩放 · 点击节点查看细节
+            拖节点可以挪 · 空白处拖拽平移 · 滚轮缩放 · 点击节点在右侧看细节 · 点 + 展开内部
           </div>
           <div class="canvas-actions">
             <button type="button" title="展开全部组件" aria-label="展开全部组件" @click="expandAll">展开全部</button>
@@ -158,7 +161,7 @@
           </div>
         </template>
 
-        <p v-else class="inspector-empty">点画布里的一个组件, 看它的权重、激活、运行态和源码入口。</p>
+        <p v-else class="inspector-empty">点画布里的一个组件, 这里会显示它的权重形状、激活的生命周期、在当前运行态下干什么, 以及源码入口。</p>
       </aside>
     </div>
   </section>

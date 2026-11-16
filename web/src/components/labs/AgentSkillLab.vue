@@ -4,20 +4,22 @@
 -->
 <template>
   <LabFrame
-    title="Skills — 渐进式披露省下多少上下文"
-    sub="每个格子是一个已安装的 skill。常驻上下文的只有它的一行 name + description。
-      点一条用户请求, 看模型调用 skill 工具把哪一个的正文加载进来。也可以直接点格子手动加载 / 卸载, 拖滑杆改变安装数量和手册长度。"
+    title="Skills — 装了一堆任务手册, 渐进式披露让常驻上下文只剩每本一行"
+    sub="- 模拟什么: skill 是给 agent 装的「任务手册」: 一个 SKILL.md 文件, 开头几行是 name 和一句 description, 后面是正文 (这件事怎么一步步做)。如果把所有手册的正文都塞进 system prompt, 每一轮请求都要为用不到的手册付 token。渐进式披露 (progressive disclosure) 的做法是: 常驻上下文的只有每个 skill 的一行 name + description (下面叫目录); 模型看目录觉得某个 skill 和当前请求相关, 就调用 skill 工具, 它的正文这时才作为 tool_result 进上下文。
+- 图上是什么: 每个格子是一个已安装的 skill, 上面是名字, 下面是它那一行 description; 前 6 个有具体用途, 其余是「别的团队手册」占位。格子变绿表示它的正文已经被加载进上下文, 格子里会显示加载了多少 token。格子下方那行等宽文字是模型调用 skill 工具的轨迹。再下面两根横条是两种做法各占多少上下文: 紫色段是目录 (每个 skill 一行 description 的总和), 黄色段是正文; 上面一根是「全量常驻」(所有正文都塞进去), 下面一根是「渐进披露」(只有被加载的正文)。
+- 可以做什么: 三根滑杆: 「已安装 skill 数」装了几个; 「每个正文长度」一份手册正文多少 token; 「description 长度」目录里每行多少 token。下面四个按钮是四句用户请求, 点一句, 模拟模型按 description 里的关键词判断哪些 skill 相关并加载它们 (最后一句「今天天气怎么样」和谁都不相关, 什么都不加载); 也可以直接点格子手动加载 / 卸载; 「清空已加载」全部卸掉。
+- 应该看到: 默认 12 个 skill、正文 3000 token: 全量常驻 36.4K token, 什么都没加载时渐进披露只有 360 token (12 行目录), 差 101 倍; 点「审一下这个 SQL 迁移, 再写发布说明」加载 2 个, 渐进披露变成 6.4K, 仍然远小于全量。右侧「全量常驻」和「渐进披露」是两根条的总长, 「节省倍数」是两者之比, 「全量占 200K 窗口」是把所有正文塞进去会吃掉一个 200K token 上下文窗口的百分之几, 超过一半标红。因为 agent 每一轮都重发整个上下文, 这个差价是每一轮都在付的。"
     module="llm_agent/m05"
     run="python -m llm_agent.m05_extensibility.demo"
     :challenge="{
-      ask: '装 40 个 skill、每个正文 3000 token。算一算全量常驻要多少 token, 渐进披露在「只触发 1 个」时又是多少。省下的那部分是每一轮请求都在省, 还是只省一次?',
-      answer: '- 全量常驻: 40 × (30 + 3000) ≈ 121K, 一个 200K 窗口的六成还没干活就没了。\n- 渐进披露: 40 × 30 + 3000 = 4.2K, 约 29 倍。\nagent 每一轮都要重发整个上下文, 所以这个差价是每轮都付的。\n代价: 模型只凭一行 description 判断要不要加载。description 写得含糊, skill 就永远不会被触发。',
+      ask: '装 40 个 skill, 每个正文 3000 token。算一算全量常驻要多少 token, 渐进披露在「只触发 1 个」时又是多少。省下的那部分是每一轮请求都在省, 还是只省一次?',
+      answer: '- 全量常驻: 40 × (30 + 3000) = 121200, 约 121K token, 一个 200K 窗口的六成还没干活就没了。\n- 渐进披露, 只触发 1 个: 40 × 30 + 3000 = 4200, 约 4.2K, 相差约 29 倍。\n把两根滑杆拖到 40 个、3000 token, 再点「把这份数据导出成 PDF」(只命中 pdf-report 一个), 右侧就是这两个数。\n省下的是每一轮都在省: agent 每次调用模型都重发整个上下文, 全量常驻的 121K 每一轮都要付一遍, 渐进披露每一轮只付目录加已加载的正文。\n代价: 模型只凭一行 description 判断要不要加载。description 写得含糊, 和请求对不上, skill 就永远不会被触发, 手册写得再好也白搭。',
     }"
   >
     <template #controls>
       <LabSlider v-model="n" label="已安装 skill 数" :min="1" :max="40" />
-      <LabSlider v-model="body" label="每个正文长度" :min="200" :max="5000" :step="100" unit=" tok" />
-      <LabSlider v-model="desc" label="description 长度" :min="10" :max="100" :step="5" unit=" tok" />
+      <LabSlider v-model="body" label="每个正文长度 (一份手册)" :min="200" :max="5000" :step="100" unit=" tok" />
+      <LabSlider v-model="desc" label="description 长度 (目录里每行)" :min="10" :max="100" :step="5" unit=" tok" />
       <div class="row">
         <button v-for="p in PROMPTS" :key="p.text" type="button" :class="{ active: prompt === p.text }" @click="ask(p)">{{ p.text }}</button>
         <button type="button" @click="loaded = []; prompt = ''">清空已加载</button>
@@ -48,18 +50,18 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>全量常驻</span><b :class="allIn > progressive ? 'bad' : ''">{{ fmtNum(allIn) }} tok</b></div>
-      <div class="kv"><span>渐进披露</span><b :class="progressive < allIn ? 'good' : ''">{{ fmtNum(progressive) }} tok</b></div>
-      <div class="kv"><span>节省倍数</span><b>{{ (allIn / progressive).toFixed(1) }}×</b></div>
-      <div class="kv"><span>全量占 200K 窗口</span><b :class="allIn > 100000 ? 'bad' : ''">{{ (allIn / 2000).toFixed(1) }}%</b></div>
+      <div class="kv"><span>全量常驻 (所有正文都塞进上下文)</span><b :class="allIn > progressive ? 'bad' : ''">{{ fmtNum(allIn) }} tok</b></div>
+      <div class="kv"><span>渐进披露 (目录 + 已加载的正文)</span><b :class="progressive < allIn ? 'good' : ''">{{ fmtNum(progressive) }} tok</b></div>
+      <div class="kv"><span>节省倍数 (全量 / 渐进)</span><b>{{ (allIn / progressive).toFixed(1) }}×</b></div>
+      <div class="kv"><span>全量常驻占 200K 窗口的比例</span><b :class="allIn > 100000 ? 'bad' : ''">{{ (allIn / 2000).toFixed(1) }}%</b></div>
       <div class="lab-note">
-        <p>三层加载:</p>
+        <p>渐进式披露分三层, 每层都是用到才读:</p>
         <ol class="pts">
-          <li>启动时只读 SKILL.md 的 frontmatter。</li>
-          <li>模型调用 <code class="inline">skill</code> 工具时, 正文才进上下文。</li>
-          <li>正文引用的脚本/附件, 用到才读。</li>
+          <li>启动时只读每个 SKILL.md 开头的 frontmatter (name 和 description), 正文当场丢掉, 只有这一层常驻上下文。</li>
+          <li>模型调用 <code class="inline">skill</code> 工具时, 正文才作为 tool_result 进上下文。</li>
+          <li>正文里引用的脚本和附件, 用到才读 (本 demo 没实现这一层)。</li>
         </ol>
-        <p>skill 是用户自己安装的可信指令, 和 fetch 回来的网页不是一回事。</p>
+        <p>skill 正文是用户自己安装的可信指令, 模型会照着做; 它和 fetch 回来的网页不是一回事, 后者是不可信数据。区别在来源, 不在格式。</p>
       </div>
     </template>
   </LabFrame>

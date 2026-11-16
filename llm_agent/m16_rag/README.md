@@ -1,8 +1,8 @@
 # M16 — RAG: 切块、BM25、稠密向量、RRF 混合、rerank
 
-[![RAG — 20 道题, 四条检索路线 llm_agent/m16](../../docs/screenshots/agent-rag-1.png)](https://beleev.github.io#/agent/rag)
+[![RAG — 同样 20 道题, 四条检索路线各把正确答案排到第几名 llm_agent/m16](../../docs/screenshots/agent-rag-1.png)](https://beleev.github.io#/agent/rag)
 
-[打开相关交互实验：RAG — 20 道题, 四条检索路线 llm_agent/m16](https://beleev.github.io#/agent/rag)
+[打开相关交互实验：RAG — 同样 20 道题, 四条检索路线各把正确答案排到第几名 llm_agent/m16](https://beleev.github.io#/agent/rag)
 
 ## 直觉
 

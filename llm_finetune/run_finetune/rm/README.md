@@ -1,8 +1,8 @@
 # Reward Model — 把 "A 比 B 好" 变成标量分
 
-[![Bradley–Terry — 奖励模型学到的只是「差」 llm_finetune/methods/reward_model.py](../../../docs/screenshots/finetune-rlhf-3.png)](https://beleev.github.io#/finetune/rlhf-grpo-distill)
+[![Bradley–Terry — 奖励模型学到的只是两条回答的「分差」 llm_finetune/methods/reward_model.py](../../../docs/screenshots/finetune-rlhf-3.png)](https://beleev.github.io#/finetune/rlhf-grpo-distill)
 
-[打开相关交互实验：Bradley–Terry — 奖励模型学到的只是「差」 llm_finetune/methods/reward_model.py](https://beleev.github.io#/finetune/rlhf-grpo-distill)
+[打开相关交互实验：Bradley–Terry — 奖励模型学到的只是两条回答的「分差」 llm_finetune/methods/reward_model.py](https://beleev.github.io#/finetune/rlhf-grpo-distill)
 
 ## 直觉
 

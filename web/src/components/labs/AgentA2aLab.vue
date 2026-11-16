@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="A2A — 一个会反问的任务"
-    sub="出差助理把报销交给报销 agent。逐步回放线上的 JSON-RPC, 状态图跟着走。拖金额看结局怎么变。
-      任何时候都可以点状态图上的节点, 试着把任务推到那个状态。合法的转移会走过去, 非法的会闪红并给出错误。"
+    title="A2A — 一个任务怎么在两个 agent 之间来回, 结束后为什么不能再改"
+    sub="- 模拟什么: 两个 agent 协作。出差助理 (调用方) 把「报销」这件事交给报销 agent (服务方)。A2A (Agent2Agent) 协议规定它们之间的交互单位不是一次函数调用, 而是一个有状态的任务 Task: 任务有 id、有状态, 可以多轮来回 (对方发现缺信息会反问), 最终产物放在 artifact 里。这个台子把 demo 里的一次报销任务回放一遍, 并让你自己去推状态机。
+      - 图上是什么: 六个圆角框是 Task 可能处于的六个状态: submitted (已提交)、working (对方正在处理)、input-required (对方缺信息, 停下来反问)、completed (成功)、failed (失败)、canceled (取消)。框之间的箭头是协议允许的转移方向; 右边三个边框加粗的是终态, 终态没有向外的箭头。高亮的框是任务现在所处的状态, 高亮的箭头是这次任务已经走过的路。图下面的灰字说明当前这一步发生了什么; 再下面的代码块是线上实际收发的 JSON-RPC 报文, → 是助理发出的请求, ← 是报销 agent 的回复。
+      - 可以做什么: 拖「机票」「住宿晚数」「每晚」三个滑杆改报销金额, 合计 = 机票 + 晚数 × 每晚; 合计超过 5000 元的上限, 结局会从 completed 变成 failed。用播放器的「上一步 / 下一步」或时间轴回放三步: 第 1 步助理读对方的 Agent Card, 按 skill 标签挑中报销 agent; 第 2 步发第一条 message/send, 对方发现没有出差日期, 停在 input-required 反问; 第 3 步助理带着同一个 taskId 补上日期, 任务走到 completed 或 failed。任何时候点状态图上的一个框, 就是试着把任务推到那个状态: 合法的转移会走过去, 非法的会闪红并给出错误码。
+      - 应该看到: 默认停在最后一步, 任务已经 completed。这时点 working 或 canceled 都会被拒绝: 右侧「最近一次被拒的错误码」显示 -32004 或 -32002, 「当前状态」不变。「报销合计 / 单次上限」是本次金额和 5000 元上限, 超了就标红。「轨迹长度」是任务到现在经过了几个状态, demo 的正常结局是 5 个 (submitted, working, input-required, working, completed), 最下面一行是完整轨迹。把金额拖到超过 5000, 第 3 步的结局变成 failed, 报文里 artifacts 是空的。"
     module="llm_agent/m18"
     run="python -m llm_agent.m18_a2a.demo"
     :challenge="{
       ask: '回放到最后一步 (任务已 completed), 再点 working 或 canceled。先猜: 线上各回什么错误码? 任务状态会变吗?',
-      answer: '- 点 working: 等于再发一条 message/send 续这个任务, 回 -32004 (UnsupportedOperation)。\n- 点 canceled: 等于 tasks/cancel, 回 -32002 (TaskNotCancelable)。\n状态不变: completed 的出边集合为空, Task.to 在改状态之前就抛 InvalidTransition。demo 断言三次被拒之后轨迹仍是 5 个状态。\n要改金额, 开一个新任务。终态不能「复活」, 调用方才能放心把 artifact 当成最终结果。',
+      answer: '- 点 working: 被拒, 错误码 -32004 (UnsupportedOperation)。点 working 相当于再发一条带同一个 taskId 的 message/send, 想让已经结束的任务继续干活; 协议规定终态任务不支持这个操作。\n- 点 canceled: 被拒, 错误码 -32002 (TaskNotCancelable)。它相当于发 tasks/cancel; 一个已经完成的任务没有东西可取消。\n- 状态不变: completed 是终态, 转移表里它的出边集合是空的。demo 里 Task.to 在改状态之前先查转移表, 查不到就抛 InvalidTransition, 所以状态和历史都没被碰过。demo 的断言验证了这一点: 连拒三次之后, 轨迹仍然是原来的 5 个状态。\n- 要改金额怎么办: 开一个新任务。终态不能「复活」, 调用方才敢把拿到的 artifact 当成最终结果, 不用担心它在自己不知道的时候被改掉。',
     }"
   >
     <template #controls>
@@ -29,7 +31,7 @@
       <line v-for="e in edges" :key="e.id" :x1="e.x1" :y1="e.y1" :x2="e.x2" :y2="e.y2" class="edge" :class="{ taken: e.taken }" marker-end="url(#a2a-arrow)" />
       <line v-if="flash" :x1="POS[flash.from].x" :y1="POS[flash.from].y" :x2="POS[flash.to].x" :y2="POS[flash.to].y" class="edge bad" />
       <g v-for="(p, s) in POS" :key="s" class="node focus-inset" :class="{ now: s === state, bad: flash && flash.to === s, term: !TRANSITIONS[s].length, seen: path.includes(s) }"
-        tabindex="0" role="button" :aria-label="`转移到 ${s}`" @click="tryMove(s)" @keydown.enter="tryMove(s)">
+        tabindex="0" role="button" :aria-label="`试着把任务推到 ${s}`" @click="tryMove(s)" @keydown.enter="tryMove(s)">
         <rect :x="p.x - 50" :y="p.y - 15" width="100" height="30" rx="15" />
         <text :x="p.x" :y="p.y + 4" text-anchor="middle">{{ s }}</text>
       </g>
@@ -40,10 +42,10 @@
 
     <template #stats>
       <div class="kv"><span>当前状态</span><b :class="state === 'completed' ? 'good' : state === 'failed' || state === 'canceled' ? 'bad' : ''">{{ state || '(还没有任务)' }}</b></div>
-      <div class="kv"><span>合计 / 上限</span><b :class="total > LIMIT ? 'bad' : 'good'">{{ total }} / {{ LIMIT }}</b></div>
-      <div class="kv"><span>轨迹长度</span><b>{{ path.length }}</b></div>
-      <div class="kv"><span>最近一次拒绝</span><b :class="flash ? 'bad' : ''">{{ flash ? flash.code : '—' }}</b></div>
-      <p class="lab-note">轨迹: {{ path.join(' → ') || '—' }}</p>
+      <div class="kv"><span>报销合计 / 单次上限 (元)</span><b :class="total > LIMIT ? 'bad' : 'good'">{{ total }} / {{ LIMIT }}</b></div>
+      <div class="kv"><span>轨迹长度 (经过了几个状态)</span><b>{{ path.length }}</b></div>
+      <div class="kv"><span>最近一次被拒的错误码</span><b :class="flash ? 'bad' : ''">{{ flash ? flash.code : '—' }}</b></div>
+      <p class="lab-note">完整轨迹: {{ path.join(' → ') || '—' }}</p>
     </template>
   </LabFrame>
 </template>

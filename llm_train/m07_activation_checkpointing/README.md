@@ -1,8 +1,8 @@
 # M07 — 激活重算 (Activation Checkpointing)
 
-[![激活重算 — 段长 k 怎么选? llm_train/m07](../../docs/screenshots/train-memory-2.png)](https://beleev.github.io#/train/memory)
+[![激活重算 — 只存段边界、反向时重跑, 段长 k 怎么选? llm_train/m07](../../docs/screenshots/train-memory-2.png)](https://beleev.github.io#/train/memory)
 
-[打开相关交互实验：激活重算 — 段长 k 怎么选? llm_train/m07](https://beleev.github.io#/train/memory)
+[打开相关交互实验：激活重算 — 只存段边界、反向时重跑, 段长 k 怎么选? llm_train/m07](https://beleev.github.io#/train/memory)
 
 ## 直觉
 

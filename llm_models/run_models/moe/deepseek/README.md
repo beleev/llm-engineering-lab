@@ -1,8 +1,8 @@
 # DeepSeek-V3 (MLA + MoE + aux-loss-free 均衡)
 
-[![Aux-loss-free 均衡 — 偏置只管选人, 不管权重 llm_models/models/moe/deepseekV3.py](../../../../docs/screenshots/models-moe-balance-1.png)](https://beleev.github.io#/models/moe-balance)
+[![Aux-loss-free 均衡 — 一个不收梯度的偏置, 只改「选谁」, 不改「信多少」 llm_models/models/moe/deepseekV3.py](../../../../docs/screenshots/models-moe-balance-1.png)](https://beleev.github.io#/models/moe-balance)
 
-[打开相关交互实验：Aux-loss-free 均衡 — 偏置只管选人, 不管权重 llm_models/models/moe/deepseekV3.py](https://beleev.github.io#/models/moe-balance)
+[打开相关交互实验：Aux-loss-free 均衡 — 一个不收梯度的偏置, 只改「选谁」, 不改「信多少」 llm_models/models/moe/deepseekV3.py](https://beleev.github.io#/models/moe-balance)
 
 ## 直觉
 

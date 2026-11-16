@@ -1,8 +1,8 @@
 # M18 — A2A (Agent2Agent): agent 找 agent
 
-[![A2A — 一个会反问的任务 llm_agent/m18](../../docs/screenshots/agent-a2a-1.png)](https://beleev.github.io#/agent/a2a)
+[![A2A — 一个任务怎么在两个 agent 之间来回, 结束后为什么不能再改 llm_agent/m18](../../docs/screenshots/agent-a2a-1.png)](https://beleev.github.io#/agent/a2a)
 
-[打开相关交互实验：A2A — 一个会反问的任务 llm_agent/m18](https://beleev.github.io#/agent/a2a)
+[打开相关交互实验：A2A — 一个任务怎么在两个 agent 之间来回, 结束后为什么不能再改 llm_agent/m18](https://beleev.github.io#/agent/a2a)
 
 ## 直觉
 

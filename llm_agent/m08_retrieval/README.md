@@ -1,8 +1,8 @@
 # M08 — Retrieval (RAG-lite): 知识放在上下文之外, 按需取 top-k
 
-[![中文检索 — 为什么要字符 bigram llm_agent/m08](../../docs/screenshots/agent-context-memory-1.png)](https://beleev.github.io#/agent/context-memory)
+[![中文检索 — 分词器不认中文时, 检索为什么整个失效 llm_agent/m08](../../docs/screenshots/agent-context-memory-1.png)](https://beleev.github.io#/agent/context-memory)
 
-[打开相关交互实验：中文检索 — 为什么要字符 bigram llm_agent/m08](https://beleev.github.io#/agent/context-memory)
+[打开相关交互实验：中文检索 — 分词器不认中文时, 检索为什么整个失效 llm_agent/m08](https://beleev.github.io#/agent/context-memory)
 
 ## 直觉
 

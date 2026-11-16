@@ -4,9 +4,9 @@
   对错不只靠颜色: 选项前有「✓ 正确项」「✗ 你的选择」文字标记。
 -->
 <template>
-  <section v-if="items.length" class="section quiz">
+  <section v-if="items.length" id="sec-quiz" class="section quiz" tabindex="-1">
     <h2>
-      章末自测
+      <span v-if="num" class="sec-num">{{ num }}</span>章末自测
       <span class="score mono">
         <template v-if="best">最好成绩 {{ best.correct }} / {{ best.total }} · </template>这一遍 {{ correct }} / {{ items.length }}
       </span>
@@ -43,6 +43,8 @@ import { quizBank } from '@/data/quiz/index.js'
 import Prose from '@/components/Prose.vue'
 import { useProgress } from '@/composables/useProgress.js'
 
+// num: 在 StageTopic 的「本章顺序」里的序号; 手写页面不传就不显示编号
+defineProps({ num: { type: Number, default: 0 } })
 const route = useRoute()
 const progress = useProgress()
 const items = computed(() => quizBank[route.name] || [])

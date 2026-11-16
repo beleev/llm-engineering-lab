@@ -1,8 +1,8 @@
 # M18 — Sequence Packing
 
-[![Packing — 拼在一行的文档会互相看见吗? llm_train/m18](../../docs/screenshots/train-data-packing-3.png)](https://beleev.github.io#/train/data-packing)
+[![Packing — 几篇文档拼进同一行训练, 它们会互相看见吗? llm_train/m18](../../docs/screenshots/train-data-packing-3.png)](https://beleev.github.io#/train/data-packing)
 
-[打开相关交互实验：Packing — 拼在一行的文档会互相看见吗? llm_train/m18](https://beleev.github.io#/train/data-packing)
+[打开相关交互实验：Packing — 几篇文档拼进同一行训练, 它们会互相看见吗? llm_train/m18](https://beleev.github.io#/train/data-packing)
 
 ## 直觉
 

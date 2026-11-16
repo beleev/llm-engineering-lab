@@ -1,8 +1,8 @@
 # M21 — MoE serving: 专家并行 (EP) 与 EPLB 负载均衡
 
-[![MoE 专家并行 — 热点专家与 EPLB 冗余副本 llm_infer/m21](../../docs/screenshots/infer-moe-serving-1.png)](https://beleev.github.io#/infer/moe-serving)
+[![MoE 专家并行 — 热点专家把一张卡堵死, EPLB 用冗余副本把它拆开 llm_infer/m21](../../docs/screenshots/infer-moe-serving-1.png)](https://beleev.github.io#/infer/moe-serving)
 
-[打开相关交互实验：MoE 专家并行 — 热点专家与 EPLB 冗余副本 llm_infer/m21](https://beleev.github.io#/infer/moe-serving)
+[打开相关交互实验：MoE 专家并行 — 热点专家把一张卡堵死, EPLB 用冗余副本把它拆开 llm_infer/m21](https://beleev.github.io#/infer/moe-serving)
 
 ## 直觉
 

@@ -7,16 +7,16 @@
 -->
 <template>
   <LabFrame
-    title="选型计算器 — 16 种方法, 各自要你付什么"
-    sub="左边勾你手上真有的东西, 拖显存预算。右边每一行是一种方法:
-      - 亮着: 现在就能用。
-      - 暗掉: 缺东西或超预算 (行尾写了缺什么)。
-      点任意一行, 展开「什么时候它是对的选择」和运行命令。"
+    title="选型计算器 — 16 种微调方法, 各自要你付什么"
+    sub="- 模拟什么: 选微调方法时, 真正的分歧不在 loss 好不好看, 在代价结构: 要什么数据 (示范回答、成对偏好、单条好坏标签、逐步标签、验证器、teacher、judge、多个微调模型), 要不要在线采样 (训练中让模型现采回复), 训练时要常驻几份权重 (基座、ref 或 teacher、adapter、critic、Adam 优化器状态), 训完落盘什么。这个台子把 llm_finetune 里 16 种方法的这些代价摆成一张表, 字节数都是在本仓库的玩具基座 (99,648 参数 = 389 KiB) 上实测的。
+      - 图上是什么: 表格每行一种方法。「前向/步」是每个训练步要跑几次模型前向 (2B 条表示 batch 里 chosen 和 rejected 各过一次); 「常驻显存」是一条按颜色拆开的横条 (图例在表下: 基座、ref/teacher、adapter、critic、Adam 状态) 和总和; 「落盘」是训完要保存什么; 「信号」是一条样本给出多少个监督数字 (偏好对 1 个, SFT 每个回答 token 1 个, 蒸馏每个 token 一个 16 维分布), 条越长越密。暗掉的行是现在用不了的, 行尾写了缺什么。
+      - 可以做什么: 「我手上有」一排按钮勾选你真有的数据和资源; 「能在线采样」选能不能让模型在训练中现采回复; 拖「常驻显存预算」划一条线, 超过的方法变暗。点任意一行展开「什么时候它是对的选择」和运行命令。
+      - 应该看到: 右侧读数「现在能用」是亮着的行数; 「最省显存的可行方法」和「信号最密的可行方法」在亮着的行里挑 (模型合并不训练, 不参与这两项); 「被显存卡掉」是因为超预算而变暗的行数。下面两个折叠块解释字节数和「信号」一列是怎么算出来的。"
     module="llm_finetune/README.md"
     run="python -m llm_finetune.run_all"
     :challenge="{
       ask: '只勾「成对偏好」, 把显存预算从 1600 KiB 往下拖。最先掉队的是哪两个? 到 1200 KiB 时还剩谁? 拿掉的那份权重原本在干什么?',
-      answer: 'DPO 和 KTO 同时掉队: 两者都要常驻 policy + ref 两份权重 (389 + 389 = 778 KiB), 再加全参 Adam 状态 778 KiB, 合计 1556 KiB。KTO 出现在这里, 是因为成对偏好拆开就是一条好、一条坏。\nSimPO / ORPO / RM 都只要一份权重, 1167 KiB 就够。\nref 干的事有两件:\n- 当锚: 不让 policy 漂离 SFT 起点。\n- 抵消长度红利: ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 相减就消了。\n拿掉 ref 就得请人接班: SimPO 用长度归一化 + 目标间隔 $\\gamma$, ORPO 用 NLL 项当锚。\n实测留出集 EM: ORPO 0.543 > DPO 0.121 > SimPO 0.023。SimPO 什么锚都没有, 掉得最惨。',
+      answer: '答案: DPO 和 KTO 最先掉队; 到 1200 KiB 时还剩 SimPO、ORPO、Reward Model; 拿掉的那份权重是 ref, 它负责当锚和抵消长度红利。\n一步步看:\n- DPO 和 KTO 都要常驻 policy + ref 两份权重 (389 + 389 = 778 KiB), 再加全参 Adam 状态 778 KiB, 合计 1556 KiB, 预算一低于这个数就同时掉队。KTO 出现在这里, 是因为成对偏好拆开就是一条好、一条坏, 所以勾了成对偏好 KTO 也可用。\n- SimPO / ORPO / RM 都只要一份权重加 Adam 状态, 389 + 778 = 1167 KiB, 1200 KiB 还够。\n- ref 干的事有两件: 当锚, 不让 policy 漂离 SFT 起点; 抵消长度红利, ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 相减就消了。\n- 拿掉 ref 就得请人接班: SimPO 用长度归一化加目标间隔 $\\gamma$, ORPO 用 NLL 项当锚。实测留出集 EM: ORPO 0.543, DPO 0.121, SimPO 0.023。SimPO 什么锚都没有, 掉得最惨。',
     }"
   >
     <template #controls>
@@ -83,11 +83,11 @@
     </p>
 
     <template #stats>
-      <div class="kv"><span>现在能用</span><b :class="okCount ? 'good' : 'bad'">{{ okCount }} / {{ METHODS.length }}</b></div>
+      <div class="kv"><span>现在能用 (亮着的行数)</span><b :class="okCount ? 'good' : 'bad'">{{ okCount }} / {{ METHODS.length }}</b></div>
       <div class="kv"><span>最省显存的可行方法</span><b>{{ cheapest }}</b></div>
-      <div class="kv"><span>被显存卡掉</span><b :class="overCount ? 'bad' : 'good'">{{ overCount }}</b></div>
+      <div class="kv"><span>被显存卡掉 (超预算的行数)</span><b :class="overCount ? 'bad' : 'good'">{{ overCount }}</b></div>
       <div class="kv"><span>信号最密的可行方法</span><b>{{ densest }}</b></div>
-      <p class="lab-note">字节数按本仓库的玩具基座算。换成 7B 模型时每一栏同比放大, 相对关系不变。</p>
+      <p class="lab-note">字节数按本仓库的玩具基座算。换成 7B 模型时每一栏同比放大 (基座 389 KiB 变成十几 GB), 相对关系不变, 所以比的是结构, 不是绝对数。</p>
       <details class="more">
         <summary>字节数怎么来的</summary>
         <ul class="pts">

@@ -1,8 +1,8 @@
 # M06 — Chunked Prefill: 把长 prompt 切块, 和 decode 混在一个 batch 里
 
-[![Chunked prefill — 用 token 预算封顶卡顿 llm_infer/m06](../../docs/screenshots/infer-scheduler-2.png)](https://beleev.github.io#/infer/scheduler)
+[![Chunked prefill — 长 prompt 切块混进 decode, 用 token 预算封顶卡顿 llm_infer/m06](../../docs/screenshots/infer-scheduler-2.png)](https://beleev.github.io#/infer/scheduler)
 
-[打开相关交互实验：Chunked prefill — 用 token 预算封顶卡顿 llm_infer/m06](https://beleev.github.io#/infer/scheduler)
+[打开相关交互实验：Chunked prefill — 长 prompt 切块混进 decode, 用 token 预算封顶卡顿 llm_infer/m06](https://beleev.github.io#/infer/scheduler)
 
 ## 直觉
 

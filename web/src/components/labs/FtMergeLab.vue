@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="合并两个任务向量: 相加、TIES、DARE"
-    sub="$\tau_A$ 主要改前 4 维, $\tau_B$ 主要改后 4 维, 各带一点对方那段的小噪声。点格子翻转符号, 制造冲突。
-      第三行是合并后加回基座的量 $\theta - \theta_0$。下面的表格是训练脚本的实测结果, 点一行把玩具切到同一种方法。"
+    title="模型合并 — 把两个任务向量相加、TIES 修剪、DARE 随机丢弃"
+    sub="- 模拟什么: 同一个基座 $\theta_0$ 上分别微调出 A 模型和 B 模型, 想要一个两样都会的模型又不想重训。任务向量 $\tau = \theta_{\text{ft}} - \theta_0$ 是「微调改了什么」; 合并就是对任务向量做逐坐标处理再加回基座: $\theta = \theta_0 + \lambda\cdot(\text{处理后的 } \tau_A + \tau_B)$, $\lambda$ 决定每个任务加进去几成。三种处理: Task Arithmetic 直接相加; TIES 先只保留每个向量绝对值最大的一部分坐标, 再按符号投票, 冲突的一方不参与; DARE 随机丢掉比例 p 的坐标, 剩下的除以 (1-p) 补回期望。前端跑的是 merge.py 同一套逐坐标规则, 不过向量只有 8 维。
+      - 图上是什么: 三行各 8 个格子。前两行是 $\tau_A$ 和 $\tau_B$: A 主要改前 4 维, B 主要改后 4 维, 各带一点对方那段的小噪声; 格子颜色绿是正、红是负, 越浓绝对值越大。第三行是合并后加回基座的量 $\theta - \theta_0$。下面的表是 train_merge.py 在留出集上的实测 (约 10 万参数的真实模型), 不随玩具变化。
+      - 可以做什么: 点前两行的任意格子翻转符号, 人为制造冲突。三个按钮切换方法; 拖 $\lambda$ 改加进去几成; TIES 下多一根「保留比例」滑杆, DARE 下多一根「丢弃率 p」滑杆和「换一个 DARE 掩码」按钮。点表格的任意一行, 玩具会切到同一种方法 (玩具的 $\lambda$ 只取 0.5 或 1, 不照搬表里挑出来的 $\lambda$)。
+      - 应该看到: Task Arithmetic 且 $\lambda = 1$ 时第三行就是前两行逐格相加。右侧读数: 「A 段改到几成」是合并量在前 4 维上相对 $\tau_A$ 的比例, 1 表示原样加回, 0.5 表示只加了一半; 「B 段改到几成」同理看后 4 维; 「符号冲突」是 8 维里 A 和 B 符号相反的个数; 「cos(τ_A, τ_B)」是两个向量的夹角余弦, 0 表示正交。表里: 「A 段」「B 段」是合并后的模型在各自任务上的正确率; 「两段全对 EM」是一道题两段都要改对的完全匹配率; 「干扰」是两段正确率平均比单任务模型 (各自 1.0) 掉了多少。"
     module="llm_finetune/methods/merge.py"
     run="python -m llm_finetune.run_finetune.merge.train_merge"
     :challenge="{
       ask: '选「简单平均」, 看「A 段改到几成」。再选 Task Arithmetic 并把 λ 拉到 1。为什么真实实验里前者两段全对 EM 只有 0.039, 后者 1.000? TIES、DARE 又为什么没赢?',
-      answer: '简单平均就是 $\\lambda = 0.5$: $\\theta_0 + 0.5(\\tau_A + \\tau_B) = (\\theta_A + \\theta_B)/2$。每个任务向量只加了一半, 两段都只改到一半。\n本例两个任务各管一段, 对方那段的分量很小, 直接 $\\lambda = 1$ 相加就是两个完整的改动。\nTIES、DARE 没赢的原因:\n- TIES: 修掉一半坐标时, 也会剪掉有用的小分量 (0.734)。\n- DARE: 丢 90% 时, 单次随机掩码的方差太大 (0.066)。\n它们修的是大模型里大量冗余坐标的冲突。约 10 万参数的玩具任务向量里, 没有这种冗余。',
+      answer: '答案: 简单平均就是 $\\lambda = 0.5$, 每段只改到一半, 所以 EM 0.039; Task Arithmetic $\\lambda = 1$ 把两个完整的改动都加回去, EM 1.000; TIES 和 DARE 修的是大模型里冗余坐标的冲突, 这个玩具里没有那种冗余。\n一步步看:\n- 简单平均 $(\\theta_A + \\theta_B)/2 = \\theta_0 + 0.5(\\tau_A + \\tau_B)$, 这个式子在说: 两个任务向量各只加了一半。读数「A 段改到几成」是 0.5 左右, 模型两段都只学到一半, 实测两段全对 EM 只有 0.039。\n- 本例两个任务各管一段, 对方那段的分量很小, 直接 $\\lambda = 1$ 相加就是两个完整的改动, 实测 EM 1.000。\n- TIES (保留比例 0.5): 修剪时也会剪掉有用的小分量, 实测 0.734。\n- DARE (丢 90%): 单次随机掩码的方差太大, 实测只有 0.066; 丢 50% 还有 0.875。\n- 它们解决的是大模型里大量冗余坐标互相干扰的问题。约 10 万参数的玩具任务向量里没有这种冗余, 所以最朴素的相加反而最好。',
     }"
   >
     <template #controls>
@@ -36,7 +38,7 @@
     </div>
 
     <div class="lab-note tcap">
-      <p>train_merge.py 留出集 (实测, 不随上面的玩具变化)。</p>
+      <p>train_merge.py 留出集实测 (约 10 万参数的真实模型, 不随上面的玩具变化)。点一行, 玩具切到同一种方法。</p>
       <p>表里的 λ 是各方法在验证集上挑出来的。玩具的 λ 只取 0.5 或 1: 点 TIES d=0.5 (表里 1.5) 和 DARE p=0.9 (表里 0.7) 时, 滑杆停在 1。</p>
     </div>
     <table class="res mono">
@@ -50,13 +52,13 @@
     </table>
 
     <template #stats>
-      <div class="kv"><span>A 段改到几成 (玩具)</span><b :class="Math.abs(st.a - 1) < 0.1 ? 'good' : 'bad'">{{ st.a.toFixed(2) }}</b></div>
-      <div class="kv"><span>B 段改到几成 (玩具)</span><b :class="Math.abs(st.b - 1) < 0.1 ? 'good' : 'bad'">{{ st.b.toFixed(2) }}</b></div>
-      <div class="kv"><span>符号冲突 (玩具, 两者都非零)</span><b>{{ st.conflict }} / 8</b></div>
-      <div class="kv"><span>cos(τ_A, τ_B) (玩具)</span><b>{{ st.cos.toFixed(3) }}</b></div>
+      <div class="kv"><span>A 段改到几成 (玩具, 1 = 原样加回)</span><b :class="Math.abs(st.a - 1) < 0.1 ? 'good' : 'bad'">{{ st.a.toFixed(2) }}</b></div>
+      <div class="kv"><span>B 段改到几成 (玩具, 1 = 原样加回)</span><b :class="Math.abs(st.b - 1) < 0.1 ? 'good' : 'bad'">{{ st.b.toFixed(2) }}</b></div>
+      <div class="kv"><span>符号冲突的坐标数 (玩具)</span><b>{{ st.conflict }} / 8</b></div>
+      <div class="kv"><span>cos(τ_A, τ_B) (玩具, 0 = 正交)</span><b>{{ st.cos.toFixed(3) }}</b></div>
       <div class="lab-note">
-        <p>真实实验: cos(τ_A, τ_B) = +0.046, 两者都非零的坐标里符号冲突 47.4%。整体几乎正交, 逐坐标却接近一半冲突。</p>
-        <p>λ 在验证集上从 {0.5, 0.7, 1, 1.5} 里挑, 表里是留出集。SLERP 插的是完整权重, 夹角 0.333 rad, 结果 ≈ 简单平均。</p>
+        <p>真实实验里: cos(τ_A, τ_B) = +0.046, 两者都非零的坐标里符号冲突 47.4%。也就是说两个任务向量整体几乎正交, 逐坐标却接近一半冲突, 这正是 TIES 想修的东西, 但在这个规模上修了反而掉分。</p>
+        <p>λ 在验证集上从 {0.5, 0.7, 1, 1.5} 里挑, 表里是留出集的结果。SLERP 是在两个完整权重之间沿球面插值, 本例夹角只有 0.333 rad, 结果和简单平均差不多。</p>
       </div>
     </template>
   </LabFrame>

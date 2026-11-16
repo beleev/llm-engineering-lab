@@ -1,8 +1,8 @@
 # M16 — Attention Sinks / StreamingLLM: 无限流下的有界 KV cache
 
-[![注意力掩码实验台 — 谁能看见谁 llm_infer/m16](../../docs/screenshots/attention-1.png)](https://beleev.github.io#/attention)
+[![注意力掩码实验台 — 每个位置能看见哪些位置 llm_infer/m16](../../docs/screenshots/attention-1.png)](https://beleev.github.io#/attention)
 
-[打开相关交互实验：注意力掩码实验台 — 谁能看见谁 llm_infer/m16](https://beleev.github.io#/attention)
+[打开相关交互实验：注意力掩码实验台 — 每个位置能看见哪些位置 llm_infer/m16](https://beleev.github.io#/attention)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # SimPO / ORPO — 不要 reference model 的偏好优化
 
-[![拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被长度骗 llm_finetune/methods/simpo.py · orpo.py](../../../docs/screenshots/finetune-simpo-orpo-1.png)](https://beleev.github.io#/finetune/simpo-orpo)
+[![拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被回答长度骗 llm_finetune/methods/simpo.py · orpo.py](../../../docs/screenshots/finetune-simpo-orpo-1.png)](https://beleev.github.io#/finetune/simpo-orpo)
 
-[打开相关交互实验：拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被长度骗 llm_finetune/methods/simpo.py · orpo.py](https://beleev.github.io#/finetune/simpo-orpo)
+[打开相关交互实验：拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被回答长度骗 llm_finetune/methods/simpo.py · orpo.py](https://beleev.github.io#/finetune/simpo-orpo)
 
 ## 直觉
 

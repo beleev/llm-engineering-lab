@@ -1,8 +1,8 @@
 # M10 — Sampling: 把 logits 变成 token
 
-[![温度实验台 — 一根滑杆连接采样与蒸馏 llm_infer/m10](../../docs/screenshots/basic-optim-sample-2.png)](https://beleev.github.io#/basic/optim-sample)
+[![温度实验台 — 一根滑杆把同一组 logits 调尖或压平 llm_infer/m10](../../docs/screenshots/basic-optim-sample-2.png)](https://beleev.github.io#/basic/optim-sample)
 
-[打开相关交互实验：温度实验台 — 一根滑杆连接采样与蒸馏 llm_infer/m10](https://beleev.github.io#/basic/optim-sample)
+[打开相关交互实验：温度实验台 — 一根滑杆把同一组 logits 调尖或压平 llm_infer/m10](https://beleev.github.io#/basic/optim-sample)
 
 ## 直觉
 

@@ -4,15 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="浮点数轴 — 梯度落在哪个格式的范围里?"
-    sub="横轴是数值大小 (对数)。最上面的直方图是一批典型梯度 $|g|$, 下面每条色带是一种格式能表示的范围。
-      - 色带: 实色 = normal, 浅色 = subnormal (精度递减)。色带以左全部变 0, 以右溢出。FP32 / BF16 的色带两端伸出画面, 真实范围写在行首。
-      - 操作: 拖带圆点的竖线, 看某个数在选中格式里的左右邻居; 拖 loss scale, 把梯度平移进范围。"
+    title="浮点数轴 — 一批梯度落在哪个格式的范围里, loss scale 把它们挪进去"
+    sub="- 模拟什么: 一个浮点格式用固定的位数存一个数: 指数位决定能表示多大、多小 (范围), 尾数位决定范围内相邻两个可表示的数挨得多近 (相对精度)。混合精度训练把前向反向放在 16 位 (FP16 或 BF16) 甚至 8 位 (FP8) 上算, 可梯度往往非常小: 落在格式最小值左边的直接变 0 (下溢), 落在最大值右边的变 Inf (溢出)。loss scaling 的办法是把 loss 先乘一个 scale 再反向, 整批梯度跟着一起乘 scale、平移进范围, 更新前再除回去。这个台子把五种格式的范围和一批典型梯度画在同一根对数数轴上。
+      - 图上是什么: 横轴是数值大小, 对数刻度。最上面的直方图是一批典型梯度 $|g|$ 乘上 loss scale 之后的分布, 红色柱子是在当前选中的格式里会变 0 或溢出的部分。下面五条色带, 每条是一种格式能表示的范围: 深色段是 normal 数 (相对精度正常), 浅色段是 subnormal 数 (比最小 normal 还小的一小段, 精度递减); 色带左端以左全部变 0, 右端以右溢出。FP32 和 BF16 的范围远超画面, 真实范围写在行首。带圆点的黄色竖线是探针, 用来考察某一个具体的数。
+      - 可以做什么: 点格式按钮或直接点色带选一种格式。拖「loss scale」(2^0 到 2^24) 把整批梯度向右平移; 拖「梯度典型量级」改这批梯度的中心位置。左右拖探针竖线 (或用方向键), 看这个数在选中格式里会被舍成什么。
+      - 应该看到: 右侧前两行读探针: 「左 / 右邻居」是选中格式里紧挨着这个数的两个可表示值, 两者挨得越近精度越高; 「舍入后」是它实际会存成什么, 后面是相对误差, 变 0 写「下溢」, 超过最大值写「溢出」(或「饱和」, FP8 的硬件做法是截到最大值而不是 Inf)。后两行读整批梯度: 「变 0」和「溢出」分别是直方图里红色部分占的百分比。选 FP16、scale = 1 时有一大截梯度变 0; 把 scale 调到 2^10 到 2^14 两项都接近 0; 再大右尾开始溢出。切到 BF16, 整条色带盖住整个分布, 不再需要 scale。"
     module="llm_train/m06"
     run="python -m llm_train.m06_mixed_precision.demo"
     :challenge="{
       ask: '选 FP16, loss scale = 1 时有多少梯度变成 0? 把 scale 调到多大最合适? 再切到 BF16: 还需要 loss scale 吗?',
-      answer: 'FP16 最小只能到 $2^{-24}$ ≈ 6e-8, 这批梯度有一大截在它左边, 直接变 0。\n- scale 调到 $2^{10} \\sim 2^{14}$: 下溢接近 0, 且还没有溢出。\n- 再大: 右尾撞上 65504, 变 Inf。\n动态 loss scaling 就是自动找这个窗口: 溢出就减半并跳过这一步, 连续多步正常就翻倍。\nBF16 的指数位和 FP32 一样多 (8 位), 范围覆盖整个梯度分布, 所以不需要 loss scale。代价是尾数只剩 7 位, 相对精度比 FP16 粗 8 倍。',
+      answer: 'FP16 下 scale = 1 时一大截梯度变 0, scale 调到 $2^{10}$ 到 $2^{14}$ 最合适; BF16 不需要 scale。\n- 为什么变 0: FP16 是 5 位指数加 10 位尾数, 最小的 normal 数是 $2^{-14}$ ≈ 6e-5, 再往下的 subnormal 段最小只能到 $2^{-24}$ ≈ 6e-8。默认这批梯度的中心在 1e-6, 左边有一大截比 6e-8 还小, 读数「梯度 × scale 后变 0」会显示一个明显的百分比, 直方图左半是红的。\n- 怎么选 scale: 乘 $2^{10}$ 到 $2^{14}$ 相当于把直方图向右平移 3 到 4 个数量级, 整个分布进了 FP16 的色带, 「变 0」接近 0, 「溢出」还是 0。再往右拖, 右尾撞上 FP16 的最大值 65504, 「溢出」开始变红: 一个 Inf 就会毁掉整步更新。\n- 动态 loss scaling 就是让框架自动找这个窗口: 发现溢出就把 scale 减半并跳过这一步, 连续多步正常就把 scale 翻倍。m06 的 24 步里跳了 5 步, scale 在 $2^{16}$ 到 $2^{20}$ 之间来回。\n- BF16 是 8 位指数加 7 位尾数, 指数位和 FP32 一样多, 色带两端都伸出画面, 整个梯度分布怎么挪都在范围内, 所以不需要 loss scale。代价是尾数只剩 7 位, 相邻可表示数的间距是 FP16 的 8 倍: 把探针拖到同一个数上对比两种格式的「相对误差」就能看到。现代预训练几乎都用 BF16 省掉 scaling, FP16 加 scaler 主要见于老显卡。',
     }"
   >
     <template #controls>
@@ -52,11 +53,11 @@
 
     <template #stats>
       <!-- 前两行读竖线上的那个数, 后两行读整批梯度 -->
-      <div class="kv"><span>竖线 x = {{ sci(value) }} 在 {{ F.name }} 里的左 / 右邻居</span><b class="nb">{{ sci(nb.lo) }} / {{ sci(nb.hi) }}</b></div>
-      <div class="kv"><span>x 舍入后 (相对误差 {{ nb.err >= 1 ? '100' : (nb.err * 100).toPrecision(2) }}%)</span><b class="nb" :class="nb.q === 0 || !isFinite(nb.q) || nb.err > 0.05 ? 'bad' : 'good'">{{ nb.q === 0 ? '0 (下溢)' : isFinite(nb.q) ? sci(nb.q) : (F.saturate ? '饱和' : 'Inf (溢出)') }}</b></div>
-      <div class="kv"><span>梯度 × scale 后变 0</span><b :class="frac.under > 0.01 ? 'bad' : 'good'">{{ (frac.under * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span>梯度 × scale 后溢出</span><b :class="frac.over > 0 ? 'bad' : 'good'">{{ (frac.over * 100).toFixed(1) }}%</b></div>
-      <p class="lab-note">指数位决定色带多长 (范围), 尾数位决定邻居多密 (精度): {{ F.note }}</p>
+      <div class="kv"><span>探针 x = {{ sci(value) }} 在 {{ F.name }} 里的左 / 右邻居 (紧挨着它的两个可表示值)</span><b class="nb">{{ sci(nb.lo) }} / {{ sci(nb.hi) }}</b></div>
+      <div class="kv"><span>x 实际会存成 (相对误差 {{ nb.err >= 1 ? '100' : (nb.err * 100).toPrecision(2) }}%)</span><b class="nb" :class="nb.q === 0 || !isFinite(nb.q) || nb.err > 0.05 ? 'bad' : 'good'">{{ nb.q === 0 ? '0 (下溢)' : isFinite(nb.q) ? sci(nb.q) : (F.saturate ? '饱和' : 'Inf (溢出)') }}</b></div>
+      <div class="kv"><span>整批梯度 × scale 后变 0 的比例 (直方图左侧红色)</span><b :class="frac.under > 0.01 ? 'bad' : 'good'">{{ (frac.under * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>整批梯度 × scale 后溢出的比例 (直方图右侧红色)</span><b :class="frac.over > 0 ? 'bad' : 'good'">{{ (frac.over * 100).toFixed(1) }}%</b></div>
+      <p class="lab-note">指数位决定色带多长 (范围), 尾数位决定邻居多密 (精度)。当前格式 {{ F.name }}: {{ F.note }}</p>
     </template>
   </LabFrame>
 </template>

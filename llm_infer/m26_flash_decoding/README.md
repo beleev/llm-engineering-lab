@@ -1,8 +1,8 @@
 # M26 — Flash-Decoding: decode 只有 1 个 query, 就沿 KV 长度切开并行
 
-[![Flash-Decoding — Q 切不动, 就切 KV llm_infer/m26](../../docs/screenshots/infer-compute-2.png)](https://beleev.github.io#/infer/compute)
+[![Flash-Decoding — decode 的 Q 只有 1 行切不动, 就把 KV 切成段并行 llm_infer/m26](../../docs/screenshots/infer-compute-2.png)](https://beleev.github.io#/infer/compute)
 
-[打开相关交互实验：Flash-Decoding — Q 切不动, 就切 KV llm_infer/m26](https://beleev.github.io#/infer/compute)
+[打开相关交互实验：Flash-Decoding — decode 的 Q 只有 1 行切不动, 就把 KV 切成段并行 llm_infer/m26](https://beleev.github.io#/infer/compute)
 
 ## 直觉
 

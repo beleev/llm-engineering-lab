@@ -1,6 +1,6 @@
 <!--
   实验台外框 —— 所有 lab 统一用它, 保证标题 / 控件 / 图 / 读数 / 挑战题的版式一致。
-  插槽: controls(滑杆按钮) · default(可视化主体) · stats(右侧读数) · footer
+  插槽: controls(滑杆按钮) · intro(全宽讲解区, 可选) · default(可视化主体) · stats(右侧读数) · footer
   challenge: 先让读者预测再动手, 比直接看答案记得牢。
   challenge.ask 和 answer 都走 Prose: 问题里有几问就用 \n 分段或写成 "- " 要点, 折叠着也是分行显示的。
 -->
@@ -12,6 +12,9 @@
     </header>
 
     <div v-if="$slots.controls" class="lab-controls"><slot name="controls" /></div>
+
+    <!-- intro: 全宽的讲解区 (演进链 / 直觉 / 原理), 放在图和读数之前; 回放实验台用 -->
+    <div v-if="$slots.intro" class="lab-intro"><slot name="intro" /></div>
 
     <div class="lab-body" :class="{ single: !$slots.stats }">
       <div class="lab-viz"><slot /></div>

@@ -1,8 +1,8 @@
 # M02 — Tool Use
 
-[![Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](../../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
+[![Agent loop — 消息列表怎么一块一块长出来, 每问一次模型为什么都要重发全部历史 llm_agent/m01](../../docs/screenshots/agent-loop-1.png)](https://beleev.github.io#/agent/loop)
 
-[打开相关交互实验：Agent loop — 消息列表是怎么一块一块长出来的 llm_agent/m01](https://beleev.github.io#/agent/loop)
+[打开相关交互实验：Agent loop — 消息列表怎么一块一块长出来, 每问一次模型为什么都要重发全部历史 llm_agent/m01](https://beleev.github.io#/agent/loop)
 
 ## 直觉
 

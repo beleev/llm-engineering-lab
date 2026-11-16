@@ -6,15 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="judge 没查的, DPO 学不到"
-    sub="上面一行是用户的 prompt, 点格子循环切换内容 (普通 token / 电话 / 变体 / 脏话)。起点模型只求有用, 回复就是照抄。
-      judge 按宪法批评并改写, 改写结果当 chosen, 原回复当 rejected。红框 = 两边不一样的位置。
-      两边相同的前缀在 $\log\pi(\text{chosen}) - \log\pi(\text{rejected})$ 里正好抵消, 偏好信号来自红框。"
+    title="RLAIF — judge 没查的, DPO 学不到"
+    sub="- 模拟什么: RLAIF (AI 反馈的强化学习) 不请人标注, 让一个 AI judge 按一份成文的「宪法」检查模型的回复, 发现违规就批评并改写; 改写后的版本当 chosen, 原回复当 rejected, 凑成偏好对后照常跑 DPO。本仓库的宪法有「无害」(脏话打码成 ***) 和「隐私」(电话打码成 ***) 两条; 条文里还写了「变体 14 也算脏话」, 但 judge 的代码没查它。起点模型只求有用, 回复就是把 prompt 原样照抄一遍。
+      - 图上是什么: 第一行是用户的 prompt, 每个格子一个 token, 格子上直接写了含义 (数字是普通 token; 电话、变体、脏话、*** 是特殊 token, 图例在格子下方)。下面两行是 judge 处理后的偏好对: chosen 是改写后的版本, rejected 是原回复。红框标出两边不一样的位置, 这才是 DPO 的信号来源: 两边相同的 token 在 $\log\pi(\text{chosen}) - \log\pi(\text{rejected})$ 里正好抵消。judge 的判定显示在图例下方; 如果 judge 没发现问题, 这条回复就没有「更好的版本」, 不成对, 直接丢掉。
+      - 可以做什么: 点 prompt 行的任意格子, 在普通 / 电话 / 变体 / 脏话之间循环切换。「第三条原则 不啰嗦」开关往宪法里加一条「删掉相邻重复」的规则; 「脚本里的示例」和「只有变体 14」是两组预设 prompt。
+      - 应该看到: 放一个「变体」, 它在 chosen 和 rejected 里原样保留, 没有红框。右侧读数: 「有信号的位置」是红框的个数; 「回复里的 14」是 judge 漏检的变体数量, 两边都在; 「chosen / rejected 长度」含结尾的 EOS, chosen 更短时变红, 因为「更短」本身会被 DPO 学走。下面一组数是 train_rlaif.py 在留出集上贪心解码的实测, 每项给出 DPO 前和后的值, 只跟着「不啰嗦」开关换一组, 不随 prompt 变化。"
     module="llm_finetune/methods/rlaif.py"
     run="python -m llm_finetune.run_finetune.rlaif.train_rlaif"
     :challenge="{
       ask: '在 prompt 里放一个「变体」(token 14), 看它在 chosen 和 rejected 里各是什么。再打开「不啰嗦」, 放两个相邻的「脏话」(token 15): chosen 比 rejected 短几个 token? DPO 最容易学到的区分特征是什么?',
-      answer: '变体 14 在两边原样保留, 没有红框。chosen 和 rejected 里都有它, 训练对它没有直接压力。\n宪法条文写了「变体 14 也算」, 但生效的是 judge 的规则。实测 14 只从 0.418 降到 0.320, 降的那点是 DPO 的副作用。\n打开「不啰嗦」后, 两个脏话 (15 15) 先被打码成 *** *** (3 3), 再被去重成一个, chosen 总比 rejected 短。\n「更短」是每一对里都成立的区分特征, DPO 就学它。调参时:\n- 违规: 0.605 → 0.000\n- 理想回复: 0.395 → 0.000, 模型只说 1 个 token 就结束。\n所以最终版只保留不改长度的原则。',
+      answer: '答案: 变体 14 在两边一模一样, 没有红框; 打开「不啰嗦」后 chosen 比 rejected 短 1 个 token; DPO 最容易学到的特征是「更短」。\n一步步看:\n- 变体 14: judge 的代码只查 15 (脏话) 和 13 (电话), 14 原样保留。chosen 和 rejected 里都有它, 两边的 $\\log\\pi$ 在这个位置相减抵消, 训练对它没有直接压力。宪法条文写了「变体 14 也算」, 但生效的是 judge 的代码, 不是条文。实测 14 的出现率只从 0.418 降到 0.320, 降的那点是 DPO 顺带的副作用。\n- 「不啰嗦」: 两个相邻的脏话 (15 15) 先被「无害」打码成 *** *** (3 3), 再被「不啰嗦」去重成一个 ***, 所以 chosen 比 rejected 短 1 个。\n- 「更短」在每一对里都成立, 比任何具体 token 都稳定, DPO 就学它。调参记录里打开这条后: 违规率从 0.605 降到 0.000, 理想回复率也从 0.395 降到 0.000, 模型只说 1 个 token 就结束。所以最终版只保留不改长度的原则。',
     }"
   >
     <template #controls>
@@ -35,17 +36,17 @@
         <span v-for="(t, i) in row.v" :key="i" class="cell tk" :class="[cls(t), { diff: row.diff[i] }]">{{ NAME[t] || t }}</span>
       </div>
     </div>
-    <p class="legend mono">电话 = token 13 · 变体 = token 14 · 脏话 = token 15 · *** = 打码后的 token 3 · 数字 = 普通 token</p>
+    <p class="legend mono">图例: 电话 = token 13 · 变体 = token 14 · 脏话 = token 15 · *** = 打码后的 token 3 · 数字 = 普通 token</p>
     <p class="lab-note" style="margin-top: 8px;">
-      <template v-if="!crit.length">judge 没发现问题: 这条回复没有 "更好的版本", 不成对, 直接丢掉。</template>
-      <template v-else>judge: {{ crit.join('; ') }}</template>
+      <template v-if="!crit.length">judge 没发现问题: 这条回复没有「更好的版本」, 凑不成偏好对, 直接丢掉。</template>
+      <template v-else>judge 的判定: {{ crit.join('; ') }}</template>
     </p>
 
     <template #stats>
-      <div class="kv"><span>有信号的位置 (两边不同)</span><b :class="nDiff ? 'good' : 'bad'">{{ nDiff }}</b></div>
-      <div class="kv"><span>回复里的 14 (judge 漏检)</span><b :class="n14 ? 'bad' : ''">{{ n14 }} 个{{ n14 ? ', 两边都在' : '' }}</b></div>
-      <div class="kv"><span>chosen / rejected 长度</span><b :class="lens[0] < lens[1] ? 'bad' : ''">{{ lens[0] }} / {{ lens[1] }}</b></div>
-      <p class="tcap">留出集贪心, DPO 前 → 后 (实测; 只跟着「不啰嗦」开关换一组, 不随 prompt 变化)</p>
+      <div class="kv"><span>有信号的位置 (红框数, 两边不同)</span><b :class="nDiff ? 'good' : 'bad'">{{ nDiff }}</b></div>
+      <div class="kv"><span>回复里的变体 14 (judge 漏检)</span><b :class="n14 ? 'bad' : ''">{{ n14 }} 个{{ n14 ? ', 两边都在' : '' }}</b></div>
+      <div class="kv"><span>chosen / rejected 长度 (含 EOS)</span><b :class="lens[0] < lens[1] ? 'bad' : ''">{{ lens[0] }} / {{ lens[1] }}</b></div>
+      <p class="tcap">train_rlaif.py 留出集贪心解码, 每项是 DPO 前 → DPO 后 (实测; 只跟着「不啰嗦」开关换一组, 不随 prompt 变化)</p>
       <div v-for="k in M.rows" :key="k[0]" class="kv"><span>{{ k[0] }}</span><b :class="k[3]">{{ k[1] }} → {{ k[2] }}</b></div>
       <p class="lab-note">{{ M.note }}</p>
     </template>

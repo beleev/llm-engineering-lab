@@ -1,8 +1,8 @@
 # GRPO / DAPO / Dr.GRPO / GSPO — 在线 RL + 可验证奖励
 
-[![GRPO 入门 — 组内排名替代 critic llm_finetune/methods/grpo.py](../../../docs/screenshots/finetune-rlhf-1.png)](https://beleev.github.io#/finetune/rlhf-grpo-distill)
+[![GRPO — 同一道题采 G 条回复互相比较, 顶替 PPO 的 critic llm_finetune/methods/grpo.py](../../../docs/screenshots/finetune-rlhf-1.png)](https://beleev.github.io#/finetune/rlhf-grpo-distill)
 
-[打开相关交互实验：GRPO 入门 — 组内排名替代 critic llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/rlhf-grpo-distill)
+[打开相关交互实验：GRPO — 同一道题采 G 条回复互相比较, 顶替 PPO 的 critic llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/rlhf-grpo-distill)
 
 ## 直觉
 

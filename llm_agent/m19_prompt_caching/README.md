@@ -1,8 +1,8 @@
 # M19 — Prompt caching: 前缀逐字节相同才命中
 
-[![Prompt caching — 12 次调用的账单 llm_agent/m19](../../docs/screenshots/agent-prompt-caching-1.png)](https://beleev.github.io#/agent/prompt-caching)
+[![Prompt caching — 同一段会话 12 次模型调用的账单, 缓存命中和没命中差多少 llm_agent/m19](../../docs/screenshots/agent-prompt-caching-1.png)](https://beleev.github.io#/agent/prompt-caching)
 
-[打开相关交互实验：Prompt caching — 12 次调用的账单 llm_agent/m19](https://beleev.github.io#/agent/prompt-caching)
+[打开相关交互实验：Prompt caching — 同一段会话 12 次模型调用的账单, 缓存命中和没命中差多少 llm_agent/m19](https://beleev.github.io#/agent/prompt-caching)
 
 ## 直觉
 

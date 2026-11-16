@@ -1,8 +1,8 @@
 # M14 — Structured Output: FSM 约束解码与 token mask 预编译
 
-[![结构化输出 — 把 FSM 预编译成 token mask 表 llm_infer/m14](../../docs/screenshots/infer-structured-output-1.png)](https://beleev.github.io#/infer/structured-output)
+[![结构化输出 — 用状态机限制每一步能选哪些 token, 并把它预编译成表 llm_infer/m14](../../docs/screenshots/infer-structured-output-1.png)](https://beleev.github.io#/infer/structured-output)
 
-[打开相关交互实验：结构化输出 — 把 FSM 预编译成 token mask 表 llm_infer/m14](https://beleev.github.io#/infer/structured-output)
+[打开相关交互实验：结构化输出 — 用状态机限制每一步能选哪些 token, 并把它预编译成表 llm_infer/m14](https://beleev.github.io#/infer/structured-output)
 
 ## 直觉
 

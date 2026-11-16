@@ -1,8 +1,8 @@
 # M08 — Quantization: 同样的 bit 数, 差别全在"组"怎么划
 
-[![INT4 权重量化 — RTN vs AWQ 激活感知缩放 llm_infer/m08](../../docs/screenshots/infer-quant-awq-1.png)](https://beleev.github.io#/infer/quant-awq)
+[![INT4 权重量化 — RTN 直接舍入 vs AWQ 先放大重要通道再舍入 llm_infer/m08](../../docs/screenshots/infer-quant-awq-1.png)](https://beleev.github.io#/infer/quant-awq)
 
-[打开相关交互实验：INT4 权重量化 — RTN vs AWQ 激活感知缩放 llm_infer/m08](https://beleev.github.io#/infer/quant-awq)
+[打开相关交互实验：INT4 权重量化 — RTN 直接舍入 vs AWQ 先放大重要通道再舍入 llm_infer/m08](https://beleev.github.io#/infer/quant-awq)
 
 ## 直觉
 

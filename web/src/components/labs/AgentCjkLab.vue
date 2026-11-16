@@ -4,13 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="中文检索 — 为什么要字符 bigram"
-    sub="语料和 m08 demo 完全相同 (6 篇英文 + 2 篇中文)。改查询、切换分词器和 idf 公式, 看 token 怎么切、排序怎么变。悬停或点击任意一个 token, 看它的 idf、df 和命中了哪些文档。"
+    title="中文检索 — 分词器不认中文时, 检索为什么整个失效"
+    sub="- 模拟什么: agent 的 search_docs 工具: 知识库放在上下文外面, 每次按问题取最相关的几篇。这里用的是 TF-IDF 余弦检索, 和 m08 demo 完全相同: 先把文本切成一个个 token (分词), 给每个 token 一个权重 idf (它在越少的文档里出现, 权重越高), 再算查询和每篇文档的余弦相似度来排序。语料是 8 篇一句话的文档 (6 篇英文 + 2 篇中文)。问题出在分词: 分词器只认 [a-z0-9]+ 的话, 中文被整段丢掉, 中文查询什么也检索不到。
+      - 图上是什么: 上面一排小方块是查询被切出来的每个 token, 方块下面的小数字是这个 token 的 idf; 灰色、写着「语料外」的 token 在 8 篇文档里一次都没出现过, 算分时会被直接丢掉。下面每一行是一篇文档: 排名、标题、得分条和得分 (0 到 1 的余弦相似度)。得分最高且大于 0 的那行有底色; 带黄框的行表示它含有你正在悬停或点选的那个 token。
+      - 可以做什么: 在输入框里改查询, 或点三个预设查询之一。「英文按词 + 中文 bigram」是正确的分词器: 英文按空格切词, 连续的中文每相邻两个字切成一个 token (bigram); 「只认 [a-z0-9]+」是反例, 中文全部丢掉。「idf: …」按钮在两种 idf 公式之间切换: BM25 式和平滑式, 公式里 N 是文档总数 8, df 是含这个 token 的文档数。悬停或点击任一 token, 右侧会显示它的 df, 含它的文档会加黄框。
+      - 应该看到: 默认查询「显存碎片怎么解决」在 bigram 分词下切成 7 个 token, 「分页注意力」那篇得分最高。切到「只认 [a-z0-9]+」: token 行变成「分词结果为空」, 所有文档得分 0, 右侧 top-1 变成 no matches。右侧「top-1」是排第一的文档; 「top-1 的余弦得分」只用来在同一个查询下比大小, 不是跨查询可比的置信度; 「得分大于 0 的文档」是至少命中一个 token 的文档数; 「df」是当前盯住的 token 出现在几篇文档里, df 越大 idf 越小。"
     module="llm_agent/m08"
     run="python -m llm_agent.m08_retrieval.demo"
     :challenge="{
       ask: '用「只认英文」分词器查「显存碎片怎么解决」。top-1 得分是多少? 换成 bigram 之后, 为什么「显存」这个 token 的 idf 比「碎片」低?',
-      answer: '得分全是 0: 正则 [a-z0-9]+ 把整句中文丢光了, 查询向量是空的, 模型拿到 no matches 只能瞎编。\nbigram 不需要词典: 「显存碎片」→ 显存 / 存碎 / 碎片。「存碎」是噪声, 但噪声 token 几乎不会在别的文档出现, 影响很小。\nidf 的差别来自出现次数:\n- 「显存」: 两篇中文文档里都出现 (df=2)。\n- 「碎片」: 只在一篇 (df=1)。\n$\\mathrm{idf} = \\ln\\big(1 + (N-\\mathrm{df}+0.5)/(\\mathrm{df}+0.5)\\big)$ 让越罕见的词权重越高, 几乎每篇都有的词趋近 0。',
+      answer: 'top-1 得分是 0: 只认英文的正则 [a-z0-9]+ 把整句中文丢光了, 查询一个 token 都没有, 查询向量是零向量, 和任何文档的余弦都是 0。调用它的 agent 拿到的是 no matches, 只能凭记忆编答案。\n换成 bigram 后不需要词典: 「显存碎片」切成 显存 / 存碎 / 碎片。「存碎」是跨词边界切出来的噪声 token, 但它几乎不会出现在别的文档里 (多半是「语料外」, 直接被丢掉), 所以影响很小。\n「显存」的 idf 比「碎片」低, 是因为它出现在更多文档里:\n- 「显存」: 两篇中文文档都有 (分页注意力那篇说「显存碎片」, 低秩微调那篇说「显存占用」), df=2。\n- 「碎片」: 只在分页注意力那篇出现, df=1。\n两种 idf 公式都是 df 越大值越小。以 BM25 式 $\\mathrm{idf} = \\ln\\big(1 + (N-\\mathrm{df}+0.5)/(\\mathrm{df}+0.5)\\big)$ 为例, N=8 时 df=1 得 1.79, df=2 得 1.28。直觉是: 几乎每篇都有的词 (比如英文的 the, df=6, idf 只有 0.33) 分不出哪篇相关, 权重趋近 0; 只在一两篇出现的词才有区分力。',
     }"
   >
     <template #controls>
@@ -34,7 +37,7 @@
         v-for="(w, i) in qTokens" :key="i" type="button" class="tok mono" :class="{ oov: !(w in index.idf), on: focus === w }"
         @mouseenter="hover = w" @mouseleave="hover = ''" @focus="hover = w" @blur="hover = ''" @click="pin = w"
       >{{ w }}<em>{{ w in index.idf ? index.idf[w].toFixed(2) : '语料外' }}</em></button>
-      <span v-if="!qTokens.length" class="empty">分词结果为空: 查询向量是零向量</span>
+      <span v-if="!qTokens.length" class="empty">分词结果为空: 查询向量是零向量, 所有文档得分都是 0</span>
     </div>
     <div v-for="(d, i) in ranked" :key="d.title" class="doc" :class="{ top: i === 0 && d.score > 0, hit: focus && d.tf[focus] }">
       <span class="mono rank">#{{ i + 1 }}</span>
@@ -44,11 +47,14 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>top-1</span><b class="small" :class="ranked[0].score > 0 ? 'good' : 'bad'">{{ ranked[0].score > 0 ? ranked[0].title : 'no matches' }}</b></div>
-      <div class="kv"><span>top-1 余弦</span><b :class="ranked[0].score > 0 ? '' : 'bad'">{{ ranked[0].score.toFixed(2) }}</b></div>
-      <div class="kv"><span>得分 &gt; 0 的文档</span><b>{{ ranked.filter((d) => d.score > 0).length }} / {{ ranked.length }}</b></div>
+      <div class="kv"><span>top-1 (排第一的文档)</span><b class="small" :class="ranked[0].score > 0 ? 'good' : 'bad'">{{ ranked[0].score > 0 ? ranked[0].title : 'no matches' }}</b></div>
+      <div class="kv"><span>top-1 的余弦得分</span><b :class="ranked[0].score > 0 ? '' : 'bad'">{{ ranked[0].score.toFixed(2) }}</b></div>
+      <div class="kv"><span>得分大于 0 的文档</span><b>{{ ranked.filter((d) => d.score > 0).length }} / {{ ranked.length }}</b></div>
       <div class="kv"><span>「{{ focus || '—' }}」的 df (出现在几篇里)</span><b>{{ focus ? (index.df[focus] || 0) : '—' }}</b></div>
-      <p class="lab-note">这仍是 TF-IDF 余弦, 只是 idf 换成了 BM25 的那一项 (完整 BM25 还有词频饱和 k1 与长度归一 b)。把 embed() 换成神经向量就是稠密检索, 工具接口不变。</p>
+      <div class="lab-note">
+        <p>这里算的仍是 TF-IDF 余弦相似度, 只是 idf 这一项借了 BM25 的公式。完整的 BM25 还有两个这里没有的部分: 词频饱和参数 k1 (同一个词重复很多次, 分数不再线性增加) 和文档长度归一化 b。</p>
+        <p>这种检索只做字面匹配: 同义词、改写、跨语言都匹配不上。要升级成语义检索, 把 embed() 换成神经网络 embedding 就行; 工具名 search_docs 和参数不变, agent loop 一行不用改。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

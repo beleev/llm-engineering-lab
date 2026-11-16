@@ -1,14 +1,16 @@
 <!-- 连续批处理实验台 (llm_infer/m03): 同一条请求轨迹, 静态 batch vs iteration-level 调度。 -->
 <template>
   <LabFrame
-    title="连续批处理 — 静态 batch vs 逐步重组"
-    sub="每一行是一个 batch 槽位, 每一格是一步 (一次前向)。同一批请求、同样的到达时刻, 只换调度策略。
-      虚线格 = 请求已经结束, 槽位却还被占着, 等同批最长的那条。"
+    title="连续批处理 — 静态 batch 整批进出, 连续批每一步重组"
+    sub="- 模拟什么: 推理引擎的 batch 调度。GPU 一次前向可以同时推进好几条请求 (一个 batch); 每条请求先用 1 步做 prefill (算完整条 prompt), 再逐步 decode (每步生成 1 个 token), 长度各不相同。静态 batch 是「整批进、整批出」: 凑齐一批一起开跑, 要等这一批里最长的那条结束, 才能接下一批。连续批 (continuous batching, 也叫 iteration-level scheduling) 把调度粒度缩到一步: 每步结束都检查谁做完了, 空出来的槽位立刻给排队的下一条。这里 12 条请求、同样的到达时刻, 只换调度策略。
+      - 图上是什么: 每一行是 batch 里的一个槽位 (同时最多跑 B 条), 每一列是一步前向, 从左到右是时间。有颜色的格子表示这一步这个槽位在跑哪条请求, 格里的数字是请求编号 (只标在它的第一格); 虚线格表示这条请求已经结束, 但槽位还被占着空转, 在等同一批里最长的那条 (只有静态 batch 会出现)。空白格是槽位空闲。网格下面一行字是选中请求的明细: 什么时候到达、需要几步、什么时候开始和结束、排队了几步。
+      - 可以做什么: 点「静态 batch」或「连续批」切换策略; 点「换一组请求」换一组随机的到达时刻和长度; 拖「到达率」改请求来得多密 (每步平均来几条, 每条请求的长度不变); 拖「batch 槽位数 B」改同时最多跑几条; 用播放器逐步播放; 点下面的 R 按钮或悬停格子, 高亮一条请求的全部格子。
+      - 应该看到: 静态 batch 的网格里有大片虚线格和空白格: 短请求早就结束了, 槽位却要等最长的那条; 后到的请求在外面排队。切到连续批, 虚线格消失, 格子紧紧排在一起, 总步数变少。右侧读数都是「静态 → 连续」: 「槽位利用率」是有颜色的实心格占全部格子的比例; 「平均延迟」是每条请求从到达到结束平均等了几步; 「全部完成」是 12 条请求全部跑完用了几步; 「吞吐」是平均每步算了几个 token。连续批那一侧更好显示绿色。"
     module="llm_infer/m03"
     run="python -m llm_infer.m03_continuous_batching.demo"
     :challenge="{
       ask: '把到达率拖到最大 (请求一开始就全到齐), 静态 batch 还会比连续批差吗? 差在哪?',
-      answer: '还是差。请求全到齐时, 静态 batch 不用再等人, 但同一批里输出长度不同:\n- 静态 batch: 短请求结束后, 槽位要空转到最长的那条结束 (虚线格)。\n- 连续批: 每一步结束后立刻把空出来的槽位补上新请求。利用率接近 100%, 平均延迟也低。\n差距来自「输出长度参差不齐」, 而不是到达时间。',
+      answer: '还是差。请求全到齐时, 静态 batch 不用再等人, 但同一批里各条请求的输出长度不同:\n- 静态 batch: 短请求结束后, 它的槽位要一直空转到这一批最长的那条结束 (网格里的虚线格), 下一批才能开始。槽位利用率掉下来, 后面几批的请求都在排队。\n- 连续批: 每一步结束后立刻把空出来的槽位补上排队的请求, 利用率接近 100%, 平均延迟也低。\n所以差距来自「同一批里输出长度参差不齐」, 而不是到达时间: 只要请求长度不一样, 静态 batch 就一定会空转。',
     }"
   >
     <template #controls>
@@ -41,21 +43,21 @@
       </template>
     </div>
     <p class="lab-note info">
-      <template v-if="selReq">R{{ selReq.id }}: 到达 t={{ selReq.arrive }}, 需要 {{ selReq.dur }} 步 (1 步 prefill + {{ selReq.dur - 1 }} 步 decode) ·
-        开始 t={{ cur.start[selReq.id] }}, 结束 t={{ cur.finish[selReq.id] }} → 延迟 {{ cur.finish[selReq.id] - selReq.arrive }} 步
-        (排队 {{ cur.start[selReq.id] - selReq.arrive }} 步)</template>
-      <template v-else>悬停或点格子, 或点上面的 R 按钮, 高亮一条请求的全部格子。</template>
+      <template v-if="selReq">R{{ selReq.id }}: 第 {{ selReq.arrive }} 步到达, 需要 {{ selReq.dur }} 步 (1 步 prefill + {{ selReq.dur - 1 }} 步 decode);
+        第 {{ cur.start[selReq.id] }} 步开始, 第 {{ cur.finish[selReq.id] }} 步结束, 从到达到结束共 {{ cur.finish[selReq.id] - selReq.arrive }} 步
+        (其中排队 {{ cur.start[selReq.id] - selReq.arrive }} 步)</template>
+      <template v-else>悬停或点格子, 或点上面的 R 按钮, 高亮一条请求的全部格子, 这里会显示它的到达、开始、结束时间。</template>
     </p>
 
     <template #stats>
       <div class="kv head"><span></span><span class="mono">静态 → 连续</span></div>
-      <div class="kv"><span>槽位利用率</span><b :class="cmp(sims.cont.util, sims.static.util)">{{ pct(sims.static.util) }} → {{ pct(sims.cont.util) }}</b></div>
-      <div class="kv"><span>平均延迟 (步)</span><b :class="cmp(sims.static.lat, sims.cont.lat)">{{ sims.static.lat.toFixed(1) }} → {{ sims.cont.lat.toFixed(1) }}</b></div>
-      <div class="kv"><span>全部完成 (步)</span><b>{{ sims.static.T }} → {{ sims.cont.T }}</b></div>
-      <div class="kv"><span>吞吐 (token/步)</span><b>{{ sims.static.thr.toFixed(2) }} → {{ sims.cont.thr.toFixed(2) }}</b></div>
+      <div class="kv"><span>槽位利用率 (实心格 ÷ 全部格)</span><b :class="cmp(sims.cont.util, sims.static.util)">{{ pct(sims.static.util) }} → {{ pct(sims.cont.util) }}</b></div>
+      <div class="kv"><span>平均延迟 (从到达到结束, 步)</span><b :class="cmp(sims.static.lat, sims.cont.lat)">{{ sims.static.lat.toFixed(1) }} → {{ sims.cont.lat.toFixed(1) }}</b></div>
+      <div class="kv"><span>12 条全部完成用了几步</span><b>{{ sims.static.T }} → {{ sims.cont.T }}</b></div>
+      <div class="kv"><span>吞吐 (平均每步算几个 token)</span><b>{{ sims.static.thr.toFixed(2) }} → {{ sims.cont.thr.toFixed(2) }}</b></div>
       <div class="lab-note">
-        <p>连续批只改了一处: 调度粒度从 "一个 batch" 变成 "一步"。每步结束都检查谁做完了, 空出来的槽位立刻给 waiting 队首。</p>
-        <p>真实引擎里的 "槽位" 是 KV block 和 token 预算 (见 full_engine)。</p>
+        <p>连续批只改了一处: 调度粒度从「一个 batch」变成「一步」。每步结束都检查谁做完了, 空出来的槽位立刻给 waiting 队列 (排队中的请求) 的队首。</p>
+        <p>真实引擎里的「槽位」不是固定数量的位子, 而是 KV block 够不够、每步 token 预算够不够 (见引擎主循环那一章的实验台)。</p>
       </div>
     </template>
   </LabFrame>

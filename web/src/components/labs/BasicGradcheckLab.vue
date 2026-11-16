@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="gradcheck 的 ε — 为什么不是越小越好"
-    sub="对同一个 softmax+CE 小网络的一个权重, 用有限差分估梯度, 再和解析梯度比相对误差。横轴 $\varepsilon$、纵轴误差都是对数。
-      直接拖图上的竖线 (或滑杆) 选 $\varepsilon$。切换差分方式、浮点精度, 再注入一个真 bug 看曲线长什么样。"
+    title="gradcheck 的 ε — 检查梯度时, 为什么步长不是越小越好"
+    sub="- 模拟什么: 手写的反向传播写错了不会报错, 只会悄悄把模型训坏, 所以要对答案。gradcheck 的办法: 把一个权重 w 挪一点点 (这一点点就是 $\varepsilon$), 看 loss 变了多少, 用差商 $(f(w+\varepsilon) - f(w-\varepsilon)) / 2\varepsilon$ 估出一个「不可能写错」的数值梯度, 再和手写 backward 算出来的解析梯度比。这里被检查的是一个 3 类 softmax + 交叉熵小网络的一个权重 W[0][0], 做法和 llm_basic/gradcheck.py 一样, 曲线是浏览器里真算出来的。
+      - 图上是什么: 横轴是步长 $\varepsilon$ (对数刻度, 左边小右边大), 纵轴是两种梯度的相对误差 |数值 − 解析| ÷ max(|数值|, |解析|), 也是对数刻度, 越低越好。横着的虚线是 gradcheck.py 的通过线 1e-6, 误差落在线下才算通过。竖线是当前选的 $\varepsilon$, 圆点是它对应的误差, 过线与否用颜色区分。底部标出了 gradcheck.py 默认用的 1e-5。
+      - 可以做什么: 切「中心差分 / 前向差分」换差商公式: 中心差分往左右各挪一次, 误差按 $\varepsilon^2$ 缩小; 前向差分只往右挪一次, 误差只按 $\varepsilon$ 缩小。切「float64 / float32」换浮点精度, float32 每一步运算都要多舍入一次。按「注入 bug」把解析梯度故意写错 (backward 忘了减 onehot), 看真错误长什么样。拖图上的竖线或下面的滑杆选 $\varepsilon$。
+      - 应该看到: 曲线是 U 形。$\varepsilon$ 往右太大, 差商不再逼近真正的斜率, 这叫截断误差; $\varepsilon$ 往左太小, $f(w+\varepsilon)$ 和 $f(w-\varepsilon)$ 几乎相等, 相减时有效数字被浮点舍入吃掉, 这叫舍入误差。默认 float64 + 中心差分时, 谷底在 $\varepsilon \approx$ 1e-5 附近, 误差约 1e-11。右侧「解析梯度」是 backward 算的, 「数值梯度」是差商算的, 「相对误差」是两者的差距, 「最佳 $\varepsilon$ / 最低误差」是这条曲线谷底的位置。注入 bug 后曲线变成一条和 $\varepsilon$ 无关的高台: 真 bug 不会随 $\varepsilon$ 改善, 而 $\varepsilon$ 选错造成的「假失败」会。"
     module="llm_basic/gradcheck.py"
     run="python llm_basic/gradcheck.py"
     :challenge="{
       ask: '先猜: 切到 float32 后, U 形谷底往哪边移、最低误差变成多少量级? 这对 gradcheck 的写法意味着什么?',
-      answer: '中心差分的总误差 $\\approx \\varepsilon^2$ (截断) $+\\ \\delta/\\varepsilon$ (舍入), $\\delta$ 是浮点相对精度。\n- float64: $\\delta\\approx$ 1e-16, 谷底在 $\\varepsilon\\approx\\delta^{1/3}\\approx$ 1e-5, 最低误差约 1e-11。\n- float32: $\\delta\\approx$ 6e-8, 谷底右移到 $\\varepsilon\\approx$ 1e-3, 最低误差只有 1e-6 ~ 1e-5。连 1e-6 的通过线都够不着, 已经分不清 “实现正确” 和 “有个小 bug”。\n所以 gradcheck.py 全程用 float64、$\\varepsilon$ = 1e-5、中心差分。\n注入 bug 后, 曲线是一条和 $\\varepsilon$ 无关的高台。这才是真错误的指纹。',
+      answer: '谷底往右移 ($\\varepsilon$ 要取大一些才最准), 最低误差只有 1e-6 到 1e-5 这个量级, 几乎够不着通过线。\n- 中心差分的总误差大约是 $\\varepsilon^2$ (截断误差, $\\varepsilon$ 越大它越大) 加上 $\\delta/\\varepsilon$ (舍入误差, $\\varepsilon$ 越小它越大)。$\\delta$ 是浮点数的相对精度, 也就是两个相邻的可表示数之间的相对间隔。\n- float64: $\\delta \\approx$ 1e-16, 两项相等的谷底在 $\\varepsilon \\approx \\delta^{1/3} \\approx$ 1e-5, 最低误差约 1e-11, 比通过线低 5 个数量级, 非常从容。\n- float32: $\\delta \\approx$ 6e-8, 谷底右移到 $\\varepsilon \\approx$ 1e-3, 最低误差只有 1e-6 到 1e-5。这时已经分不清「实现正确」和「有个小 bug」。\n所以 gradcheck.py 全程用 float64、$\\varepsilon$ = 1e-5、中心差分, 而不是训练时用的低精度。\n注入 bug 后, 曲线是一条和 $\\varepsilon$ 无关的高台 (误差约 1.6, 就是错的解析梯度和正确的数值梯度之间差的那一截)。真错误的指纹是「换 $\\varepsilon$ 也不会变好」。',
     }"
   >
     <template #controls>
@@ -52,14 +54,14 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>解析梯度 {{ bug ? '(带 bug)' : '' }}</span><b>{{ ana.toFixed(8) }}</b></div>
-      <div class="kv"><span><Tex text="数值梯度 @ $\varepsilon$" />={{ eps.toExponential(1) }}</span><b>{{ cur.num.toFixed(8) }}</b></div>
-      <div class="kv"><span>相对误差</span><b :class="cur.err < 1e-6 ? 'good' : 'bad'">{{ cur.err.toExponential(1) }}</b></div>
-      <div class="kv"><span><Tex text="这条曲线的最佳 $\varepsilon$ / 最低误差" /></span><b>{{ best.eps.toExponential(0) }} / {{ best.err.toExponential(0) }}</b></div>
+      <div class="kv"><span>解析梯度 (手写 backward 算的) {{ bug ? '(带 bug)' : '' }}</span><b>{{ ana.toFixed(8) }}</b></div>
+      <div class="kv"><span><Tex text="数值梯度 (差商算的) @ $\varepsilon$" />={{ eps.toExponential(1) }}</span><b>{{ cur.num.toFixed(8) }}</b></div>
+      <div class="kv"><span>相对误差 (通过线 1e-6)</span><b :class="cur.err < 1e-6 ? 'good' : 'bad'">{{ cur.err.toExponential(1) }}</b></div>
+      <div class="kv"><span><Tex text="这条曲线的最佳 $\varepsilon$ / 谷底的最低误差" /></span><b>{{ best.eps.toExponential(0) }} / {{ best.err.toExponential(0) }}</b></div>
       <p class="lab-note">
-        <Tex :text="bug ? '有 bug 时误差是一条 ≈ 常数的高台: 无论 $\\varepsilon$ 取多少都过不了线。$\\varepsilon$ 选得不好的 “假失败” 会随 $\\varepsilon$ 改善, 真 bug 不会。'
-          : cur.err < 1e-6 ? '通过。注意谷底左右两侧斜率不同: 左边每缩小 10 倍 $\\varepsilon$ 误差涨 10 倍 ($\\delta/\\varepsilon$), 右边按 $\\varepsilon$ 的幂次下降。'
-          : '没过线, 但解析梯度是对的, 只是 $\\varepsilon$ 选错了。这就是 gradcheck 要固定 float64 + 1e-5 的原因。'" />
+        <Tex :text="bug ? '有 bug 时误差是一条约等于常数的高台: 无论 $\\varepsilon$ 取多少都过不了线, 因为解析梯度本身就是错的, 和用什么步长去量它没关系。$\\varepsilon$ 选得不好造成的「假失败」会随 $\\varepsilon$ 改善, 真 bug 不会。'
+          : cur.err < 1e-6 ? '通过: 手写 backward 和差商对上了。注意谷底左右两侧斜率不同: 左边 $\\varepsilon$ 每缩小 10 倍, 误差涨 10 倍 (舍入误差 $\\delta/\\varepsilon$); 右边按 $\\varepsilon$ 的幂次下降 (截断误差)。'
+          : '没过线, 但解析梯度是对的, 只是 $\\varepsilon$ 选错了: 要么太大 (截断误差), 要么太小 (舍入误差)。这就是 gradcheck 要固定 float64 + 1e-5 的原因, 否则分不清是步长选错还是代码写错。'" />
       </p>
     </template>
   </LabFrame>

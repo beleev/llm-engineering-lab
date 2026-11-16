@@ -1,8 +1,8 @@
 # M04 — 流水线并行: GPipe / 1F1B / Interleaved
 
-[![流水线调度 — GPipe vs 1F1B llm_train/m04](../../docs/screenshots/train-model-parallel-1.png)](https://beleev.github.io#/train/model-parallel)
+[![流水线并行调度 — GPipe 和 1F1B 的时间表: 气泡在哪, 显存差在哪 llm_train/m04](../../docs/screenshots/train-model-parallel-1.png)](https://beleev.github.io#/train/model-parallel)
 
-[打开相关交互实验：流水线调度 — GPipe vs 1F1B llm_train/m04](https://beleev.github.io#/train/model-parallel)
+[打开相关交互实验：流水线并行调度 — GPipe 和 1F1B 的时间表: 气泡在哪, 显存差在哪 llm_train/m04](https://beleev.github.io#/train/model-parallel)
 
 ## 直觉
 

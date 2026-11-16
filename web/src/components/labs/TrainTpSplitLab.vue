@@ -5,13 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="张量并行 — 通信到底该插在哪?"
-    sub="两张卡算 $Y = \mathrm{GeLU}(X \cdot A) \cdot B$。先选 A、B 各自怎么切, 再点三个「同步点」开关通信。目标: 让两张卡都拿到和 dense 完全一样的 $Y$ ($\Delta = 0$), 而且通信最少。"
+    title="张量并行 — 一层矩阵切给两张卡, 通信到底该插在哪?"
+    sub="- 模拟什么: 张量并行 (TP) 是把一层里的大矩阵切开分给几张卡, 每卡只算自己那一片, 用在单层宽到一张卡放不下的时候。这里两张卡合力算一个 MLP 块 $Y = \mathrm{GeLU}(X \cdot A) \cdot B$: 输入 X 是 2×4 的矩阵, 权重 A 是 4×8 (把 4 维升到 8 维), B 是 8×4 (再降回 4 维), 中间夹一个逐元素的激活函数 GeLU。每个权重矩阵有两种切法: 按列切是每卡拿一半的输出维, 算出来的是完整结果里的一段列; 按行切是每卡拿一半的输入维, 算出来的形状完整但数值只是一半, 叫部分和, 两卡加起来才对。切完之后在哪里通信、通信几次, 就是 Megatron 式 TP 要回答的问题。
+      - 图上是什么: 从上到下是计算流程的五个阶段: X, X·A, GeLU, ·B, Y。每个阶段显示卡 0 和卡 1 各自手里的矩阵, 一个小色块是一个数 (蓝色是正、红色是负, 越深绝对值越大), 右侧一行小字是这个张量此刻的状态: 「完整」是每卡都有整个张量; 「一段列」是每卡只有几列, 拼起来才完整; 「部分和」是形状完整但数值只是一部分, 加起来才对。阶段之间的虚线按钮是三个同步点 ①②③, 点了才会在那里插入通信, 按钮上会写插进去的是 all-gather (把各卡的列段拼成完整张量) 还是 all-reduce (把各卡的部分和加起来, 每卡都拿到总和)。某一步形状对不上时那个阶段会标红并说明原因, 后面的阶段不再显示。
+      - 可以做什么: 先选 A 按列切还是按行切, 再选 B 按列切还是按行切; 然后点三个同步点插入或去掉通信。「换一组数」换一组随机数重算; 「清空同步点」把三个同步点全部关掉。
+      - 应该看到: 右侧「与 dense 的 max|Δ|」是两张卡最后拿到的 Y 和不切分、一张卡算出来的 Y 之间的最大差, 显示 0 才算对; 「结论」直接说现在是形状对不上、还差一次通信、数值错了, 还是正确; 「通信次数」是真正生效的同步点个数; 「每卡发送量」以 X 的大小为单位折算每卡发了多少字节。目标是 Δ 为 0 而且通信最少。A 按列切、B 按行切、只开同步点 ③: 正确, 1 次通信, 发送量 1.00×。A 按行切就必须在 ① 处先 all-reduce, 而且那次通信发生在最宽的中间激活上, 更贵。"
     module="llm_train/m03"
     run="python -m llm_train.m03_tensor_parallel.demo"
     :challenge="{
       ask: 'A 行切时, 为什么不能像列切那样先各算各的 GeLU、最后再求和? 关掉同步点 ① 看看 Δ。',
-      answer: '- 行切: 每张卡算出的是 $X \\cdot A$ 的一个「部分和」。GeLU 不是线性的, $\\mathrm{GeLU}(a+b) \\ne \\mathrm{GeLU}(a) + \\mathrm{GeLU}(b)$, 所以必须在 GeLU 之前先 all-reduce。\n- 列切: 每张卡拿到的是 $X \\cdot A$ 的一段完整的列, 逐元素的 GeLU 在本地做完全正确。接着 B 行切正好吃下这一段, 得到部分和, 最后只需一次 all-reduce。\nMegatron 的「列切→行切」, 就是把通信推迟到唯一躲不掉的那个求和点。',
+      answer: '因为 GeLU 不是线性的, 部分和过了 GeLU 再加, 和先加再过 GeLU 不是一回事。\n- A 行切: 卡 0 只有 A 的前 4 行, 它只能用 X 的前 4 列去乘, 算出来的是 $X \\cdot A$ 的一个「部分和」, 形状和完整结果一样但每个数都只是一半。GeLU 是逐元素的非线性函数, $\\mathrm{GeLU}(a+b) \\ne \\mathrm{GeLU}(a) + \\mathrm{GeLU}(b)$, 所以必须先在同步点 ① 做 all-reduce 把两个部分和加成完整的 $X \\cdot A$, 再过 GeLU。关掉 ① 的话, 每卡拿自己的半个数去过 GeLU, 后面不管再怎么通信, 读数里的 Δ 都是一个明显非零的数, 结论显示「数值错了」。而且 ① 处的张量是 2×8 的中间激活, 比 X 和 Y 宽一倍 (真实模型宽 4 倍), 在这里通信最贵。\n- A 列切: 卡 0 拿 A 的前 4 列, 用完整的 X 乘, 得到 $X \\cdot A$ 前 4 列的精确值 (一段列, 不是部分和)。GeLU 逐元素作用, 每卡在自己那几列上做, 结果就是正确的。接着 B 按行切, 卡 0 只有 B 的前 4 行, 正好吃下自己手里那 4 列, 得到 Y 的一个部分和。到这里才第一次需要把两卡的东西加起来: 同步点 ③ 一次 all-reduce, Δ 为 0。\nMegatron 的「先列切、后行切」, 就是把通信推迟到唯一躲不掉的那个求和点, 而且这个点上的张量最窄。',
     }"
   >
     <template #controls>
@@ -53,18 +56,19 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span><Tex text="与 dense 的 $\max|\Delta|$" /></span><b :class="run.ok ? 'good' : 'bad'">{{ run.delta === null ? '—' : run.delta < 1e-12 ? '0' : run.delta.toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="与 dense (不切分, 单卡算) 的 $\max|\Delta|$, 0 才算对" /></span><b :class="run.ok ? 'good' : 'bad'">{{ run.delta === null ? '—' : run.delta < 1e-12 ? '0' : run.delta.toFixed(3) }}</b></div>
       <div class="kv"><span>结论</span><b :class="run.ok ? 'good' : 'bad'" class="verdict">{{ run.verdict }}</b></div>
-      <div class="kv"><span>通信次数</span><b :class="{ good: run.ok && run.calls === 1 }">{{ run.calls }}</b></div>
-      <div class="kv"><span><Tex text="每卡发送量 (单位 $|X|$)" /></span><b :class="{ good: run.ok && run.vol <= 1 }">{{ run.vol.toFixed(2) }}×</b></div>
+      <div class="kv"><span>通信次数 (生效的同步点)</span><b :class="{ good: run.ok && run.calls === 1 }">{{ run.calls }}</b></div>
+      <div class="kv"><span><Tex text="每卡发送量 (以 $X$ 的大小为 1)" /></span><b :class="{ good: run.ok && run.vol <= 1 }">{{ run.vol.toFixed(2) }}×</b></div>
       <div class="lab-note">
+        <p>每个阶段右侧小字写的张量状态, 决定那里要插哪种通信:</p>
         <ul class="pts">
-          <li><b>完整:</b> 每卡都有整个张量。</li>
-          <li><b>一段列:</b> 每卡只有几列, 拼起来才完整 (all-gather)。</li>
-          <li><b>部分和:</b> 形状完整但数值只是一部分, 加起来才对 (all-reduce)。</li>
+          <li><b>完整:</b> 每卡都有整个张量, 不需要通信; 在这里再同步是多余的, 按钮会标黄。</li>
+          <li><b>一段列:</b> 每卡只有几列, 要 all-gather (各卡把自己那段发给大家, 拼成完整张量)。</li>
+          <li><b>部分和:</b> 形状完整但数值只是一部分, 要 all-reduce (各卡把自己那份加起来, 每卡拿到总和)。</li>
         </ul>
         <p>
-          <Tex text="all-reduce 每卡发 $2(N-1)/N \cdot \text{size}$, all-gather 发 $(N-1)/N \cdot \text{size}$。中间激活 $H$ 比 $X$ 宽 4 倍 (图里画 2 倍), 所以在 $H$ 上通信最贵。" />
+          <Tex text="通信量怎么算: $N$ 张卡时 all-reduce 每卡发 $2(N-1)/N \cdot \text{size}$, all-gather 发 $(N-1)/N \cdot \text{size}$, size 是那个张量的大小。中间激活 $H$ 在真实模型里比 $X$ 宽 4 倍 (图里画成 2 倍), 所以在 $H$ 上通信最贵, 好的切法要避开它。" />
         </p>
       </div>
     </template>

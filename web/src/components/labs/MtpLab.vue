@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="MTP 实验台 — 一次前向, 多步预测"
-    sub="主干在位置 $i$ 预测 $t_{i+1}$; 每个 MTP 级联模块拼接一个真实 next-token 的 embedding, 再多看一步。
-      序列共 8 个 token, 前 7 个是输入。点第一排的 token 换聚焦位置。"
+    title="MTP 多 token 预测 — 一次前向, 每个位置多预测几步"
+    sub="- 模拟什么: 普通语言模型在位置 $i$ 只预测下一个 token $t_{i+1}$。MTP (Multi-Token Prediction, DeepSeek-V3 的做法) 在主干后面挂 K 个级联模块: 第 $k$ 级把主干在位置 $i$ 的隐状态和真实 token $t_{i+k}$ 的 embedding 拼在一起, 过一个 Block, 去预测 $t_{i+1+k}$。每深一级多看一个真 token、多预测一步, 所以不算偷看未来。序列末尾没有未来 token 可预测的位置, 标签填 −100 屏蔽掉。这个台子用一条 8 个 token 的序列 (t0 到 t7, 前 7 个是输入) 看每个位置到底预测了谁。
+      - 图上是什么: 第一排是输入序列, 高亮的是当前聚焦的位置 $i$。下面每一行是一个预测头: 「主 head」和 MTP-1 到 MTP-K。每行左边的文字说明它拼接了谁的 embedding、预测谁; 行里的 token 芯片用颜色标出 (图例在最下面): 「拼接的 embedding」是这一级额外喂进去的真实 token, 「MTP 预测的目标」和「主 head 预测的目标」是要预测的 token。目标越界 (超过 t7) 的行不画芯片, 只写「越界 → -100 屏蔽」。
+      - 可以做什么: 拖「MTP 深度 K」(1 到 3) 改有几级 MTP。拖「λ」改 MTP 损失在总损失里的权重 (DeepSeek-V3 用 0.3)。点第一排任意 token 换聚焦位置 (t7 是最后一个, 没有下一个 token 可预测, 点不了)。
+      - 应该看到: 聚焦位置往右移, 越深的级越早越界: 第 $k$ 级在位置 $i$ 要预测 $t_{i+1+k}$, 它超过 t7 就没有目标。右侧「位置 i 有目标的预测」是 K+1 个头里有几个没越界; 「全序列监督目标」是把每一级有标签的位置数加起来 (第 $k$ 级有 7 − k 个), 和主干单独的 7 个对比, 这就是「训练信号更密」; 「初始 loss」是随机初始化时的总损失 (1+λ)·ln V, 词表 V = 1000, 和 train_mtp 实测的 9.167 对得上; 「额外参数」是每级多出的拼接投影和 Block, 2 层的玩具主干上每级 +50.2%, 61 层的 DeepSeek-V3 上约 1.5%。"
     module="llm_models/mtp"
     run="python -m llm_models.run_models.language_models.mtp.train_mtp"
     :challenge="{
-      ask: '把 K 拖到 2, 依次点 t4、t5、t6。哪个位置开始有预测越界? 整条序列一共多出几个监督目标?',
-      answer: 't4 三级都有目标。t5 的 MTP-2 要预测 t8, 越界。t6 的 MTP-1 和 MTP-2 都越界。\n- 规则: 第 $k$ 级的标签是 labels 左移 $k$ 位, 末尾 $k$ 个位置填 -100。\n- 数量: 主干 7 个目标, MTP-1 有 6 个, MTP-2 有 5 个。一次前向从 7 个目标变成 18 个。\n- 代价: 每级多一个拼接投影和一个 Block。2 层玩具主干上每级 +50.2% 参数, 61 层的 DeepSeek-V3 上约 1.5%。',
+      ask: '把 K 拖到 2, 依次点 t4、t5、t6。先猜: 从哪个位置开始有预测越界? 整条序列一共比主干单独多出几个监督目标?',
+      answer: '答案: t5 开始越界; 整条序列多出 11 个监督目标 (7 个变 18 个)。\n一步步看:\n- t4: 主 head 预测 t5, MTP-1 拼上 t5 的 embedding 预测 t6, MTP-2 拼上 t6 预测 t7, 三级都有目标。\n- t5: MTP-2 要预测 t8, 序列只到 t7, 越界。\n- t6: MTP-1 要预测 t8、MTP-2 要预测 t9, 都越界, 只剩主 head 预测 t7。\n- 规则: 第 $k$ 级的标签是 labels 整体左移 $k$ 位, 末尾 $k$ 个位置没有未来 token, 填 -100 让 loss 跳过它们。\n- 数量: 主干 7 个位置各有 1 个目标, MTP-1 有 6 个 (末尾 1 个越界), MTP-2 有 5 个 (末尾 2 个越界), 合计 $7 + 6 + 5 = 18$。一次前向的监督从 7 份变成 18 份, 右侧「全序列监督目标」就是这个数。\n- 代价: 每级多一个拼接投影和一个 Block (embedding 和 lm_head 借主干的, 不另算)。2 层的玩具主干上每级 +50.2% 参数, 61 层的 DeepSeek-V3 上同样一级只多约 1.5%。',
     }"
   >
     <template #controls>
@@ -45,20 +47,20 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>位置 {{ focus }} 有目标的预测</span><b :class="st.live === K + 1 ? 'good' : 'bad'">{{ st.live }} / {{ K + 1 }}</b></div>
-      <div class="kv"><span>全序列监督目标 (主干单独 {{ N - 1 }})</span><b>{{ st.targets }}</b></div>
-      <div class="kv"><span><Tex text="初始 loss $(1+\lambda)\ln V$" /></span><b>{{ st.loss0.toFixed(2) }}</b></div>
-      <div class="kv"><span>额外参数 (2 层玩具主干)</span><b>+{{ (K * 50.2).toFixed(1) }}%</b></div>
+      <div class="kv"><span>位置 t{{ focus }} 有目标的预测头 (没越界的 / 全部)</span><b :class="st.live === K + 1 ? 'good' : 'bad'">{{ st.live }} / {{ K + 1 }}</b></div>
+      <div class="kv"><span>全序列监督目标数 (主干单独只有 {{ N - 1 }} 个)</span><b>{{ st.targets }}</b></div>
+      <div class="kv"><span><Tex text="随机初始化时的总 loss $(1+\lambda)\ln V$" /></span><b>{{ st.loss0.toFixed(2) }}</b></div>
+      <div class="kv"><span>额外参数 (2 层玩具主干, 每级 +50.2%)</span><b>+{{ (K * 50.2).toFixed(1) }}%</b></div>
       <div class="lab-note">
-        <p><Tex :text="`损失公式: $L = L_{\\text{main}} + ${lambda.toFixed(1)} \\cdot \\mathrm{mean}_k(L_{\\text{mtp}_k})$。$V = 1000$ 时 $\\ln V = 6.908$, MTP 项占初始 loss 的 ${st.share}%。`" /></p>
-        <p>λ = 0.3 时训练脚本实测初始 total = 9.167 (main 7.059 + 0.3 × mtp 7.028)。</p>
+        <p><Tex :text="`损失公式: $L = L_{\\text{main}} + ${lambda.toFixed(1)} \\cdot \\mathrm{mean}_k(L_{\\text{mtp}_k})$, 主干的 loss 加上各级 MTP loss 的平均乘 λ。随机初始化时每个头的 loss 都约等于 $\\ln V$ (均匀瞎猜), $V = 1000$ 时 $\\ln V = 6.908$, 所以 MTP 项占初始 loss 的 ${st.share}%。`" /></p>
+        <p>λ = 0.3 时训练脚本实测初始 total = 9.167 (main 7.059 + 0.3 × mtp 7.028), 和上面的理论值 8.98 只差初始化的随机波动。</p>
         <p>
-          参数开销: 每级 = 1 个拼接投影 + 1 个 Block (embedding 与 lm_head 共享,
-          DeepSeek-V3 61 层主干上 ~1.5%)。
+          参数开销: 每级 = 1 个拼接投影 + 1 个 Block。embedding 和 lm_head 都借主干的, 所以丢掉 MTP 模块后主干的输出一个数都不变。
+          玩具主干只有 2 层, 所以每级显得贵 (+50.2%); DeepSeek-V3 的主干有 61 层, 同样一级只多约 1.5%。
         </p>
         <p>
-          训练信号更密 + 表征被迫向前规划 + 推理免费拿草稿: 投机解码的草稿长度是 {{ K }}
-          (llm_infer/m07_speculative_decoding; DeepSeek-V3: 接受率 85%+, 解码 ~1.8×)。部署时 MTP 模块可整体丢弃。
+          MTP 带来三样东西: 训练信号更密 (监督目标变多); 主干的表征被迫「向前规划」(要能支持预测 t+2、t+3); 推理时免费拿到草稿:
+          MTP 头对后面 {{ K }} 个 token 的预测可以直接当投机解码的草稿, 再由主干验证 (见 llm_infer/m07_speculative_decoding; DeepSeek-V3 报告接受率 85% 以上, 解码约 1.8× 快)。不用投机解码时 MTP 模块可以整体丢弃。
         </p>
       </div>
     </template>

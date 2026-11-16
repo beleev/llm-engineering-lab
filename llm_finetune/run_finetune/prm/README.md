@@ -1,8 +1,8 @@
 # PRM vs ORM — 给每一步打分, 还是只看最终答案
 
-[![一条解, ORM 看到 1 个标签, PRM 看到 4 个 llm_finetune/methods/prm.py](../../../docs/screenshots/finetune-prm-1.png)](https://beleev.github.io#/finetune/prm)
+[![PRM vs ORM — 同一条解, 结果奖励看到 1 个标签, 过程奖励看到 4 个 llm_finetune/methods/prm.py](../../../docs/screenshots/finetune-prm-1.png)](https://beleev.github.io#/finetune/prm)
 
-[打开相关交互实验：一条解, ORM 看到 1 个标签, PRM 看到 4 个 llm_finetune/methods/prm.py](https://beleev.github.io#/finetune/prm)
+[打开相关交互实验：PRM vs ORM — 同一条解, 结果奖励看到 1 个标签, 过程奖励看到 4 个 llm_finetune/methods/prm.py](https://beleev.github.io#/finetune/prm)
 
 ## 直觉
 

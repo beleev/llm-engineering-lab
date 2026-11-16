@@ -7,15 +7,16 @@
 -->
 <template>
   <LabFrame
-    title="引擎主循环 — 三条队列、一个 block 池、一个调度分支"
-    sub="- 上面三行: 请求队列 (waiting / running / finished)。
-      - 下面: 物理 KV block 池, 每格一块。
-      按播放看每一步调度器走了哪条分支、为什么。滑杆能把它调到崩: block 池调小到必然抢占, 到达速率调高到排长队。"
+    title="引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选"
+    sub="- 模拟什么: 一个 mini-vLLM 推理引擎的主循环。每一步永远是同四件事: 调度 (决定这一步算谁、算几个 token), 前向, 采样, 后处理 (结束的请求把 KV block 还回池子)。难的只有调度: 它要同时管住 KV 显存 (KV cache 切成固定大小的 block 放在一个池子里, 每条请求每 8 个 token 占 1 块; 池子不够就得抢占, 也就是踢掉一条请求让它回去重排)、公平 (先来先进) 和延迟 (每步的 token 预算)。5 条请求共享同一段 30 token 的 system prompt, 前缀缓存开着时, 后来者的前 3 块 KV 直接命中, 不用再算。耗时用代价模型 (每步 20 ms + 0.25 ms × token 数), 不是实测。
+      - 图上是什么: 上面三行是三条队列: waiting 是排队等进入的请求; running 是正在算的, 芯片上的「已算/总长」是这条请求已经有 KV 的 token 数和当前总长度, 有底色表示这一步轮到它; finished 是已结束的, 标着输出了几个 token。中间一行是这一步调度器走的分支 (decode / prefill / 混批 / 抢占 / 空转) 和原因。下面的格子是 KV block 池, 每格一块: 有颜色的写着占用它的请求编号, ∷ 是几条请求共享的前缀块, · 是已释放但内容还在的块 (同样的前缀再来仍能命中), 虚线空格是空闲。
+      - 可以做什么: 三个调度按钮: 「decode 优先 + 分块 prefill」先给 running 里的每条 1 个 token, 剩下的预算切给新请求的 prefill; 「prefill 优先」先让新请求整段 prefill, 进不来再落到 decode; 带 ⚠ 的开关是故意写错的版本, 队首拿不到 block 时直接返回空 batch, 用来演示活锁 (服务没崩, 但所有请求都不动了)。「前缀缓存 开/关」决定共享的 system prompt 能不能命中。拖「KV block 池」改池子有几块 (26 块是分块模式的临界点, 再小就开始抢占); 拖「max_batch_tokens」改每步最多算几个 token; 拖「到达速率」改请求来得多快。用播放器逐步看; 点队列里的 R 按钮看那条请求占了哪些块、延迟是多少。
+      - 应该看到: 默认参数下 5 条请求交错着 prefill 和 decode, 池子里出现 ∷ 的共享块, 全部跑完 34 步。把池子往下拖, 开始出现「抢占」: 最年轻的请求被踢回 waiting 队首, 它的块被还回去, 之后要重算。开 ⚠ 开关再拖池子, 时间线会在某一步之后永远「空转」。右侧读数: 「吞吐」是输出 token 数除以总耗时 (活锁时是 0); 「最大 TBT」是所有请求里相邻两个 token 之间最长的等待; 「抢占次数」有抢占就红; 「实算 + 命中」是真正做了前向的 token 数加上前缀命中跳过的 token 数, 两者之和应该等于「需要」(所有请求需要 KV 的 token 总数), 多出来的部分是被抢占的请求回来重走的。"
     module="llm_infer/full_engine"
     run="python -m llm_infer.full_engine.demo"
     :challenge="{
       ask: '先点带 ⚠ 的开关 (队首拿不到 block 时不落到 decode), 其余保持默认, 再把 block 池从 26 块一格一格往下拖。拖到几块时间线冻住?',
-      answer: '22 块。\n4 条并发跑满要 $3 + 4 \\times 5 = 23$ 块: 3 块是共享前缀, 每条另占 5 块。池子少一块, 就得踢掉最年轻的 R3。\nR3 回到 waiting 队首, 拿不到 block → prefill 分支选不出任何序列 → 返回空 batch。\nrunning 一个 token 也不前进 → 没有序列结束 → block 永远不释放 → 队首永远进不来。\n这就是活锁。解法只有一行: prefill 进不来时落到 decode, 也就是 Python 里 `_admit(budget) or _schedule_running(budget)` 的那个 or。\n这一行保证的是「最老的那条序列总能前进」。有进度才有释放, 有释放才有名额。\n并发名额满了不会冻住: 那时 block 够用, running 照常 decode, 有一条结束队首就能进。',
+      answer: '22 块。\n4 条并发跑满要 $3 + 4 \\times 5 = 23$ 块: 3 块是共享的 system prompt 前缀 (30 个 token, 每块 8 个, 前 3 块内容完全相同, 几条请求共用), 每条请求自己的问句加 20 个输出另占 5 块。池子少一块, 就得踢掉最年轻的 R3 (抢占)。\nR3 回到 waiting 队首, 拿不到 block; prefill 分支选不出任何序列, 返回空 batch。\nrunning 里的请求一个 token 也不前进, 就没有序列结束; 没有序列结束, block 就永远不释放; block 不释放, 队首就永远进不来。这就是活锁。\n解法只有一行: prefill 进不来时落到 decode, 也就是 Python 里 `_admit(budget) or _schedule_running(budget)` 的那个 or。它保证的是「最老的那条序列总能前进」: 有进度才有释放, 有释放才有名额。\n并发名额满了 (max_batch_seqs = 4) 不会冻住: 那时 block 够用, running 照常 decode, 有一条结束队首就能进。',
     }"
   >
     <template #controls>
@@ -70,33 +71,33 @@
           已出 {{ selSeq.out }}/{{ OUT[selSeq.id] }} token
         </template>
         <template v-else>
-          点队列里的 R 按钮, 看那条请求占了哪些 block、它的 TTFT / TBT 是多少。
+          点队列里的 R 按钮, 看那条请求占了哪些 block、它的 TTFT (首 token 延迟) 和最大 TBT (相邻两个 token 之间最长的等待) 是多少。
           ∷ 是几条请求共享的前缀 block; · 是已释放但内容还在的 block, 同样的前缀再来仍能命中。
         </template>
       </p>
     </div>
 
     <template #stats>
-      <div class="kv"><span>吞吐 (tok/s)</span><b :class="{ bad: sim.dead }">{{ sim.thr.toFixed(1) }}</b></div>
+      <div class="kv"><span>吞吐 (输出 token 数 ÷ 总耗时, tok/s)</span><b :class="{ bad: sim.dead }">{{ sim.thr.toFixed(1) }}</b></div>
       <div class="kv">
-        <span>最大 TBT</span>
+        <span>最大 TBT (相邻 token 最长等待)</span>
         <b v-if="!sim.maxTbt">—</b>
         <b v-else :class="sim.maxTbt > 120 ? 'bad' : 'good'">{{ sim.maxTbt.toFixed(0) }} ms</b>
       </div>
       <div class="kv"><span>抢占次数</span><b :class="sim.preempts ? 'bad' : 'good'">{{ sim.preempts }}</b></div>
       <div class="kv">
-        <span>实算 + 命中 (需要 {{ sim.need }})</span>
+        <span>实算 + 前缀命中的 token (需要 {{ sim.need }})</span>
         <b :class="sim.comp + sim.hit === sim.need ? 'good' : 'bad'">{{ sim.comp }} + {{ sim.hit }}</b>
       </div>
       <p v-if="sim.dead" class="lab-note">
         活锁: 连续 6 步选不出任何序列, 之后也不会变: block 只在序列结束时释放, 而没有序列能前进。
-        真实引擎里这表现为"服务没崩, 但所有请求都不动了"。
+        真实引擎里这表现为「服务没崩, 但所有请求都不动了」。
       </p>
       <p v-else-if="sim.comp + sim.hit !== sim.need" class="lab-note">
-        实算加命中超过"需要"的部分, 是被抢占的序列回来重走的 token: 一部分重算, 一部分命中自己留在池里的 block。文本没丢, 丢的是算力。
+        实算加命中超过「需要」的部分, 是被抢占的序列回来重走的 token: 一部分重算, 一部分命中自己留在池里的 block。文本没丢 (已生成的 token 还在), 丢的是算力。
       </p>
       <div class="lab-note">
-        <p>耗时用的是 m06 那个代价模型: 每步 20 ms 固定开销 + 0.25 ms × 本步 token 数, 不是实测。</p>
+        <p>耗时用的是 chunked prefill 那一节的代价模型: 每步 20 ms 固定开销 + 0.25 ms × 本步 token 数, 不是实测。</p>
         <p>对照 demo (预算 48, 到达速率 2 以上, 前缀缓存开):</p>
         <ul class="pts">
           <li>默认的分块模式, 池 26 到 64 块: 305 个待算 token = 233 实算 + 72 命中, 共 34 步。</li>

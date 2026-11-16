@@ -1,8 +1,8 @@
 # M06 — 混合精度: FP16 / BF16 + loss scaling + master weights
 
-[![浮点数轴 — 梯度落在哪个格式的范围里? llm_train/m06](../../docs/screenshots/train-precision-stability-1.png)](https://beleev.github.io#/train/precision-stability)
+[![浮点数轴 — 一批梯度落在哪个格式的范围里, loss scale 把它们挪进去 llm_train/m06](../../docs/screenshots/train-precision-stability-1.png)](https://beleev.github.io#/train/precision-stability)
 
-[打开相关交互实验：浮点数轴 — 梯度落在哪个格式的范围里? llm_train/m06](https://beleev.github.io#/train/precision-stability)
+[打开相关交互实验：浮点数轴 — 一批梯度落在哪个格式的范围里, loss scale 把它们挪进去 llm_train/m06](https://beleev.github.io#/train/precision-stability)
 
 ## 直觉
 

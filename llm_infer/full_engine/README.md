@@ -1,8 +1,8 @@
 # Full Engine — 把模块接成 mini-vLLM
 
-[![引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](../../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
+[![引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选 llm_infer/full_engine](../../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
 
-[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
+[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
 
 ## 直觉
 

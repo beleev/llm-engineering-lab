@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const dir = join(here, '../src/data/topics')
 const len = (s) => s.replace(/\$([^$]*)\$/g, (_, t) => 'x'.repeat(Math.ceil(t.length / 2))).length  // 公式按源码长度的一半计
-const MAX_PAIN = 50, MAX_FIX = 60
+const MAX_PAIN = 80, MAX_FIX = 100
 const bad = []
 const check = (e, where) => {
   if (!e) { bad.push(`✗ ${where}: 没有 evolution`); return }

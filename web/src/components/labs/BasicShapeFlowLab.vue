@@ -5,15 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路"
-    sub="每一行是 model.py 里真实的一步, 条的宽度就是输出最后一维 (D / T / H / V) 的相对大小。
-      点任意一行, 右侧告诉你它算什么、形状怎么变、往 cache 里存了什么、为什么反向非要这个值。点橙色的三行 ([B,T,T]) 还会画出 causal mask。
-      拖 B/T/D/V/层数, 看参数和激活的总账怎么走。"
+    title="形状流水线 — 一批 token 从 ids [B,T] 走到 logits [B,T,V] 的每一步"
+    sub="- 模拟什么: llm_basic/model.py 里 transformer_forward 的一次前向: 一批文本的 token 编号 ids 进去, 每个位置对词表里 V 个候选各打一个分 (这些分叫 logits) 出来。方括号里的 [B,T,D] 是张量的形状: B 是一批里有几段文本 (batch), T 是每段有多少个 token (序列长), D 是模型内部用多少个数表示一个 token (模型维), V 是词表大小, H 是 MLP 中间层的宽度 (这里 H = 2D)。
+      - 图上是什么: 每一行是 model.py 里真实的一步, 从上到下就是执行顺序。行里的横条宽度是这一步输出的最后一维 (D、T、H 或 V) 的相对大小, 颜色区分它是哪一维: 橙色三行的输出形状是 [B,T,T], 是 attention 里「每个位置对每个位置打一个分」的那张表。右边两列是输出形状和这一步带来的参数个数 (加号后的数字)。「for i in range(n_layer)」到「↑ 进出都是 [B,T,D]」之间是一个 block, 真模型把它重复 n_layer 次。
+      - 可以做什么: 三个预设按钮一键回到 llm_basic 默认配置、把词表放大 10 倍、把序列放长 4 倍。五根滑杆分别改 B、T、D、V 和层数。点任意一行, 右侧详情告诉你这一步在算什么、形状怎么变、往 cache 里存了什么 (cache 是前向顺手留给反向用的中间量, 下一章要用)、为什么反向非要这个值。点橙色的三行还会画出 causal mask (因果掩码: 位置 i 只准看 i 和它之前的 token, 不准偷看未来)。
+      - 应该看到: 右侧「参数合计」默认是 45,568, 和 python train.py 开头打印的数字一致。「激活」是这一次前向所有中间输出加起来占多少内存 (float64, 每个数 8 字节); 「激活 ÷ 参数」是两者的倍数; 「[B,T,T] 占激活」是橙色三行在激活里的比例。只拖 T 时参数几乎不动 (只有 pos_emb 一张表跟着 T 长), 激活却按 T 的平方猛涨, 橙色比例随之变大; 只拖 V 时 lm_head 那一行的条会压过整个主干, 参数和激活都是。"
     module="llm_basic/model.py"
     run="cd llm_basic && python train.py --max-iters 300 --out /tmp/c.npz"
     :challenge="{
       ask: '只把 T 从 64 拖到 256, 其它不动。参数量涨多少? 激活字节涨多少? 为什么长上下文的账主要不记在参数表里?',
-      answer: '- 参数: 只有 pos_emb 跟着 T 长, 64×64=4,096 → 256×64=16,384。总量 45,568 → 57,856, 涨 27%。\n- 激活: 21.0 MiB → 120 MiB, 是 5.7 倍。scores / mask / attn 这三张 [B,T,T] 按 $T^2$ 长, 占激活的比例从 14% 升到 40%。\n参数表里根本没有 $T^2$。长上下文贵在激活和注意力的 $T^2$ 上。\n所以后面会有 KV cache、FlashAttention、activation checkpoint 这一串技术: 都在对付序列变长带来的开销, 没有一个去压参数。',
+      answer: '参数只涨 27%, 激活涨到 5.7 倍。\n- 参数: 只有 pos_emb (位置表, 每个位置一行 D 维向量, 一共 T 行) 跟着 T 长: 64×64 = 4,096 个变成 256×64 = 16,384 个。总量 45,568 变成 57,856。其它所有权重矩阵的形状只和 D、H、V 有关, 和序列多长没关系。\n- 激活: 21.0 MiB 变成 120 MiB。scores / mask / attn 这三张 [B,T,T] 的表要给每个位置对每个位置打一个分, 元素个数按 $T^2$ 长; 它们占激活的比例从 14% 升到 40%。\n参数表里根本没有 $T^2$ 这一项, 长上下文贵在激活和注意力的 $T^2$ 上。\n所以后面会有 KV cache、FlashAttention、activation checkpoint 这一串技术: 全都在对付序列变长带来的激活和计算开销, 没有一个是去压参数的。',
     }"
   >
     <template #controls>
@@ -22,10 +23,10 @@
         <button type="button" @click="preset(32, 64, 64, 650, 1)">词表 ×10</button>
         <button type="button" @click="preset(32, 256, 64, 65, 1)">序列 ×4</button>
       </div>
-      <LabSlider v-model="B" label="batch B" :min="1" :max="64" />
-      <LabSlider v-model="T" label="序列长 T (= pos_emb 行数)" :min="8" :max="256" :step="8" />
-      <LabSlider v-model="D" label="模型维 D (H 取 2D)" :min="16" :max="256" :step="16" />
-      <LabSlider v-model="V" label="词表 V" :min="16" :max="1024" />
+      <LabSlider v-model="B" label="一批几段文本 B (batch)" :min="1" :max="64" />
+      <LabSlider v-model="T" label="每段几个 token T (序列长, 也是 pos_emb 的行数)" :min="8" :max="256" :step="8" />
+      <LabSlider v-model="D" label="模型维 D (MLP 中间宽度 H = 2D)" :min="16" :max="256" :step="16" />
+      <LabSlider v-model="V" label="词表大小 V" :min="16" :max="1024" />
       <LabSlider v-model="L" label="层数 n_layer" :min="1" :max="6" />
     </template>
 
@@ -46,10 +47,10 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>参数合计</span><b :class="total.params === 45568 ? 'good' : ''">{{ total.params.toLocaleString() }}</b></div>
-      <div class="kv"><span>激活 (float64)</span><b>{{ fmtBytes(total.act * 8) }}</b></div>
-      <div class="kv"><span>激活 ÷ 参数</span><b :class="ratio > 100 ? 'bad' : ''">{{ ratio.toFixed(0) }}×</b></div>
-      <div class="kv"><span>[B,T,T] 占激活</span><b :class="ttShare > 0.3 ? 'bad' : ''">{{ (ttShare * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>参数合计 (权重里数的个数)</span><b :class="total.params === 45568 ? 'good' : ''">{{ total.params.toLocaleString() }}</b></div>
+      <div class="kv"><span>激活合计 (所有中间输出, float64)</span><b>{{ fmtBytes(total.act * 8) }}</b></div>
+      <div class="kv"><span>激活 ÷ 参数 (中间量比权重大几倍)</span><b :class="ratio > 100 ? 'bad' : ''">{{ ratio.toFixed(0) }}×</b></div>
+      <div class="kv"><span>三张 [B,T,T] 占激活的比例</span><b :class="ttShare > 0.3 ? 'bad' : ''">{{ (ttShare * 100).toFixed(0) }}%</b></div>
 
       <div class="detail">
         <b class="mono">{{ cur.full }}</b>
@@ -71,15 +72,15 @@
           </template>
         </svg>
         <p class="lab-note">
-          <Tex text="行 = query $i$, 列 = key $j$。右上角 ($j \gt i$, 未来) 填 −inf, softmax 后权重为 0。" />
-          <Tex text="格子按 $T^2$ 长, 有效的只有一半多一点:" /> {{ fmtNum(T * (T + 1) / 2) }} / {{ fmtNum(T * T) }}。
+          <Tex text="每一行是一个 query $i$ (正在看的位置), 每一列是一个 key $j$ (被看的位置)。右上角涂红的部分是 $j \gt i$, 也就是未来的位置, 在 scores 里填 −inf, softmax 之后权重正好是 0。" />
+          <Tex text="这张表的格子数按 $T^2$ 长, 真正用到的只有左下一半多一点:" /> {{ fmtNum(T * (T + 1) / 2) }} / {{ fmtNum(T * T) }}。
         </p>
         <p class="lab-note">
           <strong>全模型只有这里, 不同位置之间才互相说话。</strong>
-          embedding / RMSNorm / MLP / lm_head 都是对每个位置各算各的: 把 [B,T,D] 拍平成 [B·T, D], 结果一模一样。
+          embedding / RMSNorm / MLP / lm_head 都是对每个位置各算各的: 把 [B,T,D] 拍平成 [B·T, D] 再算, 结果一模一样。
         </p>
       </div>
-      <p v-else class="lab-note">默认那一列 (V=65, D=64, H=128, T=64, n_layer=1) 的参数合计必须是 45,568, 和 <code class="inline">python train.py</code> 开头打印的数字一致。</p>
+      <p v-else class="lab-note">默认配置 (V=65, D=64, H=128, T=64, n_layer=1) 的参数合计必须是 45,568, 和 <code class="inline">python train.py</code> 开头打印的数字一致。上面的详情框是当前选中那一行的说明; 点橙色的行会在这里画出 causal mask。</p>
     </template>
   </LabFrame>
 </template>

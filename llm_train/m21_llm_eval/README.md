@@ -1,8 +1,8 @@
 # M21 — 通用 LLM 评测
 
-[![pass@k — 朴素公式为什么偏低? llm_train/m21](../../docs/screenshots/train-eval-1.png)](https://beleev.github.io#/train/eval)
+[![pass@k 的两种算法 — 把 c/n 直接代进公式, 为什么平均总是算低? llm_train/m21](../../docs/screenshots/train-eval-1.png)](https://beleev.github.io#/train/eval)
 
-[打开相关交互实验：pass@k — 朴素公式为什么偏低? llm_train/m21](https://beleev.github.io#/train/eval)
+[打开相关交互实验：pass@k 的两种算法 — 把 c/n 直接代进公式, 为什么平均总是算低? llm_train/m21](https://beleev.github.io#/train/eval)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # 知识蒸馏 (off-policy, forward KL)
 
-[![蒸馏为什么要乘 T² — 温度一高, 软标签梯度就悄悄消失 llm_finetune/methods/distill.py](../../../docs/screenshots/finetune-onpolicy-distill-2.png)](https://beleev.github.io#/finetune/onpolicy-distill)
+[![蒸馏为什么要乘 T² — 温度一高, 软标签的梯度就悄悄消失 llm_finetune/methods/distill.py](../../../docs/screenshots/finetune-onpolicy-distill-2.png)](https://beleev.github.io#/finetune/onpolicy-distill)
 
-[打开相关交互实验：蒸馏为什么要乘 T² — 温度一高, 软标签梯度就悄悄消失 llm_finetune/methods/distill.py](https://beleev.github.io#/finetune/onpolicy-distill)
+[打开相关交互实验：蒸馏为什么要乘 T² — 温度一高, 软标签的梯度就悄悄消失 llm_finetune/methods/distill.py](https://beleev.github.io#/finetune/onpolicy-distill)
 
 ## 直觉
 

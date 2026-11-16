@@ -1,8 +1,8 @@
 # LLaDA — 掩码扩散语言模型
 
-[![LLaDA — 先填有把握的, 没把握的遮回去再想 llm_models/models/language_models/llada.py](../../../../docs/screenshots/models-llada-1.png)](https://beleev.github.io#/models/llada)
+[![LLaDA 扩散语言模型 — 一次预测全部空位, 只留有把握的, 没把握的遮回去再想 llm_models/models/language_models/llada.py](../../../../docs/screenshots/models-llada-1.png)](https://beleev.github.io#/models/llada)
 
-[打开相关交互实验：LLaDA — 先填有把握的, 没把握的遮回去再想 llm_models/models/language_models/llada.py](https://beleev.github.io#/models/llada)
+[打开相关交互实验：LLaDA 扩散语言模型 — 一次预测全部空位, 只留有把握的, 没把握的遮回去再想 llm_models/models/language_models/llada.py](https://beleev.github.io#/models/llada)
 
 ## 直觉
 

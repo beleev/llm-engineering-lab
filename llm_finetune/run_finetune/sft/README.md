@@ -1,8 +1,8 @@
 # SFT — 全参监督微调
 
-[![SFT 标签对齐 — mask 边界差一格会丢掉什么 llm_finetune/data](../../../docs/screenshots/finetune-sft-1.png)](https://beleev.github.io#/finetune/sft)
+[![SFT 标签对齐 — mask 边界差一格, 第一个回答 token 就丢了 llm_finetune/data](../../../docs/screenshots/finetune-sft-1.png)](https://beleev.github.io#/finetune/sft)
 
-[打开相关交互实验：SFT 标签对齐 — mask 边界差一格会丢掉什么 llm_finetune/data](https://beleev.github.io#/finetune/sft)
+[打开相关交互实验：SFT 标签对齐 — mask 边界差一格, 第一个回答 token 就丢了 llm_finetune/data](https://beleev.github.io#/finetune/sft)
 
 ## 直觉
 

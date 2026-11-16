@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="把每一层单独关掉 — 它原本挡住了什么"
-    sub="五个场景取自三个 demo, 挂的是同一套 harness 零件。工具、模型、prompt 一个字不改, 只改挂了哪些零件。
-      点右边任意一格开关这一层, 格子里会写出它这一次挡住 / 改变了什么。按播放看 transcript 一块一块长出来。"
+    title="harness 的每一层 — 单独关掉一层, 看它原本挡住了什么"
+    sub="- 模拟什么: 一个 Claude Code 式的 agent 由两部分组成: 一个很薄的 loop (拼上下文, 问模型, 执行模型要调的工具, 把结果回填, 再循环), 和挂在 loop 周围的一圈确定性零件 (记忆、检索、hook、权限门、污点规则、路径围栏、脱敏、上下文瘦身), 这一圈叫 harness。这个台子取三个 demo 里的五个场景, 模型、工具、prompt 一个字不改, 只改挂了哪些零件, 看同一个场景会怎么收场。
+      - 图上是什么: 左边是 transcript, 就是模型眼里的这段对话, 一块一块按时间排: system 是 harness 塞进来的系统消息, tool_use 是模型要求调用工具, tool_result 是工具返回, final 是最终回答, (没有发起) 表示这一步因为前面被拦所以没发生; 每块右边的 +N tok 是它占多少上下文; 左边框的颜色绿是正常, 黄是警告, 红是出事了。右边九个大按钮是 harness 的九层, 每个按钮上有开关状态、这一层的名字和它在源码里的位置, 按钮下面的小字是它这一次挡住或改变了什么; 半透明的层表示当前场景不涉及它。
+      - 可以做什么: 最上面一排按钮切换五个场景: 搜索后写笔记、委托子智能体、rm -fr 被拒、hook 改写调用、文档夹带注入指令。点右边任意一层把它关掉或打开; 「全部打开」「全部关掉」一键切换, 旁边显示已关掉几层。「hook 改写调用」场景多一个「装了一个被污染的第三方 PreToolUse hook」开关, 它是攻击来源, 不算 harness 的一层。用播放器逐块回放 transcript。
+      - 应该看到: 默认场景是「文档夹带注入指令」, 全部打开时结局是「私钥没读到, 密钥已脱敏」。每关掉一层, 右边那一层的小字会说明少了它会怎样, 左边 transcript 跟着变。右侧「最终上下文」是这次运行一共占了多少 tok, 比全开时多就标红; 「真正到达执行层的危险动作」应该是 0; 「密钥原样落进会话日志 JSONL」是密钥有没有没经脱敏就写进日志; 「结局」一句话总结这次怎么收场, 红色就是出事了。试试关掉「路径围栏」「权限门」「污点规则」三层, 私钥才真的会被发到外网。"
     :module="cur.module"
     :run="cur.run"
     :challenge="{
       ask: '选「文档夹带注入指令」场景。先猜: 要关掉几层, 私钥才真的会被发到外网? 再点「全部关掉」, 看五个场景各自怎么收场。',
-      answer: '要关掉三层: 路径围栏、权限门的 auto 分类器 (敏感路径 / 危险命令词)、污点规则。三者互不依赖, 任何一层还在, 私钥都出不去。\n这就是纵深防御: 每层都假设别的层会失守。各层性质不同:\n- 概率性防御: untrusted_data 标记和注入特征检测, 是在「劝」模型, 换个说法就绕过去了。\n- 确定性防御: 污点规则、路径围栏、deny 规则, 不看模型怎么想。\n一个系统里至少要有一层是后者。\n全部关掉之后: rm -rf / 真的执行, 私钥外泄, 密钥原样落进 JSONL, 笔记还记错了文档。而模型、工具和 prompt 从头到尾没变过。',
+      answer: '要关掉三层: 路径围栏、权限门、污点规则。它们互不依赖, 任何一层还在, 私钥都出不去。\n- 读私钥这一步有两道独立的检查: 权限门的 auto 分类器看 path 参数, 命中 .ssh / id_rsa 这类敏感路径就拒绝, 调用根本到不了执行层; 它被关掉后, 路径围栏在工具内部兜底, 先把 ../../.ssh/id_rsa 展开成真实路径, 发现已经跑出沙箱根目录, 报错。两层都关, 私钥才读得出来。\n- 读出来之后还要发出去: 污点规则规定本轮上下文里一旦混入过不可信数据 (抓回来的文档), 高风险工具 (shell) 一律拒绝, 不管模型是不是上当了。它也关掉, curl 才发得出去。\n这就是纵深防御: 每一层都假设别的层会失守。各层性质不同:\n- 概率性防御: untrusted_data 标记和注入特征检测, 只是在「劝」模型别听文档里的指令, 换个说法就能绕过去。\n- 确定性防御: 污点规则、路径围栏、deny 规则, 不看模型怎么想。一个系统里至少要有一层是后者。\n点「全部关掉」再看五个场景: rm -rf / 真的到了执行层, 私钥外泄, 密钥原样落进 JSONL, 笔记还记错了文档。而模型、工具和 prompt 从头到尾没变过。',
     }"
   >
     <template #controls>
@@ -52,16 +54,16 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>最终上下文</span><b :class="sim.ctx > base.ctx ? 'bad' : ''">{{ sim.ctx }} tok</b></div>
-      <div class="kv"><span>真正执行的危险动作</span><b :class="sim.danger ? 'bad' : 'good'">{{ sim.danger }}</b></div>
-      <div class="kv"><span>密钥落进 JSONL</span><b :class="sim.leak ? 'bad' : 'good'">{{ sim.leak ? '是' : '否' }}</b></div>
+      <div class="kv"><span>最终上下文 (这次运行占了多少)</span><b :class="sim.ctx > base.ctx ? 'bad' : ''">{{ sim.ctx }} tok</b></div>
+      <div class="kv"><span>真正到达执行层的危险动作</span><b :class="sim.danger ? 'bad' : 'good'">{{ sim.danger }}</b></div>
+      <div class="kv"><span>密钥原样落进会话日志 JSONL</span><b :class="sim.leak ? 'bad' : 'good'">{{ sim.leak ? '是' : '否' }}</b></div>
       <div class="kv"><span>结局</span><b :class="sim.bad ? 'bad' : 'good'">{{ sim.outcome }}</b></div>
       <div class="lab-note">
-        <p>loop 本身从头到尾没变: 拼上下文 → 问模型 → PreToolUse hook → 污点检查 → 权限门 → 参数校验 → 执行 → 结果回填。变的只是这条路上还挂着几个零件。</p>
-        <p>"上下文瘦身" 这一格管两件事:</p>
+        <p>loop 本身从头到尾没变: 每一轮先拼上下文, 问模型; 模型要调工具时依次经过 PreToolUse hook、污点检查、权限门、参数校验, 然后执行, 最后把结果回填进上下文。变的只是这条路上还挂着几个零件。</p>
+        <p>「上下文瘦身」这一层管两件事:</p>
         <ul class="pts">
-          <li>主上下文超预算时, 清旧工具结果 (memory.py:clear_tool_results)。</li>
-          <li>子 agent 摘要的硬上限 (DelegateTool.max_summary_chars = 200)。</li>
+          <li>主上下文超预算时, 把旧的工具结果正文清成占位符 (memory.py:clear_tool_results), 零模型开销。</li>
+          <li>子 agent 交回的摘要有硬上限 (DelegateTool.max_summary_chars = 200), 子级再啰嗦也淹不了父上下文。</li>
         </ul>
       </div>
     </template>

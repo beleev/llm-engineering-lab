@@ -1,8 +1,8 @@
 # M07 — Subagents: 把脏活关进隔离的上下文, 只拿回摘要
 
-[![Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](../../docs/screenshots/agent-state-subagents-1.png)](https://beleev.github.io#/agent/state-subagents)
+[![Resume — 进程重启后从磁盘恢复会话, 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](../../docs/screenshots/agent-state-subagents-1.png)](https://beleev.github.io#/agent/state-subagents)
 
-[打开相关交互实验：Resume — 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](https://beleev.github.io#/agent/state-subagents)
+[打开相关交互实验：Resume — 进程重启后从磁盘恢复会话, 哪些东西回来了, 哪些没有 llm_agent/m06 · m07](https://beleev.github.io#/agent/state-subagents)
 
 ## 直觉
 

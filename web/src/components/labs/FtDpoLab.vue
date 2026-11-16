@@ -6,13 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="DPO — 一条 logsigmoid 曲线上的 6 个偏好对"
-    sub="横轴是隐式奖励差 $\Delta$ (policy 相对 ref, chosen 比 rejected 多涨了多少 log 概率)。上图是每个样本的 loss, 下图是它分到的梯度权重 $\sigma(-\beta\Delta)$。左右拖动任意一个点, 或者改 $\beta$。"
+    title="DPO — 一条 logsigmoid 曲线, 看哪些偏好对还在产生梯度"
+    sub="- 模拟什么: DPO (直接偏好优化) 的训练数据是「同一个 prompt 下, 一条更好的回答 chosen 和一条更差的 rejected」。它不训奖励模型, 直接让 policy 相对 ref (冻结的 SFT 起点) 更偏向 chosen、更远离 rejected。每个偏好对的状态可以压缩成一个数 $\Delta$: policy 相对 ref, 给 chosen 的 log 概率比给 rejected 的多涨了多少 (论文里叫隐式奖励差)。$\Delta \gt 0$ 表示这一对已经排对, $\Delta \lt 0$ 表示排反了。单个偏好对的 loss $= -\log\sigma(\beta\Delta)$, 这个式子在说: $\Delta$ 越大 loss 越小, 但曲线越来越平, 平了就没有梯度。
+      - 图上是什么: 横轴是 $\Delta$, 左半边淡红色底是排错区。上面的紫色曲线是单个偏好对的 loss 随 $\Delta$ 的变化, 横线标出 $\ln 2 = 0.693$ (训练第 0 步的 loss); 下面的橙色曲线是这个偏好对分到的梯度权重 $\sigma(-\beta\Delta)$, 取值 0 到 1。6 个带编号的大圆点是一个 batch 里的 6 个偏好对, 绿色在排对区, 红色在排错区; 每个点下方连着的小橙点是它当前的梯度权重。
+      - 可以做什么: 左右拖任意大圆点 (或聚焦后按方向键) 改这一对的 $\Delta$, 相当于训练把它推着走; 「从 ref 出发」把 6 个点都放回 $\Delta = 0$ (policy 刚从 ref 复制出来的状态); 「训练中途」换一组随机的 $\Delta$; 拖 $\beta$ 改曲线的陡峭程度。
+      - 应该看到: 点越往右, loss 越小, 梯度权重也越接近 0, 说明已经排对的样本会自动退出训练; 点越往左权重越接近 1, 排错的样本以满额梯度被纠正。右侧读数: 「batch 平均 loss」是 6 个点 loss 的均值; 「偏好准确率」是有几成的点在 $\Delta \gt 0$; 「排错样本拿走的梯度」是红点的权重之和占全部权重的比例, 它高于红点的条数占比时变绿, 说明梯度在往排错的样本上集中; 「最靠右的样本的权重」是排得最对的那个点还剩多少梯度, 低于 0.05 变绿。"
     module="llm_finetune/methods/dpo.py"
     run="python -m llm_finetune.run_finetune.dpo.train_dpo"
     :challenge="{
       ask: '点「从 ref 出发」: 6 个点的 loss 都是多少? 为什么? 然后把一个点拖到 Δ = +8, 再把 β 从 0.1 拖到 1.0。这个点的梯度权重怎么变, β 到底在控制什么?',
-      answer: '训练第 0 步 policy = ref, 所有 $\\Delta = 0$: loss 恒为 $-\\log\\sigma(0) = \\ln 2 \\approx 0.693$, 梯度权重恒为 0.5。\nDPO 初始 loss 不是 0.693, 说明 ref 和 policy 没对齐。这是最好用的自检。\n$\\beta$ 是「$\\Delta$ 要涨到多大才算够」的尺子。同样是 $\\Delta = 8$ 的样本:\n- $\\beta = 0.1$: 权重还有 $\\sigma(-0.8) \\approx 0.31$, 模型继续把它往右推, 离 ref 越来越远。\n- $\\beta = 1$: 权重只剩 $\\sigma(-8) \\approx 0.0003$, 基本停手。\n所以 $\\beta$ 大 = 贴近 ref、保守; $\\beta$ 小 = 允许偏离 ref 很远去拉大差距。它对应 RLHF 目标里的 KL 惩罚系数。',
+      answer: '答案: 「从 ref 出发」时 6 个点的 loss 都是 0.693; β 从 0.1 拖到 1.0 时, Δ = 8 的点的梯度权重从 0.31 掉到 0.0003; β 控制的是「Δ 要涨到多大才算够」。\n一步步看:\n- 训练第 0 步 policy 就是 ref 的复制, 所以每一对的 $\\Delta = 0$, loss 恒为 $-\\log\\sigma(0) = \\ln 2 \\approx 0.693$, 梯度权重恒为 0.5。跑 DPO 时第一步 loss 不是 0.693, 说明 ref 和 policy 没对齐, 这是最好用的自检。\n- 梯度权重 $\\sigma(-\\beta\\Delta)$ 这个式子在说: 它只看 $\\beta$ 和 $\\Delta$ 的乘积。同样是 $\\Delta = 8$ 的样本, $\\beta = 0.1$ 时乘积只有 0.8, 权重还有 $\\sigma(-0.8) \\approx 0.31$, 模型会继续把它往右推, 离 ref 越来越远; $\\beta = 1$ 时乘积是 8, 权重只剩 $\\sigma(-8) \\approx 0.0003$, 基本停手。\n- 所以 $\\beta$ 大等于贴近 ref、保守; $\\beta$ 小等于允许偏离 ref 很远去拉大差距。它对应 RLHF 目标里 KL 惩罚的系数。\n- 偏离 ref 的代价要盯着看: 本仓库 train_dpo 实测 200 步, 偏好准确率从 0.965 升到 0.996, 但模型给 chosen 的 $\\log\\pi$ 从 −4.03 掉到 −4.18, 贪心解码的 EM 从 0.332 掉到 0.137。排对了不等于更会写。',
     }"
   >
     <template #controls>
@@ -57,13 +60,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>batch 平均 loss</span><b>{{ meanLoss.toFixed(3) }}</b></div>
-      <div class="kv"><span>偏好准确率 (Δ &gt; 0)</span><b :class="acc === 1 ? 'good' : ''">{{ (acc * 100).toFixed(0) }}%</b></div>
-      <div class="kv"><span>排错样本拿走的梯度</span><b :class="wrongShare > 1 - acc ? 'good' : ''">{{ (wrongShare * 100).toFixed(0) }}%</b></div>
-      <div class="kv"><span>最"对"的样本的权重</span><b :class="minW < 0.05 ? 'good' : ''">{{ minW.toFixed(3) }}</b></div>
+      <div class="kv"><span>batch 平均 loss (6 个点的均值)</span><b>{{ meanLoss.toFixed(3) }}</b></div>
+      <div class="kv"><span>偏好准确率 (Δ &gt; 0 的点占几成)</span><b :class="acc === 1 ? 'good' : ''">{{ (acc * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>排错样本拿走的梯度 (红点权重占比)</span><b :class="wrongShare > 1 - acc ? 'good' : ''">{{ (wrongShare * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>最靠右的样本的权重 (还剩多少梯度)</span><b :class="minW < 0.05 ? 'good' : ''">{{ minW.toFixed(3) }}</b></div>
       <p class="lab-note">
-        <Tex text="$\partial\,\text{loss}/\partial\Delta = -\beta\cdot\sigma(-\beta\Delta)$。" />权重 → 0 的样本等于自动退出训练;
-        权重 → 1 的样本 (排得很错) 以满额梯度被纠正。这和分类里"只有分错的样本推动决策边界"是同一件事。
+        <Tex text="梯度 $\partial\,\text{loss}/\partial\Delta = -\beta\cdot\sigma(-\beta\Delta)$, 这个式子在说: 每个偏好对推动模型的力度, 就是下图那条曲线的高度。" />
+        权重接近 0 的样本等于自动退出训练; 权重接近 1 的样本 (排得很错) 以满额梯度被纠正。这和分类里「只有分错的样本推动决策边界」是同一件事。
       </p>
     </template>
   </LabFrame>

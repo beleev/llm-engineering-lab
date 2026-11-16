@@ -1,8 +1,8 @@
 # M02 — 数据并行 (DDP)
 
-[![一个 batch, 三种切法 — 梯度都是同一个 llm_train/m01+m02](../../docs/screenshots/train-batch-ddp-1.png)](https://beleev.github.io#/train/batch-ddp)
+[![一个 batch 的三种切法 — 梯度累积、DDP 算出来的都是同一个梯度, 付的账不同 llm_train/m01+m02](../../docs/screenshots/train-batch-ddp-1.png)](https://beleev.github.io#/train/batch-ddp)
 
-[打开相关交互实验：一个 batch, 三种切法 — 梯度都是同一个 llm_train/m01+m02](https://beleev.github.io#/train/batch-ddp)
+[打开相关交互实验：一个 batch 的三种切法 — 梯度累积、DDP 算出来的都是同一个梯度, 付的账不同 llm_train/m01+m02](https://beleev.github.io#/train/batch-ddp)
 
 ## 直觉
 

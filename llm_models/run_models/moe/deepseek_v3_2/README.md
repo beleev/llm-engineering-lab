@@ -1,8 +1,8 @@
 # DeepSeek-V3.2 (DSA: MLA + Lightning Indexer)
 
-[![DSA — 先粗选 top-k, 再精算注意力 llm_models/layers/core/attention.py](../../../../docs/screenshots/models-dsa-1.png)](https://beleev.github.io#/models/dsa)
+[![DSA 稀疏注意力 — 先用便宜的 indexer 粗选 top-k 个 key, 再只对它们精算注意力 llm_models/layers/core/attention.py](../../../../docs/screenshots/models-dsa-1.png)](https://beleev.github.io#/models/dsa)
 
-[打开相关交互实验：DSA — 先粗选 top-k, 再精算注意力 llm_models/layers/core/attention.py](https://beleev.github.io#/models/dsa)
+[打开相关交互实验：DSA 稀疏注意力 — 先用便宜的 indexer 粗选 top-k 个 key, 再只对它们精算注意力 llm_models/layers/core/attention.py](https://beleev.github.io#/models/dsa)
 
 ## 直觉
 

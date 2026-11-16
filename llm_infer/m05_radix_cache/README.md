@@ -1,8 +1,8 @@
 # M05 — Radix Cache (SGLang RadixAttention): 任意长度前缀共享
 
-[![Radix cache — 公共前缀只算一次 llm_infer/m05](../../docs/screenshots/infer-prefix-radix-1.png)](https://beleev.github.io#/infer/prefix-radix)
+[![Radix cache — 公共前缀的 KV 只算一次, 任意长度都能命中 llm_infer/m05](../../docs/screenshots/infer-prefix-radix-1.png)](https://beleev.github.io#/infer/prefix-radix)
 
-[打开相关交互实验：Radix cache — 公共前缀只算一次 llm_infer/m05](https://beleev.github.io#/infer/prefix-radix)
+[打开相关交互实验：Radix cache — 公共前缀的 KV 只算一次, 任意长度都能命中 llm_infer/m05](https://beleev.github.io#/infer/prefix-radix)
 
 ## 直觉
 

@@ -4,16 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="Cosine vs WSD — 训到一半想加训怎么办?"
-    sub="- 实线: 按原计划 $T_0$ 步走的学习率。
-      - 虚线: 假如一开始就知道要训 $T_1$ 步, 应该走的学习率。
-      - 阴影: 已经训过的步里, 实际 LR 与「本该用的」不一致的部分。
-      拖动横轴上的三个手柄: warmup 结束点、原计划 $T_0$、新计划 $T_1$。"
+    title="学习率调度 Cosine vs WSD — 训到一半想加训, 要回退多少步重训?"
+    sub="- 模拟什么: 学习率 (lr) 是每一步参数更新的步长, 训练中它不是常数, 而是按一条调度曲线变: 开头从小爬到峰值 (叫 warmup, 因为 Adam 的二阶矩估计在最初几百步很不准, 一上来就迈大步容易走飞), 结尾再降下来让模型落进谷底。两种常见曲线: cosine 把 warmup 之后每一步的 lr 都写成「当前步数 ÷ 总步数」的余弦函数, 所以总步数一改整条曲线都变; WSD (warmup–stable–decay) 中间一长段保持峰值不动, 只在最后约 10% 做退火 (decay), 稳定段的公式里根本没有总步数。这个台子模拟「原计划训 $T_0$ 步, 训完想加到 $T_1$ 步」这件事: 已经训过的步里, 有多少步用的 lr 和「一开始就按 $T_1$ 规划」的一样, 这些步算数; 不一样的那些要回退重训。
+      - 图上是什么: 横轴是训练步数 (0 到 2000), 纵轴是 lr 相对峰值的比例。实线是按原计划 $T_0$ 走的 lr 曲线; 虚线是假如一开始就知道要训 $T_1$ 步、本该走的曲线; 红色阴影是已训过的步里实线和虚线不一致的部分, 阴影越宽浪费越多。横轴下方三个彩色方块是可拖的手柄: warmup 结束点、原计划 $T_0$、新计划 $T_1$。
+      - 可以做什么: 点「Warmup + Cosine」或「WSD」切换调度; 左右拖三个手柄 (或聚焦后用方向键, 一次 10 步) 改 warmup 长度、原计划和新计划的总步数; WSD 下拖「退火占比」改最后退火段占总步数的比例; 拖「最终 LR / 峰值 LR」改退火的终点。
+      - 应该看到: cosine 下 warmup 一结束实线和虚线就分开, 阴影覆盖几乎整个已训区间; WSD 下两条线在稳定段完全重合, 只有最后退火段有阴影。右侧「仍算数的」是已训 $T_0$ 步里 lr 和新计划一致的步数 (从头数, 第一次不一致就停); 「需要回退重训」是 $T_0$ 减去它, 绿色表示一半以上能保留; 最后一行对比第 $T_0$ 步实际用的 lr 和按新计划本该用的 lr。"
     module="llm_train/m10"
     run="python -m llm_train.m10_training_stability.demo"
     :challenge="{
       ask: '原计划 1000 步, 训完发现 loss 还在降, 想加到 1600 步。cosine 和 WSD 各要回退多少步重训?',
-      answer: '- cosine: $\\text{LR} = f(\\text{step} / \\text{总步数})$。总步数一改, warmup 之后每一步的 LR 都变了, 已经训过的 1000 步里只有 warmup 那一小段还「算数」。要么几乎从头重训, 要么硬着头皮把 LR 重新拉高 (re-warmup, loss 会先反弹)。\n- WSD: 稳定段是一条水平线, 与总步数无关。回到退火刚开始时的 checkpoint (第 900 步附近), 继续保持高 LR 训到 1440 步再退火即可。浪费的只有那约 100 步退火。\n这也是 MiniCPM / DeepSeek-V3 / Kimi 用 WSD 的原因: 同一条主干上, 随时可以分叉出一个退火分支来拿「成品」模型。',
+      answer: 'cosine 要回退 900 步, 几乎从头来; WSD 只回退 100 步。\n- cosine: warmup 之后每一步的 lr 都是 $f((\\text{step} - \\text{warmup}) / (\\text{总步数} - \\text{warmup}))$, 总步数从 1000 改成 1600, 分母变了, 同一个 step 算出的 lr 全都不一样 (m10 实测: 总步数 100 改 200, 前 90 步的 lr 最大差 5.96e-4)。已经训过的 1000 步里只有前 100 步的 warmup 还「算数」, 读数显示回退 900 步。不想重训的话只剩一条路: 从第 1000 步的 checkpoint 硬把 lr 重新拉高 (re-warmup), 但 lr 突然变大 loss 会先反弹一截。\n- WSD: 稳定段的 lr 就是峰值, 公式里没有总步数, 所以不管计划训多久, 前 900 步 (退火开始之前) 的 lr 一模一样。回到退火刚开始时的 checkpoint (第 900 步), 继续保持峰值 lr 训到 1440 步, 再做最后 10% (160 步) 的退火就行。浪费的只有原来那 100 步退火, 读数显示回退 100 步。\n这也是 MiniCPM / DeepSeek-V3 / Kimi 用 WSD 的原因: 一条主干一直用峰值 lr 往前训, 随时可以从任意 checkpoint 分叉出一段短退火来拿「成品」模型, 数据追加、规模实验都不用重训。退火起点前的那个 checkpoint 是所有分支的公共祖先。',
     }"
   >
     <template #controls>
@@ -46,13 +46,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span>已训 {{ t0 }} 步里仍「算数」的</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ keep }} 步</b></div>
-      <div class="kv"><span>加训到 {{ t1 }} 需要回退重训</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ t0 - keep }} 步</b></div>
-      <div class="kv"><span>第 {{ t0 }} 步: 实际 LR vs 本该用的</span><b>{{ lr(t0 - 1, t0).toFixed(2) }} vs {{ lr(t0 - 1, t1).toFixed(2) }}</b></div>
+      <div class="kv"><span>已训 {{ t0 }} 步里仍「算数」的 (lr 和新计划一致的步数)</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ keep }} 步</b></div>
+      <div class="kv"><span>加训到 {{ t1 }} 步需要回退重训的</span><b :class="keepFrac > 0.5 ? 'good' : 'bad'">{{ t0 - keep }} 步</b></div>
+      <div class="kv"><span>第 {{ t0 }} 步的 lr (相对峰值): 实际用的 vs 按新计划本该用的</span><b>{{ lr(t0 - 1, t0).toFixed(2) }} vs {{ lr(t0 - 1, t1).toFixed(2) }}</b></div>
       <div class="lab-note">
-        <p>cosine 在 warmup 之后每一步都把 total_steps 放在分母里, 总步数一改整条曲线都变。</p>
-        <p>★ WSD 的稳定段 <code class="inline">return base_lr</code> 里没有 total_steps, 只有退火段依赖它。</p>
-        <p>warmup 的意义两者相同: Adam 的二阶矩估计在最初几百步很不准, 先用小 LR 走。</p>
+        <p>「仍算数」怎么数: 从第 0 步起逐步比较实线和虚线的 lr, 第一次不一致就停, 因为从那一步起训练轨迹就和新计划分道了, 后面的步再怎么对也接不上。</p>
+        <p>cosine 在 warmup 之后每一步都把 total_steps 放在分母里, 总步数一改整条曲线都变。★ WSD 的稳定段 <code class="inline">return base_lr</code> 里没有 total_steps, 只有退火段依赖它。</p>
+        <p>warmup 的意义两者相同: Adam 的二阶矩估计在最初几百步很不准, 先用小 lr 走过最危险的一段。</p>
       </div>
     </template>
   </LabFrame>

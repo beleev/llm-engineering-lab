@@ -6,14 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="MoE 路由实验台 — 倾斜、溢出与 all-to-all"
-    sub="64 个 token 经 top-1 路由发往 E 个专家 (均分在 D 张卡上)。路由越倾斜,
-      热点卡越忙、容量溢出丢的 token 越多。红色的一段是被丢弃的 token。点一根柱子看这个专家的明细。"
+    title="MoE 专家并行路由 — 路由一偏, 哪张卡最忙、哪些 token 被丢"
+    sub="- 模拟什么: 一个 MoE 层的专家并行 (EP): E 个专家平均分在 D 张卡上, 64 个 token 各自由路由器 (router) 打分, 送给分数最高的那 1 个专家 (top-1 路由)。token 原本在哪张卡, 和它选中的专家在哪张卡, 常常不是同一张, 所以要做一次 all-to-all 通信 (每张卡给每张卡各发一包) 把 token 寄过去。每个专家有容量上限 capacity = ⌈cf × 64 / E⌉, 超出的 token 不过专家、只走残差 (等于被丢弃)。最热的那张卡决定这一步要等多久。「bias 均衡」是 DeepSeek-V3 的 aux-loss-free 办法: 给每个专家一个偏置, 选专家时加上它, 过载的减、欠载的加, 反复几百步直到拉平; 它只改「选谁」, 不改门控权重。
+      - 图上是什么: 每根柱子是一个专家 (e0 起), 高度是它接到的 token 数, 柱子的颜色表示它在哪张卡上 (图例在右下)。黄色虚线是 capacity, 柱子超过虚线的那一段是红色, 就是被丢弃的 token。点一根柱子, 图下面一行字给这个专家的明细。右侧的 all-to-all 发送矩阵: 第 s 行第 t 列是从卡 s 寄到卡 t 的 token 数, 颜色越深越多, 这张表就是 all-to-all 的发货单。
+      - 可以做什么: 「D = 2 卡 / 4 卡」改专家分在几张卡上。「bias 均衡: 开 / 关」切换要不要用偏置把负载拉平。「换一组 token」换一批随机分数。拖「专家数 E」(4 到 16); 拖「容量因子 cf」(1 到 2, 越大每个专家能装越多); 拖「路由倾斜度 skew」(0 是公平的路由器, 越大越偏爱编号小的专家, 模拟路由器开始坍缩的样子)。
+      - 应该看到: skew 往上拖, e0、e1 的柱子冲过 capacity 线, 红段变长, 它们所在的卡在发送矩阵里那一列变深。打开 bias 均衡, 所有柱子齐平, 红段消失。右侧「不均衡度 max/mean」是最忙专家的 token 数除以平均数 (64/E), 1.00x 是完全均衡, demo 里倾斜的 router 是 1.62x; 「容量溢出丢弃的 token」是所有红段加起来; 「最热的卡收到」是发送矩阵里列和最大的那一列, 均匀时应该是 64/D, 它决定这一步的墙钟时间。"
     module="llm_train/m11"
     run="python -m llm_train.m11_expert_parallel.demo"
     :challenge="{
-      ask: '默认状态丢了 4 个 token。三件事各猜一次, 每次只动一个控件: skew 拖到 0 会不会归零? cf 拖到 2 呢? 打开「bias 均衡」呢?',
-      answer: '- skew = 0: 仍丢 2 个。router 不偏心时是纯随机路由, 总有专家碰巧收到 12 个, 超过 capacity 10。\n- cf = 2: 丢弃归零。代价是显存和计算按最坏情况 padding, 开销是两倍。\n- bias 均衡: 任何 skew 下每个专家都正好 8 个, 丢弃 0, 最热的卡收 16 个。它只改「选谁」, gate 权重不变。\ndemo 实测: 倾斜 router 是 1.62x、丢 5 个; bias 均衡后 1.00x、丢 0 个; aux loss 训练 60 步后 1.12x、丢 0 个。',
+      ask: '默认状态丢了 4 个 token。三件事各猜一次, 每次只动一个控件: skew 拖到 0, 丢弃会不会归零? cf 拖到 2 呢? 打开「bias 均衡」呢?',
+      answer: '答案: skew = 0 还会丢; cf = 2 归零; bias 均衡归零。\n为什么:\n- skew = 0: 仍丢 2 个。路由器不偏心时就是纯随机路由, 64 个 token 随机分给 8 个专家, 平均 8 个, 但总有专家碰巧收到 12 个, 超过 capacity = ⌈1.25 × 64 / 8⌉ = 10。随机本身就有波动, 不偏心不等于均衡。\n- cf = 2: capacity 变成 16, 丢弃归零。代价是显存和计算要按最坏情况 (每个专家 16 个) 预留 (padding), 开销是 cf = 1 时的两倍。\n- bias 均衡: 任何 skew 下每个专家都正好 64/E 个 (E = 8 时是 8 个), 丢弃 0, 最热的卡收到 64/D 个 (D = 4 时是 16 个)。它只改「选谁」, 乘到专家输出上的 gate 权重不变, 所以不影响模型质量。\ndemo 实测 (4 卡 × 每卡 2 专家, 64 token, capacity 10): 倾斜 router 是 1.62x、丢 5 个、最热卡收 24 个; aux loss 训练 60 步后 1.12x、丢 0 个; bias 均衡后 1.00x、丢 0 个、最热卡收 16 个。',
     }"
   >
     <template #controls>
@@ -47,15 +49,15 @@
       </div>
     </div>
     <p class="lab-note" style="margin-top: 10px;">
-      专家 e{{ sel.e }} 在卡 {{ sel.dev }}: 收到 {{ sel.c }} 个 token, 处理 {{ sel.c - sel.over }} 个, 丢弃 {{ sel.over }} 个 (只走残差)。
+      专家 e{{ sel.e }} 在卡 {{ sel.dev }}: 收到 {{ sel.c }} 个 token, 处理 {{ sel.c - sel.over }} 个, 丢弃 {{ sel.over }} 个 (被丢弃的 token 跳过专家, 只走残差连接原样往下传)。
     </p>
 
     <template #stats>
-      <div class="kv"><span>不均衡度 max/mean</span><b :class="st.imb < 1.2 ? 'good' : 'bad'">{{ st.imb.toFixed(2) }}x</b></div>
-      <div class="kv"><span>容量溢出丢弃的 token</span><b :class="st.dropped ? 'bad' : 'good'">{{ st.dropped }} / {{ N }}</b></div>
-      <div class="kv"><span>最热的卡收到 (均匀应为 {{ N / D }})</span><b :class="st.hot > st.hotOk ? 'bad' : 'good'">{{ st.hot }}</b></div>
+      <div class="kv"><span>不均衡度 max/mean (最忙专家 / 平均 {{ N / E }} 个, 1.00x 最均衡)</span><b :class="st.imb < 1.2 ? 'good' : 'bad'">{{ st.imb.toFixed(2) }}x</b></div>
+      <div class="kv"><span>容量溢出丢弃的 token (所有红段之和)</span><b :class="st.dropped ? 'bad' : 'good'">{{ st.dropped }} / {{ N }}</b></div>
+      <div class="kv"><span>最热的卡收到的 token (均匀应为 {{ N / D }}, 它决定这一步多久)</span><b :class="st.hot > st.hotOk ? 'bad' : 'good'">{{ st.hot }}</b></div>
       <div class="a2a">
-        <span>all-to-all 发送矩阵 (行 = 源卡, 列 = 目标卡)</span>
+        <span>all-to-all 发送矩阵 (第 s 行第 t 列 = 从卡 s 寄到卡 t 的 token 数)</span>
         <div class="a2a-grid" :style="{ gridTemplateColumns: `repeat(${D}, 36px)` }">
           <template v-for="(row, s) in dispatch" :key="s">
             <span v-for="(v, t) in row" :key="t" class="a2a-cell mono" :style="{ background: heat((v / st.cellMax) * 0.8) }">{{ v }}</span>
@@ -65,10 +67,10 @@
       <div class="legend">
         <span v-for="d in D" :key="d" class="leg mono"><i :style="{ background: devColors[d - 1] }" />卡{{ d - 1 }}</span>
       </div>
-      <p class="lab-note">
-        bias 均衡是 DeepSeek-V3 的做法: 选专家用 s_e + b_e, 过载的专家 b_e 减一点, 欠载的加一点, 重复几百步。
-        另一条路是 Switch aux loss: 加一项 loss 去训练 router。
-      </p>
+      <div class="lab-note">
+        <p>bias 均衡是 DeepSeek-V3 的做法: 选专家时用 s_e + b_e 排序 (s_e 是路由分数, b_e 是偏置), 过载的专家 b_e 减一点, 欠载的加一点, 重复几百步直到拉平。b_e 不进计算图, 也不改 gate 权重, 所以不影响语言建模。</p>
+        <p>另一条路是 Switch Transformer 的 aux loss: 往总损失里加一项 E · Σ f_e · P_e 去训练 router, 把路由概率推平。它有效 (demo 里 1.62x 降到 1.12x), 但这股梯度会和语言建模抢方向。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

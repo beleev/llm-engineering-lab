@@ -1,8 +1,8 @@
 # M11 — 专家并行 (MoE Expert Parallel)
 
-[![MoE 路由实验台 — 倾斜、溢出与 all-to-all llm_train/m11](../../docs/screenshots/train-moe-seq-1.png)](https://beleev.github.io#/train/moe-seq-parallel)
+[![MoE 专家并行路由 — 路由一偏, 哪张卡最忙、哪些 token 被丢 llm_train/m11](../../docs/screenshots/train-moe-seq-1.png)](https://beleev.github.io#/train/moe-seq-parallel)
 
-[打开相关交互实验：MoE 路由实验台 — 倾斜、溢出与 all-to-all llm_train/m11](https://beleev.github.io#/train/moe-seq-parallel)
+[打开相关交互实验：MoE 专家并行路由 — 路由一偏, 哪张卡最忙、哪些 token 被丢 llm_train/m11](https://beleev.github.io#/train/moe-seq-parallel)
 
 ## 直觉
 

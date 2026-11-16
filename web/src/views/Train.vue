@@ -4,7 +4,7 @@
     <div class="page-subtitle lead-group">
       <p>
         <RepoLink path="llm_train/" label="llm_train/" tiny /> 用 numpy 把真实训练框架里最常见的机制压成小张量演示。
-        一个 "rank" 就是 Python list 里的一个元素, 所以每一次数据搬运都看得见。
+        分布式训练里每张卡叫一个 rank; 这里一个 rank 就是 Python list 里的一个元素, 所以每一次卡与卡之间的数据搬运都看得见。
       </p>
       <p>
         每个 demo 的结尾都是一句 <code class="inline">assert</code>: 无论怎么切 batch、切层、切状态、降精度,
@@ -13,10 +13,10 @@
     </div>
 
     <ChapterIntro
-      tldr="规模化训练要学会分别切 batch、切层、切状态、切序列, 并且每切一刀都能证明结果没变。"
+      tldr="一张卡装不下、也算不完大模型, 规模化训练就是把一次训练拆到很多张卡上。能切的东西有四种: 切 batch (每张卡算不同的样本)、切层或切矩阵 (每张卡放模型的一部分)、切优化器状态 (每张卡只存一片)、切序列。本阶段每切一刀都用 assert 证明: 算出来的梯度和更新与单卡完全一样。"
       question="什么时候该切 batch, 什么时候该切矩阵, 什么时候该切优化器状态?"
       :goals="[
-        '看懂 DDP / TP / PP / ZeRO 各自切的是 batch / 矩阵 / 层 / 状态',
+        '看懂 DDP (数据并行) 切 batch、TP (张量并行) 切矩阵、PP (流水线并行) 切层、ZeRO 切优化器状态, 各自解决哪种放不下',
         '说清混合精度为什么少不了 loss scaling、fp32 master 和 grad clip',
         `把 ${moduleSpan} 各自的功能挂回 full_loop 一步里的对应位置`,
       ]"
@@ -53,7 +53,7 @@
     <section class="section">
       <h2>2. {{ axes.length }} 个切分维度</h2>
       <p class="lead">
-        读训练框架时先问"它切的是哪一种东西"。下面这张表把名词压回具体张量和通信原语。
+        读训练框架时先问"它切的是哪一种东西"。下面这张表把名词压回具体张量和通信原语 (all-reduce、reduce-scatter 这类卡与卡之间交换数据的基本操作)。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="train-table">
@@ -199,7 +199,7 @@ const trainChain = [
   {
     name: 'Accum',
     year: 'm01',
-    pain: 'batch 想开大, 先爆的是激活显存。',
+    pain: 'batch 想开大, 先爆的是激活显存 (前向时为反向留下的中间结果)。',
     fix: '拆成 K 个 micro-batch 依次算, 梯度按样本数加权累加: 激活峰值 ÷K, 梯度一位不差。',
     color: 'var(--left)',
   },
@@ -207,7 +207,7 @@ const trainChain = [
     name: 'DDP',
     year: 'm02',
     pain: '单卡吞吐不够, 一天训不完。',
-    fix: '每卡算本地梯度, all-reduce(mean) 之后所有副本拿同一个梯度更新, 参数逐位一致。',
+    fix: '每张卡各算自己那份样本的梯度, 再用 all-reduce (所有卡互相求平均的一次通信) 拿到同一个梯度更新, 参数逐位一致。',
     color: 'var(--accent)',
   },
   {
@@ -221,7 +221,7 @@ const trainChain = [
     name: 'ZeRO',
     year: 'm05',
     pain: 'DDP 每卡都存一整份参数、梯度和 Adam 状态, 每参数 16 字节。',
-    fix: 'reduce-scatter 梯度, 每卡只更新自己那一片, $16\\Psi$ 一路降到 $16\\Psi/N$。',
+    fix: '梯度用 reduce-scatter 分片 (每张卡只收自己负责那片的总和), 每卡只更新自己那一片: 每参数 16 字节 ($16\\Psi$, $\\Psi$ 是参数量) 降到 $16\\Psi/N$。',
     color: 'var(--right)',
   },
   {

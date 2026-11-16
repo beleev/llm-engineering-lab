@@ -4,13 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="投机解码 — draft 猜 K 个, target 一次验 K+1 个"
-    sub="上图: 每次 target 调用的期望产出随 $K$ 的变化 (可以直接拖曲线上的圆点改 $K$)。下方: 逐轮回放 draft → 验证 → 接受最长前缀 + 白送 1 个 token。"
+    title="投机解码 — 小模型连猜 K 个, 大模型一次验完, 看每次调用能多出几个 token"
+    sub="- 模拟什么: decode 每步只出 1 个 token, 却要把整份权重读一遍, GPU 算力大量闲着。投机解码让一个便宜的小模型 (draft) 先连猜 $K$ 个 token, 原来的大模型 (target) 一次 forward 把这 $K$ 个一起检查: 从头开始连续猜对的都收下, 第一个猜错的位置换成 target 自己算出的 token, 后面的作废; $K$ 个全对再白送 1 个 (target 那次 forward 顺手算出了第 $K+1$ 个)。输出和 target 自己一个一个生成完全一样, 只是每次 target 调用能多出几个 token。$\alpha$ 是每个 draft token 被 target 接受的概率 (接受率), 由 draft 和 target 有多像决定。
+      - 图上是什么: 上图横轴是 draft 长度 $K$。紫色实线是每次 target 调用的期望产出 $E = (1 - \alpha^{K+1}) / (1 - \alpha)$ 个 token; 绿色虚线是加速比 $E / (1 + K \cdot c)$, 其中 $c$ 是 draft 一步的耗时相对 target 一步的比例, 实心点是加速比最高的 $K$; 黄色虚线是 $E$ 的上限 $1 / (1 - \alpha)$, $K$ 再大也到不了它; 底部的点线是 1, 即普通 decode 每次调用 1 个 token。曲线上的大圆点是当前 $K$。下面一排格子是逐轮回放: d1 到 dK 是 draft 猜的 token; 验证后打 ✓ 的被接受, 「✗→t」是第一个被拒、换成 target 纠错 token 的位置, 「—」是作废的; 最后一格是第 $K+1$ 个槽位, 全部接受时显示 bonus。
+      - 可以做什么: 拖「draft 长度 K」或直接拖曲线上的圆点; 拖「每 token 接受率 α」看曲线和上限怎么变; 拖「draft 成本 c」看加速比的最优 $K$ 怎么移。「换一组随机数」重抽回放里每轮接受几个; 「下一步」和「时间轴」逐轮看 draft 连猜、target 验证、接受或纠错三个阶段。
+      - 应该看到: 右侧「期望产出: 公式 / 模拟」是公式值和按 $\alpha$ 独立抛硬币模拟 20000 轮的均值, 两者接近 (差 0.05 以内标绿) 说明公式对; 「加速比」小于 1 标红, 意思是 draft 的开销超过了省下的 target 调用; 「省掉的 target 调用」是 $1 - 1/E$; 「回放至今」是回放到当前轮为止累计产出的 token 数和 target 调用数。$\alpha$ 低 (0.3 以下) 时曲线很快就平了, 拖大 $K$ 没用; $c$ 不为 0 时, $K$ 过大加速比反而下降。"
     module="llm_infer/m07"
     run="python -m llm_infer.m07_speculative_decoding.demo"
     :challenge="{
       ask: 'α = 0.6 时把 K 从 4 拖到 10, draft 长了一倍多。每轮的期望产出涨了多少?',
-      answer: '- $\\alpha=0.6$: $K=4$ → 2.31, $K=10$ → 2.49, 上限 $1/(1-\\alpha)=2.5$。第一个猜错后面全废, 长 draft 的尾巴几乎从不被用到。\n- 再把 draft 成本调到 $c=0.2$: 加速比 $E/(1+K \\cdot c)$ 在 $K=2$ 就见顶 (1.40×), 再长反而更慢。\ndraft 再烂 ($\\alpha \\approx 0.1$) 也不改变输出:\n- greedy: 只接受与 target argmax 相同的 token。\n- 采样: 以 $\\min(1, p/q)$ 接受, 拒绝就从归一化残差 $\\max(0, p-q)$ 重采样, 两步合起来恰好是 target 分布 $p$。\n烂 draft 只会让你更慢, 不会让你更错。',
+      answer: '涨得很少: 2.31 变成 2.49, 只多了 0.18 个。\n- $\\alpha = 0.6$ 时 $E = (1 - 0.6^{K+1}) / (1 - 0.6)$: $K = 4$ 是 2.31, $K = 10$ 是 2.49, 上限 $1/(1-\\alpha) = 2.5$。接受是链式的: 第一个猜错, 后面全废。第 $i$ 个 draft token 能被用上的概率是 $\\alpha^i$, $0.6^5 \\approx 0.08$, 所以第 5 个以后的槽位几乎从不被用到, 长 draft 的尾巴基本是白猜。\n- draft 不是免费的: 把「draft 成本 c」拖到 0.2, 一轮耗时是 1 次 target 加 $K$ 次 draft, 即 $1 + 0.2K$ 倍 target 时间。加速比 $E / (1 + K \\cdot c)$ 在 $K = 2$ 就见顶 (1.40×), 再长反而更慢。\n反过来, draft 再烂 ($\\alpha \\approx 0.1$) 也不会改变输出, 只会更慢:\n- greedy 模式: 只接受和 target argmax 相同的 token, 输出和 target 自己 greedy 完全一样。\n- 采样模式: 以 $\\min(1, p/q)$ 的概率接受 ($p$ 是 target 给这个 token 的概率, $q$ 是 draft 给的), 拒绝时从归一化的残差分布 $\\max(0, p - q)$ 重采样。两步合起来, 每个位置的输出分布恰好等于 target 的分布 $p$。\n所以挑 draft 只看速度账: 接受率够高、单步够便宜。',
     }"
   >
     <template #controls>
@@ -23,7 +26,7 @@
       </div>
     </template>
 
-    <svg ref="svg" viewBox="0 0 520 210" role="group" aria-label="期望产出与加速比随 K 的变化">
+    <svg ref="svg" viewBox="0 0 520 210" role="group" aria-label="每次 target 调用的期望产出与加速比随 draft 长度 K 的变化">
       <line x1="40" x2="510" y1="180" y2="180" class="axis" /><line x1="40" x2="40" y1="10" y2="180" class="axis" />
       <text v-for="k in 10" :key="k" :x="sx(k)" y="196" class="tick">{{ k }}</text>
       <text v-for="v in yTicks" :key="`y${v}`" x="34" :y="sy(v) + 3" class="tick end">{{ v }}</text>
@@ -35,14 +38,14 @@
       <polyline :points="pts(speed)" class="curve s" />
       <circle v-for="k in 10" :key="`d${k}`" :cx="sx(k)" :cy="sy(speed(k))" r="2.5" :class="['dot', { best: k === bestK }]" />
       <circle
-        :cx="sx(K)" :cy="sy(E(K))" r="8" class="handle draggable" tabindex="0" role="slider" aria-label="拖动改变 K"
+        :cx="sx(K)" :cy="sy(E(K))" r="8" class="handle draggable" tabindex="0" role="slider" aria-label="当前 K 的位置: 左右拖动改变 draft 长度 K"
         :aria-valuenow="K" aria-valuemin="1" aria-valuemax="10"
         @pointerdown="start($event, { svg, onMove })"
         @keydown.left.prevent="K = clamp(K - 1, 1, 10)" @keydown.right.prevent="K = clamp(K + 1, 1, 10)"
       />
     </svg>
     <div class="legend">
-      <span><i class="e" />期望 token / target 调用</span><span><i class="s" />加速比 <Tex text="$E / (1 + K \cdot c)$" />, 实心点 = 最优 <Tex text="$K$" /></span>
+      <span><i class="e" />每次 target 调用的期望产出 (token 数)</span><span><i class="s" />加速比 <Tex text="$E / (1 + K \cdot c)$" /> (算上 draft 的开销), 实心点 = 加速比最高的 <Tex text="$K$" /></span>
     </div>
 
     <div class="round" aria-live="polite">
@@ -52,13 +55,13 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>期望产出: 公式 / 模拟 {{ ROUNDS }} 轮</span><b :class="Math.abs(sim.mean - E(K)) < 0.05 ? 'good' : 'bad'">{{ E(K).toFixed(2) }} / {{ sim.mean.toFixed(2) }}</b></div>
-      <div class="kv"><span>加速比 <Tex text="$E/(1+K \cdot c)$" /></span><b :class="speed(K) > 1 ? 'good' : 'bad'">{{ speed(K).toFixed(2) }}×</b></div>
-      <div class="kv"><span>省掉的 target 调用</span><b>{{ ((1 - 1 / E(K)) * 100).toFixed(0) }}%</b></div>
-      <div class="kv"><span>回放至今: token / target 调用</span><b>{{ soFar.tokens }} / {{ soFar.calls }}</b></div>
+      <div class="kv"><span>每次 target 调用的期望产出: 公式 / 模拟 {{ ROUNDS }} 轮的均值</span><b :class="Math.abs(sim.mean - E(K)) < 0.05 ? 'good' : 'bad'">{{ E(K).toFixed(2) }} / {{ sim.mean.toFixed(2) }}</b></div>
+      <div class="kv"><span>加速比 <Tex text="$E/(1+K \cdot c)$" /> (相对普通 decode, 算上 draft 开销)</span><b :class="speed(K) > 1 ? 'good' : 'bad'">{{ speed(K).toFixed(2) }}×</b></div>
+      <div class="kv"><span>省掉的 target 调用 (<Tex text="$1 - 1/E$" />)</span><b>{{ ((1 - 1 / E(K)) * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>回放至今: 产出的 token / target 调用次数</span><b>{{ soFar.tokens }} / {{ soFar.calls }}</b></div>
       <div class="lab-note">
-        <p>每轮产出 = 接受数 <Tex text="$n + 1$" />。那个 "+1" 永远有: 拒绝时是 target 自己给的纠错 token, 全接受时是 bonus。</p>
-        <p>所以最差也不比普通 decode 少出 token, 只是白付了 <Tex text="$K$" /> 次 draft 的钱 (加速比 &lt; 1)。最优 <Tex text="$K$" /> = {{ bestK }}。</p>
+        <p>每轮产出 = 接受数 <Tex text="$n + 1$" />。那个「+1」永远有: 被拒时是 target 自己给的纠错 token, 全接受时是 bonus。所以最差也和普通 decode 一样每次调用出 1 个 token, 只是白付了 <Tex text="$K$" /> 次 draft 的钱 (加速比 &lt; 1)。</p>
+        <p>公式的来历: 第 <Tex text="$i$" /> 个 draft token 被接受, 要求前 <Tex text="$i$" /> 个全对, 概率 <Tex text="$\alpha^i$" />; 把 <Tex text="$i = 0$" /> 到 <Tex text="$K$" /> 的 <Tex text="$\alpha^i$" /> 加起来就是 <Tex text="$E$" />。当前参数下加速比最高的 <Tex text="$K$" /> = {{ bestK }}。</p>
       </div>
     </template>
   </LabFrame>

@@ -1,8 +1,8 @@
 # M22 — 稀疏 attention decode (Quest / NSA / DSA 风格)
 
-[![稀疏注意力 decode — 只读 top-k 个 KV block llm_infer/m22](../../docs/screenshots/infer-sparse-decode-1.png)](https://beleev.github.io#/infer/sparse-decode)
+[![稀疏注意力 decode — 只读打分最高的 k 个 KV block, 看丢了多少注意力 llm_infer/m22](../../docs/screenshots/infer-sparse-decode-1.png)](https://beleev.github.io#/infer/sparse-decode)
 
-[打开相关交互实验：稀疏注意力 decode — 只读 top-k 个 KV block llm_infer/m22](https://beleev.github.io#/infer/sparse-decode)
+[打开相关交互实验：稀疏注意力 decode — 只读打分最高的 k 个 KV block, 看丢了多少注意力 llm_infer/m22](https://beleev.github.io#/infer/sparse-decode)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # PPO (带 critic) — GRPO 省掉的那个 critic 到底买到了什么
 
-[![GAE: 从 TD(0) 滑到 Monte-Carlo llm_finetune/methods/ppo.py](../../../docs/screenshots/finetune-ppo-1.png)](https://beleev.github.io#/finetune/ppo)
+[![GAE — 优势估计从 TD(0) 滑到 Monte-Carlo, λ 就是那根滑杆 llm_finetune/methods/ppo.py](../../../docs/screenshots/finetune-ppo-1.png)](https://beleev.github.io#/finetune/ppo)
 
-[打开相关交互实验：GAE: 从 TD(0) 滑到 Monte-Carlo llm_finetune/methods/ppo.py](https://beleev.github.io#/finetune/ppo)
+[打开相关交互实验：GAE — 优势估计从 TD(0) 滑到 Monte-Carlo, λ 就是那根滑杆 llm_finetune/methods/ppo.py](https://beleev.github.io#/finetune/ppo)
 
 ## 直觉
 

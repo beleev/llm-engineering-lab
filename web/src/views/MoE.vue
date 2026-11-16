@@ -2,24 +2,35 @@
   <div>
     <h1 class="page-title">MoE 路由可视化</h1>
     <div class="page-subtitle lead-group">
-      <p>想让模型更懂, 最直接的办法是把 FFN 做大。但 FFN 一大, 每个 token 的算力就跟着涨。</p>
       <p>
-        MoE 放 E 个小 FFN, 每个 token 只过其中 top-k 个: 参数是单个小 FFN 的 E 倍, 每 token 算力只有 k 倍。
-        容量和算力就此解耦。
+        Transformer 的每一层里都有一个 FFN (feed-forward network, 前馈网络): 几个矩阵乘法, 每个 token 单独过一遍。
+        模型记住的「知识」大部分存在 FFN 的参数里, 所以想让模型更懂, 最直接的办法是把 FFN 做大。
       </p>
       <p>
-        本页把两套路由哲学并排放:
-        <strong>Mixtral (softmax + 外挂 aux loss)</strong> 对 <strong>DeepSeek (sigmoid + 共享专家 + aux-free bias)</strong>。
-        aux loss 是为了把专家负载拉平而额外加的一项损失; aux-free 就是不加它, 改用一个不收梯度的 bias。
+        问题是稠密 FFN 里每个参数对每个 token 都要算一遍: FFN 参数翻倍, 每个 token 的算力也翻倍。
+      </p>
+      <p>
+        MoE (Mixture of Experts, 混合专家) 的做法是把一个大 FFN 换成 E 个小 FFN, 每个小 FFN 叫一个「专家」。
+        再加一个叫 router 的小线性层, 给每个 token 对每个专家打一个分, 只把 token 送进分数最高的 k 个专家, 这一步叫 top-k。
+        参数量按 E 个专家算, 每个 token 的算力只按 k 个算。容量和算力就这样拆开了。
+      </p>
+      <p>
+        本页把两套路由设计并排放:
+        <strong>Mixtral (softmax 打分 + 外挂 aux loss)</strong> 对 <strong>DeepSeek (sigmoid 打分 + 共享专家 + aux-free bias)</strong>。
+        这几个名词下面会逐个解释。先说两个: aux loss 是为了让各专家接到的 token 数差不多, 而额外加进总 loss 的一项;
+        aux-free 就是不加这一项, 改用一个不走梯度的偏置 bias 去调整「选谁」。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="MoE 就是把 ffn 槽位换成「E 个小 FFN + 一个 router」。Mixtral 和 DeepSeek 不是新旧版本, 是两套不同的路由哲学。"
-      question="专家一多, 怎么防止 router 把所有 token 都塞给那几个明星专家? 又怎么不让「负载均衡」这件事污染语言建模的 loss?"
+      tldr="MoE 把 Transformer 里的 FFN 槽位换成「E 个小 FFN (专家) + 一个 router」, router 给每个 token 挑 k 个专家。参数量按 E 算, 每个 token 的算力按 k 算。
+        - Mixtral: softmax 打分, 8 个大专家每个 token 选 2 个; 负载均衡靠额外加进总 loss 的 aux loss。
+        - DeepSeek-V3: sigmoid 打分, 64–256 个细粒度专家, 外加每个 token 都必过的共享专家; 负载均衡靠一个不走梯度的 bias。本库 demo 里这个 bias 把负载变异系数从 0.273 压到 0.124, LM loss 几乎不动 (2.979 对 2.982)。
+        两者不是新旧版本, 是两套不同的路由哲学。"
+      question="专家一多, router 很容易把大部分 token 都塞给那几个「明星专家」, 怎么防? 又怎么让「把负载拉平」这件事不去干扰模型学语言本身的 loss?"
       :goals="[
-        '看懂一个 FFN 是怎么被换成 router 加 E 个小 FFN 的',
-        '分清 Mixtral 的 softmax top-k 和 DeepSeek 的 sigmoid + 共享专家',
+        '看懂一个 FFN 是怎么被换成 router 加 E 个小 FFN 的, 以及一个 token 从 router 到专家再加回来走了哪几步',
+        '分清 Mixtral 的 softmax top-k 和 DeepSeek 的 sigmoid + 共享专家, 说出两种打分各自意味着什么',
         '说清 aux-free 的偏置怎么在不碰门控权重的前提下把负载拉平',
       ]"
       :codes="[
@@ -32,7 +43,7 @@
 
     <EvolutionChain
       title="演进逻辑链 · 容量和算力拆开记账"
-      subtitle="根问题: 稠密 FFN 里每个参数对每个 token 都要算一遍, 想多装知识, 每 token 算力就同比上涨"
+      subtitle="根问题: 稠密 FFN 里每个参数对每个 token 都要算一遍, 想多装知识就得加参数, 每个 token 的算力跟着同比上涨"
       :steps="evoSteps"
     />
 
@@ -78,13 +89,29 @@
         <button type="button" @click="animateFlow" :disabled="animating">▷ 播放路由动画</button>
       </div>
       <p class="desc" style="margin-top: 10px;">
-        拖滑杆时 token 的底分不变, 只有「重新采样」会换一批。
+        <strong>模拟什么:</strong> 一层 MoE 里的 router 在给一个 batch 的 token 分配专家。
+        每个 token 对每个专家有一个底分 (真实模型里是 router 这个线性层算出来的 logit, 这里用固定随机种子生成),
+        打分函数把底分变成概率, 再挑概率最高的 top-k 个专家。
+        拖滑杆时 token 的底分不变, 只有「重新采样 tokens」会换一批底分。
       </p>
       <p class="desc" style="margin-top: 6px;">
-        把「路由坍缩倾向」拉到 100%, 大部分 token 都往前两个专家挤。负载标准差变红, 其余专家白占着显存。
+        <strong>图上是什么:</strong> 下面那张图左边一列是 batch 里的 token (t0, t1, …), 中间的 Router 框是打分函数, 右边一列是专家 E0, E1, …。
+        每条从 Router 连到专家的线表示一个 token 被送进了那个专家; 线越粗越实, 这个专家在该 token 的 k 个权重里占比越大。
+        每个专家旁边的小横条是它的负载, 就是这一批里有多少个 token 选了它; 负载超过平均值 1.8 倍的横条变红。
+        切到 DeepSeek 时最下面多出的 Shared 行是共享专家, 用虚线连到所有 token, 因为每个 token 都必须过它。
       </p>
       <p class="desc" style="margin-top: 6px;">
-        真实训练里这是个正反馈: 被选中得多的专家学得更好, 于是更容易被选中。所以 MoE 必须配一套均衡机制。
+        <strong>可以做什么:</strong> 「变体」在 Mixtral 的 softmax 和 DeepSeek 的 sigmoid 之间切换打分函数;
+        「专家总数 E」改专家有几个; 「top-k」改每个 token 送进几个专家 (上限是 E 的一半);
+        「共享专家」只在 DeepSeek 下出现, 改必过专家的个数; 「Token 数」改这一批有几个 token;
+        「路由坍缩倾向」把前两个专家 E0、E1 的底分统一抬高, 拉得越大, 越多 token 往它们俩挤。
+        「播放路由动画」让连线流动一遍, 方便看清每个 token 去了哪。
+      </p>
+      <p class="desc" style="margin-top: 6px;">
+        <strong>应该看到:</strong> 把「路由坍缩倾向」拉到 100%, 大部分 token 都往 E0、E1 挤, 它们的横条变红, 其余专家几乎没有连线, 却仍然占着显存。
+        右下角的「负载标准差」跟着变红: 它是各路由专家负载的标准差, 越小表示 token 分得越平均。
+        真实训练里这是个正反馈: 被选中得多的专家学得更好, 于是更容易被选中, 最后少数专家包揽几乎所有 token。
+        所以 MoE 必须配一套均衡机制。
       </p>
     </div>
 
@@ -161,11 +188,14 @@
       <!-- 这张图没模拟的东西要写明, 否则读者会以为 DeepSeek 的均衡没用 -->
       <div class="sim-note">
         <p>
-          切换 Mixtral / DeepSeek, 这张图只换了打分函数 (softmax 换成 sigmoid), 再加上共享专家。
-          两个函数都单调递增, top-k 选出的专家相同, 所以路由专家的负载不变。
+          这张图模拟的只有「打分 + 选 top-k」这一步。切换 Mixtral / DeepSeek, 变的只有打分函数 (softmax 换成 sigmoid) 和多出来的共享专家。
+          softmax 和 sigmoid 都是单调递增函数, 底分高的专家换算后还是高, 所以同一批底分下 top-k 选出的专家完全相同, 路由专家的负载也就不变。
+          两者的真正区别是: softmax 让一个 token 对所有专家的分数加起来等于 1, 专家之间互相竞争;
+          sigmoid 给每个专家独立打一个 0 到 1 之间的分, 互不影响。这个区别要到训练时才体现出来。
         </p>
         <p>
-          本图不模拟均衡, 效果见<router-link :to="{ name: 'models-moe-balance' }">「Aux-loss-free 均衡」一章</router-link>。
+          本图也不模拟任何均衡机制: 没有 aux loss, 也没有 DeepSeek 的 bias。所以把变体切到 DeepSeek, 坍缩并不会自己消失。
+          bias 怎么一步步把负载拉平, 见<router-link :to="{ name: 'models-moe-balance' }">「Aux-loss-free 均衡」一章</router-link>的实验台。
         </p>
       </div>
 
@@ -174,17 +204,17 @@
         <div class="stat">
           <div class="k">负载标准差</div>
           <div class="v" :style="{ color: loadStdColor }">{{ loadStd.toFixed(2) }}</div>
-          <div class="hint">越小越均衡; 拖「路由坍缩倾向」看它变红</div>
+          <div class="hint">各路由专家负载 (接到的 token 数) 的标准差, 越小越均衡。小于 1 绿色, 1 到 3 黄色, 3 以上红色; 拖「路由坍缩倾向」看它变红</div>
         </div>
         <div class="stat">
           <div class="k">最热门的专家</div>
           <div class="v">E{{ hottestExpert.idx }}</div>
-          <div class="hint">一个人扛了 {{ Math.round(hottestExpert.load / totalRoutedAssigns * 100) }}% 的路由</div>
+          <div class="hint">它一个接了全部路由次数 (Token 数 × top-k) 的 {{ Math.round(hottestExpert.load / totalRoutedAssigns * 100) }}%</div>
         </div>
         <div class="stat">
           <div class="k">激活比例</div>
           <div class="v accent">{{ (topK / numExperts * 100).toFixed(1) }}%</div>
-          <div class="hint">top-k / 总专家 = 每个 token 实际用掉的算力占比</div>
+          <div class="hint">top-k 除以专家总数 E: 每个 token 实际用到的路由专家参数占全部路由专家参数的比例, 也就是省算力的程度 (不含共享专家和注意力)</div>
         </div>
       </div>
     </div>
@@ -193,14 +223,13 @@
     <section class="section">
       <h2>Mixtral 和 DeepSeek 的 MoE 差在哪</h2>
       <div class="lead-group">
-        <p>每一行都是一个被踩过的坑:</p>
+        <p>下表每一行都是一个被踩过的坑, 左格是 Mixtral 的做法, 右格是 DeepSeek 针对同一个坑给出的回答:</p>
         <ul class="pts">
-          <li>专家太大, 就没法分工。</li>
-          <li>没有共享专家, 每个专家都要重学一遍通用能力。</li>
-          <li>不做均衡, 就会滚雪球滚成路由坍缩。</li>
-          <li>用 aux loss 做均衡, 又会跟语言建模抢梯度。</li>
+          <li>专家个数少、每个都很大, 一个专家什么都得管, 分不出工。</li>
+          <li>没有共享专家, 「通用能力」(每个 token 都用得上的那部分知识) 每个专家都得各自重学一遍。</li>
+          <li>不做均衡, 热门专家越学越好、越选越多, 滚雪球滚成路由坍缩。</li>
+          <li>用 aux loss 做均衡, 这一项的梯度会回传到 router, 跟语言建模 loss 的梯度抢方向。</li>
         </ul>
-        <p>每一行里, DeepSeek 那一格都是对 Mixtral 那一格的回答。</p>
       </div>
       <div class="card">
         <table class="compare">
@@ -213,24 +242,24 @@
           </thead>
           <tbody>
             <tr><td class="row-label">路由打分</td>
-              <td><code class="inline">softmax(logits)</code></td>
-              <td><code class="inline">sigmoid(logits)</code></td>
+              <td><code class="inline">softmax(logits)</code>: 一个 token 对所有专家的分加起来等于 1, 专家之间互相竞争</td>
+              <td><code class="inline">sigmoid(logits)</code>: 每个专家独立得一个 0 到 1 的分, 互不影响</td>
             </tr>
             <tr><td class="row-label">专家归一化</td>
-              <td>softmax 本身归一</td>
-              <td>top-k 后再 renormalize</td>
+              <td>softmax 值已经是概率; 选出 top-k 后把这 k 个概率再除以它们的和, 让 k 个权重加起来等于 1, 专家输出的幅度才不随「选中专家的概率总和」波动</td>
+              <td>sigmoid 的分不是概率, 所以选出 k 个之后必须除以它们的和才能当权重; 权重用的是不带 bias 的原始分</td>
             </tr>
             <tr><td class="row-label">共享专家</td>
               <td>❌ 没有</td>
-              <td>✅ 每个 token 都过, 专管通用知识, 路由专家才腾得出容量去分化</td>
+              <td>✅ 有。共享专家不经过 router, 每个 token 都过它, 输出直接加到路由专家的输出上。它兜住通用知识, 路由专家才腾得出容量去各自专门化</td>
             </tr>
             <tr><td class="row-label">负载均衡</td>
-              <td>Switch Transformer 那套外挂 aux loss, 梯度直接压热门专家的路由分数</td>
-              <td>aux-loss-free bias: 不收梯度, 只改 top-k 选谁 (demo 实测负载 CV (变异系数) 从 0.273 降到 0.124, LM loss 几乎不动: 2.979 vs 2.982)</td>
+              <td>在总 loss 外挂一项 aux loss (Switch Transformer 的做法): 哪个专家被选得多、平均概率又高, 这一项就大; 它的梯度顺着 router 把热门专家的分数压下去。本库 total = lm_loss + 0.01 · aux</td>
+              <td>aux-loss-free bias: 给每个专家一个偏置, 它不走梯度, 只在「选谁」时加到分数上, 算权重时不用。每步训练后, 过载的专家 bias 减一点, 欠载的加一点。本库 demo (router 被故意初始化得偏心) 里, 负载 CV (变异系数, 各专家负载的标准差除以平均值, 越小越均衡) 从 0.273 降到 0.124, LM loss 几乎不动: 2.979 对 2.982</td>
             </tr>
             <tr><td class="row-label">专家粒度</td>
-              <td>8 个大专家</td>
-              <td>64–256 个细粒度专家</td>
+              <td>8 个大专家 (Mixtral 8x7B: E=8, 每个 token 选 2 个)</td>
+              <td>64–256 个细粒度专家 (本库 DeepSeekMoE 默认 64 个路由专家每个 token 选 6 个, 外加 2 个共享专家)</td>
             </tr>
             <tr><td class="row-label">代码位置</td>
               <td><RepoLink path="llm_models/layers/sparse/moe.py" label="layers/sparse/moe.py" tiny /></td>
@@ -274,17 +303,17 @@ const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${l
 // 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
 const evoSteps = [
   { name: '稠密 FFN', color: 'var(--text-muted)',
-    pain: '(原点) 想让模型多记知识就加宽 FFN, 每个 token 的算力跟着涨',
-    fix: '每个参数对每个 token 都算一遍: 容量翻倍, 每 token 算力也翻倍' },
+    pain: '(原点) 想让模型多记知识就加宽 FFN, 但每个 token 都要过整个 FFN, 算力跟着涨',
+    fix: '每个参数对每个 token 都算一遍: FFN 容量翻倍, 每个 token 的算力也翻倍, 两者绑死' },
   { name: 'Top-k MoE', year: 2017, color: 'var(--accent)',
     pain: '容量和算力绑死, 模型想变大就得同比多花算力',
-    fix: 'E 个小 FFN, router 每 token 挑 k 个: 参数按 E 算, 算力按 k 算; 路由会滚雪球' },
+    fix: '一个大 FFN 换成 E 个小 FFN (专家), router 给每个 token 打分, 只送进分数最高的 k 个: 参数按 E 算, 算力按 k 算' },
   { name: 'Mixtral', year: 2024, color: 'var(--left)',
-    pain: '被选多的专家学得更好、更常被选, 最后少数专家包揽 token',
-    fix: 'softmax top-2 加外挂 aux loss 压热门专家; 8 个大专家各自都得重学一遍通用能力' },
+    pain: '被选得多的专家学得更好, 于是更常被选中, 滚雪球到最后少数专家包揽几乎所有 token (路由坍缩)',
+    fix: 'softmax 打分选 top-2, 再往总 loss 里加一项 aux loss 压热门专家的分数; 代价是 8 个大专家各自都得重学一遍通用能力' },
   { name: 'DeepSeekMoE', year: 2024, color: 'var(--right)',
-    pain: '专家少而大, 通用能力重复学了好几份, 腾不出容量分工; aux loss 还抢梯度',
-    fix: '切成 64–256 个细粒度专家, 加每个 token 必过的共享专家; 均衡交给不收梯度的 bias' },
+    pain: '专家少而大, 通用能力重复学了好几份, 腾不出容量分工; aux loss 的梯度还会和语言建模抢方向',
+    fix: '切成 64–256 个细粒度专家, 加每个 token 必过的共享专家专管通用能力; 均衡交给一个不走梯度的 bias, 只改「选谁」' },
 ]
 
 // 两根滑杆的上限, 底分表按这个尺寸一次生成

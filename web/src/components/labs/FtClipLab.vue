@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="ratio clip — 哪些 token 这一步已经不许再推了"
-    sub="横轴是重要性比率 $\rho = \pi_{\text{new}} / \pi_{\text{old}}$。同一批样本做多轮内层更新时, $\rho$ 会逐渐离开 1。
-      曲线是这个 token 的代理目标, 阴影区梯度为 0。拖动曲线上的点, 或者改两个 $\varepsilon$。"
+    title="ratio clip — 一批样本更新多轮时, 哪些 token 这一步已经不许再推"
+    sub="- 模拟什么: PPO / GRPO 为了把一批昂贵的采样多用几轮, 从第二轮起策略已经变了, 要用重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 来修正 (新策略比旧策略给这个 token 的概率涨了几倍)。为了不让单步走太远, 目标函数写成 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$, 这个式子在说: $\rho$ 一旦超出 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 并且是往对自己有利的方向超, 就取裁剪后的那一项, 它对 $\rho$ 的导数是 0, 这个 token 本轮不再被推。$\hat{A}$ 是优势: 正表示这是个好 token 想推高, 负表示想压低。DAPO 的 clip-higher 把上界单独放宽。
+      - 图上是什么: 横轴是 $\rho$, 竖虚线是 $\rho = 1$ (新旧策略一样); 两条黄竖线是裁剪边界 $1-\varepsilon_{\text{low}}$ 和 $1+\varepsilon_{\text{high}}$; 灰色虚线是不裁剪的 $\rho\hat{A}$, 紫色折线是裁剪后的目标; 黄色阴影是梯度为 0 的区域。右侧灰色区域是 $\rho \gt 1/\pi_{\text{old}}$: 新概率超过 1 了, 不可能到达。圆点是这个 token 当前的 $\rho$, 绿色表示还有梯度, 黄色表示被 clip。
+      - 可以做什么: 「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」切换这是好 token 还是坏 token; 「PPO/GRPO 对称 0.2」和「DAPO clip-higher 0.2/0.28」是两组 $\varepsilon$ 预设; 拖「ε_low」「ε_high」单独改两条边界; 拖「π_old」改旧策略给这个 token 的概率 (0.01 到 0.89), 它决定灰色不可达区从哪开始。左右拖圆点 (或聚焦后按方向键) 改 $\rho$。
+      - 应该看到: $\hat{A} \gt 0$ 时只有右边有阴影 (只封顶), $\hat{A} \lt 0$ 时只有左边有阴影 (只托底)。右侧读数: 第一行是 $\rho$ 换算成新概率 $\rho\,\pi_{\text{old}}$; 「这个 token 的梯度」是绿色的 ±1·|Â| 或红色的 0 (被 clip); 「上界内 π 最多涨到」是这一轮新概率能到的上限 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$; 「上界碰得到吗」: $\pi_{\text{old}}$ 很大时 $1/\pi_{\text{old}}$ 不到 $1+\varepsilon$, 上界根本碰不到, 这个 token 实际上不受约束。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
-      ask: '设 Â > 0。把 π_old 拖到最右 (≈0.89): 这个 token 能撞到 1+ε_high 的上界吗? 再拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少? 换成 DAPO 的 0.2 / 0.28 呢?',
-      answer: '$\\pi_{\\text{new}}$ 不能超过 1, 所以 $\\rho \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。实际上不受约束, 想涨就涨。\n- 低概率探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 0.012, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。\n结果是强者恒强, 熵一路塌缩。\nDAPO 的 clip-higher 只放宽上界 (0.28 → 0.0128), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n只有「做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1。',
+      ask: '设 Â 大于 0。把 π_old 拖到最右 (约 0.89): 这个 token 能撞到 1+ε_high 的上界吗? 再拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少? 换成 DAPO 的 0.2 / 0.28 呢?',
+      answer: '答案: $\\pi_{\\text{old}} \\approx 0.89$ 时碰不到上界; $\\pi_{\\text{old}} = 0.01$ 时对称 0.2 一步最多涨到 0.012, DAPO 的 0.28 最多涨到 0.0128。\n一步步看:\n- 新概率不能超过 1, 所以 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}} \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。它实际上不受约束, 想涨就涨。\n- 低概率的探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 $0.01 \\times 1.2 = 0.012$, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。结果是强者恒强, 分布越来越尖, 熵一路塌缩。\n- DAPO 的 clip-higher 只放宽上界 ($0.01 \\times 1.28 = 0.0128$), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n- 只有「一批样本做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1, 落在裁剪区间里, clip 是死代码。',
     }"
   >
     <template #controls>
@@ -56,13 +58,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="$\rho \to \pi_{\text{new}} = \rho\,\pi_{\text{old}}$" /></span><b>{{ rho.toFixed(2) }} → {{ (rho * piOld).toFixed(4) }}</b></div>
+      <div class="kv"><span><Tex text="当前 $\rho$, 换算成新概率 $\pi_{\text{new}} = \rho\,\pi_{\text{old}}$" /></span><b>{{ rho.toFixed(2) }} → {{ (rho * piOld).toFixed(4) }}</b></div>
       <div class="kv"><span><Tex text="这个 token 的梯度 $\partial L/\partial\rho$" /></span><b :class="grad ? 'good' : 'bad'">{{ grad ? (A > 0 ? '+1·|Â|' : '−1·|Â|') : '0 (被 clip)' }}</b></div>
-      <div class="kv"><span><Tex text="上界内 $\pi$ 最多涨到" /></span><b>{{ Math.min(1, piOld * (1 + eHi)).toFixed(4) }}</b></div>
-      <div class="kv"><span>上界碰得到吗</span><b :class="rhoCap > 1 + eHi ? 'good' : 'bad'">{{ rhoCap > 1 + eHi ? '碰得到' : '碰不到 (1/π_old 不到 1+ε)' }}</b></div>
+      <div class="kv"><span><Tex text="上界内 $\pi$ 这一轮最多涨到 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$" /></span><b>{{ Math.min(1, piOld * (1 + eHi)).toFixed(4) }}</b></div>
+      <div class="kv"><span>上界碰得到吗</span><b :class="rhoCap > 1 + eHi ? 'good' : 'bad'">{{ rhoCap > 1 + eHi ? '碰得到' : '碰不到 (1/π_old 不到 1+ε, 不受约束)' }}</b></div>
       <div class="lab-note">
-        <p><Tex text="$\min(\cdot)$" /> 让 clip 只在 "对自己有利的方向" 上生效: <Tex text="$\hat{A} \gt 0$" /> 时只封顶, <Tex text="$\hat{A} \lt 0$" /> 时只托底。</p>
-        <p><Tex text="走错方向的 token (例如 $\hat{A} \gt 0$ 但 $\rho$ 已经掉到 0.5) 永远有梯度, 会被拉回来。" /></p>
+        <p><Tex text="$\min(\cdot)$ 让 clip 只在「对自己有利的方向」上生效: $\hat{A} \gt 0$ 时只封顶 (涨太多就停), $\hat{A} \lt 0$ 时只托底 (压太狠就停)。" /></p>
+        <p><Tex text="走错方向的 token (例如 $\hat{A} \gt 0$ 但 $\rho$ 已经掉到 0.5, 好 token 反而被压低了) 永远有梯度, 会被拉回来。" /></p>
       </div>
     </template>
   </LabFrame>

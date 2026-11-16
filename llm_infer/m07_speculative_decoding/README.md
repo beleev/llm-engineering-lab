@@ -1,8 +1,8 @@
 # M07 — Speculative Decoding: 一次 target forward 出多个 token
 
-[![投机解码 — draft 猜 K 个, target 一次验 K+1 个 llm_infer/m07](../../docs/screenshots/infer-decode-control-2.png)](https://beleev.github.io#/infer/decode-control)
+[![投机解码 — 小模型连猜 K 个, 大模型一次验完, 看每次调用能多出几个 token llm_infer/m07](../../docs/screenshots/infer-decode-control-2.png)](https://beleev.github.io#/infer/decode-control)
 
-[打开相关交互实验：投机解码 — draft 猜 K 个, target 一次验 K+1 个 llm_infer/m07](https://beleev.github.io#/infer/decode-control)
+[打开相关交互实验：投机解码 — 小模型连猜 K 个, 大模型一次验完, 看每次调用能多出几个 token llm_infer/m07](https://beleev.github.io#/infer/decode-control)
 
 ## 直觉
 

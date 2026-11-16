@@ -5,24 +5,25 @@
 -->
 <template>
   <LabFrame
-    title="反向传播 — 点一个节点, 看梯度怎么传到它"
-    sub="- 前向: 从左到右算出 loss (灰色数字)。
-      - 反向: 从右到左把 $\partial L/\partial\,\cdot$ 传回来 (粉色数字)。
-      点任意节点, 右侧会把它的梯度拆成 '上游梯度 × 本地导数'。拖 x、换目标类、走几步 SGD, 看每个数怎么跟着变。"
+    title="反向传播 — 点一个节点, 看 loss 的梯度怎么一步步传回它"
+    sub="- 模拟什么: 一个最小的分类网络怎么「学」。输入 x (2 个数) 乘权重 W (3×2 的矩阵) 得到 3 个分数 z (叫 logits, 每个候选类一个分); softmax 把分数变成加起来等于 1 的概率 p; loss $L = -\log p[y]$ 衡量「正确答案 y 的概率有多低」, 概率越低 loss 越大。训练要让 loss 变小, 就得知道每个权重往哪边改、改多少, 这个量就是梯度 $\partial L/\partial W$。反向传播是算梯度的办法: 从 loss 出发, 沿着前向的路倒着走, 每经过一个节点就乘上这个节点的本地导数。llm_basic/model.py 里每个算子的 backward 函数干的都是这一句话。
+      - 图上是什么: 从左到右是前向的计算图: x 和 W 进 z, z 进 p, p 进 L。每个节点里灰色数字是前向算出来的值, 粉色数字是 loss 对这个节点的梯度 $\partial L/\partial(\text{节点})$。点一个节点, 粉色的边就是梯度从 L 传回它走过的路。
+      - 可以做什么: 拖 x₁、x₂ 改输入。点「类 0 / 1 / 2」换正确答案 y。点「走一步 SGD」用当前梯度更新一次 W (W 减去 0.5 倍梯度), 看 loss 掉下来; 「重置 W」回到初始权重。点任意节点, 右侧把它的梯度拆成「上游梯度 × 本地导数」: 上游梯度是 loss 对它下游节点的梯度 (已经算好、传过来的), 本地导数是这个节点的输出对输入的导数, 两者相乘就是这个节点的梯度。
+      - 应该看到: 默认 x = (1, −0.5)、y = 1 时 p ≈ (0.57, 0.13, 0.30): 正确类的概率只有 0.128, 所以 loss = 2.057。z 的梯度 dz = p − onehot(y): 正确类那一项是 p[y] − 1 (负数, 要把它的分推高), 其余项就是 p 本身 (正数, 要把它们压低)。右侧「dW[0][0] 反向算的 / 差商验的」两个数应该一样: 左边是反向传播算出来的, 右边是把 W[0][0] 挪一点点、重新算 loss 得到的差商 (下一个实验台 gradcheck 讲的就是它), 两者一致说明反向没写错。连点几次 SGD, loss 会一步步变小, p[y] 一步步变大。"
     module="llm_basic/model.py"
     run="python llm_basic/gradcheck.py"
     :challenge="{
       ask: '把目标类 y 换成模型当前概率最低的那一类。dz (logits 的梯度) 里哪一项绝对值最大? 为什么 softmax+CE 的梯度永远是 p − onehot 这么干净?',
-      answer: '$dz = p - \\mathrm{onehot}(y)$。目标类那一项是 $p_y - 1$: $p_y$ 越小它越接近 $-1$, 绝对值最大。错得越离谱, 推得越狠。\n- 单看 CE 的本地导数: $-1/p_y$, $p_y$ 小时会爆炸。\n- 单看 softmax 的雅可比: $\\mathrm{diag}(p) - pp^\\top$, 很麻烦。\n两者一乘, $1/p_y$ 正好被约掉。所以 llm_basic 把 softmax 和 CE 合并成一个 forward_backward 函数: 又简单又数值稳定。',
+      answer: '目标类那一项绝对值最大。\n- $dz = p - \\mathrm{onehot}(y)$, 目标类那一项是 $p_y - 1$: $p_y$ 越小它越接近 $-1$; 其余项是 $p_i$ 本身, 加起来还不到 1。错得越离谱, 把正确类推上去的力越大。\n- 为什么这么干净: 单看交叉熵 CE 这一步, 本地导数是 $-1/p_y$, $p_y$ 很小时它会爆成一个巨大的数。单看 softmax 这一步, 本地导数是一个矩阵 $\\mathrm{diag}(p) - pp^\\top$ (叫雅可比: 每个输出都依赖所有输入, 所以是矩阵), 很麻烦。\n- 两步一乘, $1/p_y$ 正好被约掉, 剩下的就是 $p - \\mathrm{onehot}$。所以 llm_basic 把 softmax 和 CE 合并成一个 cross_entropy_forward_backward 函数, 直接算 $(p - \\mathrm{onehot})/N$: 又简单, 又不会数值溢出。',
     }"
   >
     <template #controls>
       <LabSlider v-model="x1" label="输入 x₁" :min="-2" :max="2" :step="0.1" />
       <LabSlider v-model="x2" label="输入 x₂" :min="-2" :max="2" :step="0.1" />
       <div class="row">
-        <span class="hint">目标类 y:</span>
+        <span class="hint">目标类 y (正确答案):</span>
         <button v-for="c in 3" :key="c" type="button" :class="{ active: y === c - 1 }" @click="y = c - 1">类 {{ c - 1 }}</button>
-        <button type="button" @click="sgd">走一步 SGD (lr = 0.5)</button>
+        <button type="button" @click="sgd">走一步 SGD (W 减去 0.5 × 梯度)</button>
         <button type="button" @click="reset">重置 W</button>
         <span class="hint mono">已走 {{ steps }} 步</span>
       </div>
@@ -35,12 +36,12 @@
         <div class="bw mono">{{ node.bw }}</div>
       </template>
     </DagView>
-    <p class="cap"><Tex text="灰 = 前向值 · 粉 = $\partial L/\partial(\text{该节点})$ · 粉色边 = 梯度传到所选节点走过的路" /></p>
+    <p class="cap"><Tex text="灰色数字 = 前向算出的值 · 粉色数字 = loss 对该节点的梯度 $\partial L/\partial(\text{该节点})$ · 粉色边 = 梯度从 L 传到所选节点走过的路" /></p>
 
     <template #stats>
-      <div class="kv"><span><Tex text="loss $= -\log p[y]$" /></span><b :class="g.L < 0.3 ? 'good' : ''">{{ g.L.toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="目标类概率 $p[y]$" /></span><b>{{ g.p[y].toFixed(3) }}</b></div>
-      <div class="kv"><span>dW[0][0] 解析 / 数值</span><b :class="relErr < 1e-6 ? 'good' : 'bad'">{{ g.dW[0][0].toFixed(4) }} / {{ numeric.toFixed(4) }}</b></div>
+      <div class="kv"><span><Tex text="loss $= -\log p[y]$ (越小越好)" /></span><b :class="g.L < 0.3 ? 'good' : ''">{{ g.L.toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="正确答案的概率 $p[y]$" /></span><b>{{ g.p[y].toFixed(3) }}</b></div>
+      <div class="kv"><span>dW[0][0] 反向算的 / 差商验的</span><b :class="relErr < 1e-6 ? 'good' : 'bad'">{{ g.dW[0][0].toFixed(4) }} / {{ numeric.toFixed(4) }}</b></div>
       <div class="detail">
         <b>{{ info.title }}</b>
         <p><span class="k">上游梯度</span><span class="mono"><Tex :text="info.up" /></span></p>

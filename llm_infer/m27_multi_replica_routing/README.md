@@ -1,8 +1,8 @@
 # M27 — 多副本路由: 把请求送到"缓存里已有它前缀"的副本, 但别把一个副本压垮
 
-[![多副本路由 — 命中率 vs 负载均衡 llm_infer/m27](../../docs/screenshots/infer-multi-replica-routing-1.png)](https://beleev.github.io#/infer/multi-replica-routing)
+[![多副本路由 — 送到有前缀的副本能省 prefill, 但别把一个副本压垮 llm_infer/m27](../../docs/screenshots/infer-multi-replica-routing-1.png)](https://beleev.github.io#/infer/multi-replica-routing)
 
-[打开相关交互实验：多副本路由 — 命中率 vs 负载均衡 llm_infer/m27](https://beleev.github.io#/infer/multi-replica-routing)
+[打开相关交互实验：多副本路由 — 送到有前缀的副本能省 prefill, 但别把一个副本压垮 llm_infer/m27](https://beleev.github.io#/infer/multi-replica-routing)
 
 ## 直觉
 

@@ -5,15 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="SFT 标签对齐 — mask 边界差一格会丢掉什么"
-    sub="- 上排: 模型输入 idx = x[:-1]。
-      - 下排: 已经错位一格的 labels = x[1:]。
-      每一列 = '看到上面这个 token, 要预测下面这个 token'。点击下排任意格子移动 mask 边界, 看哪些位置进入 loss。"
+    title="SFT 标签对齐 — mask 边界差一格, 第一个回答 token 就丢了"
+    sub="- 模拟什么: SFT (监督微调) 拿「问题 + 标准回答」教模型, 每个位置的任务都是「看到前面的 token, 预测下一个」。我们只想教它写回答, 不想教它复述问题, 所以把 prompt 那一段的标签换成 -100 (这叫 loss mask: PyTorch 的 cross_entropy 会跳过标签为 -100 的位置)。但 labels 在数据侧已经整体左移了一格 (labels = x[1:], 第 t 格放的是 x[t+1]), 所以 prompt 长 P 时边界该写在 P-1 而不是 P。本仓库真的犯过这个错。
+      - 图上是什么: 一句「问: 法国的首都? 答: 巴黎。」被切成 token, 横着排。第一行「位置 t」是列号。第二行「输入 idx」是模型每一步看到的 token, 灰色是 prompt, 带绿框的是回答。第三行的箭头表示「看到上面这个 token, 要预测下面这个」。第四行「labels」是每个位置的预测目标, 写着 -100 的格子被 mask 掉, 不进 loss。最后一行「进 loss?」用符号总结每一列: ✓ 是回答 token 在教模型; ✗ 丢了 是回答 token 却被 mask; ⚠ 泄漏 是 prompt token 混进了 loss; — 是 prompt 被正确 mask。
+      - 可以做什么: 三个按钮直接设 mask 边界: 「错误写法 [:P]」盖住前 P 格 (仓库里出过的 bug); 「正确写法 [:P-1]」盖住前 P-1 格; 「不 mask」什么都不盖 (预训练式, 连问题一起学)。也可以直接点 labels 行的任意格子, 把边界挪到那里。拖「prompt 长度 P」和「response 长度」改句子长短。悬停任一列, 格子下方会解释这一列为什么该或不该进 loss。
+      - 应该看到: 错误写法下, 位置 P-1 (输入是「答:」) 的目标本来是「巴黎」, 却被写成 -100, 「进 loss?」那一行多出一个「✗ 丢了」。右侧读数: 「进入 loss 的位置数」是没被 mask 的格子数; 「回答 token 被监督」是回答里有几个 token 真的在教模型, 分母是回答长度, 应该填满; 「prompt 混进 loss」应该是 0; 「首个回答 token」显示它是学到了还是被 mask。把 response 长度拖到 1 再点错误写法, 所有标签都是 -100, 读数区会提示 loss 变成 nan。"
     module="llm_finetune/data"
     run="python -m llm_finetune.run_finetune.sft.train_sft"
     :challenge="{
-      ask: '把 response 长度拖到 1 (单 token 答案, 例如分类 / 选择题), 再点「错误写法 [:P]」。还剩几个 token 在教模型? loss 会是多少?',
-      answer: '0 个。labels 已经左移一格: 位置 P-1 的输入是最后一个 prompt token (答:), 它的 label 恰好是第一个 response token。[:P] 把它也 mask 了。\n- 单 token 答案: 全部标签都是 -100, cross_entropy 对空集求平均得到 nan。\n- 答案较长: bug 更隐蔽。loss 照常下降, 但模型从没学过「回答该怎么开头」, 而开头恰恰是决定整条回复走向的 token。\n正确写法是 labels[:, :P-1] = -100。',
+      ask: '把 response 长度拖到 1 (单 token 答案, 例如分类或选择题), 再点「错误写法 [:P]」。还剩几个 token 在教模型? loss 会是多少?',
+      answer: '答案: 0 个, loss 是 nan。\n一步步看:\n- labels 已经左移一格: labels[t] = x[t+1]。位置 P-1 的输入是最后一个 prompt token「答:」, 它的目标是第一个回答 token「巴黎」, 这个目标就放在 labels 的第 P-1 格。\n- 错误写法 labels[:, :P] = -100 盖住了第 0 到第 P-1 格, 把「巴黎」也一起盖掉了。\n- 回答只有 1 个 token 时, 它就是唯一一个该进 loss 的位置。现在全部标签都是 -100, cross_entropy 对空集求平均, 0 除以 0 得到 nan, 训练第一步就炸。\n- 回答更长时 bug 更隐蔽: loss 照常下降, 但模型从没学过「回答该怎么开头」, 而开头恰恰是决定整条回复走向的 token。本仓库实测同配置: 正确写法留出集 exact-match 1.000, 多盖一位 0.000。\n正确写法是 labels[:, :P-1] = -100。',
     }"
   >
     <template #controls>
@@ -56,18 +57,18 @@
     </p>
 
     <template #stats>
-      <div class="kv"><span>当前 mask</span><b>[:{{ kLabel }}]</b></div>
+      <div class="kv"><span>当前 mask 写法 labels[:, :k]</span><b>[:{{ kLabel }}]</b></div>
       <div class="kv"><span>进入 loss 的位置数</span><b>{{ stat.inLoss }}</b></div>
-      <div class="kv"><span>response 被监督</span><b :class="stat.resp === R ? 'good' : 'bad'">{{ stat.resp }} / {{ R }}</b></div>
-      <div class="kv"><span>prompt 混进 loss</span><b :class="stat.leak ? 'bad' : 'good'">{{ stat.leak }}</b></div>
+      <div class="kv"><span>回答 token 被监督 (教到了几个)</span><b :class="stat.resp === R ? 'good' : 'bad'">{{ stat.resp }} / {{ R }}</b></div>
+      <div class="kv"><span>prompt token 混进 loss (应为 0)</span><b :class="stat.leak ? 'bad' : 'good'">{{ stat.leak }}</b></div>
       <div class="kv">
         <span>首个回答 token「{{ resp[0] }}」</span>
         <b :class="stat.first ? 'good' : 'bad'">{{ stat.first ? '学到了' : '被 mask' }}</b>
       </div>
       <p class="lab-note">
-        <template v-if="stat.inLoss === 0">全部标签都是 -100: cross_entropy 对空集取平均 → <b>nan</b>。</template>
+        <template v-if="stat.inLoss === 0">全部标签都是 -100, 没有任何位置进 loss: cross_entropy 对空集取平均, 0 除以 0, loss 是 <b>nan</b>, 训练第一步就炸。</template>
         <template v-else>
-          ★ 边界是 P−1 = {{ P - 1 }}: 因为 labels[t] = x[t+1], 第一个 response token x[P] 落在 labels 的第 P−1 格。
+          正确的边界是 P−1 = {{ P - 1 }}: labels 整体左移了一格 (labels[t] = x[t+1]), 第一个回答 token x[P] 落在 labels 的第 P−1 格, mask 只能盖到它前面为止。
         </template>
       </p>
     </template>

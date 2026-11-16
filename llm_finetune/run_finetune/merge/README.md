@@ -1,8 +1,8 @@
 # 模型合并 — Task Arithmetic / TIES / DARE / SLERP
 
-[![合并两个任务向量: 相加、TIES、DARE llm_finetune/methods/merge.py](../../../docs/screenshots/finetune-merge-1.png)](https://beleev.github.io#/finetune/merge)
+[![模型合并 — 把两个任务向量相加、TIES 修剪、DARE 随机丢弃 llm_finetune/methods/merge.py](../../../docs/screenshots/finetune-merge-1.png)](https://beleev.github.io#/finetune/merge)
 
-[打开相关交互实验：合并两个任务向量: 相加、TIES、DARE llm_finetune/methods/merge.py](https://beleev.github.io#/finetune/merge)
+[打开相关交互实验：模型合并 — 把两个任务向量相加、TIES 修剪、DARE 随机丢弃 llm_finetune/methods/merge.py](https://beleev.github.io#/finetune/merge)
 
 ## 直觉
 

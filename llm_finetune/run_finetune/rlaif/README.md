@@ -1,8 +1,8 @@
 # RLAIF / Constitutional AI — 用 AI 反馈代替人工偏好标注
 
-[![judge 没查的, DPO 学不到 llm_finetune/methods/rlaif.py](../../../docs/screenshots/finetune-rlaif-1.png)](https://beleev.github.io#/finetune/rlaif)
+[![RLAIF — judge 没查的, DPO 学不到 llm_finetune/methods/rlaif.py](../../../docs/screenshots/finetune-rlaif-1.png)](https://beleev.github.io#/finetune/rlaif)
 
-[打开相关交互实验：judge 没查的, DPO 学不到 llm_finetune/methods/rlaif.py](https://beleev.github.io#/finetune/rlaif)
+[打开相关交互实验：RLAIF — judge 没查的, DPO 学不到 llm_finetune/methods/rlaif.py](https://beleev.github.io#/finetune/rlaif)
 
 ## 直觉
 

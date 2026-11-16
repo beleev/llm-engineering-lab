@@ -1,8 +1,8 @@
 # M17 — EAGLE 式投机解码: draft 看特征, 不只看 token
 
-[![树形投机 — tree attention mask 一次验整棵树 llm_infer/m19](../../docs/screenshots/infer-tree-speculation-1.png)](https://beleev.github.io#/infer/tree-speculation)
+[![树形投机 — draft 每层留几个候选长成树, target 用 tree mask 一次验完所有分支 llm_infer/m19](../../docs/screenshots/infer-tree-speculation-1.png)](https://beleev.github.io#/infer/tree-speculation)
 
-[打开相关交互实验：树形投机 — tree attention mask 一次验整棵树 llm_infer/m19](https://beleev.github.io#/infer/tree-speculation)
+[打开相关交互实验：树形投机 — draft 每层留几个候选长成树, target 用 tree mask 一次验完所有分支 llm_infer/m19](https://beleev.github.io#/infer/tree-speculation)
 
 ## 直觉
 

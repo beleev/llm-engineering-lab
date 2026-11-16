@@ -1,8 +1,8 @@
 # llm\_basic — 只用 numpy 手写一个 GPT（前向 + 反向）
 
-[![形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路 llm_basic/model.py](../docs/screenshots/basic-forward-1.png)](https://beleev.github.io#/basic/forward)
+[![形状流水线 — 一批 token 从 ids [B,T] 走到 logits [B,T,V] 的每一步 llm_basic/model.py](../docs/screenshots/basic-forward-1.png)](https://beleev.github.io#/basic/forward)
 
-[打开相关交互实验：形状流水线 — ids [B,T] 到 logits [B,T,V] 的一路 llm_basic/model.py](https://beleev.github.io#/basic/forward)
+[打开相关交互实验：形状流水线 — 一批 token 从 ids [B,T] 走到 logits [B,T,V] 的每一步 llm_basic/model.py](https://beleev.github.io#/basic/forward)
 
 [项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/basic)
 

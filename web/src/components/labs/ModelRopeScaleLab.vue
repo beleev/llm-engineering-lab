@@ -5,22 +5,23 @@
 -->
 <template>
   <LabFrame
-    title="YaRN / NTK — 每个频率该不该被压缩"
-    sub="每根柱子是 RoPE 的一个频率, 高度 = 波长 (转一圈要多少个 token, 对数轴)。d_head=64 → 32 对维度, 与 infer_rope_scaling 同设定。
-      - 红柱: 这个维度此刻的旋转角, 训练时 (长度 2048, 图上的虚线) 从没出现过。
-      - 操作: 拖底部的位置标尺, 把 token 放到 2048 之外。点一根柱子, 右边表盘显示它见过的角度范围。"
+    title="RoPE 长度外推 — 哪些频率该压缩, 哪些该放着不动"
+    sub="- 模拟什么: RoPE (旋转位置编码) 把 token 的位置 m 变成一组旋转角度: 把 q、k 向量每两维看成一个平面, 第 i 个平面按自己的频率 $\theta_i$ 转 $m \cdot \theta_i$ 这么多弧度。高频维度转得快, 管相邻 token 的先后; 低频维度转得慢, 管远距离。模型在长度 L = 2048 上训练, 位置一超过它, 低频维度就会转到训练时从没出现过的角度, 注意力分数失真。PI、NTK-aware、YaRN 是三种把角度压回训练范围的办法, 公式与 llm_models/layers/core/position_encoding.py 的 scaled_inv_freq 逐项一致 (d_head = 64, 所以一共 32 个频率)。
+      - 图上是什么: 左图每根柱子是一个频率 i, 从左 (高频) 到右 (低频); 柱高是它的波长, 也就是转满一圈要走多少个 token (对数轴)。柱子上的横线是不缩放时的原始波长, 柱子比横线高就说明这个频率被压缩了。两条虚线分别是训练长度 2048 和目标长度 2048 × s。柱子变红表示: 这个频率训练时连一圈都没转完, 而当前位置 m 把它转到了训练时没出现过的角度。底部的标尺是 token 位置 m, 涂色的一段是训练覆盖的范围 (0 到 2048)。右边的表盘是选中的那根柱子: 粗弧是它训练期转过的角度范围, 指针是位置 m 处它的角度, 指针出了弧就是「没见过」。
+      - 可以做什么: 上排按钮切 4 种方案 (不缩放 / PI / NTK-aware / YaRN)。拖「扩展倍数 s」改想把上下文扩到训练长度的几倍。拖「token 位置 m」或直接拖底部标尺上的圆点, 把 token 放到 2048 之外。点一根柱子 (键盘: 聚焦柱图后按左右键) 换表盘显示的频率。
+      - 应该看到: 不缩放时, m 一超过 2048 就有 11 根柱子变红: 最低的 11 个频率训练期转不满一圈。右侧「越界的维度数」就是红柱数; 「相邻 token 分辨率」是最高频被压缩后还剩多少, 100% 表示相邻 token 之间的角度差没变, 模型还分得清紧挨着的位置; 「完全没被改动的频率数」和「最低频被压缩倍数」看每种方案动了谁。切 PI: 红柱全消失, 但分辨率掉到 1/s; 切 NTK-aware: 分辨率 100%, 但中段还剩红柱; 切 YaRN: 高频原样不动、低频压 s 倍, 红柱消失且分辨率 100%, 还多出一个 mscale 温度补偿读数。"
     module="llm_models/layers/core/position_encoding.py"
     run="python -m llm_models.run_models.foundation.rope_scaling.infer_rope_scaling"
     :challenge="{
-      ask: '扩展倍数拖到 8, 位置 m 拖到目标长度 16384。依次切换四种方案。先猜: 哪种没有红柱但 “相邻 token 分辨率” 最差? 哪种分辨率满分却还剩红柱?',
-      answer: '- PI (位置内插): 所有频率一律 ÷8, 角度全部回到训练范围, 没有红柱。但最高频也被 ÷8, 相邻两个 token 的转角差只剩 1/8。模型分不清 “紧挨着” 和 “隔几个”, 必须微调才能恢复。\n- NTK-aware: 改的是 base。最高频不动 (分辨率 100%), 最低频恰好 ÷8。但中间那些 “没转满一圈” 的维度只被压了 $8^{2i/(d-2)} < 8$ 倍, 仍然越界, 还剩红柱。\n- YaRN: 按 “训练期转了几圈” 分段。转够 32 圈的高频原样外推, 不足 1 圈的低频按 PI $\\div s$, 中间线性过渡, 两头都保住。\nYaRN 再乘 $\\text{mscale} = 0.1 \\cdot \\ln s + 1$, 补偿长上下文下 softmax 变平。',
+      ask: '扩展倍数拖到 8, 位置 m 拖到目标长度 16384。依次切换四种方案。先猜: 哪种没有红柱但「相邻 token 分辨率」最差? 哪种分辨率满分却还剩红柱?',
+      answer: 'PI 没有红柱但分辨率最差; NTK-aware 分辨率满分却还剩红柱; YaRN 两头都保住。\n- PI (位置内插): 所有频率一律除以 8, 等价于把位置 m 压成 m/8, 角度全部回到训练范围, 所以没有红柱。但最高频也被除以 8, 相邻两个 token 的转角差只剩原来的 1/8。模型分不清「紧挨着」和「隔几个」, 必须微调才能恢复。\n- NTK-aware: 改的不是每个频率, 而是公式里的 base。最高频不动 (分辨率 100%), 最低频恰好除以 8, 中间按指数过渡。但中间那些「没转满一圈」的维度只被压了 $8^{2i/(d-2)} \\lt 8$ 倍, 不够, 仍然越界, 所以还剩红柱。\n- YaRN: 按「训练期转了几圈」r 分段: r 超过 32 圈的高频原样外推 (本来什么角度都见过); r 不到 1 圈的低频按 PI 除以 s; 中间线性过渡。两头都保住: 没有红柱, 分辨率 100%。\nYaRN 还把注意力 logit 乘上 $\\text{mscale} = 0.1 \\cdot \\ln s + 1$, 补偿上下文变长之后 softmax 变平的问题。',
     }"
   >
     <template #controls>
       <div class="row">
         <button v-for="m in MODES" :key="m.id" type="button" :class="{ active: mode === m.id }" @click="mode = m.id">{{ m.label }}</button>
       </div>
-      <LabSlider v-model="s" label="扩展倍数 s" :min="1" :max="16" unit="×" />
+      <LabSlider v-model="s" label="扩展倍数 s (目标长度 = 2048 × s)" :min="1" :max="16" unit="×" />
       <LabSlider v-model="pos" label="token 位置 m" :min="0" :max="PMAX" :step="64" />
     </template>
 
@@ -43,7 +44,7 @@
         <text :x="X0 + 4" :y="py(Math.log10(L)) - 4" class="tl">训练长度 L = 2048</text>
         <line v-if="s > 1" :x1="X0" :x2="X1" :y1="py(Math.log10(L * s))" :y2="py(Math.log10(L * s))" class="target" />
         <text v-if="s > 1" :x="X0 + 4" :y="py(Math.log10(L * s)) - 4" class="tg">目标长度 {{ L * s }}</text>
-        <text :x="X0" :y="Y1 + 26" class="cap">频率编号 i (左 = 高频管局部顺序, 右 = 低频管远距离) · 横线 = 原始波长</text>
+        <text :x="X0" :y="Y1 + 26" class="cap">频率编号 i (左 = 高频, 管局部顺序; 右 = 低频, 管远距离) · 横线 = 原始波长</text>
         <!-- 位置标尺: 直接拖 -->
         <line :x1="X0" :x2="X1" y1="306" y2="306" class="ruler" />
         <rect :x="X0" y="302" :width="px(L) - X0" height="8" class="seen" />
@@ -66,13 +67,13 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>位置 m={{ pos }} 处越界维度</span><b :class="nOod ? 'bad' : 'good'">{{ nOod }} / {{ NF }}</b></div>
-      <div class="kv"><span><Tex text="相邻 token 分辨率 $\theta'_0/\theta_0$" /></span><b :class="hi < 0.6 ? 'bad' : 'good'">{{ (hi * 100).toFixed(0) }}%</b></div>
+      <div class="kv"><span>位置 m={{ pos }} 处越界的维度数 (红柱)</span><b :class="nOod ? 'bad' : 'good'">{{ nOod }} / {{ NF }}</b></div>
+      <div class="kv"><span><Tex text="相邻 token 分辨率 $\theta'_0/\theta_0$ (最高频还剩多少)" /></span><b :class="hi < 0.6 ? 'bad' : 'good'">{{ (hi * 100).toFixed(0) }}%</b></div>
       <div class="kv"><span>完全没被改动的频率数</span><b>{{ untouched }} / {{ NF }}</b></div>
-      <div class="kv"><span>最低频被压缩倍数</span><b>{{ lo.toFixed(2) }}×</b></div>
+      <div class="kv"><span>最低频被压缩了几倍</span><b>{{ lo.toFixed(2) }}×</b></div>
       <div class="lab-note">
         <p><Tex :text="MODES.find((m) => m.id === mode).note" /></p>
-        <p v-if="mode === 'yarn'">此刻温度补偿 mscale = {{ mscale.toFixed(4) }}; 其余三种方案恒为 1。</p>
+        <p v-if="mode === 'yarn'">此刻注意力温度补偿 mscale = {{ mscale.toFixed(4) }} (logit 乘这个数); 其余三种方案恒为 1。</p>
       </div>
     </template>
   </LabFrame>

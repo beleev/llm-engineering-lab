@@ -1,8 +1,8 @@
 # LLM Infer — 推理与部署优化教具库
 
-[![引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
+[![引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选 llm_infer/full_engine](../docs/screenshots/infer-engine-1.png)](https://beleev.github.io#/infer/engine)
 
-[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
+[打开相关交互实验：引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选 llm_infer/full_engine](https://beleev.github.io#/infer/engine)
 
 [项目首页](../README.md) · [在线教程](https://beleev.github.io/llm-engineering-lab/#/infer)
 

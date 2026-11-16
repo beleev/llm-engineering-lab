@@ -4,15 +4,16 @@
 -->
 <template>
   <LabFrame
-    title="结构化输出 — 把 FSM 预编译成 token mask 表"
-    sub='迷你 JSON 语法: {"key":value, …}, value = 字符串 | 数字 | true | false | null。
-      灰掉的 token 在当前状态下非法, logit 会被置 −inf。
-      点一个合法 token 前进。悬停一个多字符 token, 看它在状态图上一口气走过哪几个状态。状态图里虚线是回边 (逗号之后回去等下一个 key)。'
+    title="结构化输出 — 用状态机限制每一步能选哪些 token, 并把它预编译成表"
+    sub='- 模拟什么: 让模型只能输出合法 JSON 的办法: 不是求它别写错, 而是每一步采样前把会破坏语法的 token 的 logit 置 −inf (概率归零)。哪些 token 合法由一个 FSM (有限状态机, 这里是字符级 DFA) 决定: 它记着「JSON 写到哪了」, 每吃一个字符就换到下一个状态。难点是模型的词表是多字符 token ({" 、": 、true 都是一个 token), 一个 token 要在字符级状态机上连走几步, 整段字符都走得通才算合法。每步对全词表逐字符试走太慢, 所以离线把「每个状态 × 每个 token 走到哪」算成一张表, 在线每步只查一行。这里的迷你语法: {"key":value, …}, value 是字符串、数字、true、false 或 null。
+      - 图上是什么: 上面的状态图把 DFA 的状态归并成 10 个方框, 紫框是当前状态, 箭头是允许的转移, 虚线箭头是回边 (逗号之后回去等下一个 key)。悬停一个 token 时, 它一口气经过的状态会亮黄框并标上顺序号。状态图下面一行字说明悬停的 token 为什么合法或非法。再下面是整个词表 (每个 token 一个按钮): 灰掉的在当前状态下非法, 绿边框的是合法的多字符 token, 划掉的是故意放进去的垃圾 token (比如 }} 和换行符), 在任何状态都非法。最上面「输出」是目前拼出来的字符串, 走到 EOS 时会显示 JSON.parse 的结果。
+      - 可以做什么: 点一个合法 token 让它前进一步; 「撤销」退一步, 「重置」清空; 「随机合法一步」从合法 token 里随机挑一个; 「只用单字符词表」把多字符 token 藏起来, 模拟一个只有单字符 token 的词表, 看拼同一个串要多几步。悬停任何 token (包括灰掉的) 看它会走到哪, 或者卡在哪。
+      - 应该看到: 词表里大部分 token 一直是灰的, 每个状态下只有少数几个合法; 多字符 token 常常一步跨过两三个状态。右侧读数: 「当前状态下合法的 token / 词表大小」; 「上一个 token 跨过的状态数」大于 1 时绿色, 说明一个 token 走了好几步; 「已用 token / 已出字符」比较两者就能看出多字符词表省了多少步; 「预编译表 S × V」是离线要算的表有多大 (状态数 × 词表大小)。'
     module="llm_infer/m14"
     run="python -m llm_infer.m14_structured_output.demo"
     :challenge="{
       ask: '重置后, 用最少的 token 拼出 {&quot;id&quot;:42}。需要几个?',
-      answer: '- 多字符词表: 5 个 token, {&quot; → id → &quot;: → 42 → }, 再加 EOS。其中 &quot;: 一口气跨了 2 个状态。\n- 勾上「只用单字符词表」拼同一个串: 要 9 个。\n一个 token 合不合法, 看的是「整段字符都能沿 DFA 走通」:\n- true: 从 value? 走 4 步, 落到「, 或 }」。\n- tru: 走 3 步停在字面量中间, 之后只能接 e。\n- }}: 第二个 } 在结束态无路可走, 对所有状态都是 −1。\n这张 S×V 表离线算一次, 在线每步只查一行。否则每步要对全词表逐字符试走, 纯 CPU 开销卡在 GPU 前向和采样之间。',
+      answer: '5 个 token: {&quot; → id → &quot;: → 42 → }, 再加一个 EOS 收尾。其中 &quot;: 一口气跨了 2 个状态 (先闭合 key 的引号, 再吃掉冒号)。\n勾上「只用单字符词表」拼同一个串: { &quot; i d &quot; : 4 2 } 要 9 个 token, 再加 EOS。\n一个 token 合不合法, 看的是「整段字符都能沿 DFA 走通」, 不是只看第一个字符:\n- true: 从 value? 状态走 4 步, 落到「, 或 }」。\n- tru: 走 3 步停在字面量中间, 也合法, 但之后只能接 e。\n- }}: 第一个 } 走到结束态, 第二个 } 在结束态无路可走, 所以它对所有状态都是 −1 (非法)。\n这张 S × V 的表离线算一次 (每个状态对每个 token 试走一遍), 在线每步只查一行拿 mask, 再查一次落点。否则每步要对全词表逐字符试走, 这是纯 CPU 开销, 卡在 GPU 前向和采样之间。demo 实测: 在线现算 18.4 μs/步, 查表 0.086 μs/步 (215×)。',
     }"
   >
     <template #controls>
@@ -47,16 +48,16 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>当前状态合法 token</span><b>{{ finished ? 0 : legal.length }} / {{ shown.length }}</b></div>
+      <div class="kv"><span>当前状态下合法的 token / 词表大小</span><b>{{ finished ? 0 : legal.length }} / {{ shown.length }}</b></div>
       <div class="kv"><span>上一个 token 跨过的状态数</span><b :class="lastCross > 1 ? 'good' : ''">{{ lastCross }}</b></div>
       <div class="kv"><span>已用 token / 已出字符</span><b>{{ hist.length }} / {{ output.length }}</b></div>
-      <div class="kv"><span>预编译表 S × V</span><b>{{ STATES.length }} × {{ VOCAB.length }}</b></div>
+      <div class="kv"><span>预编译表 S × V (状态数 × 词表大小)</span><b>{{ STATES.length }} × {{ VOCAB.length }}</b></div>
       <div class="lab-note">
         <ul class="pts">
-          <li><b>在线每步:</b> 查表一行 <Tex text="$O(1)$" />。</li>
-          <li><b>不预编译:</b> 每步对全词表逐字符试走 = {{ totalChars }} 次转移。真实词表 <Tex text="$V \approx 10^5$" /> 时是几十万次, 纯 CPU。</li>
+          <li><b>在线每步:</b> 查表一行拿 mask, 再查一次落点状态, <Tex text="$O(1)$" />。</li>
+          <li><b>不预编译:</b> 每步对全词表逐字符试走, 这个小词表是 {{ totalChars }} 次状态转移。真实词表 <Tex text="$V \approx 10^5$" /> 时是几十万次, 纯 CPU, 夹在两次 GPU 前向之间。</li>
         </ul>
-        <p>EOS 只在结束态合法, 所以输出一定是完整 JSON, 不靠模型自觉。</p>
+        <p>EOS 只在结束态合法, 所以输出一定是完整 JSON, 不靠模型自觉。mask 只保证语法合法, 不保证内容对。</p>
       </div>
     </template>
   </LabFrame>

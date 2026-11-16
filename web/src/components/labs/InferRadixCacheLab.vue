@@ -1,15 +1,16 @@
 <!-- Radix 前缀缓存实验台 (对应 llm_infer/m05_radix_cache): JS 里老老实实建一棵基数树, 逐条请求重放。 -->
 <template>
   <LabFrame
-    title="Radix cache — 公共前缀只算一次"
-    sub="每一行是树上的一个节点, 行里的 token 串就是「父 → 它」这条边 (边压缩: 一条边可以存很多 token)。
-      请求逐条放入, 打开时停在最后一条; 按播放从头重看。格子的三种底色见树下面的图例。
-      把容量往小拖, 看 LRU 从叶子开始驱逐。点任意节点, 看它代表的完整前缀。"
+    title="Radix cache — 公共前缀的 KV 只算一次, 任意长度都能命中"
+    sub="- 模拟什么: 很多请求的开头是一样的 (同一段 system prompt、同一组 few-shot 例子、同一段对话历史)。一个 token 的 KV 只依赖它前面的 token, 所以开头相同的那段 KV 完全一样, 算过一次就该复用, 新请求只需要 prefill 后面不同的部分。SGLang 用一棵基数树 (radix tree) 记住所有见过的 token 序列: 每条边上存一段 token (不是一个), 新请求从根往下走, 走到走不动为止, 走过的部分就是最长公共前缀, 它的 KV 直接复用。缓存容量有限, 满了按 LRU (最久没用的先走) 从叶子开始驱逐。
+      - 图上是什么: 最上面一排是当前这条请求的 token: 绿底的是在树上命中的前缀 (KV 直接复用, 不用前向), 紫底的是新插进树里的部分。下面每一行是树上的一个节点, 缩进越深离根越远, 行里的 token 串就是「父节点到它」这条边上存的 token; 行末写着这条边有几个 token、上一次被第几条请求用到、是不是叶子。被当前请求走过的行有底框; 黄底的是「刚被从中间劈开的边」, 意思是这条请求的前缀停在了一条边的中间, 树把这条边切成两段, 好让前缀恰好落在一个节点上。
+      - 可以做什么: 三个预设切换请求流: 「共享 system prompt」6 条请求都以同一段 system prompt 开头; 「few-shot」请求都带同样的几个例子; 「多轮对话」两个用户交替提问, 每一轮都带着自己之前的全部历史。拖「缓存容量」改树里最多能放几个 token 的 KV, 往小拖会触发驱逐。拖「对比: block hash 的 block」改对照方案的块大小。「下一步」和「时间轴」逐条放请求, 打开时停在最后一条, 按播放从头重看树是怎么长出来的。点任意一行, 下面会显示这个节点代表的完整前缀。
+      - 应该看到: 「本条命中 / 长度」是这条请求有多少 token 不用算; 「同样前缀, block hash 只能命中」是对照方案 (vLLM 的按整块哈希) 的命中数, 它只能命中整块, 前缀长度不是块大小整数倍时会少算一截, 比 radix 少就标红; 「累计命中率」是到目前为止所有请求里命中 token 的比例, 等于省掉的 prefill 比例; 「树里 token / 容量 · 累计驱逐」看容量用了多少、驱逐了多少 token。多轮对话预设下, 同一个用户的第 2、3 轮几乎整条命中; 把容量拖到 8 左右, 能看到驱逐从叶子开始, 而当前请求走过的节点不会被驱逐。"
     module="llm_infer/m05"
     run="python -m llm_infer.m05_radix_cache.demo"
     :challenge="{
       ask: '容量不够时, 如果直接扔掉「最久没用」的中间节点, 会怎样?',
-      answer: '它的后代会一起作废, 所以只能驱逐叶子。\nKV 依赖它前面的全部 token, 中间节点的 KV 是所有后代前缀的一部分。\n扔了这个中间节点, 后代的 KV 虽然还在显存里, 却再也匹配不上 (从根走不到)。它们等于一起作废。所以驱逐顺序只能是: 叶子 → 变成叶子的父节点 → …。\n右侧对比:\n- radix: 能命中任意长度 $n$。\n- block hash: 只能命中 $\\lfloor n/\\text{bs} \\rfloor \\cdot \\text{bs}$。共享 100 个 token、bs=16 时, 只能复用 96 个。',
+      answer: '它的所有后代会跟着一起作废, 所以只能驱逐叶子。\n原因在 KV 的性质: 一个 token 的 KV 依赖它前面的全部 token。中间节点这条边上的 token, 是它所有后代前缀的一部分。把它扔了, 后代的 KV 虽然还躺在显存里, 但新请求从根往下走到这里就断了, 再也走不到后代那里, 等于后代的 KV 全部变成没人能命中的垃圾。所以驱逐顺序只能是: 先驱逐叶子; 叶子没了, 父节点变成新的叶子, 再轮到它。\n还有一条保护: 当前正在用的请求走过的路径被锁住 (ref_count 大于 0), 不会被驱逐, 否则这条请求还没算完, KV 就被别人抢走了。\n右侧「block hash 只能命中」是和另一种前缀缓存做法的对比:\n- radix tree: 命中粒度是单个 token, 共享前缀有 $n$ 个 token 就复用 $n$ 个。\n- block hash (vLLM 的做法): 以整块为单位算哈希, 只能复用 $\\lfloor n/\\text{bs} \\rfloor \\cdot \\text{bs}$ 个。共享 100 个 token、bs=16 时只能复用 96 个, 剩下 4 个要重算。block 越大丢得越多; Python demo 的合成负载上 radix 命中 44.8%, block hash (B=4) 只有 33.5%。',
     }"
   >
     <template #controls>
@@ -21,12 +22,12 @@
       <StepPlayer :stepper="stepper" :label="`请求 ${stepper.step.value + 1} / ${reqs.length}`" />
     </template>
 
-    <p class="cap">请求 {{ stepper.step.value + 1 }}:</p>
+    <p class="cap">当前请求 (第 {{ stepper.step.value + 1 }} 条) 的 token:</p>
     <div class="strip">
       <span v-for="(tk, i) in cur.ids" :key="i" class="cell tok" :class="i < cur.hit ? 'ok' : 'on'">{{ tk }}</span>
     </div>
 
-    <p class="cap">radix tree ({{ tree.rows.length }} 个节点):</p>
+    <p class="cap">radix tree ({{ tree.rows.length }} 个节点, 一行一个节点, 缩进 = 深度):</p>
     <div class="tree" role="tree">
       <div v-for="r in tree.rows" :key="r.id" class="node" :style="{ paddingLeft: r.depth * 22 + 'px' }">
         <button
@@ -38,27 +39,27 @@
           <span class="meta mono">{{ r.tokens.length }} tok · 上次用于 #{{ r.last + 1 }}{{ r.leaf ? ' · 叶' : '' }}</span>
         </button>
       </div>
-      <p v-if="!tree.rows.length" class="lab-note">树被驱逐空了。</p>
+      <p v-if="!tree.rows.length" class="lab-note">容量太小, 树里的节点全被驱逐了。把「缓存容量」拖大一点。</p>
     </div>
     <p class="legend">
-      <span class="cell tok ok">tok</span> 这条请求命中的前缀, KV 直接复用, 不用前向
-      <span class="cell tok on">tok</span> 新插入的部分
-      <span class="cell tok hot">tok</span> 刚被从中间劈开的边
+      <span class="cell tok ok">tok</span> 这条请求命中的前缀: KV 直接复用, 不用前向
+      <span class="cell tok on">tok</span> 这条请求新插进树里的部分: 要 prefill
+      <span class="cell tok hot">tok</span> 刚被从中间劈开的边: 前缀停在了它中间
     </p>
     <p v-if="selNode" class="lab-note sel-note">
-      选中节点代表的完整前缀 ({{ selPrefix.length }} tok): <span class="mono">{{ selPrefix.join(' ') }}</span>
+      选中节点代表的完整前缀 (从根到它一路上的 token, 共 {{ selPrefix.length }} 个): <span class="mono">{{ selPrefix.join(' ') }}</span>
     </p>
 
     <template #stats>
-      <div class="kv"><span>本条命中 / 长度</span><b :class="cur.hit ? 'good' : ''">{{ cur.hit }} / {{ cur.ids.length }}</b></div>
-      <div class="kv"><span>同样前缀, block hash 只能命中</span><b :class="blockHit < cur.hit ? 'bad' : ''">{{ blockHit }}</b></div>
-      <div class="kv"><span>累计命中率 (省掉的 prefill)</span><b>{{ (tree.hitRate * 100).toFixed(1) }}%</b></div>
-      <div class="kv"><span>树里 token / 容量 · 累计驱逐</span><b :class="tree.evicted ? 'bad' : ''">{{ tree.size }} / {{ cap }} · {{ tree.evicted }}</b></div>
-      <p class="lab-note">
-        {{ cur.msg }}<br />
-        匹配只有三步: 按「子边首 token」找孩子 → 沿边求最长公共前缀 → 停在边中间就 <code class="inline">_split</code>。
-        当前请求走过的节点被锁住 (ref&gt;0), 不会被驱逐。
-      </p>
+      <div class="kv"><span>这条请求: 命中的 token / 总长度</span><b :class="cur.hit ? 'good' : ''">{{ cur.hit }} / {{ cur.ids.length }}</b></div>
+      <div class="kv"><span>同样的前缀, 按整块哈希 (block hash) 只能命中</span><b :class="blockHit < cur.hit ? 'bad' : ''">{{ blockHit }}</b></div>
+      <div class="kv"><span>累计命中率 (到目前为止省掉的 prefill 比例)</span><b>{{ (tree.hitRate * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>树里的 token 数 / 容量 · 累计驱逐的 token 数</span><b :class="tree.evicted ? 'bad' : ''">{{ tree.size }} / {{ cap }} · {{ tree.evicted }}</b></div>
+      <div class="lab-note">
+        <p>这一条发生了什么: {{ cur.msg }}</p>
+        <p>匹配只有三步: 在当前节点的孩子里按「子边的第一个 token」找下一条边; 沿这条边逐个比对, 求最长公共前缀; 如果在边的中间比对失败, 就把这条边劈成两段 (<code class="inline">_split</code>), 让命中的部分恰好是一个节点。</p>
+        <p>驱逐时只挑叶子, 按上次使用时间最旧的先走; 当前请求走过的节点被锁住 (ref_count 大于 0), 不会被驱逐。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

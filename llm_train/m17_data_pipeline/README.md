@@ -1,8 +1,8 @@
 # M17 — 预训练数据流水线: 去重 · 质量过滤 · 配比采样
 
-[![MinHash-LSH — 谁会被拿来比较? llm_train/m17](../../docs/screenshots/train-data-packing-1.png)](https://beleev.github.io#/train/data-packing)
+[![MinHash-LSH — 近似去重时, 哪两篇文档会被拿来比较? llm_train/m17](../../docs/screenshots/train-data-packing-1.png)](https://beleev.github.io#/train/data-packing)
 
-[打开相关交互实验：MinHash-LSH — 谁会被拿来比较? llm_train/m17](https://beleev.github.io#/train/data-packing)
+[打开相关交互实验：MinHash-LSH — 近似去重时, 哪两篇文档会被拿来比较? llm_train/m17](https://beleev.github.io#/train/data-packing)
 
 ## 直觉
 

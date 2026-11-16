@@ -6,14 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="流水线调度 — GPipe vs 1F1B"
-    sub="每一行是一张卡 (stage), 每一格是一个时间槽。F = 前向, B = 反向, 空格 = 气泡 (这张卡在等)。
-      拖滑杆改变卡数和 micro-batch 数, 按播放看时间表怎么被填满。图下面的一行字说明当前时间槽每张卡在做什么。"
+    title="流水线并行调度 — GPipe 和 1F1B 的时间表: 气泡在哪, 显存差在哪"
+    sub="- 模拟什么: 流水线并行 (PP) 是把模型按层切成 PP 段 (每段叫一个 stage), 各放一张卡; 一个 batch 切成 M 个 micro-batch 依次流过。每个 micro-batch 要先从卡 0 到卡 PP−1 做完前向 (F), 再从卡 PP−1 倒回卡 0 做反向 (B)。一张卡在等上游的前向或下游的反向时就是空转, 这段空等叫气泡。已经前向、还没反向的 micro-batch, 它的激活必须留在显存里等反向用, 这叫在途激活。GPipe 和 1F1B 是两种安排 F 和 B 先后顺序的调度。
+      - 图上是什么: 每一行是一张卡 (stage), 每一格是一个时间槽。紫格是前向, 绿格是反向, 格子里的字如 F3 表示第 3 个 micro-batch 的前向 (一个 B 占的格子比 F 多, 按「B 耗时」设定); 空格就是气泡, 这张卡在等。当前时间槽的格子有高亮框, 之后的格子变淡。图下面一行字说明当前时间槽每张卡在做什么、几张卡在等。
+      - 可以做什么: 「GPipe」是先把 M 个 micro-batch 的前向全做完, 再做全部反向; 「1F1B」是每张卡先做几个前向预热, 然后一前一后交替。拖「流水线级数 PP」改卡数; 拖「micro-batch 数 M」; 拖「B 耗时」改反向比前向慢几倍 (真实训练约 2 倍)。用播放控件按时间槽走; 改参数后台子停在时间表末尾, 先看整体再回放。
+      - 应该看到: 两种调度的总时间槽数一样, 时间表开头和结尾的三角形空白就是气泡, M 越大三角形占比越小。差别在显存: 右侧「各卡激活峰值」是每张卡同时攥着的在途激活最多有几份, GPipe 下卡 0 是 M 份, 1F1B 下是 PP − s 份 (卡 0 为 PP), 和 M 无关; 「当前在途激活」是播放到当前时间槽时每张卡手里的份数; 「气泡比例」是空格数占总格数的比例, 公式 (PP−1)/(PP−1+M), 两种调度相同; 「总时间槽」是跑完一个 batch 要多久。"
     module="llm_train/m04"
     run="python -m llm_train.m04_pipeline_parallel.demo"
     :challenge="{
-      ask: '把 micro-batch 数从 4 拖到 16, 气泡比例和 stage 0 的激活峰值分别怎么变? 两种调度有什么不同?',
-      answer: '气泡比例 $(PP-1)/(PP-1+M)$ 两种调度一样, 都随 M 增大而下降。区别在显存:\n- GPipe: stage 0 要同时攥着全部 M 份激活, 峰值 = M。\n- 1F1B: 在途 micro-batch 不超过 $PP-s$, 峰值恒为 PP, 与 M 无关。\n所以 1F1B 省的是显存, 不是时间。',
+      ask: '把 micro-batch 数 M 从 4 拖到 16, 先猜: 气泡比例怎么变? 卡 0 的激活峰值怎么变? 两种调度在这两个数上有什么不同?',
+      answer: '答案: 气泡比例两种调度都从 3/7 ≈ 42.9% 降到 3/19 ≈ 15.8% (PP = 4 时); 卡 0 的激活峰值 GPipe 从 4 涨到 16, 1F1B 一直是 4。\n为什么:\n- 气泡比例是 $(PP-1)/(PP-1+M)$: 时间表开头有 PP−1 个槽在等第一个 micro-batch 流到底, 结尾也有 PP−1 个槽在等最后一个流回来, 中间 M 个 micro-batch 把流水线填满。M 越大, 填满的部分占比越高。两种调度的总时间槽数相同, 所以气泡一样。\n- GPipe: 先做完全部 M 个前向, 这 M 份激活都得攥着等反向, 卡 0 的峰值 = M。M 拖到 16 就是 16 份。\n- 1F1B: 卡 $s$ 上「已前向未反向」的 micro-batch 数不许超过 $PP - s$, 超过就先做一个反向把激活释放掉。卡 0 的峰值恒为 PP = 4, 和 M 无关。\n所以 1F1B 省的是显存, 不是时间。它的价值是: 在途激活不随 M 涨, 于是可以把 M 开大, 间接把气泡压小。',
     }"
   >
     <template #controls>
@@ -34,24 +36,24 @@
           v-for="(c, t) in row" :key="t"
           class="cell"
           :class="[c && (c.type === 'F' ? 'on' : 'ok'), { dim: t > stepper.step.value, now: t === stepper.step.value }]"
-          :title="c ? `${c.type}${c.m} @ 卡${s}, t=${t}` : '气泡'"
+          :title="c ? `${c.type === 'F' ? '前向' : '反向'} 第 ${c.m} 个 micro-batch, 卡 ${s}, 时间槽 ${t}` : '气泡: 这张卡在等上游的前向或下游的反向'"
         >{{ c && c.head ? c.type + c.m : '' }}</span>
       </template>
     </div>
     <p class="lab-note" style="margin-top: 10px;">{{ nowText }}</p>
 
     <template #stats>
-      <div class="kv"><span>总时间槽</span><b>{{ sched.T }}</b></div>
-      <div class="kv"><span>气泡比例</span><b>{{ (sched.bubble * 100).toFixed(1) }}%</b></div>
+      <div class="kv"><span>总时间槽 (跑完一个 batch 要多久)</span><b>{{ sched.T }}</b></div>
+      <div class="kv"><span>气泡比例 (空格 / 总格, 公式 (PP−1)/(PP−1+M))</span><b>{{ (sched.bubble * 100).toFixed(1) }}%</b></div>
       <div class="kv">
-        <span>各卡激活峰值</span>
+        <span>各卡激活峰值 (同时攥着几份在途激活, 卡 0 在前)</span>
         <b :class="Math.max(...sched.peaks) > pp ? 'bad' : 'good'">[{{ sched.peaks.join(', ') }}]</b>
       </div>
-      <div class="kv"><span>当前在途激活</span><b>[{{ liveNow.join(', ') }}]</b></div>
-      <p class="lab-note">
-        <Tex text="1F1B 的关键只有一行: 卡 $s$ 上“已前向未反向”的 micro-batch 数不许超过 $PP - s$。" />
-        少了这个上限, 调度就会退化成 GPipe, 激活峰值回到 M。
-      </p>
+      <div class="kv"><span>当前时间槽各卡的在途激活</span><b>[{{ liveNow.join(', ') }}]</b></div>
+      <div class="lab-note">
+        <p><Tex text="1F1B 的关键只有一行: 卡 $s$ 上「已前向未反向」的 micro-batch 数不许超过 $PP - s$。到了上限就先做一个反向, 把那份激活释放掉, 再做下一个前向。" /></p>
+        <p>少了这个上限, 调度就退化成 GPipe, 卡 0 的激活峰值回到 M。有了它, 峰值封顶在 PP, 于是 M 可以开大, 气泡跟着变小。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

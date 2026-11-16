@@ -128,10 +128,10 @@ const codeRefs = computed(() => {
   display: flex;
   gap: 14px;
   align-items: baseline;
-  font-size: 13.5px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.7;
 }
-.thesis-row + .thesis-row { margin-top: 6px; }
+.thesis-row + .thesis-row { margin-top: 8px; }
 .thesis-label {
   flex: 0 0 auto;
   font-size: 10px;

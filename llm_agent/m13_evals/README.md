@@ -1,8 +1,8 @@
 # M13 — Agent Evals
 
-[![pass@k vs pass^k — 能力上限, 还是可靠性? llm_agent/m13](../../docs/screenshots/agent-evals-1.png)](https://beleev.github.io#/agent/evals)
+[![pass@k 与 pass^k — 「能做到」和「每次都做到」是两个指标 llm_agent/m13](../../docs/screenshots/agent-evals-1.png)](https://beleev.github.io#/agent/evals)
 
-[打开相关交互实验：pass@k vs pass^k — 能力上限, 还是可靠性? llm_agent/m13](https://beleev.github.io#/agent/evals)
+[打开相关交互实验：pass@k 与 pass^k — 「能做到」和「每次都做到」是两个指标 llm_agent/m13](https://beleev.github.io#/agent/evals)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # DPO — 直接偏好优化
 
-[![DPO — 一条 logsigmoid 曲线上的 6 个偏好对 llm_finetune/methods/dpo.py](../../../docs/screenshots/finetune-dpo-1.png)](https://beleev.github.io#/finetune/dpo)
+[![DPO — 一条 logsigmoid 曲线, 看哪些偏好对还在产生梯度 llm_finetune/methods/dpo.py](../../../docs/screenshots/finetune-dpo-1.png)](https://beleev.github.io#/finetune/dpo)
 
-[打开相关交互实验：DPO — 一条 logsigmoid 曲线上的 6 个偏好对 llm_finetune/methods/dpo.py](https://beleev.github.io#/finetune/dpo)
+[打开相关交互实验：DPO — 一条 logsigmoid 曲线, 看哪些偏好对还在产生梯度 llm_finetune/methods/dpo.py](https://beleev.github.io#/finetune/dpo)
 
 ## 直觉
 

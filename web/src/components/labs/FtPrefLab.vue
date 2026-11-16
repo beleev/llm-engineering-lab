@@ -6,14 +6,16 @@
 -->
 <template>
   <LabFrame
-    title="拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被长度骗"
-    sub="两行格子是同一个 prompt 的 chosen / rejected 回答, 点第 n 个格子把长度设为 n。
-      下面四根条是四种写法里送进 $\log\sigma(\cdot)$ 的那个量 $z$, 越右 = 模型认为自己已经排对。把 rejected 点长, 看谁的 $z$ 白白变大。"
+    title="拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被回答长度骗"
+    sub="- 模拟什么: DPO 要常驻一份 ref 模型, 它除了当锚, 还顺带抵消了一件事: 一条回答越长, 它的 log 概率之和 $\sum\log p$ 天然越低 (每个 token 都在乘一个小于 1 的概率)。如果直接拿 policy 对 chosen 和 rejected 的 $\sum\log p$ 相减, rejected 只要比 chosen 长, 差值就白白变大, 模型什么偏好都没学也能把 loss 压到 0。SimPO 和 ORPO 都不用 ref, 这个台子看它们各靠什么顶上: SimPO 按长度取平均再减一个目标间隔 $\gamma$; ORPO 用每 token 平均概率算 odds 之比, 再加一项 SFT loss 当锚。
+      - 图上是什么: 上面两行格子是同一个 prompt 下的 chosen (绿) 和 rejected (红) 回答, 每个格子一个 token, 亮着的格子数就是长度。下面四根横条是四种写法里送进 $\log\sigma(\cdot)$ 的那个量 $z$: 中间竖线是 0, 往右 (绿) 表示模型认为自己已经把这一对排对, 往左 (红) 表示排反; 每行右侧给出 $z$ 和它对应的梯度权重 $\sigma(-z)$ (接近 0 就是不再学)。四行分别是: 裸 sum 差 (没有 ref 也不归一, 对照组)、DPO、SimPO、ORPO。悬停某一行, 下方显示它的公式。
+      - 可以做什么: 点格子行的第 n 个格子, 把那条回答的长度设成 n; 拖「chosen / rejected 每 token log p」改模型对两条回答每个 token 的平均 log 概率 (设成一样就是模型毫无偏好); 拖「SimPO 目标间隔 γ」改 SimPO 要求的最小领先量。ref 对两条回答都固定是每 token −1.5。
+      - 应该看到: 两条回答每 token log p 相同时, 只把 rejected 点长, 「裸 sum 差」的横条一路往右, 其余三行不动。右侧读数: 「rejected 每多写 1 个 token, z 白涨多少」是每种写法里长度带来的假 margin, 应为 0 (绿); 「裸 sum 差还剩的梯度权重」低于 0.05 变红, 表示这条对照组已经被长度骗到不学了; 「ORPO 总 loss」是 chosen 的 NLL 加上 $\lambda$ 倍的 odds ratio 项。"
     module="llm_finetune/methods/simpo.py · orpo.py"
     run="python -m llm_finetune.run_finetune.simpo_orpo.train_simpo_orpo"
     :challenge="{
       ask: '保持两条回答每 token 的平均 log p 都是 −1.5 (模型对两者毫无偏好), chosen 留在 8 token, 把 rejected 从 12 点到 24 token。「裸 sum 差」的 z 变成多少? 它的梯度权重还剩多少? DPO 和 SimPO 为什么不上当?',
-      answer: '裸 sum 差 $= (-1.5\\times 8) - (-1.5\\times 24) = +24$, $\\sigma(-24) \\approx 0$。模型什么偏好都没学, loss 却已经是 0, 只因为长序列的 log 概率之和天然更小。数据里 rejected 普遍更长时, 这个目标学到的只是「短的好」。\n- DPO: 不上当。ref 对同一条长回答也给出同样低的 sum log p, 相减后只剩 policy 相对 ref 的变化。\n- SimPO: 没有 ref, 改成按长度取平均 (每 token log p 之差), 长度直接约掉。代价是数值范围很小, $\\beta$ 要取 2 左右; 再减一个目标间隔 $\\gamma$, 逼模型把差距拉到 $\\gamma/\\beta$ 以上才停手。\n- ORPO: 同样用每 token 平均概率算 odds, 再靠 SFT 项 (chosen 的 NLL) 锚住模型。一个阶段、一个模型, 连单独的 SFT 都省了。',
+      answer: '答案: 裸 sum 差的 $z$ 变成 +24, 梯度权重 $\\sigma(-24)$ 约等于 0; DPO 靠 ref 抵消长度, SimPO 靠除以长度抵消。\n一步步看:\n- 裸 sum 差 $= (-1.5\\times 8) - (-1.5\\times 24) = +24$。模型对两条回答每个 token 的看法完全一样, 什么偏好都没学, loss 却已经是 0, 只因为长序列的 log 概率之和天然更小。数据里 rejected 普遍更长时, 这个目标学到的只是「短的好」。\n- DPO: ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 两边相减后长度项成对抵消, 只剩 policy 相对 ref 的变化。这一行不为 0 只发生在 policy 已经偏离 ref 时, 那是学到的偏好, 不是长度红利。\n- SimPO: 没有 ref, 改成每 token 平均 log p 之差, 长度直接约掉。代价是数值范围变小, $\\beta$ 要取 2 左右; 再减一个目标间隔 $\\gamma$, 这个式子在说: 平均 log p 至少要领先 $\\gamma/\\beta$ 才算排对, 否则继续学。但它没有任何锚, 本仓库实测留出集 EM 掉到 0.023。\n- ORPO: 同样用每 token 平均概率 $p$ 算 odds $= p/(1-p)$, 再拿两条的 odds 之比取 log 当 $z$; 总 loss 里还有 chosen 的 NLL (就是 SFT loss) 把模型锚住。一个阶段、一个模型, 连单独的 SFT 都省了, 实测从零训 300 步留出集 EM 0.973。',
     }"
   >
     <template #controls>
@@ -53,11 +55,11 @@
       <div v-for="r in rows" :key="r.id" class="kv">
         <span>{{ r.short }}</span><b :class="Math.abs(r.dz) < 1e-9 ? 'good' : 'bad'">{{ sg(r.dz) }}</b>
       </div>
-      <div class="kv"><span>裸 sum 差还剩的梯度权重</span><b :class="sigmoid(-rows[0].z) < 0.05 ? 'bad' : ''">{{ sigmoid(-rows[0].z).toFixed(3) }}</b></div>
-      <div class="kv"><span><Tex text="ORPO 总 loss = NLL + $\lambda\cdot L_{\text{OR}}$" /></span><b>{{ orpoLoss.toFixed(3) }}</b></div>
+      <div class="kv"><span>裸 sum 差还剩的梯度权重 (被长度骗到不学了?)</span><b :class="sigmoid(-rows[0].z) < 0.05 ? 'bad' : ''">{{ sigmoid(-rows[0].z).toFixed(3) }}</b></div>
+      <div class="kv"><span><Tex text="ORPO 总 loss = chosen 的 NLL + $\lambda\cdot L_{\text{OR}}$ ($\lambda = 0.1$)" /></span><b>{{ orpoLoss.toFixed(3) }}</b></div>
       <p class="lab-note">
-        需要的前向: DPO 每步 2 次, policy、ref 各 1 次, 每次 2B 条序列 (两个模型); SimPO / ORPO 只有 policy 1 次 (一个模型)。
-        DPO 这一行不为 0 只发生在 policy 已偏离 ref 时。那是学到的偏好, 不是长度红利。
+        代价对比: DPO 每步 2 次前向, policy、ref 各 1 次, 每次 2B 条序列 (chosen 和 rejected 各 B 条), 要常驻两个模型; SimPO / ORPO 只有 policy 1 次, 一个模型。本仓库实测 DPO 每步 5.4 s, SimPO 与 ORPO 4.0 s。
+        DPO 这一行不为 0 只发生在 policy 已经偏离 ref 时, 那是学到的偏好, 不是长度红利。
       </p>
     </template>
   </LabFrame>

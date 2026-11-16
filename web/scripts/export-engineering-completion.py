@@ -31,7 +31,7 @@ def export():
         entries.append({**item, 'module': item['module'].replace('.', '/') + '.py',
                         'run': 'python -m ' + item['module'], 'conditions': conditions})
     result = {'source_digest': digest(),
-              'kind': 'Python 实际执行记录回放。切换条件读取预先计算的结果，浏览器不训练模型或调用 API。',
+              'kind': 'Python 实际执行记录回放: 下面的数字是 demo 真实跑出来的, 点上面的按钮切换实验条件, 浏览器不训练模型也不调用 API。',
               'entries': entries}
     encoded = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
     if '--check' in sys.argv:

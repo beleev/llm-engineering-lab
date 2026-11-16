@@ -1,8 +1,8 @@
 # Mistral — LLaMA + 滑动窗口注意力 (SWA)
 
-[![注意力掩码实验台 — 谁能看见谁 llm_infer/m16](../../../../docs/screenshots/models-mtp-1.png)](https://beleev.github.io#/models/swa-mtp)
+[![注意力掩码实验台 — 每个位置能看见哪些位置 llm_infer/m16](../../../../docs/screenshots/models-mtp-1.png)](https://beleev.github.io#/models/swa-mtp)
 
-[打开相关交互实验：注意力掩码实验台 — 谁能看见谁 llm_infer/m16](https://beleev.github.io#/models/swa-mtp)
+[打开相关交互实验：注意力掩码实验台 — 每个位置能看见哪些位置 llm_infer/m16](https://beleev.github.io#/models/swa-mtp)
 
 ## 直觉
 

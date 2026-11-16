@@ -1,8 +1,8 @@
 # On-policy 蒸馏 (reverse KL)
 
-[![forward KL vs reverse KL — 学生该盖住所有峰, 还是钻进一个峰 llm_finetune/methods/on_policy_distill.py](../../../docs/screenshots/finetune-onpolicy-distill-1.png)](https://beleev.github.io#/finetune/onpolicy-distill)
+[![forward KL vs reverse KL — 容量不够的学生该盖住所有峰, 还是钻进一个峰 llm_finetune/methods/on_policy_distill.py](../../../docs/screenshots/finetune-onpolicy-distill-1.png)](https://beleev.github.io#/finetune/onpolicy-distill)
 
-[打开相关交互实验：forward KL vs reverse KL — 学生该盖住所有峰, 还是钻进一个峰 llm_finetune/methods/on_policy_distill.py](https://beleev.github.io#/finetune/onpolicy-distill)
+[打开相关交互实验：forward KL vs reverse KL — 容量不够的学生该盖住所有峰, 还是钻进一个峰 llm_finetune/methods/on_policy_distill.py](https://beleev.github.io#/finetune/onpolicy-distill)
 
 ## 直觉
 

@@ -1,16 +1,16 @@
 <!-- KV 体积实验台 (对应 llm_infer/m18_kv_attention_variants): 两条公式 + 一条可拖的显存线。 -->
 <template>
   <LabFrame
-    title="KV 体积 — MHA / GQA / MQA / MLA 各占多少显存"
-    sub="同一个 attention 数学, 只是「cache 里存什么」不同。
-      - 上图: 每 token 的 KV 字节。
-      - 下图: 每个小格 = 一条序列在所选上下文长度下的 KV, 竖线是留给 KV 的显存预算。
-      左右拖动这条竖线, 看每种结构能同时放下几条序列。"
+    title="KV 体积 — MHA / GQA / MQA / MLA 每个 token 各占多少显存, 一张卡能同时服务几条"
+    sub="- 模拟什么: 一张卡能同时服务几条请求, 上限是「留给 KV 的显存 ÷ 每条请求的 KV 大小」。每个 token 的 KV 占多少字节, 取决于 attention 结构在 cache 里存什么: MHA (multi-head attention) 每个 query 头都有自己的 K/V 头, 全存; GQA (grouped-query attention) 让几个 query 头共用一个 KV 头, 存的份数变少; MQA (multi-query attention) 所有头共用 1 个 KV 头; MLA (multi-head latent attention, DeepSeek 用的) 不存 K 和 V, 只存一个低维的 latent 向量 (每层 d_c 维, 用的时候再乘投影矩阵还原出各头的 K/V) 和一份所有头共享的 64 维 RoPE key (位置信息单独放这里)。四种结构的 attention 数学几乎一样, 这里只算账。
+      - 图上是什么: 上面四根横条是四种结构每个 token 的 KV 字节数 (KiB), 长度按 MHA 归一: 红色 MHA, 黄色 GQA, 绿色 MQA, 紫色 MLA; 标着「实际采用」的那一行是所选预设模型真正用的结构。下面的图里每种结构一行, 每个小方格是一条序列在所选上下文长度下的全部 KV (行首写着每条多少 GiB、能放下几条); 横轴是显存 GiB; 可拖的竖线是留给 KV 的显存预算, 一条都放不下时画红色虚线框。
+      - 可以做什么: 点预设按钮一键填入真实模型的参数 (LLaMA-2-7B、LLaMA-3-8B、LLaMA-3-70B、DeepSeek-V3); 拖「层数 n_layer」「query 头数 n_head」「GQA 的 KV 头数」「d_head」(每个头的维度)「MLA latent d_c」改模型形状 (一拖就不再对应任何预设); 拖「上下文长度」改每条序列有多少 token; 点 fp16 / int8 / int4 改 KV 的存储精度 (每个数占 2 / 1 / 0.5 字节); 左右拖图里的竖线 (或聚焦后按左右方向键) 改显存预算。
+      - 应该看到: 同一个预设下 MHA 的条最长, GQA 按 KV 头数等比缩短, MQA 最短; DeepSeek-V3 预设下 MLA 每 token 只有 68.6 KiB, 比它的 MHA 版本小 56.9×。右侧读数是每种结构在当前预算、当前上下文长度下最多能同时放几条序列: 一条都放不下标红, 放得最多的那种标绿。默认 40 GiB、8192 上下文时, LLaMA-3-8B 预设的 MHA / GQA / MQA 是 10 / 40 / 320 条, DeepSeek-V3 预设的 MLA 是 74 条, 和 demo 一致。"
     module="llm_infer/m18"
     run="python -m llm_infer.m18_kv_attention_variants.demo"
     :challenge="{
       ask: '选 DeepSeek-V3 预设: MLA 每 token 只有 68.6 KiB, 比 GQA-8 (LLaMA-3-8B 的 128 KiB) 还小, 可它有 128 个头。它靠什么做到的? 代价在哪?',
-      answer: 'MLA 不缓存每头的 K/V, 只缓存两样:\n- 一份低秩 latent $c_{\\text{kv}}$ (512 维)\n- 一份所有头共享的 RoPE key (64 维)\n(512+64)·61 层·2 字节 = 68.6 KiB, 比它自己的 MHA 版本 (3904 KiB) 小 56.9×。\n代价是 decode 时要把 latent 还原成各头的 K/V (或走 absorb 形式把 $W_{\\text{UK}}$ 吸进 $q$), 计算更多。这是用算力换显存和带宽, 而 decode 恰好是带宽受限的。',
+      answer: 'MLA 不缓存每个头的 K/V, 只缓存两样东西:\n- 一份低秩 latent $c_{\\text{kv}}$ (512 维), 所有头共用, 用的时候再乘上投影矩阵还原出各头的 K 和 V。\n- 一份所有头共享的 RoPE key (64 维), 位置信息单独放在这里。\n每 token 每层 (512 + 64) 个数, 61 层, fp16 每个数 2 字节: (512+64)·61·2 = 70272 B = 68.6 KiB。它自己的 MHA 版本是 128 个头 × 128 维 × 2 (K 和 V) × 61 层 × 2 字节 = 3904 KiB, 小 56.9×。\n代价是算力: decode 时要把 latent 还原成各头的 K/V, 或者走 absorb 形式 (把还原矩阵 $W_{\\text{UK}}$ 提前乘进 $q$, 直接在 latent 上做注意力), 计算比 GQA 多。这是用算力换显存和带宽, 而 decode 恰好是带宽受限、算力有富余的阶段, 所以划算。',
     }"
   >
     <template #controls>
@@ -65,17 +65,17 @@
 
     <template #stats>
       <div v-for="v in variants" :key="v.name" class="kv">
-        <span>{{ v.name }} 最大并发</span>
+        <span>{{ v.name }} 在预算内能同时放几条</span>
         <b :class="v.fit === 0 ? 'bad' : v.fit === best ? 'good' : ''">{{ v.fit }} 条</b>
       </div>
       <div class="lab-note">
         <p>每 token 字节, MHA 是 MLA 的 {{ (variants[0].bytes / variants[3].bytes).toFixed(1) }}×。标着「实际采用」的那一行是所选模型真正用的结构; 拖过滑杆后不再对应任何预设。</p>
         <ul class="pts">
-          <li><b>每 token 字节:</b> <Tex text="$2 \cdot n_{\text{kv}} \cdot d_{\text{head}} \cdot n_{\text{layer}} \cdot \text{bytes}$" />。</li>
-          <li><b>MLA:</b> <Tex text="$(d_c + d_{\text{rope}}) \cdot n_{\text{layer}} \cdot \text{bytes}$。K/V 共用 latent, 没有「$2 \cdot$」。" /></li>
-          <li><b>并发上限:</b> <Tex text="$\lfloor \text{预算} \div (\text{每 token 字节} \times \text{上下文}) \rfloor$" />。</li>
+          <li><b>每 token 字节 (MHA / GQA / MQA):</b> <Tex text="$2 \cdot n_{\text{kv}} \cdot d_{\text{head}} \cdot n_{\text{layer}} \cdot \text{bytes}$" />。2 是 K 和 V 各一份, <Tex text="$n_{\text{kv}}$" /> 是 KV 头数 (MHA 等于 query 头数, MQA 等于 1)。</li>
+          <li><b>MLA:</b> <Tex text="$(d_c + d_{\text{rope}}) \cdot n_{\text{layer}} \cdot \text{bytes}$。K/V 共用一个 latent, 没有「$2 \cdot$」, 也不乘头数。" /></li>
+          <li><b>并发上限:</b> <Tex text="$\lfloor \text{预算} \div (\text{每 token 字节} \times \text{上下文长度}) \rfloor$" />。</li>
         </ul>
-        <p>和 demo 对得上: 40 GiB、8192 上下文时, 7B 形状的 MHA / GQA-8 / MQA = 10 / 40 / 320 条, DeepSeek-V3 MLA = 74 条。</p>
+        <p>和 demo 对得上: 40 GiB、8192 上下文时, 7B 形状的 MHA / GQA-8 / MQA 是 10 / 40 / 320 条, DeepSeek-V3 的 MLA 是 74 条。</p>
       </div>
     </template>
   </LabFrame>

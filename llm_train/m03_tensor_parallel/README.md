@@ -1,8 +1,8 @@
 # M03 — 张量并行 (Megatron TP)
 
-[![张量并行 — 通信到底该插在哪? llm_train/m03](../../docs/screenshots/train-model-parallel-2.png)](https://beleev.github.io#/train/model-parallel)
+[![张量并行 — 一层矩阵切给两张卡, 通信到底该插在哪? llm_train/m03](../../docs/screenshots/train-model-parallel-2.png)](https://beleev.github.io#/train/model-parallel)
 
-[打开相关交互实验：张量并行 — 通信到底该插在哪? llm_train/m03](https://beleev.github.io#/train/model-parallel)
+[打开相关交互实验：张量并行 — 一层矩阵切给两张卡, 通信到底该插在哪? llm_train/m03](https://beleev.github.io#/train/model-parallel)
 
 ## 直觉
 

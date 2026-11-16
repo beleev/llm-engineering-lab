@@ -1,8 +1,8 @@
 # DoRA — 权重分解的 LoRA
 
-[![DoRA — 把「转方向」和「改长度」拆成两个旋钮 llm_finetune/methods/dora.py](../../../docs/screenshots/finetune-dora-1.png)](https://beleev.github.io#/finetune/dora)
+[![DoRA — 把权重向量拆成「长度」和「方向」, 各给一个旋钮 llm_finetune/methods/dora.py](../../../docs/screenshots/finetune-dora-1.png)](https://beleev.github.io#/finetune/dora)
 
-[打开相关交互实验：DoRA — 把「转方向」和「改长度」拆成两个旋钮 llm_finetune/methods/dora.py](https://beleev.github.io#/finetune/dora)
+[打开相关交互实验：DoRA — 把权重向量拆成「长度」和「方向」, 各给一个旋钮 llm_finetune/methods/dora.py](https://beleev.github.io#/finetune/dora)
 
 ## 直觉
 

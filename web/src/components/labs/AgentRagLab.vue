@@ -4,21 +4,23 @@
 -->
 <template>
   <LabFrame
-    title="RAG — 20 道题, 四条检索路线"
-    sub="每一行是一道标注问答, 格子是名次 1–10, 亮的那格是第一个相关块排在哪。
-      切换检索路线, 拖 rerank 范围, 看 recall@1 和 MRR 怎么变。点任意一行, 看这道题的前 5 名和四条路线的名次。"
+    title="RAG — 同样 20 道题, 四条检索路线各把正确答案排到第几名"
+    sub="- 模拟什么: RAG (检索增强生成) 里的检索这一步: 一份产品文档被切成 15 个小块 (chunk), 用户提问时先从这 15 块里找出最相关的几块交给模型。这里比较四条检索路线: BM25 按词面匹配打分, 对 E413 这种罕见的精确词很准, 但 resume 对不上 resumable; dense 把文本变成向量比相似度, 这个 demo 用的是字符 n-gram 拼出来的玩具向量, 能接住拼写变体, 但不懂同义词; RRF 融合让两路各出一个排序, 只按名次合并, 每路给一个块的分是 1/(60+名次); RRF + rerank 在融合之后只对前 N 名用一个更贵更准的打分器重排。评测用 20 道标注好的问题, 每道题都知道正确的块是哪一块。
+- 图上是什么: 每一行是一道题。右侧 10 个小格代表名次 1 到 10, 亮起来的那一格就是「第一个相关块」在当前路线里排到了第几名: 绿色是第 1 名, 黄色是第 2 到 3 名, 红色是第 4 名以后; 最右边的数字是这个名次, ✘ 表示前 10 名里根本没有相关块 (没召回)。点任意一行, 下方显示这道题在当前路线下的前 5 名 (绿框的是相关块) 和四条路线各自的名次, 方便对比。
+- 可以做什么: 第一排切换四条路线。选「RRF + rerank」时多出一根滑杆「rerank 范围」: rerank 只精读融合结果的前 N 名, 后面的直接丢掉, 拖它看 N 太小会漏掉什么; 其他路线不做 rerank, 滑杆隐藏。
+- 应该看到: 「RRF + rerank」(N=10) 20 题里 19 题排第 1, 只有同义改写的「How do I get my money back?」排第 5, 因为文档里写的是 refund, 四条路线都不懂这个同义关系。单看「RRF 融合」会发现「Can an interrupted upload resume?」掉到第 8: BM25 没召回它, 只有 dense 一路给分, 被两路都「还行」的块挤到后面, 这是融合的副作用, 要靠 rerank 捞回来。右侧 recall@1 是「相关块排第 1」的题数占比, recall@3 是「排进前 3」的占比, MRR 是每道题「1/名次」的平均 (没召回记 0), 三个数都是越大越好; 颜色是和 BM25 单路比, 绿色更好, 红色更差。「未召回」是前 10 名里没有相关块的题数。"
     module="llm_agent/m16"
     run="python -m llm_agent.m16_rag.demo"
     :challenge="{
-      ask: '选「RRF + rerank」, 把 rerank 范围从 10 拖到 5。先猜: 哪道题会掉? 它掉到第几名?',
-      answer: '「Can an interrupted upload resume?」直接变成未召回。\n- 融合后排第 8: BM25 没召回它, 只从 dense 一路拿到 1/61。几个两路都排 3–6 名的块各拿两份分数, 反超到前面。\n- rerank 只精读前 N 名: N=5 时第 8 名不在候选里, 打分器再准也看不见。\nrerank 改的是名次, 不是召回。召回阶段的盲区, 要靠多一路召回或调融合权重来补。',
+      ask: '选「RRF + rerank」, 把「rerank 范围」从 10 拖到 5。先猜: 哪道题会掉? 它掉到第几名?',
+      answer: '「Can an interrupted upload resume?」直接变成未召回 (✘)。\n一步步看:\n- 这道题 BM25 一个相关块都没找到 (词面上 resume 对不上 resumable), 相关块只从 dense 一路拿到分: 它在 dense 里排第 1, RRF 分数是 1/(60+1)。\n- 另外几个块在两路里都排 3 到 6 名, 两路各给一份分, 加起来反超, 相关块在融合结果里只排第 8。\n- rerank 只精读融合后的前 N 名: N=10 时第 8 名在候选里, 打分器把它提到第 1; N=5 时第 8 名根本不在候选里, 打分器再准也看不见, 它被直接丢掉。\n所以 rerank 改的是名次, 不是召回: 召回阶段进不了前 N 的块, 后面的环节救不回来。召回的盲区要靠多加一路召回, 或者调融合的权重来补。点这一行, 下方「四条路线的名次」能直接看到 BM25 ✘、dense 1、RRF 融合 8、RRF + rerank 1 这组对照。',
     }"
   >
     <template #controls>
       <div class="row">
         <button v-for="r in ROUTES" :key="r.id" type="button" :class="{ active: route === r.id }" @click="route = r.id">{{ r.label }}</button>
       </div>
-      <LabSlider v-if="route === 'rerank'" v-model="top" label="rerank 范围 (前 N 名)" :min="1" :max="15" unit=" 名" />
+      <LabSlider v-if="route === 'rerank'" v-model="top" label="rerank 范围 (只重排融合结果的前 N 名)" :min="1" :max="15" unit=" 名" />
       <p v-else class="tip">「rerank 范围」已隐藏: 这条路线不做 rerank。切到「RRF + rerank」再拖。</p>
     </template>
 
@@ -42,12 +44,12 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>recall@1</span><b :class="cmp(m[0], base[0])">{{ m[0].toFixed(2) }}</b></div>
-      <div class="kv"><span>recall@3</span><b :class="cmp(m[1], base[1])">{{ m[1].toFixed(2) }}</b></div>
-      <div class="kv"><span>MRR</span><b :class="cmp(m[2], base[2])">{{ m[2].toFixed(2) }}</b></div>
-      <div class="kv"><span>未召回</span><b :class="misses ? 'bad' : 'good'">{{ misses }} 题</b></div>
+      <div class="kv"><span>recall@1 (相关块排第 1 的题占比)</span><b :class="cmp(m[0], base[0])">{{ m[0].toFixed(2) }}</b></div>
+      <div class="kv"><span>recall@3 (相关块进前 3 的题占比)</span><b :class="cmp(m[1], base[1])">{{ m[1].toFixed(2) }}</b></div>
+      <div class="kv"><span>MRR (每题 1/名次 的平均, 没召回记 0)</span><b :class="cmp(m[2], base[2])">{{ m[2].toFixed(2) }}</b></div>
+      <div class="kv"><span>未召回 (前 10 名里没有相关块)</span><b :class="misses ? 'bad' : 'good'">{{ misses }} 题</b></div>
       <div class="lab-note">
-        <p>颜色和 BM25 单路比: 绿 = 更好, 红 = 更差。</p>
+        <p>三个指标都是越大越好, 满分 1.00。颜色和 BM25 单路比: 绿是比 BM25 好, 红是比 BM25 差, 没颜色是一样。</p>
         <p>名次在前端现算: RRF 用两路的真实排序, rerank 用 Python 算好的 rerank_score。rerank 范围 10 时四条路线和 demo [2] 逐题一致。</p>
       </div>
     </template>

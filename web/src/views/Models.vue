@@ -7,15 +7,15 @@
         阶段 2 进 <RepoLink path="llm_models/" label="llm_models/" tiny /> 换成 PyTorch,
         把 attention、FFN、norm、position 四种零件装进同一个 Block, 堆出 Transformer、MoE、多模态和扩散模型。
       </p>
-      <p><strong>换一个零件只需要改前向, 反向交给 autograd</strong>。这才有可能在一个仓库里放下二十多种架构。</p>
+      <p><strong>换一个零件只需要改前向, 反向交给 autograd (PyTorch 的自动求导)</strong>。这才有可能在一个仓库里放下二十多种架构。</p>
     </div>
 
     <ChapterIntro
-      tldr="主流模型的差别几乎都落在 4 个槽位:
-        - attention: 怎么省 KV cache
-        - FFN: 门不门控、稀不稀疏
-        - norm: 放在子层前还是后
-        - 位置信息: 从哪注入"
+      tldr="主流模型的差别几乎都落在 4 个槽位上, 其它部分大同小异:
+        - attention (注意力): 生成时每个 token 要缓存多少 K/V (这份缓存叫 KV cache), 各家都在想办法把这个数砍小
+        - FFN (前馈网络): 要不要加门控 (SwiGLU), 要不要拆成多个专家、每个 token 只激活其中几个 (MoE)
+        - norm (归一化): 放在子层前还是后
+        - 位置信息: 加在 embedding 上, 还是乘在 Q/K 上 (RoPE)"
       question="拿到没读过的模型, 能不能先认出它只换了哪几个零件, 而不是从头读整套架构?"
       :goals="[
         '用同一张零件表读懂 Transformer / LLaMA / Mixtral / DeepSeek',
@@ -52,11 +52,12 @@
       <div class="lead-group">
         <ol class="pts">
           <li>
-            <b>注意力:</b> 它直接决定长上下文的推理成本。一个 token 在全部层上的 KV:
+            <b>注意力:</b> 先读它, 因为它直接决定长上下文的推理成本。生成时每个 token 的 K 和 V 都要缓存下来,
+            一个 token 在全部层上的 KV 占多少显存, 各代差很多:
             LLaMA-2-7B (MHA) 要 512 KiB, LLaMA-3-8B 换成 GQA 后 128 KiB, DeepSeek-V3 换成 MLA 后 68.6 KiB。
           </li>
-          <li><b>位置编码和 Block 组装:</b> 决定零件怎么接。</li>
-          <li><b>两条分支:</b> MoE 把 FFN 拆稀疏, 扩散换一套生成方式。</li>
+          <li><b>位置编码和 Block 组装:</b> 位置编码告诉模型每个 token 排在第几位; Block 组装决定四种零件怎么接成一层。</li>
+          <li><b>两条分支:</b> MoE 把 FFN 拆成多个专家, 每个 token 只用其中几个; 扩散模型换掉「一个 token 一个 token 生成」这套方式, 改成从噪声逐步去噪。</li>
         </ol>
         <p>每一章的形状都一样: 上一代哪里疼, 这一代怎么止疼, 又引出了什么新疼。</p>
       </div>
@@ -158,14 +159,14 @@ const evoSteps = [
     fix: 'Mixtral、DeepSeek-V3 把 FFN 拆成 E 个专家, 每 token 只过 k 个: 算力按 k 算' },
   { name: 'SSM / 混合线性', year: '2023 / 2025', color: 'var(--right)',
     pain: '注意力仍随上下文长度 T 变贵: cache 线性涨, 算力 $O(T^2)$',
-    fix: 'Mamba、Qwen3-Next 用定长状态代替 KV cache, 解码每步 $O(1)$; 压缩有损, 留几层全注意力兜底' },
+    fix: 'Mamba、Qwen3-Next 用一个定长状态代替越来越长的 KV cache, 解码每步 $O(1)$; 状态装不下的信息会丢, 所以留几层全注意力兜底' },
   { name: '非自回归', year: '2024 / 2025', color: 'var(--eye)',
     pain: 'cache 再小, 自回归也一次只出 1 个 token, N 个要串行 N 步',
     fix: 'VAR 一步出一整级分辨率, LLaDA 从全 [MASK] 逐步去噪: 一次前向定一批 token' },
 ]
 
 const sourceRows = [
-  { slot: 'Attention', problem: '每个 token 要缓存多少东西: MHA → GQA → MLA → DSA 一路在砍这个数', file: 'llm_models/layers/core/attention.py' },
+  { slot: 'Attention', problem: '生成时每个 token 要缓存多少 K/V: 从 MHA 到 GQA、MLA、DSA, 每一代都在砍这个数', file: 'llm_models/layers/core/attention.py' },
   { slot: 'Position', problem: '位置信息从哪进模型: Sin / Learnable 加在 embedding 上, RoPE / M-RoPE 乘在 Q/K 上', file: 'llm_models/layers/core/position_encoding.py' },
   { slot: 'Block', problem: '把 attn、ffn、norm、pos 装进同一个壳: 所有模型共用的那段控制流', file: 'llm_models/layers/core/blocks.py' },
   { slot: 'Sparse / Generative', problem: '主干之外的扩展: MoE 把 FFN 拆稀疏, SSM 换掉注意力, DiT / MM-DiT / VAR 换掉生成方式', file: 'llm_models/layers/sparse/' },

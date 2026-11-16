@@ -1,8 +1,8 @@
 # M11 — Orchestrator–Workers: lead 扇出并行子 agent 再综合
 
-[![Orchestrator–workers — 三本账: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](../../docs/screenshots/agent-orchestrator-1.png)](https://beleev.github.io#/agent/orchestrator)
+[![Orchestrator–workers — 把调研拆给几个子 agent, 三本账怎么变: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](../../docs/screenshots/agent-orchestrator-1.png)](https://beleev.github.io#/agent/orchestrator)
 
-[打开相关交互实验：Orchestrator–workers — 三本账: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](https://beleev.github.io#/agent/orchestrator)
+[打开相关交互实验：Orchestrator–workers — 把调研拆给几个子 agent, 三本账怎么变: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](https://beleev.github.io#/agent/orchestrator)
 
 ## 直觉
 

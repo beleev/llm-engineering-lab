@@ -8,13 +8,13 @@
       </p>
       <p><RepoLink path="llm_finetune/" label="llm_finetune/" tiny /> 把这条路上的 16 种方法都写成了能跑的最小实现。</p>
       <ul class="pts">
-        <li><b>本页三根主柱:</b> 全参 SFT、LoRA、不要 RM 的偏好对齐 (DPO)。</li>
+        <li><b>本页三根主柱:</b> 全参 SFT (用「问题 + 标准回答」做监督微调)、LoRA (不动原模型, 只训一对很小的补丁矩阵)、不用奖励模型 (RM) 的偏好对齐 (DPO)。</li>
         <li><b>各有专章:</b> QLoRA / DoRA、SimPO / ORPO、奖励模型、GRPO 及其变体 (DAPO · Dr.GRPO · GSPO)、离线与 on-policy 蒸馏。每章都带一个能拖的实验台。</li>
       </ul>
     </div>
 
     <ChapterIntro
-      tldr="SFT 教模型按指令回答, LoRA 把可训参数压到百分之零点几, DPO 把 RLHF 的三个阶段塌缩成一个分类 loss。每一步都是上一步在「数据 / 参数 / 流程」上的减法。"
+      tldr="SFT 用「问题 + 标准回答」教模型按指令回答; LoRA 不动原模型, 只训一对很小的补丁矩阵, 可训参数压到百分之零点几; DPO 直接在「同一个问题的好回答 / 差回答」上训, 把 RLHF (先训奖励模型、再做强化学习的三阶段流程) 塌缩成一个分类 loss。每一步都是上一步在「数据 / 参数 / 流程」上的减法。"
       question="同样的偏好数据, 为什么 PPO 要同时养 4 个模型, 而 DPO 只要 2 个加一行 logsigmoid?"
       :goals="[
         '说出 SFT / LoRA / DPO 各自要什么数据、动哪些参数、每步几次前向',
@@ -38,8 +38,9 @@
       <h2>1. 三阶段 alignment 与 DPO 的塌缩</h2>
       <div class="lead-group">
         <p>
-          ChatGPT (2022) 之后, 把通用 LM 变成能用的助手, 标准流程是
-          <strong>SFT → Reward Model → PPO</strong>。三步各要一次训练, PPO 那步还要同时养 4 个模型。
+          ChatGPT (2022) 之后, 把通用 LM 变成能用的助手, 标准流程是三步:
+          先 <strong>SFT</strong>, 再训一个 <strong>Reward Model</strong> (奖励模型, 给任意回答打分), 最后用 <strong>PPO</strong> (一种强化学习算法) 让模型朝高分方向调。
+          三步各要一次训练, PPO 那步还要同时养 4 个模型。
         </p>
         <ul class="pts">
           <li><b>4 个怎么数:</b> 经典 RLHF (含奖励模型) 的口径是 policy、冻结的 ref、critic、奖励模型 (RM)。</li>

@@ -1,8 +1,8 @@
 # M09 — MCP 2025-06-18: 工具活在另一个进程里
 
-[![MCP — 一次外部工具调用的完整报文 llm_agent/m09](../../docs/screenshots/agent-mcp-1.png)](https://beleev.github.io#/agent/mcp)
+[![MCP — 住在另一个进程里的工具是怎么接进 agent 的, 一次调用走了哪些报文 llm_agent/m09](../../docs/screenshots/agent-mcp-1.png)](https://beleev.github.io#/agent/mcp)
 
-[打开相关交互实验：MCP — 一次外部工具调用的完整报文 llm_agent/m09](https://beleev.github.io#/agent/mcp)
+[打开相关交互实验：MCP — 住在另一个进程里的工具是怎么接进 agent 的, 一次调用走了哪些报文 llm_agent/m09](https://beleev.github.io#/agent/mcp)
 
 ## 版本边界
 

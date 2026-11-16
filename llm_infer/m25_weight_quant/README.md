@@ -1,8 +1,8 @@
 # M25 — GPTQ / SmoothQuant / FP8: 量化的另外三条路
 
-[![SmoothQuant — 把离群值从激活挪给权重 llm_infer/m25](../../docs/screenshots/infer-quant-awq-3.png)](https://beleev.github.io#/infer/quant-awq)
+[![SmoothQuant — 把激活里的离群值挪一部分给权重, 让两边都好量化 llm_infer/m25](../../docs/screenshots/infer-quant-awq-3.png)](https://beleev.github.io#/infer/quant-awq)
 
-[打开相关交互实验：SmoothQuant — 把离群值从激活挪给权重 llm_infer/m25](https://beleev.github.io#/infer/quant-awq)
+[打开相关交互实验：SmoothQuant — 把激活里的离群值挪一部分给权重, 让两边都好量化 llm_infer/m25](https://beleev.github.io#/infer/quant-awq)
 
 ## 直觉
 

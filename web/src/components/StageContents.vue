@@ -1,7 +1,7 @@
 <template>
   <section class="section stage-contents" aria-label="本阶段目录">
     <h2>按主题阅读</h2>
-    <p class="lead">{{ stage.groups.length }} 个主题，{{ stage.chapters.length }} 个章节。展开主题查看具体章节；目录按当前阅读档位筛选。</p>
+    <p class="lead">{{ stage.groups.length }} 个主题, {{ stage.chapters.length }} 个章节。点开一个主题能看到它下面的章节; 目录只列出当前阅读档位里的章节。</p>
     <div class="topic-grid">
       <details v-for="g in groups" :key="g.id" class="topic-group">
         <summary><span class="mono">{{ g.number }}</span> {{ g.title }} <span class="count">{{ g.chapters.length }} 章</span></summary>
@@ -28,7 +28,7 @@ const groups = computed(() => stage.value.groups.map((g) => ({ ...g, chapters: g
 </script>
 
 <style scoped>
-/* 后面可能直接接演进卡片；与普通 section 使用相同的段落间距。 */
+/* 后面可能直接接演进卡片; 与普通 section 使用相同的段落间距。 */
 .stage-contents { margin-bottom: 36px; }
 .topic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .topic-group { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); }

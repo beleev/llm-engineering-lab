@@ -7,15 +7,16 @@
 -->
 <template>
   <LabFrame
-    title="GRPO → Dr.GRPO → DAPO: 每个 token 到底分到多少梯度"
-    sub="同一个 prompt 采了 6 条回答。点左边的 ✓/✗ 改对错 (可验证奖励 0/1), 拖每条的右端改长度。
-      条越浓, 这条回答里每个 token 分到的梯度权重越大。绿 = 推高, 红 = 压低。
-      这里看的是「优势怎么分给每个 token」。奖励怎么变成优势, 见「RM · GRPO · 蒸馏」一章的 GRPO 入门实验台。"
+    title="GRPO、Dr.GRPO、DAPO — 同一组回答, 每个 token 到底分到多少梯度"
+    sub="- 模拟什么: GRPO 对同一个 prompt 采 G 条回答, 用可验证奖励打分 (对 1 错 0), 再把奖励变成每条的优势 $\hat{A}$ (组内优势: 这条的奖励减组均值 $\mu$, GRPO 还要除以组标准差 $\sigma$), 最后把 $\hat{A}$ 摊到这条回答的每个 token 上。三种算法的区别全在「摊」的分母: GRPO 除以这条自己的长度 $|o_i|$; Dr.GRPO 除以常数 $L_{\max}$ (而且不除 $\sigma$); DAPO 把全组 token 汇总后除以组内平均长度 (token 级平均), 并在全对或全错时丢弃整组重采 (动态采样)。奖励怎么变成优势, 见「RM · GRPO · 蒸馏」一章的 GRPO 入门实验台。
+      - 图上是什么: 6 行, 每行一条回答。左边的圆圈是对错 (绿 ✓ 红 ✗); 横条的长度是回答的 token 数; 横条的颜色深浅是这条回答里每个 token 分到的梯度权重, 绿是推高, 红是压低, 越浓越大。右侧两列数字: Â 是这条的优势, 「每 token 权重 ‰」是 Â 除以分母后乘 1000。
+      - 可以做什么: 顶部三个按钮切换算法; 「全对 / 全错」把 6 条设成同一种结果; 「换一组」随机抽; 点某一行的圆圈翻转对错; 拖横条右端的把手 (或聚焦后按方向键) 改这条的长度 (20 到 400)。
+      - 应该看到: GRPO 下把一条错误回答拖长, 它的红色明显变淡, 每个 token 挨的罚变轻了; Dr.GRPO 下拖长不变色。右侧读数: 「组均值 μ / 标准差 σ」是这 6 个奖励的统计量; 「有梯度的回答」是 Â 非零的条数, 全对或全错时为 0; 「最长错 : 最短错」是最长和最短两条错误回答每 token 罚的比值, 等于 1 (绿) 说明没有长度偏置, 小于 1 (红) 说明越长罚越轻; 「本组总更新量」是 6 个 |Â| 之和。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
       ask: '保持默认的 2 对 4 错, 在 GRPO 下把第 3 条 (60 token 的错误回答) 拖到 400 token: 它每个 token 挨的罚变成原来的几分之几? 切到 Dr.GRPO 再拖一次。然后点「全对」: 三种算法各自会发生什么?',
-      answer: 'GRPO 的 loss 是 $\\tfrac{1}{G}\\sum_i \\tfrac{1}{|o_i|}\\sum_t \\hat{A}_i$。错误回答拖到 400 token 后, 每 token 的惩罚只剩 60/400 = 15%。\n模型很快发现「反正要错, 不如写长点」。这是 R1 类训练里回复越来越长的一部分原因, 不全是「学会了思考」。\nDr.GRPO 改了两处:\n- $1/|o_i| \\to$ 常数 $1/L_{\\max}$: 长短一视同仁。\n- 去掉 $/\\sigma$: 0/1 奖励下 $\\sigma$ 在「几乎全对 / 几乎全错」的题上最小, 除以 $\\sigma$ 等于给太易太难的题加权。\n全对时 $r - \\mu$ 全为 0, 三种算法梯度都是零, 这组采样的算力白花。\n- GRPO: 照样把它算进 batch, 稀释有效梯度。\n- DAPO 动态采样: 丢掉它继续采, 直到 batch 里每组都有对有错。',
+      answer: '答案: GRPO 下拖到 400 后每 token 的罚只剩原来的 15% (60/400); Dr.GRPO 下不变; 全对时三种算法的 Â 全是 0, GRPO 和 Dr.GRPO 让这组白占 batch, DAPO 丢掉它重采。\n一步步看:\n- GRPO 的 loss 是 $\\tfrac{1}{G}\\sum_i \\tfrac{1}{|o_i|}\\sum_t \\hat{A}_i$, 这个式子在说: 先在每条回答内部按长度平均, 再在组内平均。错误回答从 60 拖到 400 token, 每 token 的惩罚变成 60/400 = 15%。模型很快发现「反正要错, 不如写长点」, 这是 R1 类训练里回复越来越长的一部分原因, 不全是「学会了思考」。\n- Dr.GRPO 改了两处: 一是 $1/|o_i|$ 换成常数 $1/L_{\\max}$, 长短一视同仁; 二是去掉除以 $\\sigma$, 因为 0/1 奖励下 $\\sigma$ 在「几乎全对」或「几乎全错」的题上最小, 除以它等于给太易、太难的题加权。\n- 全对时每条的 $r - \\mu = 0$, 三种算法的梯度都是零, 这 6 次采样的算力白花。GRPO 和 Dr.GRPO 照样把它算进 batch, 稀释有效梯度; DAPO 的动态采样丢掉这组继续采, 直到 batch 里每组都有对有错。',
     }"
   >
     <template #controls>
@@ -55,13 +56,13 @@
     </svg>
 
     <template #stats>
-      <div class="kv"><span><Tex text="组均值 $\mu$ / 标准差 $\sigma$" /></span><b>{{ st.mu.toFixed(2) }} / {{ st.sd.toFixed(2) }}</b></div>
-      <div class="kv"><span>有梯度的回答</span><b :class="st.live ? 'good' : 'bad'">{{ st.live }} / {{ G }}</b></div>
-      <div class="kv"><span>最长错 : 最短错 (每 token 罚)</span><b :class="st.ratio === null ? '' : st.ratio > 0.99 ? 'good' : 'bad'">{{ st.ratio === null ? '—' : st.ratio.toFixed(2) }}</b></div>
+      <div class="kv"><span><Tex text="6 个奖励的组均值 $\mu$ / 标准差 $\sigma$" /></span><b>{{ st.mu.toFixed(2) }} / {{ st.sd.toFixed(2) }}</b></div>
+      <div class="kv"><span>有梯度的回答 (Â 非零)</span><b :class="st.live ? 'good' : 'bad'">{{ st.live }} / {{ G }}</b></div>
+      <div class="kv"><span>最长错 : 最短错 (每 token 罚的比值, 1 = 无长度偏置)</span><b :class="st.ratio === null ? '' : st.ratio > 0.99 ? 'good' : 'bad'">{{ st.ratio === null ? '—' : st.ratio.toFixed(2) }}</b></div>
       <div class="kv"><span><Tex text="本组总更新量 $\sum|\hat{A}|$" /></span><b>{{ st.total.toFixed(2) }}</b></div>
       <p class="lab-note">
         <template v-if="!st.live">
-          <Tex text="组内奖励全相同 → $\hat{A}$ 全为 0 → 这 6 次采样对梯度零贡献。" />
+          <Tex text="组内奖励全相同, 每条的 $r - \mu$ 都是 0, $\hat{A}$ 全为 0, 这 6 次采样对梯度零贡献。" />
           {{ mode === 'dapo' ? 'DAPO 动态采样: 丢弃该组, 继续采到有对有错为止。' : '它仍占着 batch 的名额, 有效 batch 变小、梯度噪声变大。' }}
         </template>
         <template v-else><Tex :text="MODES.find((m) => m.id === mode).note" /></template>

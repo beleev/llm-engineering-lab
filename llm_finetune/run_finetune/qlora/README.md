@@ -1,8 +1,8 @@
 # QLoRA — 4-bit 基座 + LoRA
 
-[![NF4 vs INT4 — 16 个码点该摆在哪 llm_finetune/methods/qlora.py](../../../docs/screenshots/finetune-qlora-1.png)](https://beleev.github.io#/finetune/qlora)
+[![NF4 vs INT4 — 4 bit 只有 16 个码点, 该摆在哪 llm_finetune/methods/qlora.py](../../../docs/screenshots/finetune-qlora-1.png)](https://beleev.github.io#/finetune/qlora)
 
-[打开相关交互实验：NF4 vs INT4 — 16 个码点该摆在哪 llm_finetune/methods/qlora.py](https://beleev.github.io#/finetune/qlora)
+[打开相关交互实验：NF4 vs INT4 — 4 bit 只有 16 个码点, 该摆在哪 llm_finetune/methods/qlora.py](https://beleev.github.io#/finetune/qlora)
 
 ## 直觉
 

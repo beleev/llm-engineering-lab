@@ -1,16 +1,16 @@
 <!-- 分层 KV offload 实验台 (对应 llm_infer/m20_kv_offload): TieredKVCache 的 JS 移植, 时间全部来自代价模型。 -->
 <template>
   <LabFrame
-    title="分层 KV offload — GPU 装不下的历史, 降级而不是丢弃"
-    sub="多轮对话, 用户轮流发言。每个用户每轮的 prompt = 共享 system prompt + 自己的全部历史 + 新消息。
-      - 柱子: 一个请求的 prompt, 按颜色分成在 GPU / CPU / 磁盘命中的 token, 与必须重算的 token。
-      - 折线: 它的 TTFT。
-      拖各层容量, 点柱子看明细。所有时间来自代价模型 (8000 tok/s 重算、128 KiB/token), 不是实测。"
+    title="分层 KV offload — GPU 装不下的历史 KV 降级到 CPU 和磁盘, 再决定搬回来还是重算"
+    sub="- 模拟什么: 多轮对话里每一轮的 prompt 都是「共享的 system prompt + 这个用户的全部历史 + 新消息」。前缀缓存能让历史部分的 KV 免重算, 前提是它还在 GPU 上; 用户一多, GPU 放不下所有人的历史, 最久没用的 block (KV 按 16 个 token 一块存) 会被挤掉。分层 offload 的想法: 被挤掉的 block 不丢, 降级到更大更慢的一层 (GPU 到 CPU 内存, 再到磁盘), 再命中时搬回来。但搬也要时间: 每层有带宽和每次加载的固定延迟, 链路慢的时候搬回来可能比重算还慢, 所以每层还要判断一次「加载还是重算」。所有时间来自代价模型 (重算 8000 token/s, 每 token KV 128 KiB), 不是实测。
+      - 图上是什么: 每根柱子是一个请求 (从左到右按轮次排, 每轮所有用户各一条), 柱高是它的 prompt 有多少 token, 按颜色分成四段: 绿色是在 GPU 命中的 token, 紫色是在 CPU 命中的, 黄色是在磁盘命中的, 半透明红色是哪一层都没有、必须重算的 (miss)。黑色折线是每个请求的 TTFT (首 token 延迟, 这里等于重算时间加搬运时间), 刻度在右侧。柱子下面一行字是选中请求的明细。
+      - 可以做什么: 点「加载 / 重算取小」(每层比较搬运和重算哪个快, 取快的) 或「命中就加载」(命中了就老实去搬) 切换策略; 「换一组」换一组随机的消息长度, 「恢复默认」回到 demo 的参数; 拖「用户数」改并发用户 (每人 6 轮); 拖三个「容量」改每层能放多少 block; 拖「磁盘带宽」和「磁盘每次加载固定延迟」改磁盘有多慢; 点或悬停一根柱子 (或聚焦图后按左右方向键) 选中一个请求。
+      - 应该看到: 第 1 轮全是红色 (没有历史可以命中), 之后几轮绿色越来越少、紫色和黄色越来越多, 因为 GPU 只放得下 64 块, 老历史都被降级了。右侧读数: 前两行是全部请求的 token 里各层命中和 miss 的比例 (miss 超过一半标红); 「平均 TTFT」和括号里「无缓存」(全部重算) 的时间比, 没比无缓存快 10% 以上就标红; 「磁盘交叉点 n*」是命中块数至少要多少, 搬磁盘才比重算划算, 每块搬运时间超过重算时间 (2 ms) 时显示「永不」。"
     module="llm_infer/m20"
     run="python -m llm_infer.m20_kv_offload.demo"
     :challenge="{
       ask: '把磁盘带宽拖到 0.5 GB/s, 再切到「命中就加载」。多了一层缓存, 平均 TTFT 会变好还是变差?',
-      answer: '变差。0.5 GB/s 时, 搬一个 block (2 MiB) 要 4.2 ms, 重算它只要 2 ms。命中了也不该搬。\n- 「命中就加载」: 老老实实去搬, TTFT 比没有这一层还差。\n- 「取小」: 每层比较 $\\text{load} = \\text{固定延迟} + \\text{字节}/\\text{带宽}$, 与 recompute。慢就直接重算, 最坏也不比没有这层差。\n带宽够快时还有第二个门槛: 固定延迟要靠命中块数摊薄, 交叉点 $n^* = \\text{延迟} / (\\text{每块重算} - \\text{每块加载})$。',
+      answer: '变差。磁盘带宽 0.5 GB/s 时, 搬一个 block (16 个 token, 2 MiB) 要 2 MiB ÷ 0.5 GB/s ≈ 4.2 ms, 重算它只要 2 ms (16 ÷ 8000 token/s)。这时命中了也不该搬。\n- 「命中就加载」: 老老实实去搬, 平均 TTFT 比没有磁盘这一层还差 (demo 里慢链路从 34.81 ms 涨到 68.91 ms)。\n- 「加载 / 重算取小」: 每层比较 $\\text{load} = \\text{固定延迟} + \\text{字节}/\\text{带宽}$ 和重算时间, 慢就直接重算。最坏也不比没有这层差。\n带宽够快时还有第二个门槛: 每次加载的固定延迟要靠命中块数摊薄。交叉点 $n^* = \\text{延迟} / (\\text{每块重算} - \\text{每块加载})$, 命中块数少于它时重算更快。默认磁盘 3 GB/s、2 ms 延迟时 $n^* = 2 / (2.00 - 0.699) \\approx 1.54$ 块。',
     }"
   >
     <template #controls>
@@ -57,27 +57,27 @@
       <span v-for="(n, k) in NAMES" :key="k"><i :style="{ background: COLORS[k], opacity: k === 3 ? 0.35 : 0.85 }" />{{ n }}</span>
     </p>
     <p class="lab-note detail">
-      请求 {{ pickI + 1 }} · 用户 {{ cur.user }} 第 {{ cur.turn }} 轮 · prompt {{ cur.len }} tok =
-      GPU {{ cur.hit[0] }} + CPU {{ cur.hit[1] }} + 磁盘 {{ cur.hit[2] }} + 重算 {{ cur.miss }};
-      TTFT <b>{{ cur.ttft.toFixed(1) }} ms</b> (全量重算 {{ (cur.len / 8).toFixed(1) }} ms){{ cur.skipped ? `; 有 ${cur.skipped} 个命中 token 因为加载更慢而选择重算` : '' }}
+      请求 {{ pickI + 1 }}: 用户 {{ cur.user }} 的第 {{ cur.turn }} 轮, prompt {{ cur.len }} 个 token, 其中
+      GPU 命中 {{ cur.hit[0] }}、CPU 命中 {{ cur.hit[1] }}、磁盘命中 {{ cur.hit[2] }}、必须重算 {{ cur.miss }};
+      TTFT <b>{{ cur.ttft.toFixed(1) }} ms</b> (全部重算要 {{ (cur.len / 8).toFixed(1) }} ms){{ cur.skipped ? `; 有 ${cur.skipped} 个命中的 token 因为加载比重算慢而选择了重算` : '' }}
     </p>
 
     <template #stats>
-      <div class="kv"><span>命中 GPU / CPU / 磁盘</span><b>{{ pct(sim.hit[0]) }} / {{ pct(sim.hit[1]) }} / {{ pct(sim.hit[2]) }}</b></div>
-      <div class="kv"><span>miss (必须重算)</span><b :class="sim.miss > 0.5 ? 'bad' : 'good'">{{ pct(sim.miss) }}</b></div>
+      <div class="kv"><span>命中在 GPU / CPU / 磁盘的 token 比例</span><b>{{ pct(sim.hit[0]) }} / {{ pct(sim.hit[1]) }} / {{ pct(sim.hit[2]) }}</b></div>
+      <div class="kv"><span>miss (哪层都没有, 必须重算)</span><b :class="sim.miss > 0.5 ? 'bad' : 'good'">{{ pct(sim.miss) }}</b></div>
       <div class="kv">
-        <span>平均 TTFT (无缓存 {{ sim.noCache.toFixed(1) }} ms)</span>
+        <span>平均 TTFT (无缓存全部重算是 {{ sim.noCache.toFixed(1) }} ms)</span>
         <b :class="sim.ttft > sim.noCache * 0.9 ? 'bad' : 'good'">{{ sim.ttft.toFixed(1) }} ms</b>
       </div>
-      <div class="kv"><span><Tex text="磁盘交叉点 $n^*$" /></span><b :class="nStar === null ? 'bad' : ''">{{ nStar === null ? '永不' : nStar.toFixed(2) + ' 块' }}</b></div>
+      <div class="kv"><span><Tex text="磁盘交叉点 $n^*$ (至少命中几块才值得搬)" /></span><b :class="nStar === null ? 'bad' : ''">{{ nStar === null ? '永不' : nStar.toFixed(2) + ' 块' }}</b></div>
       <div class="lab-note">
-        <p>每块 (16 tok = 2 MiB): 重算 2.00 ms · CPU 加载 0.084 ms · 磁盘加载 {{ diskPerBlock.toFixed(3) }} ms (+ 每次 {{ diskLat }} ms)。</p>
+        <p>每块 (16 tok = 2 MiB): 重算 2.00 ms · CPU 加载 0.084 ms · 磁盘加载 {{ diskPerBlock.toFixed(3) }} ms (另加每次 {{ diskLat }} ms 固定延迟)。</p>
         <p><Tex text="$n^* = \text{延迟} \div (\text{每块重算} - \text{每块加载})$:" /></p>
         <ul class="pts">
-          <li>命中块数少于它: 重算更快。</li>
-          <li>每块加载 ≥ 重算: 永远不该加载。</li>
+          <li>命中块数少于它: 固定延迟摊不薄, 重算更快。</li>
+          <li>每块加载 ≥ 重算: 永远不该加载, 显示「永不」。</li>
         </ul>
-        <p>查找沿 hash 链走, 第一个全层 miss 处就停。后面的块即使还在, 也用不上。</p>
+        <p>查找沿 block 的 hash 链走 (每块的 hash 包含它前面所有块的内容), 遇到第一个哪层都没有的块就停: 后面的块即使还在也用不上, 因为 KV 依赖完整前缀。</p>
       </div>
     </template>
   </LabFrame>

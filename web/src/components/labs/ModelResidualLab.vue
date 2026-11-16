@@ -5,14 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="残差流 — norm 挪一个位置, 深层网络就能开训"
-    sub="主干那条粗带子是残差流 x [B,T,D], 从头贯到尾。attention 和 FFN 都不在主干上, 从旁边接出去、算完再加回来。
-      norm 放在哪, 决定了主干还是不是一条干净的加法通路。这也就决定了梯度能不能原样回到第 0 层。"
+    title="残差流 — norm 挪一个位置, 几十层的网络才训得动"
+    sub="- 模拟什么: Transformer 的每一层 (block) 不是把输入整个变换掉, 而是在一条主干上做加法: x 进来, attention 算出一个修正量加回去, FFN 再算一个加回去, 出去的还是 [B,T,D]。这条一路加下去的主干叫残差流, attention 和 FFN 只是从旁边接出去算、再加回来的分支。归一化 norm (把向量缩放到固定尺度) 放在哪, 有两种接法: Post-LN 放在主干上, 加完再归一化; Pre-LN 放在分支上, 只归一化送进子层的那份副本。这个位置决定了反向传播时, 梯度能不能原样穿过几十层回到第 0 层。对应 llm_models/layers/core/blocks.py 的 PreLNBlock。
+      - 图上是什么: 上面是一个 block 的接线图: 粗线是主干 x, 方块是 norm、attention (GQA) 和 FFN (SwiGLU), 「+」是加回主干的地方。切 Pre / Post 时 norm 方块会真的从分支搬到主干上。下面的柱图是把 L 层摞起来之后每一层的读数: 默认看反传, 每根柱是这一层拿到的梯度尺度, 顶层记为 1, 对数高度, 刻度 1、1e-5、1e-10; 切到「看前向」则是每层出口处主干的方差, 线性高度。左边第 0 层最靠近输入, 右边第 L−1 层最靠近输出。
+      - 可以做什么: 「Pre-LN / Post-LN」切接法。「柱图看反传 / 看前向」切柱图内容。拖「堆多少层」改 L。拖「分支输出方差 v」改每个子层往主干上加的东西有多大 (相对主干)。把鼠标放到接线图任意方块上 (键盘: Tab 选中), 右侧说明它在干什么。
+      - 应该看到: Pre-LN 时反传柱图全是满格, 「第 0 层梯度尺度」恒为 1.00: 主干只有加法, 梯度原样传到底。切到 Post-LN, 柱子从右往左一路塌下去: 每过一次主干上的 norm, 梯度乘 $1/\sqrt{1+v}$ (v = 1 时是 0.707), 一层两个子层要过两次, 默认 24 层时第 0 层只剩约 1e-7。「顶层 / 底层梯度之比」是两头差了多少倍。切「看前向」: Pre-LN 的主干方差逐层累加 (1 + v·(l+1)), 所以出口要再过一次 final norm; Post-LN 每层都归一化, 恒为 1。"
     module="llm_models/layers/core/blocks.py"
     run="python -m llm_models.run_models.language_models.llama.train_llama"
     :challenge="{
       ask: '把层数拖到 48, 两种接法第 0 层的梯度尺度各是多少? 为什么 Post-LN 那个年代的论文都在讲 warmup?',
-      answer: '- Pre-LN: 恒为 1.00。主干是纯加法, 反传时恒等项把梯度原样送到底, 与层数无关。\n- Post-LN: 一层里有两个子层, 要过两次 norm, 每次乘 $1/\\sqrt{1+v}$, $v=1$ 时是 0.707。48 层连乘 94 次, 第 0 层只剩 7e-15。\nPost-LN 顶层梯度正常、底层几乎为零, 同一个学习率没法同时喂饱两头。warmup 就是拿前几千步把学习率压住, 等各层尺度自己长匀。\nPre-LN 直接把这个问题消掉了, 所以现在没人再为它调 warmup。',
+      answer: 'Pre-LN 是 1.00, Post-LN 只剩约 7e-15。\n- Pre-LN: 恒为 1.00。主干是纯加法, 反传时加法节点把上游梯度原样发给两条路, 走主干的那条一路送到底, 与层数无关。\n- Post-LN: 一层里有两个子层, 梯度回去要过两次主干上的 norm, 每次乘 $1/\\sqrt{1+v}$, $v = 1$ 时是 0.707。48 层要连乘 2 × 47 = 94 次, 第 0 层只剩约 7e-15。\nPost-LN 的后果是顶层梯度正常、底层几乎为零: 同一个学习率, 对顶层合适就对底层太小, 对底层合适就把顶层炸了。warmup (前几千步把学习率从很小慢慢升上去) 就是在等各层的尺度自己长匀, 否则一开始就不稳。\nPre-LN 直接把这个问题消掉了, 所以现在没人再为它调 warmup, 只剩出口处要补一次 final norm。',
     }"
   >
     <template #controls>
@@ -21,11 +23,11 @@
         <button type="button" :class="{ active: !pre }" @click="pre = false">Post-LN (norm 在主干上)</button>
       </div>
       <div class="row">
-        <button type="button" :class="{ active: !flow }" @click="flow = false">柱图看反传 (梯度)</button>
-        <button type="button" :class="{ active: flow }" @click="flow = true">柱图看前向 (主干方差)</button>
+        <button type="button" :class="{ active: !flow }" @click="flow = false">柱图看反传 (每层拿到的梯度)</button>
+        <button type="button" :class="{ active: flow }" @click="flow = true">柱图看前向 (每层出口的主干方差)</button>
       </div>
-      <LabSlider v-model="L" label="堆多少层" :min="2" :max="48" />
-      <LabSlider v-model="v" label="分支输出方差 v" :min="0.1" :max="3" :step="0.1"
+      <LabSlider v-model="L" label="堆多少层 L" :min="2" :max="48" />
+      <LabSlider v-model="v" label="分支输出方差 v (相对主干)" :min="0.1" :max="3" :step="0.1"
                  :format="(x) => x.toFixed(1)" />
     </template>
 
@@ -57,20 +59,20 @@
     </div>
 
     <template #stats>
-      <div class="kv"><span>反传: 第 0 层梯度尺度</span><b :class="gradCls">{{ fmt(grad[0]) }}</b></div>
-      <div class="kv"><span>反传: 顶层 / 底层梯度之比</span><b :class="gradCls">{{ fmt(1 / grad[0]) }}</b></div>
-      <div class="kv"><span>反传: 每过一次 norm 乘</span><b>{{ pre ? '1.000 (不经过)' : perNorm.toFixed(3) }}</b></div>
+      <div class="kv"><span>反传: 第 0 层 (最靠近输入) 拿到的梯度尺度</span><b :class="gradCls">{{ fmt(grad[0]) }}</b></div>
+      <div class="kv"><span>反传: 顶层 / 底层梯度之比 (两头差几倍)</span><b :class="gradCls">{{ fmt(1 / grad[0]) }}</b></div>
+      <div class="kv"><span>反传: 每过一次主干上的 norm, 梯度乘</span><b>{{ pre ? '1.000 (主干上没有 norm)' : perNorm.toFixed(3) }}</b></div>
       <div v-if="flow" class="kv"><span>前向: 顶层出口的主干方差</span><b>{{ fmt(fwd[L - 1]) }}</b></div>
       <div v-if="hovered" class="kv-note">
         <b>{{ hovered.title }}</b>
         <p>{{ hovered.desc }}</p>
       </div>
-      <p v-else class="lab-note">把鼠标放到任意一个方块上 (或用 Tab 选中), 看它在这条流水线里干什么。</p>
+      <p v-else class="lab-note">把鼠标放到接线图任意一个方块上 (或用 Tab 选中), 这里会说明它在这条流水线里干什么。</p>
       <div class="lab-note">
-        <p><Tex text="这里的梯度用一个简化模型: 每过一次主干上的 norm, 梯度乘 $1/\sqrt{1+v}$, $v$ 是分支输出相对主干的方差。" /></p>
-        <p><Tex text="前向用同一个 $v$: Pre-LN 每层往主干上加 $v$, 方差是 $1+v(l+1)$, 所以出口要再过一次 norm (代码里的 ln_f); Post-LN 每层都归一化, 恒为 1。" /></p>
+        <p><Tex text="这里的梯度用一个简化模型: 每过一次主干上的 norm, 梯度乘 $1/\sqrt{1+v}$, $v$ 是分支输出相对主干的方差 (分支加回来的东西有多大)。norm 把 $1+v$ 的方差压回 1, 反向时梯度就按同样的比例缩。" /></p>
+        <p><Tex text="前向用同一个 $v$: Pre-LN 每层往主干上加方差 $v$, 第 $l$ 层出口的方差是 $1+v(l+1)$, 越往上越大, 所以出口要再过一次 norm (代码里的 ln_f); Post-LN 每层都归一化, 恒为 1。" /></p>
         <p>柱图的对数轴从 1 画到 1e-15, 更小的值贴底。</p>
-        <p><Tex text="真实网络里每层的 $v$ 不一样, 但 “Post-LN 要连乘 $L$ 个因子、Pre-LN 有一条恒等通路” 这一点是一样的。" /></p>
+        <p><Tex text="真实网络里每层的 $v$ 不一样, 但「Post-LN 要连乘 $L$ 个小于 1 的因子、Pre-LN 有一条恒等通路」这一点是一样的。" /></p>
       </div>
     </template>
   </LabFrame>

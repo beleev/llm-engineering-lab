@@ -5,15 +5,16 @@
 -->
 <template>
   <LabFrame
-    title="注意力掩码实验台 — 谁能看见谁"
-    sub="同一套 QKV 投影, 换一张 mask 就是另一个模型: 全因果 = LLaMA, 带状 = Mistral SWA,
-      带状+sink = StreamingLLM / GPT-OSS, top-k 稀疏 = DeepSeek DSA。
-      每一行是一个 query, 每一列是一个 key。把鼠标移到某一行 (或聚焦矩阵后按上下键), 看这个 query 能看见谁。"
+    title="注意力掩码实验台 — 每个位置能看见哪些位置"
+    sub="- 模拟什么: attention 里每个 token (query, 正在看的位置) 会给它前面的每个 token (key, 被看的位置) 打一个分, 再按分数加权取信息。掩码 mask 规定哪些 (query, key) 对子允许打分: 不允许的直接填 −inf, softmax 之后权重为 0。语言模型最基本的一条是因果 (causal) 掩码: 只能看过去, 不能看未来。在它之上, 各家模型再用不同的 mask 限制「能看多远」; 同一套 QKV 投影, 换一张 mask 就是另一个模型: 全因果是 LLaMA, 带状窗口是 Mistral 的滑动窗口注意力 (SWA), 带状 + sink 是 StreamingLLM (对应 llm_infer/m16_attention_sinks), top-k 稀疏是 DeepSeek 的 DSA。
+      - 图上是什么: 一张 T×T 的格子, 第 i 行是第 i 个 query, 第 j 列是第 j 个 key。涂色的格子表示这个 query 能看见这个 key; 右上半边空白是未来位置, 被因果屏蔽; 浅色的是被当前策略裁掉的历史; sink 模式下另一种颜色标的是永久保留的开头几个 token。颜色图例在矩阵下方。细框圈住的是当前选中的 query 行。
+      - 可以做什么: 上排按钮切 4 种掩码。拖「序列长度 T」改矩阵大小。滑动窗口和 sink 模式下拖「窗口 W」改每个 query 能回看最近几个 token; sink 模式下拖「sink 数 S」改开头永久保留几个; top-k 模式下拖「稀疏候选 top-k」改每个 query 最多挑几个 key。鼠标移到某一行或点它 (键盘: 聚焦矩阵后按上下键) 选一个 query, 右侧显示它能看见几个 key。
+      - 应该看到: 右侧「当前机制」一句话说明此刻的策略。「可见格子数」是整张图涂色格子的总数, 它正比于注意力要算多少次打分 (FLOPs); 「相对全因果的计算量」是它和全因果 (T(T+1)/2 格) 的百分比。「KV cache 条目上限」是生成时每层要为这条序列存多少个 token 的 K 和 V: 全因果随 T 线性长 (O(T)), 滑动窗口钉死在 W (O(W)), sink 模式是 S+W, top-k 稀疏虽然算得少但 cache 一个都不能丢 (O(T))。拖 T 时注意: 全因果的可见格子按 T 的平方涨, 滑动窗口只按 T 线性涨。"
     module="llm_infer/m16"
     run="python -m llm_infer.m16_attention_sinks.demo"
     :challenge="{
       ask: '滑动窗口 W = 6。先猜: T 从 24 拖到 48, 可见格子变成几倍? KV cache 条目呢? 切到全因果再拖一次。',
-      answer: '- 滑动窗口: 可见格子 129 → 273, 约 2.1 倍, 随 T 线性增长。KV 条目一直是 6。\n- 全因果: 可见格子 300 → 1176, 约 3.9 倍, 随 $T^2$ 增长。KV 条目 24 → 48。\n窗口把计算从 $O(T^2)$ 降到 $O(T \\cdot W)$, 把显存从 $O(T)$ 降到 $O(W)$。代价是窗口外的信息只能跨层接力传递。',
+      answer: '滑动窗口约 2 倍, 全因果约 4 倍; KV 条目窗口不变, 全因果翻倍。\n- 滑动窗口 W = 6: 可见格子 129 变 273, 约 2.1 倍, 随 T 线性增长 (每个 query 最多看 6 个 key, 行数翻倍格子就差不多翻倍)。KV 条目一直是 6: 生成时只要留最近 6 个 token 的 K、V。\n- 全因果: 可见格子 300 变 1176, 约 3.9 倍, 随 $T^2$ 增长 (第 i 行有 i+1 个格子, 加起来是 T(T+1)/2)。KV 条目 24 变 48, 随 T 线性长。\n窗口把注意力的计算量从 $O(T^2)$ 降到 $O(T \\cdot W)$, 把 KV cache 的显存从 $O(T)$ 降到 $O(W)$。代价是窗口外的信息不能直接看到, 只能靠上一层已经把它揉进了窗口内 token 的表示里, 一层一层往后接力: L 层大约能传 L×W 远。',
     }"
   >
     <template #controls>
@@ -23,10 +24,10 @@
           :class="{ active: mode === m.id }" :aria-pressed="mode === m.id" @click="mode = m.id"
         >{{ m.label }}</button>
       </div>
-      <LabSlider v-model="T" label="序列长度 T" :min="8" :max="48" :step="4" />
-      <LabSlider v-if="mode === 'swa' || mode === 'sink'" v-model="W" label="窗口 W" :min="2" :max="16" />
-      <LabSlider v-if="mode === 'sink'" v-model="S" label="sink 数 S" :min="1" :max="4" />
-      <LabSlider v-if="mode === 'topk'" v-model="K" label="稀疏候选 top-k" :min="2" :max="16" />
+      <LabSlider v-model="T" label="序列长度 T (矩阵的行数和列数)" :min="8" :max="48" :step="4" />
+      <LabSlider v-if="mode === 'swa' || mode === 'sink'" v-model="W" label="窗口 W (每个 query 能回看最近几个)" :min="2" :max="16" />
+      <LabSlider v-if="mode === 'sink'" v-model="S" label="sink 数 S (开头永久保留几个)" :min="1" :max="4" />
+      <LabSlider v-if="mode === 'topk'" v-model="K" label="稀疏候选 top-k (每个 query 最多挑几个 key)" :min="2" :max="16" />
     </template>
 
     <svg :viewBox="`0 0 ${size + M} ${size + M}`" class="mask-grid" role="group" :aria-label="maskAriaLabel">
@@ -45,10 +46,10 @@
       />
     </svg>
     <ul class="mask-legend" aria-label="矩阵颜色图例">
-      <li><span class="swatch visible" aria-hidden="true"></span>当前 query 可见</li>
-      <li v-if="mode === 'sink'"><span class="swatch sink" aria-hidden="true"></span>永久保留的 sink</li>
-      <li><span class="swatch evicted" aria-hidden="true"></span>被策略裁掉</li>
-      <li><span class="swatch future" aria-hidden="true"></span>未来 token (因果屏蔽)</li>
+      <li><span class="swatch visible" aria-hidden="true"></span>这个 query 能看见的 key</li>
+      <li v-if="mode === 'sink'"><span class="swatch sink" aria-hidden="true"></span>永久保留的 sink (开头几个 token)</li>
+      <li><span class="swatch evicted" aria-hidden="true"></span>被当前策略裁掉的历史</li>
+      <li><span class="swatch future" aria-hidden="true"></span>未来 token (因果屏蔽, 永远看不见)</li>
     </ul>
 
     <template #stats>
@@ -58,10 +59,10 @@
           <strong>{{ currentModeLabel }}</strong>
           <p>{{ modeSummary }}</p>
         </div>
-        <div class="kv"><span>可见格子 (∝ 注意力 FLOPs)</span><b>{{ visibleCount }}</b></div>
+        <div class="kv"><span>可见格子数 (正比于注意力计算量 FLOPs)</span><b>{{ visibleCount }}</b></div>
         <div class="kv"><span>相对全因果的计算量</span><b :class="{ good: pctOfFull < 100 }">{{ pctOfFull }}%</b></div>
-        <div class="kv"><span>推理 KV cache 条目上限</span><b :class="{ good: kv.n < T }">{{ kv.n }} = {{ kv.o }}</b></div>
-        <div class="kv"><span>query {{ q }} 看得见的 key</span><b>{{ qSeen }} / {{ q + 1 }}</b></div>
+        <div class="kv"><span>生成时每层要存的 KV cache 条目上限</span><b :class="{ good: kv.n < T }">{{ kv.n }} = {{ kv.o }}</b></div>
+        <div class="kv"><span>query {{ q }} 看得见的 key 数 / 它和之前的位置数</span><b>{{ qSeen }} / {{ q + 1 }}</b></div>
         <p class="lab-note"><Tex :text="modeNote" /></p>
       </div>
     </template>

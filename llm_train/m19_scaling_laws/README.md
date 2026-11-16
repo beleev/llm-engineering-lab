@@ -1,8 +1,8 @@
 # M19 — Scaling Laws: Chinchilla 算力最优
 
-[![IsoFLOP — 钱一定, 模型做多大? llm_train/m19](../../docs/screenshots/train-scaling-1.png)](https://beleev.github.io#/train/scaling)
+[![IsoFLOP — 算力预算定死了, 模型该做多大? llm_train/m19](../../docs/screenshots/train-scaling-1.png)](https://beleev.github.io#/train/scaling)
 
-[打开相关交互实验：IsoFLOP — 钱一定, 模型做多大? llm_train/m19](https://beleev.github.io#/train/scaling)
+[打开相关交互实验：IsoFLOP — 算力预算定死了, 模型该做多大? llm_train/m19](https://beleev.github.io#/train/scaling)
 
 ## 直觉
 

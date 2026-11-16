@@ -1,8 +1,8 @@
 # M24 — Beam Search: 找"最可能"的序列, 以及为什么对话里不用它
 
-[![Beam search — 更可能, 不等于更好 llm_infer/m24](../../docs/screenshots/infer-decode-control-4.png)](https://beleev.github.io#/infer/decode-control)
+[![Beam search — 更可能的序列, 不等于更好的序列 llm_infer/m24](../../docs/screenshots/infer-decode-control-4.png)](https://beleev.github.io#/infer/decode-control)
 
-[打开相关交互实验：Beam search — 更可能, 不等于更好 llm_infer/m24](https://beleev.github.io#/infer/decode-control)
+[打开相关交互实验：Beam search — 更可能的序列, 不等于更好的序列 llm_infer/m24](https://beleev.github.io#/infer/decode-control)
 
 ## 直觉
 

@@ -1,8 +1,8 @@
 # M15 — Prefill / Decode Disaggregation: 两类负载分到两组节点
 
-[![P/D 分离 — 拿 KV 传输换掉 decode 卡顿 llm_infer/m15](../../docs/screenshots/infer-scheduler-3.png)](https://beleev.github.io#/infer/scheduler)
+[![P/D 分离 — 把 prefill 搬到另一台机器, 用一次 KV 传输换掉 decode 卡顿 llm_infer/m15](../../docs/screenshots/infer-scheduler-3.png)](https://beleev.github.io#/infer/scheduler)
 
-[打开相关交互实验：P/D 分离 — 拿 KV 传输换掉 decode 卡顿 llm_infer/m15](https://beleev.github.io#/infer/scheduler)
+[打开相关交互实验：P/D 分离 — 把 prefill 搬到另一台机器, 用一次 KV 传输换掉 decode 卡顿 llm_infer/m15](https://beleev.github.io#/infer/scheduler)
 
 ## 直觉
 

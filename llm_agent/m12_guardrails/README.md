@@ -1,8 +1,8 @@
 # M12 — Guardrails: prompt injection、路径围栏、密钥脱敏
 
-[![Prompt injection — 假设模型已经上当, 哪几层还拦得住? llm_agent/m12](../../docs/screenshots/agent-guardrails-1.png)](https://beleev.github.io#/agent/guardrails)
+[![Prompt injection — 假设模型已经上当, 四层防御里哪几层还拦得住? llm_agent/m12](../../docs/screenshots/agent-guardrails-1.png)](https://beleev.github.io#/agent/guardrails)
 
-[打开相关交互实验：Prompt injection — 假设模型已经上当, 哪几层还拦得住? llm_agent/m12](https://beleev.github.io#/agent/guardrails)
+[打开相关交互实验：Prompt injection — 假设模型已经上当, 四层防御里哪几层还拦得住? llm_agent/m12](https://beleev.github.io#/agent/guardrails)
 
 ## 直觉
 

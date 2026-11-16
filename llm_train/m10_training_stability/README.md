@@ -1,8 +1,8 @@
 # M10 — 训练稳定性: cosine / WSD · 梯度裁剪 · NaN guard
 
-[![Cosine vs WSD — 训到一半想加训怎么办? llm_train/m10](../../docs/screenshots/train-lr-schedule-1.png)](https://beleev.github.io#/train/lr-schedule)
+[![学习率调度 Cosine vs WSD — 训到一半想加训, 要回退多少步重训? llm_train/m10](../../docs/screenshots/train-lr-schedule-1.png)](https://beleev.github.io#/train/lr-schedule)
 
-[打开相关交互实验：Cosine vs WSD — 训到一半想加训怎么办? llm_train/m10](https://beleev.github.io#/train/lr-schedule)
+[打开相关交互实验：学习率调度 Cosine vs WSD — 训到一半想加训, 要回退多少步重训? llm_train/m10](https://beleev.github.io#/train/lr-schedule)
 
 ## 直觉
 

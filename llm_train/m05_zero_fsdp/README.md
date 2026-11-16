@@ -1,8 +1,8 @@
 # M05 — ZeRO-1/2/3 与 FSDP
 
-[![ZeRO 显存账 — 2 + 2 + 12 字节, 先切哪一块? llm_train/m05](../../docs/screenshots/train-memory-1.png)](https://beleev.github.io#/train/memory)
+[![ZeRO 显存账 — 每参数 2 + 2 + 12 字节, 分三档切给多张卡, 先切哪一块? llm_train/m05](../../docs/screenshots/train-memory-1.png)](https://beleev.github.io#/train/memory)
 
-[打开相关交互实验：ZeRO 显存账 — 2 + 2 + 12 字节, 先切哪一块? llm_train/m05](https://beleev.github.io#/train/memory)
+[打开相关交互实验：ZeRO 显存账 — 每参数 2 + 2 + 12 字节, 分三档切给多张卡, 先切哪一块? llm_train/m05](https://beleev.github.io#/train/memory)
 
 ## 直觉
 

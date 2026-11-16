@@ -1,8 +1,8 @@
 # M14 — Muon 优化器
 
-[![Muon — Newton–Schulz 把奇异值谱拉平 llm_train/m14](../../docs/screenshots/train-muon-1.png)](https://beleev.github.io#/train/muon)
+[![Muon 的正交化 — Newton–Schulz 迭代把梯度的奇异值谱拉平, 让每个方向迈一样大的步 llm_train/m14](../../docs/screenshots/train-muon-1.png)](https://beleev.github.io#/train/muon)
 
-[打开相关交互实验：Muon — Newton–Schulz 把奇异值谱拉平 llm_train/m14](https://beleev.github.io#/train/muon)
+[打开相关交互实验：Muon 的正交化 — Newton–Schulz 迭代把梯度的奇异值谱拉平, 让每个方向迈一样大的步 llm_train/m14](https://beleev.github.io#/train/muon)
 
 ## 直觉
 

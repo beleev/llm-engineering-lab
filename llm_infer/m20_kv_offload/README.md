@@ -1,8 +1,8 @@
 # M20 — 分层 KV cache 卸载 (GPU → CPU → 磁盘)
 
-[![分层 KV offload — GPU 装不下的历史, 降级而不是丢弃 llm_infer/m20](../../docs/screenshots/infer-kv-offload-1.png)](https://beleev.github.io#/infer/kv-offload)
+[![分层 KV offload — GPU 装不下的历史 KV 降级到 CPU 和磁盘, 再决定搬回来还是重算 llm_infer/m20](../../docs/screenshots/infer-kv-offload-1.png)](https://beleev.github.io#/infer/kv-offload)
 
-[打开相关交互实验：分层 KV offload — GPU 装不下的历史, 降级而不是丢弃 llm_infer/m20](https://beleev.github.io#/infer/kv-offload)
+[打开相关交互实验：分层 KV offload — GPU 装不下的历史 KV 降级到 CPU 和磁盘, 再决定搬回来还是重算 llm_infer/m20](https://beleev.github.io#/infer/kv-offload)
 
 ## 直觉
 

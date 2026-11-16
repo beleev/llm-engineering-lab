@@ -1,8 +1,8 @@
 # Attention (Scaled Dot-Product / Multi-Head)
 
-[![QK-Norm — 把注意力 logit 关进笼子 llm_models/layers/core/attention.py](../../../../docs/screenshots/models-qknorm-yarn-1.png)](https://beleev.github.io#/models/qknorm-yarn)
+[![QK-Norm — 把注意力的打分关进笼子里 llm_models/layers/core/attention.py](../../../../docs/screenshots/models-qknorm-yarn-1.png)](https://beleev.github.io#/models/qknorm-yarn)
 
-[打开相关交互实验：QK-Norm — 把注意力 logit 关进笼子 llm_models/layers/core/attention.py](https://beleev.github.io#/models/qknorm-yarn)
+[打开相关交互实验：QK-Norm — 把注意力的打分关进笼子里 llm_models/layers/core/attention.py](https://beleev.github.io#/models/qknorm-yarn)
 
 ## 直觉
 

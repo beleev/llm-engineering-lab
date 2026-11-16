@@ -30,9 +30,9 @@
       <h2>1. 推理优化的递进关系</h2>
       <div class="lead-group">
         <ul class="pts">
-          <li>先把逐步重算改成增量 decode。</li>
-          <li>再把 KV 显存做成可分配资源。</li>
-          <li>然后让请求每步重新组成 batch。</li>
+          <li>先把「每生成一个 token 就把前文整段重算一遍」改成「只算新 token, 旧的从 KV cache 里拿」。</li>
+          <li>再把 KV cache 占的显存切成块, 做成可以按需分配、用完归还的资源。</li>
+          <li>然后让请求每一步重新组成 batch, 新请求随时加入, 算完的随时退出。</li>
         </ul>
         <p>后面的前缀复用、投机解码、量化、结构化输出都挂在这条服务主循环上。按这个顺序拆开读, 就不会乱。</p>
       </div>
@@ -199,15 +199,15 @@ const prevChapter = { name: prevItem.route, label: `上一章 · ${prevItem.labe
 
 // 模块数从数据里数, 不写死 (inferModules 里除了 mNN 还有一行 full)
 const moduleCount = inferModules.filter((m) => /^m\d+$/.test(m.id)).length
-const tldr = `decode 每出 1 个 token, 都要把整份权重和全部 KV 读一遍。卡住的是带宽, 不是算力。
-${moduleCount} 个模块里, 主线这几组在省 KV 的搬运和存储:
-- cache: 省重算
-- 分页: 省碎片
-- 前缀复用: 省重复 prefill
-- 连续批: 省空转
-- 量化和 GQA/MLA: 省字节
+const tldr = `推理分两段: prefill 把整段 prompt 一次算完, decode 之后一个 token 一个 token 往外吐。decode 每出 1 个 token, 都要把整份模型权重和前面所有 token 缓存下来的 K/V (KV cache) 从显存读一遍, 而真正的计算量很小: 卡住的是显存带宽, 不是算力。
+${moduleCount} 个模块里, 主线这几组都在省 KV 的搬运和存储:
+- cache: 旧 token 的 K/V 算一次存起来, 省重算
+- 分页: 把 KV 显存切成固定大小的块按需分配, 省碎片
+- 前缀复用: 相同的开头 (比如 system prompt) 只算一次, 省重复 prefill
+- 连续批: 每一步重新凑 batch, 请求随到随进, 省 GPU 空转
+- 量化和 GQA/MLA: 把每个 token 的 KV 存小, 省字节
 其余模块做别的事:
-- 投机解码: 一次 target 前向验多个 token
+- 投机解码: 小模型先猜几个 token, 大模型一次前向验多个
 - 采样、语法约束、beam search、测试时计算: 管输出的分布和正确率
 - 权重量化、FlashAttention、CUDA Graph、张量并行: 省权重字节和算子开销
 - 多 LoRA、MoE、多副本路由: 一套服务接多个适配器、专家和副本`
@@ -230,8 +230,8 @@ const inferChain = [
   {
     name: 'Paged KV',
     year: 'm02',
-    pain: '请求长度不同, 连续 KV 内存容易碎片化。',
-    fix: 'BlockManager 用 block_table 管逻辑页到物理块的映射。',
+    pain: '请求长度不同, 按最大长度连续预留 KV 显存会空着一大片, 还容易碎片化。',
+    fix: '把 KV 显存切成固定大小的 block, 每条请求一张页表 block_table, 记它的第几页放在哪个物理块。',
     color: 'var(--accent)',
   },
   {
@@ -299,7 +299,7 @@ return batch                       # [(seq, n)]`,
   {
     name: 'PrefixCache',
     tag: 'reuse',
-    desc: '完整 block 的 token 和父 hash 形成链式 hash, 命中后共享物理 block。',
+    desc: '每个写满的 block 连同前一个 block 的 hash 一起再做 hash (链式 hash)。新请求的 prompt 前几个 block 若已有同样的 hash, 就直接共用那些物理 block, 不再重算。',
     file: 'llm_infer/m04_prefix_cache/prefix_cache.py',
     code: `for i in range((len(ids) - 1) // bs):   # 至少留 1 个 token 真算
     parent = sha1(parent + block_i)     # 链式 hash

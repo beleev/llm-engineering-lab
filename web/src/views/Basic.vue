@@ -3,22 +3,22 @@
     <h1 class="page-title">最小可跑闭环 · 用 numpy 把 Transformer 写穿</h1>
     <div class="page-subtitle lead-group">
       <p>
-        <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 不装 PyTorch, 只把 numpy 当一个会广播的数组容器,
-        把 forward / backward / Adam / 采样一行不落地摊开。
+        <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 不装 PyTorch, 只把 numpy 当一个数组容器,
+        把前向计算 (forward)、反向求梯度 (backward)、Adam 优化器、采样生成这四件事一行不落地摊开写。
       </p>
       <p>
         <strong>它只干一件事</strong>: 让你看清梯度怎么流过模型。之后再读
-        <RepoLink path="llm_models/" label="llm_models/" tiny /> 里的 PyTorch 代码, 你会知道 autograd 在背后替你做了什么。
+        <RepoLink path="llm_models/" label="llm_models/" tiny /> 里的 PyTorch 代码, 你会知道 autograd (PyTorch 的自动求导, 平时替你算所有梯度) 在背后做了什么。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="现代 LLM 的训练循环就 5 行: get_batch → forward → loss → backward → adam_step。用 numpy 摊开这 5 行, Transformer 里就没有黑盒了。"
-      question="不许用 autograd, 你能只凭链式法则把 RMSNorm / softmax / 残差的反向写对吗?"
+      tldr="现代 LLM 的训练循环只有 5 步: 取一批数据 (get_batch), 前向算出预测 (forward), 算预测和答案差多少 (loss), 反向算出每个参数该往哪动 (backward), 更新参数 (adam_step)。本阶段用 numpy 把这 5 步一行不落地写出来, Transformer 里就没有黑盒了。"
+      question="不许用 PyTorch 的自动求导, 只凭链式法则, 你能把 RMSNorm、softmax、残差这几个算子的反向传播写对吗? 写错了又怎么发现?"
       :goals="[
         '不用 PyTorch, 约 20 秒把一个 45,568 参数的 GPT 训到 val_loss 1.99',
-        '报得出 ids [B,T] 到 logits [B,T,V] 每一步的形状和 cache',
-        '一个反向算错时, 知道 gradcheck 是怎么把它揪出来的',
+        '报得出从输入 ids [B,T] 到输出 logits [B,T,V] 每一步的张量形状, 以及反向要用的中间量 (cache) 有哪些',
+        '一个反向算错时, 知道 gradcheck 是怎么用数值梯度把它揪出来的',
       ]"
       :codes="[
         { path: 'llm_basic/model.py' },
@@ -44,8 +44,8 @@
       <h2>1. 一张图看完整闭环</h2>
       <p class="lead">
         左边是数据 / 训练 / 采样三条管道, 右边是撑起它们的 7 个函数对。
-        <strong>每个算子都是 forward + backward 成对写的</strong>:
-        forward 把反向要用的中间量塞进 cache, backward 按逆序取出来用。
+        <strong>每个算子 (embedding、linear 这类基本运算) 都是 forward + backward 成对写的</strong>:
+        forward 算结果时顺手把反向要用的中间量存进一个叫 cache 的字典, backward 按相反的顺序取出来算梯度。
       </p>
 
       <div class="grid grid-2" style="gap: 16px;">
@@ -266,7 +266,7 @@ const at = learningPath.findIndex((x) => x.route === 'basic')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
-// 章节编号与三级目录共用数据，跨阶段引用也跟随归组更新。
+// 章节编号与三级目录共用数据, 跨阶段引用也跟随归组更新。
 const chapterNo = (route) => {
   for (const s of stages) {
     if (s.route === route) return `阶段 ${s.idx}`
@@ -278,16 +278,16 @@ const chapterNo = (route) => {
 const evoSteps = [
   { name: '计数表', color: 'var(--text-muted)',
     pain: '(原点) 要猜下一个字, 最直接的办法是数语料里 “a 后面跟 b” 出现了几次',
-    fix: '[V,V] 计数表按行归一就是分布; 只看得见前 1 个字' },
+    fix: '一张 V×V 的计数表, 每行除以行总和就是「下一个字」的概率分布; 缺点是只看得见前 1 个字' },
   { name: '神经网络 LM', color: 'var(--accent)',
     pain: '想看更长的前文, 表格就按 $V^n$ 膨胀, 大多数格子从没出现过',
-    fix: 'Transformer 把前文压成向量再出 logits (每个候选字一个分); 参数没法数出来, 只能沿梯度学' },
+    fix: '改用神经网络: Transformer 把前文压成一个向量, 再给每个候选字打一个分 (logits); 参数不能数出来, 只能沿梯度一点点学' },
   { name: '手写 backward', color: 'var(--left)',
-    pain: '45,568 个参数每步都要梯度, 这里又不用 autograd',
-    fix: 'forward 存 cache, backward 倒着走链式法则; 写错不报错, 所以用 gradcheck 对答案' },
+    pain: '45,568 个参数每步都要梯度, 这里又不用 autograd (自动求导)',
+    fix: 'forward 时把中间量存进 cache, backward 倒着按链式法则算; 写错了程序不报错, 所以用 gradcheck 拿数值梯度对答案' },
   { name: 'Adam', color: 'var(--right)',
-    pain: '有了梯度, 各层尺度却差几个数量级, 一个 lr 走不动',
-    fix: '按坐标归一化步长: 2000 步把 loss 从 ln 65 ≈ 4.17 降到 2.0 左右' },
+    pain: '有了梯度, 但各层梯度的大小差几个数量级, 一个学习率 lr 顾不了全部',
+    fix: 'Adam 给每个参数按它自己梯度的大小归一化步长: 2000 步把 loss 从 ln 65 ≈ 4.17 降到 2.0 左右' },
   { name: '自回归采样', color: 'var(--eye)',
     pain: '训完只得到下一个字的分布, 还没写出一个字',
     fix: '取最后位置的 logits, 按 temperature / top-k 抽一个字接上, 再算一遍' },

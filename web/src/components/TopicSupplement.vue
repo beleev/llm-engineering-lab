@@ -7,12 +7,13 @@
     </nav>
     <LabMount :names="section.labNames || []" />
     <EvolutionChain v-if="section.evolution" v-bind="section.evolution" />
-    <div class="grid grid-3">
-      <div v-for="point in section.points" :key="point.title" class="card">
-        <h3><Tex :text="point.title" /></h3>
+    <!-- 与 StageTopic 的「要点」同一版式: 单栏逐条编号 -->
+    <ol class="points-list">
+      <li v-for="(point, i) in section.points" :key="point.title" class="card point-card">
+        <h3><span class="point-num">{{ i + 1 }}</span><Tex :text="point.title" /></h3>
         <Prose class="desc" :text="point.body" />
-      </div>
-    </div>
+      </li>
+    </ol>
     <details class="card supplement-source">
       <summary>对照源码与实现边界</summary>
       <Prose v-if="section.question" class="lead" :text="section.question" />
@@ -21,7 +22,7 @@
       </div>
       <CodeBlock v-if="section.snippet" :code="section.snippet" />
       <SourceSnippet v-for="src in [].concat(section.source || [])" :key="src" :src="src" />
-      <p v-if="section.run" class="hint">运行：<code>{{ section.run }}</code></p>
+      <p v-if="section.run" class="hint">运行: <code>{{ section.run }}</code></p>
       <div v-for="link in section.links" :key="link.from + link.to" class="source-row">
         <strong>{{ link.from }} → {{ link.to }}</strong><Prose :text="link.body" />
       </div>

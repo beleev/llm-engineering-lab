@@ -5,13 +5,15 @@
 <template>
   <LabFrame
     title="上下文预算 — 塞不下的时候, 丢什么?"
-    sub="一段 14 条消息的会话, 里面埋了 6 个之后还要用的事实。
-      拖预算滑杆、切换策略, 看堆叠条怎么缩、右边哪些事实活了下来。点任意一条消息, 看它在模型眼里变成了什么样。"
+    sub="- 模拟什么: agent 每一轮都要把整段对话重新发给模型, 而模型的上下文窗口有上限 (这里用一个可拖的「预算」代替)。会话越长越塞不下, 到时候必须丢东西。这个台子模拟一段 14 条消息的编程会话 (用户下任务、模型调工具、工具返回大段结果), 里面埋了 6 个之后还会用到的事实 (目标、文件行号、中途的决定、失败的测试用例等), 比较四种瘦身策略各自丢掉了什么。
+      - 图上是什么: 顶部的堆叠条是当前发给模型的上下文由哪几块组成: system 提示、skills 目录、memory、摘要、对话文本、工具结果; 红色虚线是预算线, 条超过虚线就是塞不下。下面 14 行是每一条消息: 左边序号, 中间的条是它压缩后的大小 (黄色是工具结果, 其它是对话), 右边数字是「压缩后 ← 原来」。点一条消息, 下方显示它的原文和「模型现在看到」的样子。右侧列表是 6 个事实的命运: ✔ 还在上下文里, ↻ 正文被清掉但 tool_use 还在、再调一次工具就能取回, ✘ 真的丢了。
+      - 可以做什么: 五个策略按钮: 「什么都不做」; 「硬截断」是反例, 头尾各留一点, 中间每条只留开头 8 tok 的纯文本; 「清旧工具结果」只把旧的工具返回正文换成 [cleared: N chars] 占位, 保留最近几个; 「模型摘要」是再调一次模型, 把当前用户轮之前的历史写成一条 220 tok 的摘要; 「级联」是真实 loop 的做法, 先清, 还不够再摘要。拖「上下文预算」改窗口大小 (全部消息加起来 12260 tok, 预算比它小才会触发瘦身); 拖「保留最近几个工具结果」改清理时留几个不清。「PreCompact hook」只在摘要触发时可用, 它告诉摘要器必须保留文件位置和失败用例; 「memory 工具」只在中途的决定被丢掉时可用, 它把决定写进上下文之外的 /memories 文件。
+      - 应该看到: 预算 6000、级联: 只清了 5 个旧工具结果, 2 个事实变成 ↻ 可重取, 没有丢失, 额外模型调用 0。切到「硬截断」: 3 个事实 ✘ 丢失, 而且「tool_use/result 配对」变成「拍平成文本」, 模型连当时调过什么工具都不知道了。切到「模型摘要」: 目标和决定保住了, 但行号、数值这类细节丢了 (✘ 2 个), 打开 PreCompact hook 才能保住, 代价是「额外模型调用」1 次。右侧「压缩后总量 / 预算」红色表示仍然塞不下。"
     module="llm_agent/m14"
     run="python -m llm_agent.m14_context_engineering.demo"
     :challenge="{
       ask: '预算 6000。先猜「硬截断」和「清旧工具结果」哪个留下的事实多。再想想: 被清掉的工具结果里的事实, 和被截断丢掉的事实, 有什么本质区别?',
-      answer: '- 清工具结果: 留下的多, 而且丢的那几条是「可重取」的。tool_use 块原样保留, 模型知道当时读的是哪个文件, 再调一次工具就回来了。这就是 just-in-time 检索: 上下文里只留「指针」, 不留「内容」。\n- 硬截断: 丢的是对话本身 (中途的决定), 还把 tool_use/tool_result 拍平成文本, 没处可取。\n- 摘要: 最省空间, 但有损、要多花一次模型调用。行号、数值这类细节要靠 PreCompact hook 点名保留。\n真实的 loop 是级联: 先清 (零成本), 不够再摘要。',
+      answer: '- 清旧工具结果留下的多: 6 个事实里 4 个原样保留, 2 个变成「可重取」, 没有真正丢失。被清掉的只是工具返回的正文, 模型发出的 tool_use 块 (调了什么工具、什么参数) 原样保留, 所以模型知道当时读的是哪个文件, 再调一次工具就能把内容取回来。这就是 just-in-time 检索的思路: 上下文里只留「指针」, 不留「内容」。\n- 硬截断只留下 3 个: 它丢的是对话本身, 比如 msg[5] 里中途做的决定 (用方案 B), 这种东西没有任何工具可以再取回来。它还把 tool_use 和 tool_result 拍平成纯文本, 配对结构没了, 模型连自己调过什么工具都不知道。\n- 两者的区别就在「能不能重新拿到」: 工具结果是环境里的事实, 随时可以再读; 对话里的决定只存在于这段历史里, 丢了就丢了。\n- 模型摘要是第三条路: 最省空间, 但有损、要多花一次模型调用; 行号、数值这类细节摘要器通常不会保留, 要靠 PreCompact hook 点名。\n真实的 loop 是级联: 先清 (零成本), 不够再摘要。',
     }"
   >
     <template #controls>
@@ -46,10 +48,10 @@
     <p class="detail"><b class="mono">msg[{{ sel }}] {{ cur.role }}</b> {{ cur.text }}<br /><span class="now">模型现在看到: {{ cur.seen }}</span></p>
 
     <template #stats>
-      <div class="kv"><span>压缩后 / 预算</span><b :class="view.total > budget ? 'bad' : 'good'">{{ fmtNum(view.total) }} / {{ fmtNum(budget) }}</b></div>
-      <div class="kv"><span>事实: 保留 · 可重取 · 丢失</span><b :class="count.lost ? 'bad' : 'good'">{{ count.kept }} · {{ count.refetch }} · {{ count.lost }}</b></div>
+      <div class="kv"><span>压缩后总量 / 预算</span><b :class="view.total > budget ? 'bad' : 'good'">{{ fmtNum(view.total) }} / {{ fmtNum(budget) }}</b></div>
+      <div class="kv"><span>6 个事实: 保留 · 可重取 · 丢失</span><b :class="count.lost ? 'bad' : 'good'">{{ count.kept }} · {{ count.refetch }} · {{ count.lost }}</b></div>
       <div class="kv"><span>tool_use/result 配对</span><b :class="view.paired ? 'good' : 'bad'">{{ view.paired ? '完好' : '拍平成文本' }}</b></div>
-      <div class="kv"><span>额外模型调用</span><b>{{ view.calls }}</b></div>
+      <div class="kv"><span>额外模型调用 (写摘要花的)</span><b>{{ view.calls }}</b></div>
       <ul class="facts">
         <li v-for="f in facts" :key="f.id" :class="f.status"><button type="button" @click="sel = f.msg">{{ ICON[f.status] }} {{ f.label }} <span class="mono">msg[{{ f.msg }}]</span></button></li>
       </ul>

@@ -1,8 +1,8 @@
 # M03 — Permissions
 
-[![权限门 — 一次工具调用是怎么被裁决的 llm_agent/m03](../../docs/screenshots/agent-tools-permissions-1.png)](https://beleev.github.io#/agent/tools-permissions)
+[![权限门 — 模型发出的一次工具调用, 是怎么被裁决成放行、问人或拒绝的 llm_agent/m03](../../docs/screenshots/agent-tools-permissions-1.png)](https://beleev.github.io#/agent/tools-permissions)
 
-[打开相关交互实验：权限门 — 一次工具调用是怎么被裁决的 llm_agent/m03](https://beleev.github.io#/agent/tools-permissions)
+[打开相关交互实验：权限门 — 模型发出的一次工具调用, 是怎么被裁决成放行、问人或拒绝的 llm_agent/m03](https://beleev.github.io#/agent/tools-permissions)
 
 ## 直觉
 
