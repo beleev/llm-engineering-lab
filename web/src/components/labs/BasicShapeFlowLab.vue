@@ -6,15 +6,32 @@
 <template>
   <LabFrame
     title="形状流水线 — 一批 token 从 ids [B,T] 走到 logits [B,T,V] 的每一步"
-    sub="- 模拟什么: llm_basic/model.py 里 transformer_forward 的一次前向: 一批文本的 token 编号 ids 进去, 每个位置对词表里 V 个候选各打一个分 (这些分叫 logits) 出来。方括号里的 [B,T,D] 是张量的形状: B 是一批里有几段文本 (batch), T 是每段有多少个 token (序列长), D 是模型内部用多少个数表示一个 token (模型维), V 是词表大小, H 是 MLP 中间层的宽度 (这里 H = 2D)。
-      - 图上是什么: 每一行是 model.py 里真实的一步, 从上到下就是执行顺序。行里的横条宽度是这一步输出的最后一维 (D、T、H 或 V) 的相对大小, 颜色区分它是哪一维: 橙色三行的输出形状是 [B,T,T], 是 attention 里「每个位置对每个位置打一个分」的那张表。右边两列是输出形状和这一步带来的参数个数 (加号后的数字)。「for i in range(n_layer)」到「↑ 进出都是 [B,T,D]」之间是一个 block, 真模型把它重复 n_layer 次。
-      - 可以做什么: 三个预设按钮一键回到 llm_basic 默认配置、把词表放大 10 倍、把序列放长 4 倍。五根滑杆分别改 B、T、D、V 和层数。点任意一行, 右侧详情告诉你这一步在算什么、形状怎么变、往 cache 里存了什么 (cache 是前向顺手留给反向用的中间量, 下一章要用)、为什么反向非要这个值。点橙色的三行还会画出 causal mask (因果掩码: 位置 i 只准看 i 和它之前的 token, 不准偷看未来)。
-      - 应该看到: 右侧「参数合计」默认是 45,568, 和 python train.py 开头打印的数字一致。「激活」是这一次前向所有中间输出加起来占多少内存 (float64, 每个数 8 字节); 「激活 ÷ 参数」是两者的倍数; 「[B,T,T] 占激活」是橙色三行在激活里的比例。只拖 T 时参数几乎不动 (只有 pos_emb 一张表跟着 T 长), 激活却按 T 的平方猛涨, 橙色比例随之变大; 只拖 V 时 lm_head 那一行的条会压过整个主干, 参数和激活都是。"
+    sub="- 模拟什么: llm_basic/model.py 里 transformer_forward 的一次前向: 一批文本的 token 编号 ids 进去, 每个位置对词表里 V 个候选各打一个分 (这些分叫 logits) 出来。方括号里的 [B,T,D] 是张量的形状:
+        - B: 一批里有几段文本 (batch)。
+        - T: 每段有多少个 token (序列长)。
+        - D: 模型内部用多少个数表示一个 token (模型维)。
+        - V: 词表大小。
+        - H: MLP 中间层的宽度 (这里 H = 2D)。
+      - 图上是什么: 每一行是 model.py 里真实的一步, 从上到下就是执行顺序:
+        - 横条: 宽度是这一步输出的最后一维 (D、T、H 或 V) 的相对大小, 颜色区分它是哪一维。
+        - 橙色三行: 输出形状是 [B,T,T], 是 attention 里「每个位置对每个位置打一个分」的那张表。
+        - 右边两列: 输出形状和这一步带来的参数个数 (加号后的数字)。
+        - block: 「for i in range(n_layer)」到「↑ 进出都是 [B,T,D]」之间是一个 block, 真模型把它重复 n_layer 次。
+      - 可以做什么: 按界面从上到下:
+        - 三个预设按钮一键回到 llm_basic 默认配置、把词表放大 10 倍、把序列放长 4 倍。
+        - 五根滑杆分别改 B、T、D、V 和层数。
+        - 点任意一行, 右侧详情会说明这一步在算什么、形状怎么变、往 cache 里存了什么 (cache 是前向顺手留给反向用的中间量, 下一章要用)、为什么反向非要这个值。
+        - 点橙色的三行还会画出 causal mask (因果掩码: 位置 i 只准看 i 和它之前的 token, 不准偷看未来)。
+      - 应该看到: 只拖 T 时参数几乎不动 (只有 pos_emb 一张表跟着 T 长), 激活却按 T 的平方猛涨, 橙色比例随之变大; 只拖 V 时 lm_head 那一行的条会压过整个主干, 参数和激活都是。右侧读数:
+        - 「参数合计」默认是 45,568, 和 python train.py 开头打印的数字一致。
+        - 「激活」是这一次前向所有中间输出加起来占多少内存 (float64, 每个数 8 字节)。
+        - 「激活 ÷ 参数」是两者的倍数。
+        - 「[B,T,T] 占激活」是橙色三行在激活里的比例。"
     module="llm_basic/model.py"
     run="cd llm_basic && python train.py --max-iters 300 --out /tmp/c.npz"
     :challenge="{
       ask: '只把 T 从 64 拖到 256, 其它不动。参数量涨多少? 激活字节涨多少? 为什么长上下文的账主要不记在参数表里?',
-      answer: '参数只涨 27%, 激活涨到 5.7 倍。\n- 参数: 只有 pos_emb (位置表, 每个位置一行 D 维向量, 一共 T 行) 跟着 T 长: 64×64 = 4,096 个变成 256×64 = 16,384 个。总量 45,568 变成 57,856。其它所有权重矩阵的形状只和 D、H、V 有关, 和序列多长没关系。\n- 激活: 21.0 MiB 变成 120 MiB。scores / mask / attn 这三张 [B,T,T] 的表要给每个位置对每个位置打一个分, 元素个数按 $T^2$ 长; 它们占激活的比例从 14% 升到 40%。\n参数表里根本没有 $T^2$ 这一项, 长上下文贵在激活和注意力的 $T^2$ 上。\n所以后面会有 KV cache、FlashAttention、activation checkpoint 这一串技术: 全都在对付序列变长带来的激活和计算开销, 没有一个是去压参数的。',
+      answer: '参数只涨 27%, 激活涨到 5.7 倍。\n- 参数: 只有 pos_emb (位置表, 每个位置一行 D 维向量, 一共 T 行) 跟着 T 长: 64×64 = 4,096 个变成 256×64 = 16,384 个。总量 45,568 变成 57,856。其它所有权重矩阵的形状只和 D、H、V 有关, 和序列多长没关系。\n- 激活: 21.0 MiB 变成 120 MiB。scores / mask / attn 这三张 [B,T,T] 的表要给每个位置对每个位置打一个分, 元素个数按 $T^2$ 长; 它们占激活的比例从 14% 升到 40%。\n参数表里没有 $T^2$ 这一项, 长上下文贵在激活和注意力的 $T^2$ 上。\n后面讲的 KV cache、FlashAttention、activation checkpoint 都是在对付序列变长带来的激活和计算开销。',
     }"
   >
     <template #controls>
@@ -73,10 +90,10 @@
         </svg>
         <p class="lab-note">
           <Tex text="每一行是一个 query $i$ (正在看的位置), 每一列是一个 key $j$ (被看的位置)。右上角涂红的部分是 $j \gt i$, 也就是未来的位置, 在 scores 里填 −inf, softmax 之后权重正好是 0。" />
-          <Tex text="这张表的格子数按 $T^2$ 长, 真正用到的只有左下一半多一点:" /> {{ fmtNum(T * (T + 1) / 2) }} / {{ fmtNum(T * T) }}。
+          <Tex text="这张表的格子数按 $T^2$ 长, 实际用到的只有左下一半多一点:" /> {{ fmtNum(T * (T + 1) / 2) }} / {{ fmtNum(T * T) }}。
         </p>
         <p class="lab-note">
-          <strong>全模型只有这里, 不同位置之间才互相说话。</strong>
+          <strong>全模型只有这里会让不同位置之间交换信息。</strong>
           embedding / RMSNorm / MLP / lm_head 都是对每个位置各算各的: 把 [B,T,D] 拍平成 [B·T, D] 再算, 结果一模一样。
         </p>
       </div>
@@ -113,7 +130,7 @@ const rows = computed(() => {
   const list = [
     { id: 'ids', name: 'ids', full: 'ids (输入)', shapeIn: '文本', shape: `[${b},${t}]`, last: t, e: bt, tone: 'i',
       one: '一批 token id, int64。get_batch 随机挑 B 个起点, 各切 T 个 token。',
-      cache: '—', why: 'ids 本身就是下一步 embedding 的 cache。', params: 0 },
+      cache: '—', why: 'ids 就是下一步 embedding 的 cache。', params: 0 },
     { id: 'tok', name: 'tok_emb 查表', full: 'embedding_forward(ids, tok_emb)', shapeIn: `[${b},${t}]`, shape: `[${b},${t},${d}]`, last: d, e: btd, tone: 'd',
       one: 'W[ids]: 每个 id 取出表里对应的一行 D 维向量。',
       cache: '(ids, W.shape)',
@@ -143,12 +160,12 @@ const rows = computed(() => {
     { id: 'mask', name: 'causal mask', full: 'np.where(causal_mask(T), -inf, scores)', shapeIn: `[${b},${t},${t}]`, shape: `[${b},${t},${t}]`, last: t, e: btt, tone: 'tt', blk: 1,
       one: '上三角 ($j > i$, 也就是未来) 填 −inf。有了它, 一次前向才等于并行做了 T 道 next-token 题。',
       cache: '不存 — mask 由 T 现场生成',
-      why: 'causal_mask(T) 是纯函数, 反向压根用不到: 被屏蔽的位置 attn = 0, softmax 反向自带因子 a, 梯度自动为 0, 不用再 mask 一次。',
+      why: 'causal_mask(T) 是纯函数, 反向用不到: 被屏蔽的位置 attn = 0, softmax 反向自带因子 a, 梯度自动为 0, 不用再 mask 一次。',
       params: 0 },
     { id: 'attn', name: 'softmax', full: 'attn = softmax(scores, axis=-1)', shapeIn: `[${b},${t},${t}]`, shape: `[${b},${t},${t}]`, last: t, e: btt, tone: 'tt', blk: 1,
       one: '每行归一成一个概率分布, 和为 1: 位置 i 该从哪些位置取信息。',
       cache: 'attn (softmax 的输出)',
-      why: '反向 $ds = a \\odot (da - \\sum_j a_j\\, da_j)$ 只用到输出 $a$, 用不上输入 scores。所以 cache 存的是 attn 而不是 scores: 反向要什么, forward 才存什么。',
+      why: '反向 $ds = a \\odot (da - \\sum_j a_j\\, da_j)$ 只用到输出 $a$, 用不上输入 scores。所以 cache 存 attn, 不存 scores: forward 只存反向要用的值。',
       params: 0 },
     { id: 'ctx', name: 'attn @ V', full: 'ctx = attn @ V', shapeIn: `[${b},${t},${t}]`, shape: `[${b},${t},${d}]`, last: d, e: btd, tone: 'd', blk: 1,
       one: '按注意力权重把 V 的各行加权平均。$T^2$ 在这里塌回 $D$。',
@@ -162,7 +179,7 @@ const rows = computed(() => {
     { id: 'res1', name: '+ 残差 1', full: 'h = x + a', shapeIn: `[${b},${t},${d}]`, shape: `[${b},${t},${d}]`, last: d, e: btd, tone: 'd', blk: 1,
       one: '子层输出加回主干。主干上全程只有加法, 没有任何非线性。',
       cache: '不存',
-      why: '加法的反向是把 dout 原样发给两条路: dx = dout(捷径) + dx_from_n1(穿过 attention 回来的)。那个原样的 dout 就是梯度不消失的原因。',
+      why: '加法的反向是把 dout 原样发给两条路: dx = dout(捷径) + dx_from_n1(穿过 attention 回来的)。梯度能沿捷径原样传回去, 所以不会消失。',
       params: 0 },
     { id: 'n2', name: 'RMSNorm', full: 'rmsnorm_forward(h, block_i_norm2_g)', shapeIn: `[${b},${t},${d}]`, shape: `[${b},${t},${d}]`, last: d, e: btd, tone: 'd', blk: 1,
       one: '进 MLP 之前再归一一次。pre-norm: 归一化在子层里面, 主干保持干净。',
@@ -173,7 +190,7 @@ const rows = computed(() => {
       cache: '(n2, W1)', why: 'db = Σ dout 不用存任何东西, dW 要输入, dx 要 W。',
       params: d * h + h, pf: 'D×H + H' },
     { id: 'relu', name: 'ReLU', full: 'a1 = relu_forward(h1)', shapeIn: `[${b},${t},${h}]`, shape: `[${b},${t},${h}]`, last: h, e: bth, tone: 'h', blk: 1,
-      one: '负数截成 0。全模型的非线性就这一处 (再加一个 softmax)。',
+      one: '负数截成 0。MLP 里的非线性只有这一处; 全模型另外两处是 attention 的 softmax 和 RMSNorm 的除以 rms。',
       cache: 'h1 (ReLU 的输入)',
       why: '反向 dout * (x > 0) 必须知道哪些位置当初是负的。这份 cache 和输出一样大, 是 block 里最胖的两张之一。',
       params: 0 },
@@ -195,7 +212,7 @@ const rows = computed(() => {
     { id: 'ce', name: 'cross-entropy', full: 'cross_entropy_forward_backward(logits, y)', shapeIn: `[${b},${t},${v}]`, shape: `loss + dlogits`, last: v, e: 0, tone: 'v',
       one: `全程在 log 域算 $-\\mathrm{mean}(\\log p[y])$, 对 $N = B\\cdot T$ = ${bt.toLocaleString()} 个位置求平均; dlogits 的形状和 logits 一样, 还是 [${b},${t},${v}]。`,
       cache: '不存 — forward 和 backward 合成了一个函数',
-      why: 'softmax 和 CE 分开写时中间的 $1/p[y]$ 会爆炸, 合起来正好约掉: dlogits $= (p - \\mathrm{onehot})/N$。这就是反向的起点, 下一章从它开始倒走。',
+      why: 'softmax 和 CE 分开写时中间的 $1/p[y]$ 在 p[y] 很小时会溢出, 合起来正好约掉: dlogits $= (p - \\mathrm{onehot})/N$。它是反向的起点, 下一章从它开始倒走。',
       params: 0 },
   ]
   const mx = Math.max(d, 2 * d, v, t)

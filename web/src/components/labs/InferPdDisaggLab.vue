@@ -2,10 +2,26 @@
 <template>
   <LabFrame
     title="P/D 分离 — 把 prefill 搬到另一台机器, 用一次 KV 传输换掉 decode 卡顿"
-    sub="- 模拟什么: 推理分两段: prefill 把整段 prompt 一次算完 (几千 token, 吃算力), decode 之后每步只出 1 个 token (吃带宽)。几个用户正在 decode 时来了一条长 prompt, 同一张卡要先把它的 prefill 算完, 这一步里所有人的下一个 token 都得等, 用户看到的是输出突然卡住一下 (ITL 尖刺; ITL 是相邻两个输出 token 之间的间隔)。P/D 分离的做法: 一组节点 (P) 只做 prefill, 另一组 (D) 只做 decode; P 算完把这条请求的 KV cache 通过网络发给 D, D 接着往下生成。代价是 KV 要过一次网络。所有时间来自代价模型: decode 每步 25 ms, prefill 8000 tok/s, 不是实测。
-      - 图上是什么: 五条时间线, 横轴是时间。第一条「同卡 GPU」: 一串绿色小格是 decode 步, 黄色一段是插进来的长 prompt 的 prefill, 这段时间里 decode 格子停了。下面四条是分离部署: 「D 节点」的 decode 格子从头到尾不断; 「P 节点」上只有那段 prefill; 「链路」上红色一段是 KV 传输; 「新请求 @ D」是这条长 prompt 的后续 token 开始在 D 节点上 decode 的时刻。竖虚线是长 prompt 到达的时刻。
-      - 可以做什么: 顶上两个按钮选模型, 决定每个 token 的 KV 有多少字节 (LLaMA-3-8B 用 GQA, 128 KiB; LLaMA-2-7B 用 MHA, 512 KiB)。拖「prompt 长度」改这条长 prompt 有多少 token, prefill 时间和 KV 字节数都随它线性变。拖「链路带宽」或点预设 (10 GbE 到 NVLink) 改 P 到 D 之间的网速, 下面一行把 Gbps 换算成 GB/s 给你看。拖「链路固定延迟」加一笔和字节数无关的固定开销。按下「把 Gbps 当成 GB/s」, 右侧多出一行, 显示少除一个 8 会把传输时间算错多少。悬停或点时间线上的任一段看它的时长。
-      - 应该看到: 右侧「最大 ITL: 同卡 → 分离」: 同卡那个数等于整段 prefill 加一步 decode, prompt 越长越大; 分离后恒为 25 ms, 就是一步 decode。「传 X GB KV, 第 2 个 token 推迟」是传输花的时间, 它推迟的是新请求的第 2 个 token (首 token 在 P 节点算完 prefill 时就产出了, 不受影响); 传输比它换掉的那次 prefill 卡顿短就标绿, 长就标红。「盈亏带宽」是让传输时间恰好等于那次 prefill 卡顿的网速, 当前链路比它快就划算。把链路拖到 10 Gbps 再拖长 prompt, 能看到红色传输段变得比黄色 prefill 段还长。"
+    sub="- 模拟什么: 推理分两段: prefill 把整段 prompt 一次算完 (几千 token, 吃算力), decode 之后每步只出 1 个 token (吃带宽)。几个用户正在 decode 时来了一条长 prompt, 同一张卡要先把它的 prefill 算完, 这一步里所有人的下一个 token 都得等, 用户看到的是输出突然卡住一下 (ITL 尖刺; ITL 是相邻两个输出 token 之间的间隔)。所有时间来自代价模型: decode 每步 25 ms, prefill 8000 tok/s, 不是实测。P/D 分离的做法:
+        - P 节点: 一组节点只做 prefill, 算完把这条请求的 KV cache 通过网络发给 D。
+        - D 节点: 另一组只做 decode, 接着往下生成。
+        - 代价: KV 要过一次网络。
+      - 图上是什么: 五条时间线, 横轴是时间, 竖虚线是长 prompt 到达的时刻。第一条是同卡部署, 下面四条是分离部署:
+        - 第一条「同卡 GPU」: 一串绿色小格是 decode 步, 黄色一段是插进来的长 prompt 的 prefill, 这段时间里 decode 格子停了。
+        - 「D 节点」: decode 格子从头到尾不断。
+        - 「P 节点」: 上面只有那段 prefill。
+        - 「链路」: 红色一段是 KV 传输。
+        - 「新请求 @ D」: 这条长 prompt 的后续 token 开始在 D 节点上 decode 的时刻。
+      - 可以做什么: 按界面从上到下:
+        - 顶上两个按钮选模型, 决定每个 token 的 KV 有多少字节 (LLaMA-3-8B 用 GQA, 128 KiB; LLaMA-2-7B 用 MHA, 512 KiB)。
+        - 拖「prompt 长度」改这条长 prompt 有多少 token, prefill 时间和 KV 字节数都随它线性变。
+        - 拖「链路带宽」或点预设 (10 GbE 到 NVLink) 改 P 到 D 之间的网速, 下面一行显示 Gbps 换算成 GB/s 的结果。
+        - 拖「链路固定延迟」加一笔和字节数无关的固定开销。
+        - 按下「把 Gbps 当成 GB/s」, 右侧多出一行, 显示少除一个 8 会把传输时间算错多少。
+        - 悬停或点时间线上的任一段看它的时长。
+      - 应该看到: 右侧「最大 ITL: 同卡 → 分离」: 同卡那个数等于整段 prefill 加一步 decode, prompt 越长越大; 分离后恒为 25 ms, 就是一步 decode。把链路拖到 10 Gbps 再拖长 prompt, 能看到红色传输段变得比黄色 prefill 段还长。另外两个读数:
+        - 「传 X GB KV, 第 2 个 token 推迟」是传输花的时间, 它推迟的是新请求的第 2 个 token (首 token 在 P 节点算完 prefill 时就产出了, 不受影响); 传输比它换掉的那次 prefill 卡顿短就标绿, 长就标红。
+        - 「盈亏带宽」是让传输时间恰好等于那次 prefill 卡顿的网速, 当前链路比它快就划算。"
     module="llm_infer/m15"
     run="python -m llm_infer.m15_pd_disaggregation.demo"
     :challenge="{
@@ -53,7 +69,13 @@
       <div v-if="wrongUnit" class="kv"><span>错算的传输时间 (忘了 ÷8)</span><b :class="xferWrong < xfer ? 'bad' : ''">{{ fmtMs(xferWrong) }}</b></div>
       <div class="kv"><span>盈亏带宽 (传输时间恰好等于那次 prefill 卡顿)</span><b>{{ isFinite(breakEven) ? breakEven.toFixed(1) + ' Gbps' : '∞' }}</b></div>
       <div class="lab-note">
-        <p>同卡的最大 ITL = 整段 prefill ({{ fmtMs(prefillMs) }}) + 一步 decode (25 ms): 上一个 token 出来后, 要等 prefill 算完、再算一步 decode, 下一个 token 才出来。分离后 D 节点不受打扰, 最大 ITL 就是一步 decode。</p>
+        <p>同卡的最大 ITL = 整段 prefill ({{ fmtMs(prefillMs) }}) + 一步 decode (25 ms)。上一个 token 出来后:</p>
+        <ol class="pts">
+          <li>要等 prefill 算完。</li>
+          <li>再算一步 decode。</li>
+          <li>下一个 token 才出来。</li>
+        </ol>
+        <p>分离后 D 节点不受打扰, 最大 ITL 就是一步 decode。</p>
         <p>盈亏带宽: 传输耗时恰好等于它换掉的那次 prefill 卡顿 ({{ fmtMs(prefillMs) }}) 时的网速。当前链路是它的 {{ (gbps / breakEven).toFixed(1) }}×, 大于 1 就说明搬 KV 比让大家等 prefill 划算。</p>
         <p>TTFT (首 token 延迟) 两种部署相同: 首 token 在 P 节点 prefill 结束时就产出了, 传输只推迟第 2 个 token。</p>
         <p v-if="wrongUnit">忘了 ÷8 会把传输时间低估 8 倍: 错算 {{ fmtMs(xferWrong) }} vs 真实 {{ fmtMs(xfer) }}。网卡和 InfiniBand 都按 bit 标速, KV 按 byte 算。</p>

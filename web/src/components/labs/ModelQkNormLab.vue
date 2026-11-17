@@ -6,14 +6,26 @@
   <LabFrame
     title="QK-Norm — 把注意力的打分关进笼子里"
     sub="- 模拟什么: attention 给每一对 (query q, key k) 打的分叫 logit, 等于 $q \cdot k / \sqrt{d}$ (点积除以头维度的平方根), 再经 softmax 变成权重。训练中 q、k 的范数 (向量的长度) 会慢慢长大, 点积随之按平方长: 两边各放大 2 倍, logit 放大 4 倍。logit 一大, softmax 就把几乎全部权重压到一个 key 上 (塌成 one-hot), 这个 head 的梯度就传不过去了, 低精度下 logit 还会溢出。QK-Norm 的办法是在算点积之前给 q、k 各做一次 RMSNorm (除以自身的均方根, 再乘一个可学的增益 g), 让 logit 的上界只由 g 决定。对应 llm_models/layers/core/attention.py 的 qk_norm 开关。
-      - 图上是什么: 左边 8×8 的格子是一个 head 的因果注意力图: 行是 query, 列是 key, 颜色越深权重越大, 右上半边是未来位置, 被 mask 掉所以画得很淡。右边是选中那个 query 对它能看见的每个 key: 上方数字是 logit, 柱子是 softmax 之后的概率。
-      - 可以做什么: 「无 QK-Norm / QK-Norm」切开关。「换一组 q / k」重抽随机向量。拖「q、k 范数倍率」模拟训练中范数长大的过程 (把 q、k 同时放大这么多倍)。开着 QK-Norm 时多出一根「可学增益 g」, 就是 RMSNorm 后面乘的那个系数。点左图最左边的 q0 到 q7 换选中的 query。
-      - 应该看到: 关掉 QK-Norm, 倍率从 1 拖到 4: 右侧「最大 |logit|」从约 2 涨到约 31 (16 倍), 注意力图从每行好几格有颜色变成每行只剩一格最深, 右边的柱子只剩一根。「注意力熵 / 最大熵」是选中 query 的权重分布有多散, 熵接近 0 就是全押一个 key。「梯度通过率 $1 - \sum p^2$」是 softmax 反向时能把多少梯度传回 logit, 接近 0 说明饱和, 这个 head 学不动了。打开 QK-Norm 再拖同一根倍率滑杆: 什么都不变, 因为归一化把倍率整个除掉了; 「理论上界 $g^2 \sqrt{d}$」是 logit 最多能有多大 (这里 d = 16, g = 1 时上界 4.0), 只有拖 g 才能改变尖锐度。"
+      - 图上是什么: 左右两块:
+        - 左边: 8×8 的格子是一个 head 的因果注意力图。行是 query, 列是 key, 颜色越深权重越大; 右上半边是未来位置, 被 mask 掉所以画得很淡。
+        - 右边: 选中那个 query 对它能看见的每个 key, 上方数字是 logit, 柱子是 softmax 之后的概率。
+      - 可以做什么: 按界面顺序:
+        - 「无 QK-Norm / QK-Norm」切开关。
+        - 「换一组 q / k」: 重抽随机向量。
+        - 拖「q、k 范数倍率」: 模拟训练中范数长大的过程 (把 q、k 同时放大这么多倍)。
+        - 「可学增益 g」: 开着 QK-Norm 时多出这一根滑杆, 就是 RMSNorm 后面乘的那个系数。
+        - 点左图最左边的 q0 到 q7: 换选中的 query。
+      - 应该看到: 先关掉 QK-Norm 拖倍率, 再打开它重复一次:
+        - 关掉 QK-Norm, 倍率从 1 拖到 4: 右侧「最大 |logit|」从约 2 涨到约 31 (16 倍), 注意力图从每行好几格有颜色变成每行只剩一格最深, 右边的柱子只剩一根。
+        - 「注意力熵 / 最大熵」: 选中 query 的权重分布有多散, 熵接近 0 就是全押一个 key。
+        - 「梯度通过率 $1 - \sum p^2$」: softmax 反向时能把多少梯度传回 logit, 接近 0 说明饱和, 这个 head 学不动了。
+        - 打开 QK-Norm 再拖同一根倍率滑杆: 什么都不变, 因为归一化把倍率整个除掉了。
+        - 「理论上界 $g^2 \sqrt{d}$」: logit 最多能有多大 (这里 d = 16, g = 1 时上界 4.0), 只有拖 g 才能改变尖锐度。"
     module="llm_models/layers/core/attention.py"
     run="python -m llm_models.run_models.foundation.attention.train_attention"
     :challenge="{
       ask: '关掉 QK-Norm, 把范数倍率从 1 拖到 4。先猜: 最大 logit 变成几倍? softmax 的「梯度通过率」会怎样?',
-      answer: '最大 logit 变成 16 倍 (约 2 涨到约 31), 梯度通过率从 0.79 掉到 0.008。\n- q、k 各放大 4 倍, 点积放大 4 × 4 = 16 倍, 这就是「二次增长」。logit 之间的差距一拉大, softmax 就塌成 one-hot: 熵趋向 0, 通过率 $1 - \\sum p^2$ 趋向 0。\n- 梯度为什么传不过去: softmax 的雅可比 (输出对输入的导数矩阵) 是 $\\mathrm{diag}(p) - pp^\\top$, p 是 one-hot 时它每一项都是 0, 上游梯度乘上去全是 0, 这个 head 的 q/k 投影就收不到任何更新。\n- 溢出: logit 本身还会超出 bf16/fp16 能表示的范围。\nQK-Norm 把 q、k 归一到 RMS = 1 再乘可学增益 $g$, 于是 $\\text{logit} = g^2 \\cdot \\sqrt{d} \\cdot \\cos\\theta$, 上界 $g^2\\sqrt{d}$, 与范数倍率完全无关。模型仍然可以通过学 $g$ 来调「尖锐度」, 只是只剩这一个受控的旋钮。',
+      answer: '最大 logit 变成 16 倍 (约 2 涨到约 31), 梯度通过率从 0.79 掉到 0.008。\n- q、k 各放大 4 倍, 点积放大 4 × 4 = 16 倍, 即「二次增长」。logit 之间的差距一拉大, softmax 就塌成 one-hot: 熵趋向 0, 通过率 $1 - \\sum p^2$ 趋向 0。\n- 梯度为什么传不过去: softmax 的雅可比 (输出对输入的导数矩阵) 是 $\\mathrm{diag}(p) - pp^\\top$, p 是 one-hot 时它每一项都是 0, 上游梯度乘上去全是 0, 这个 head 的 q/k 投影就收不到任何更新。\n- 溢出: logit 还会超出 bf16/fp16 能表示的范围。\nQK-Norm 把 q、k 归一到 RMS = 1 再乘可学增益 $g$, 于是 $\\text{logit} = g^2 \\cdot \\sqrt{d} \\cdot \\cos\\theta$, 上界 $g^2\\sqrt{d}$, 与范数倍率完全无关。模型仍然可以通过学 $g$ 来调「尖锐度」, 只是只剩这一个受控的旋钮。',
     }"
   >
     <template #controls>

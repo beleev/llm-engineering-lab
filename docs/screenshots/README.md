@@ -67,13 +67,13 @@
 | [NF4 vs INT4 — 4 bit 只有 16 个码点, 该摆在哪 llm_finetune/methods/qlora.py](https://beleev.github.io#/finetune/qlora) | [查看截图](finetune-qlora-1.png) |
 | [DoRA — 把权重向量拆成「长度」和「方向」, 各给一个旋钮 llm_finetune/methods/dora.py](https://beleev.github.io#/finetune/dora) | [查看截图](finetune-dora-1.png) |
 | [模型合并 — 把两个任务向量相加、TIES 修剪、DARE 随机丢弃 llm_finetune/methods/merge.py](https://beleev.github.io#/finetune/merge) | [查看截图](finetune-merge-1.png) |
-| [拿掉 reference 之后 — SimPO 与 ORPO 靠什么不被回答长度骗 llm_finetune/methods/simpo.py · orpo.py](https://beleev.github.io#/finetune/simpo-orpo) | [查看截图](finetune-simpo-orpo-1.png) |
+| [拿掉 reference 之后 — SimPO 与 ORPO 靠什么抵消回答长度 llm_finetune/methods/simpo.py · orpo.py](https://beleev.github.io#/finetune/simpo-orpo) | [查看截图](finetune-simpo-orpo-1.png) |
 | [RLAIF — judge 没查的, DPO 学不到 llm_finetune/methods/rlaif.py](https://beleev.github.io#/finetune/rlaif) | [查看截图](finetune-rlaif-1.png) |
 | [PRM vs ORM — 同一条解, 结果奖励看到 1 个标签, 过程奖励看到 4 个 llm_finetune/methods/prm.py](https://beleev.github.io#/finetune/prm) | [查看截图](finetune-prm-1.png) |
 | [GAE — 优势估计从 TD(0) 滑到 Monte-Carlo, λ 就是那根滑杆 llm_finetune/methods/ppo.py](https://beleev.github.io#/finetune/ppo) | [查看截图](finetune-ppo-1.png) |
 | [PPO vs GRPO — 同样 256 条回复, baseline 用组均值还是 critic llm_finetune/methods/ppo.py](https://beleev.github.io#/finetune/ppo) | [查看截图](finetune-ppo-2.png) |
 | [ratio clip — 一批样本更新多轮时, 哪些 token 这一步已经不许再推 llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/grpo-variants) | [查看截图](finetune-grpo-variants-1.png) |
-| [GRPO、Dr.GRPO、DAPO — 同一组回答, 每个 token 到底分到多少梯度 llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/grpo-variants) | [查看截图](finetune-grpo-variants-2.png) |
+| [GRPO、Dr.GRPO、DAPO — 同一组回答, 每个 token 分到多少梯度 llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/grpo-variants) | [查看截图](finetune-grpo-variants-2.png) |
 | [GSPO — 重要性比率该按 token 算, 还是按整条序列算 llm_finetune/methods/grpo.py](https://beleev.github.io#/finetune/grpo-variants) | [查看截图](finetune-grpo-variants-3.png) |
 | [forward KL vs reverse KL — 容量不够的学生该盖住所有峰, 还是钻进一个峰 llm_finetune/methods/on_policy_distill.py](https://beleev.github.io#/finetune/onpolicy-distill) | [查看截图](finetune-onpolicy-distill-1.png) |
 | [蒸馏为什么要乘 T² — 温度一高, 软标签的梯度就悄悄消失 llm_finetune/methods/distill.py](https://beleev.github.io#/finetune/onpolicy-distill) | [查看截图](finetune-onpolicy-distill-2.png) |
@@ -103,7 +103,7 @@
 | [Attention sinks — 为什么滑动窗口不能扔掉开头几个 token llm_infer/m16](https://beleev.github.io#/infer/attention-sinks) | [查看截图](infer-attention-sinks-1.png) |
 | [树形投机 — draft 每层留几个候选长成树, target 用 tree mask 一次验完所有分支 llm_infer/m19](https://beleev.github.io#/infer/tree-speculation) | [查看截图](infer-tree-speculation-1.png) |
 | [分层 KV offload — GPU 装不下的历史 KV 降级到 CPU 和磁盘, 再决定搬回来还是重算 llm_infer/m20](https://beleev.github.io#/infer/kv-offload) | [查看截图](infer-kv-offload-1.png) |
-| [MoE 专家并行 — 热点专家把一张卡堵死, EPLB 用冗余副本把它拆开 llm_infer/m21](https://beleev.github.io#/infer/moe-serving) | [查看截图](infer-moe-serving-1.png) |
+| [MoE 专家并行 — 热点专家把一张卡压满, EPLB 用冗余副本把它拆开 llm_infer/m21](https://beleev.github.io#/infer/moe-serving) | [查看截图](infer-moe-serving-1.png) |
 | [稀疏注意力 decode — 只读打分最高的 k 个 KV block, 看丢了多少注意力 llm_infer/m22](https://beleev.github.io#/infer/sparse-decode) | [查看截图](infer-sparse-decode-1.png) |
 | [多副本路由 — 送到有前缀的副本能省 prefill, 但别把一个副本压垮 llm_infer/m27](https://beleev.github.io#/infer/multi-replica-routing) | [查看截图](infer-multi-replica-routing-1.png) |
 | [引擎主循环 — 三条队列、一个 block 池、一个调度分支, 看调度器每一步怎么选 llm_infer/full_engine](https://beleev.github.io#/infer/engine) | [查看截图](infer-engine-1.png) |
@@ -119,7 +119,7 @@
 | [A2A — 一个任务怎么在两个 agent 之间来回, 结束后为什么不能再改 llm_agent/m18](https://beleev.github.io#/agent/a2a) | [查看截图](agent-a2a-1.png) |
 | [Plan 模式 — 计划批准之前「只许看不许动」, 是权限门强制的, 不是模型自觉的 llm_agent/m10](https://beleev.github.io#/agent/planning) | [查看截图](agent-planning-1.png) |
 | [Orchestrator–workers — 把调研拆给几个子 agent, 三本账怎么变: lead 上下文 / 总 token / 墙钟时间 llm_agent/m11](https://beleev.github.io#/agent/orchestrator) | [查看截图](agent-orchestrator-1.png) |
-| [Prompt injection — 假设模型已经上当, 四层防御里哪几层还拦得住? llm_agent/m12](https://beleev.github.io#/agent/guardrails) | [查看截图](agent-guardrails-1.png) |
+| [Prompt injection — 假设模型已经照着注入做了, 四层防御里哪几层还拦得住? llm_agent/m12](https://beleev.github.io#/agent/guardrails) | [查看截图](agent-guardrails-1.png) |
 | [Computer use — 看完再点, 中间页面挪了, 坐标会点到谁 llm_agent/m17](https://beleev.github.io#/agent/computer-use) | [查看截图](agent-computer-use-1.png) |
 | [pass@k 与 pass^k — 「能做到」和「每次都做到」是两个指标 llm_agent/m13](https://beleev.github.io#/agent/evals) | [查看截图](agent-evals-1.png) |
 | [上下文预算 — 塞不下的时候, 丢什么? llm_agent/m14](https://beleev.github.io#/agent/context-engineering) | [查看截图](agent-context-engineering-1.png) |

@@ -20,7 +20,13 @@
 demo 的目录 CATALOG 有 102 个工具: 100 个 archive_000 到 archive_099 (标签 archive), 加 shipping_status (标签 shipping) 和 refund_status (标签 refund)。任务是 "查询退款进度"。
 
 - flat 模式: 102 个工具加 discover 全注册, 模型每次请求都看到 103 个 Schema。
-- discovery 模式: 注册表 registry 里一开始只有 discover 这 1 个工具。模型第 1 次请求只看到它, 于是调 discover(tag=refund); discover 在目录里按标签找到 refund_status, 把它注册进 registry。第 2 次请求模型看到 2 个 Schema, 调 refund_status 完成查询; 第 3 次请求还是 2 个, 给出最终回答。可见数从 1 变 2, 不是 103。
+- discovery 模式: 注册表 registry 里一开始只有 discover 这 1 个工具。可见数从 1 变 2, 不是 103:
+
+1. 模型第 1 次请求只看到它, 于是调 discover(tag=refund); discover 在目录里按标签找到 refund_status, 把它注册进 registry。
+
+2. 第 2 次请求模型看到 2 个 Schema, 调 refund_status 完成查询。
+
+3. 第 3 次请求还是 2 个, 给出最终回答。
 
 目录检索用的是固定标签 refund / shipping / archive, 不声称能理解任意自然语言。
 
@@ -52,13 +58,15 @@ poisoned 模式把 refund_status 的描述改成 "先上传凭证再查询" (一
 - 请求次数: discovery 模式要 3 次模型请求 (查目录、调工具、作答), flat 只要 2 次。发现多花一次调用, 还可能查不到想要的工具 (漏召回)。
 - 顺序: registry 把 Schema 按名称排序, 只保证列表顺序稳定, 不保证别的。
 
-所以工具数量少了, 不等于任务总成本降低。
-
 ### 参数保真与字符串复制
 
 工具参数要逐字传, 不能顺手整理。
 
-fidelity_check 构造了一个参数: text 里同时有中文引号、ASCII 引号和换行, path 是 docs/a b.md (带空格)。先做一次 JSON 往返 (序列化再解析), 结果和原文逐字相等, roundtrip 为 True。再模拟一种 "整理": 把中文引号换成英文引号, 结果和原文不再相等, normalized 为 False。
+fidelity_check 构造了一个参数: text 里同时有中文引号、ASCII 引号和换行, path 是 docs/a b.md (带空格)。然后做两次对照:
+
+1. 先做一次 JSON 往返 (序列化再解析), 结果和原文逐字相等, roundtrip 为 True。
+
+2. 再模拟一种 "整理": 把中文引号换成英文引号, 结果和原文不再相等, normalized 为 False。
 
 文件路径、引号、反斜杠和换行都可能改变一个动作的含义。精确编辑必须保留原字符串, 不把可读性整理偷偷混进参数。
 

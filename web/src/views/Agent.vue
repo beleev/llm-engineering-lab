@@ -7,7 +7,7 @@
         <code class="inline">RuleBasedLLM</code> 顶上: 一个按规则回话的假模型, 同样的输入永远给同样的输出。
         这样每个 demo 都能用 <code class="inline">assert</code> 证明自己声称的事。
       </p>
-      <p>这一阶段要看的不是模型多聪明, 而是它的输出怎么被结构化、检查、执行和记录。</p>
+      <p>这一阶段看的是模型的输出怎么被结构化、检查、执行和记录; 模型聪不聪明不是重点。</p>
       <p>
         设计刻意对齐 Claude Code: 权限模式名、hook 事件名、<code class="inline">mcp__server__tool</code> 命名、content block 格式。
       </p>
@@ -37,9 +37,11 @@
       <h2>1. 应用层依赖链</h2>
       <div class="lead-group">
         <p>从 "能生成 token" 到 "能把事做完", 中间多出来的全是控制面。</p>
-        <p>
-          先把 loop 跑通, 再一层层加工具、权限、上下文、扩展、持久化和子智能体。每加一层能力, 就得同时加一道边界。
-        </p>
+        <p>搭的顺序:</p>
+        <ol class="pts">
+          <li>先把 loop 跑通。</li>
+          <li>再一层层加工具、权限、上下文、扩展、持久化和子智能体。</li>
+        </ol>
       </div>
       <EvolutionChain
         title="从 completion 到 mini Agent harness"
@@ -66,7 +68,7 @@
     <section class="section">
       <h2>3. 模型与 harness 的边界</h2>
       <div class="lead-group">
-        <p><code class="inline">RuleBasedLLM</code> 故意写得很弱。分工才是重点:</p>
+        <p><code class="inline">RuleBasedLLM</code> 故意写得很弱, 这一节看的是分工:</p>
         <ul class="pts">
           <li><b>模型:</b> 负责 "选哪个动作", 概率性。</li>
           <li><b>harness:</b> 负责 "这个动作能不能做、做出来记在哪", 确定性。</li>
@@ -94,10 +96,16 @@
 
     <section class="section">
       <h2>4. 模块索引 · 运行时看什么</h2>
-      <p class="lead">
-        每个 demo 都可以单独跑; <code class="inline">python -m llm_agent.run_all</code>
-        会按学习路径整体跑一遍 (<RepoLink path="llm_agent/run_all.py" label="llm_agent/run_all.py" tiny />)。
-      </p>
+      <div class="lead-group">
+        <p>两种跑法:</p>
+        <ul class="pts">
+          <li>每个 demo 都可以单独跑。</li>
+          <li>
+            <code class="inline">python -m llm_agent.run_all</code>
+            会按学习路径整体跑一遍 (<RepoLink path="llm_agent/run_all.py" label="llm_agent/run_all.py" tiny />)。
+          </li>
+        </ul>
+      </div>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="agent-table">
           <thead>
@@ -182,7 +190,17 @@ const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${l
 
 // 最后一个模块的编号从数据里取, 不写死 (agentModules 里除了 mNN 还有一行 full)
 const lastModule = agentModules.filter((m) => /^m\d+$/.test(m.id)).at(-1).id
-const tldr = `Agent 的核心是一个 loop: 模型看对话历史, 决定调哪个工具; 程序执行工具, 把结果追加回历史; 再让模型看一次, 直到它给出最终回答。这个 loop 本身只有十几行, 从 m01 到 ${lastModule} 几乎没改过。可靠性全在它周围的几道边界: 工具注册表 (模型只能选这里登记过的动作)、权限门 (每次执行前裁决能不能做)、上下文与记忆 (历史太长时怎么压)、hooks (固定事件点跑的检查和改写)、JSONL transcript (逐条追加的对话记录, 可恢复)、子智能体隔离 (子任务单独跑, 只交回摘要)。`
+const tldr = `Agent 的骨架是一个 loop:
+1. 模型看对话历史, 决定调哪个工具。
+2. 程序执行工具, 把结果追加回历史。
+3. 再让模型看一次, 直到它给出最终回答。
+这个 loop 本身只有十几行, 从 m01 到 ${lastModule} 几乎没改过。可靠性全在它周围的几道边界:
+- 工具注册表: 模型只能选这里登记过的动作。
+- 权限门: 每次执行前裁决能不能做。
+- 上下文与记忆: 历史太长时怎么压。
+- hooks: 固定事件点跑的检查和改写。
+- JSONL transcript: 逐条追加的对话记录, 可恢复。
+- 子智能体隔离: 子任务单独跑, 只交回摘要。`
 
 const agentChain = [
   {
@@ -209,7 +227,7 @@ const agentChain = [
   {
     name: 'Context',
     year: 'm04',
-    pain: '历史和记忆会挤爆窗口。',
+    pain: '历史和记忆会超出上下文窗口。',
     fix: '文件记忆检索 + 清旧工具结果 + 模型摘要压缩。',
     color: 'var(--eye)',
   },

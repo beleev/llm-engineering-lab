@@ -7,14 +7,26 @@
   <LabFrame
     title="Bradley–Terry — 奖励模型学到的只是两条回答的「分差」"
     sub="- 模拟什么: RLHF 的第一步是训一个奖励模型 (RM): 输入一条回答, 输出一个分数 $r$。训练数据只是「A 比 B 好」这种成对标注, 所以 RM 学的是 Bradley–Terry 模型: 标注员选 A 的概率 $P(A \succ B) = \sigma(r_A - r_B)$, 这个式子在说: 只有分差 $\Delta = r_A - r_B$ 说了算, 两个分数一起加减一个常数什么都不变。标注员也会标反, 这个台子用 $\varepsilon$ 表示标反的概率, 看噪声怎么限制 RM 能学到多大的分差。
-      - 图上是什么: 上面的数轴是 RM 给两条回答打的分: 绿色 A 是标注员 (大多数时候) 选的那条, 红色 B 是被拒的那条, 两点之间的粗线是分差 $\Delta$ (A 在右边时是绿色, 排反了是红色)。下面的紫色曲线是「标注有 $\varepsilon$ 概率标反」时, 一对样本的期望 loss 随分差 $\Delta$ 的变化; 橙色点是当前这一对落在曲线上的位置; 绿色虚线标出曲线的最低点 $\Delta^*$。
-      - 可以做什么: 左右拖 A 或 B (或聚焦后按方向键) 改分数; 「两个一起 +2 / −2」把两点一起平移, 分差不变; 「把 A 放到最优分差」直接把 A 放到 $\Delta^*$ 处; 拖「标注噪声 ε」改标反的概率, 0 是完全没噪声, 0.5 是纯随机。
-      - 应该看到: $\varepsilon = 0$ 时曲线一路下降没有最低点, A 拖得越远 loss 越小; $\varepsilon \gt 0$ 时曲线变成一个碗, 最低点在 $\Delta^* = \ln((1-\varepsilon)/\varepsilon)$。右侧读数: 「P(A ≻ B)」是 RM 预测的 A 胜率; 「期望 loss」是当前分差下的 loss, 贴到下限时变绿; 「最优分差」是碗底的位置; 「loss 下限」是碗底的高度, 等于噪声的二元熵 $H(\varepsilon)$, 训到这里就到头了。"
+      - 图上是什么: 上下两张图:
+        - 上面的数轴: RM 给两条回答打的分。绿色 A 是标注员 (大多数时候) 选的那条, 红色 B 是被拒的那条, 两点之间的粗线是分差 $\Delta$ (A 在右边时是绿色, 排反了是红色)。
+        - 下面的紫色曲线: 「标注有 $\varepsilon$ 概率标反」时, 一对样本的期望 loss 随分差 $\Delta$ 的变化。
+        - 橙色点: 当前这一对落在曲线上的位置。
+        - 绿色虚线: 标出曲线的最低点 $\Delta^*$。
+      - 可以做什么: 拖两个点, 或用按钮和滑杆:
+        - 左右拖 A 或 B (或聚焦后按方向键): 改分数。
+        - 「两个一起 +2 / −2」: 把两点一起平移, 分差不变。
+        - 「把 A 放到最优分差」: 直接把 A 放到 $\Delta^*$ 处。
+        - 拖「标注噪声 ε」: 改标反的概率, 0 是完全没噪声, 0.5 是纯随机。
+      - 应该看到: $\varepsilon = 0$ 时曲线一路下降没有最低点, A 拖得越远 loss 越小; $\varepsilon \gt 0$ 时曲线变成一个碗, 最低点在 $\Delta^* = \ln((1-\varepsilon)/\varepsilon)$。右侧读数:
+        - 「P(A ≻ B)」: RM 预测的 A 胜率。
+        - 「期望 loss」: 当前分差下的 loss, 贴到下限时变绿。
+        - 「最优分差」: 碗底的位置。
+        - 「loss 下限」: 碗底的高度, 等于噪声的二元熵 $H(\varepsilon)$, 训到这里就到头了。"
     module="llm_finetune/methods/reward_model.py"
     run="python -m llm_finetune.run_finetune.rm.train_rm"
     :challenge="{
-      ask: '先把 ε 拖到 0, 一直把 A 往右拖: loss 有最小值吗? 再把 ε 调到 0.2, 找到 loss 最低的分差, 它是多少? 最后点「两个一起 +2」: 什么变了?',
-      answer: '答案: $\\varepsilon = 0$ 时 loss 没有最小值, A 越远越好; $\\varepsilon = 0.2$ 时最低点在 $\\Delta^* = 1.386$; 「一起 +2」后 $P$ 和 loss 完全不变。\n一步步看:\n- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 随 $\\Delta$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小, 不能当绝对值用。\n- 有标注噪声: 期望 loss $= -(1-\\varepsilon)\\log\\sigma(\\Delta) - \\varepsilon\\log\\sigma(-\\Delta)$, 这个式子在说: 标签以 $1-\\varepsilon$ 的概率说 A 赢、以 $\\varepsilon$ 的概率说 B 赢, 两种情况各按概率算 loss。分差拉得太大时, 那 $\\varepsilon$ 份「说 B 赢」的样本 loss 会爆, 所以曲线变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon = 0.2$ 时 1.386, $0.1$ 时 2.197, $0.5$ 时 0 (纯噪声, 学不到任何偏好)。\n- 碗底的含义: 此时 $\\sigma(\\Delta^*) = 1-\\varepsilon$, 也就是 RM 预测的胜率正好等于标注员的一致率, 训练良好的 RM 是校准过的。碗底的高度是二元熵 $H(\\varepsilon)$, 是噪声数据上 loss 的下限, 训到这里就别再训了。\n- 一起 +2: $\\Delta$ 不变, $P$ 和 loss 完全不变。BT 模型对整体平移不可辨识, 分数只有相对意义。这也是 GRPO / PPO 要对奖励做 baseline 或归一化的原因之一。本仓库 train_rm 实测: 留出集偏好准确率 0.549 → 0.930。',
+      ask: '按顺序做三件事:\n1. 把 ε 拖到 0, 一直把 A 往右拖: loss 有最小值吗?\n2. 把 ε 调到 0.2, 找到 loss 最低的分差, 它是多少?\n3. 点「两个一起 +2」: 什么变了?',
+      answer: '答案:\n1. $\\varepsilon = 0$ 时 loss 没有最小值, A 越远越好。\n2. $\\varepsilon = 0.2$ 时最低点在 $\\Delta^* = 1.386$。\n3. 「一起 +2」后 $P$ 和 loss 完全不变。\n为什么:\n- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 随 $\\Delta$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小, 不能当绝对值用。\n- 有标注噪声: 期望 loss $= -(1-\\varepsilon)\\log\\sigma(\\Delta) - \\varepsilon\\log\\sigma(-\\Delta)$, 这个式子在说: 标签以 $1-\\varepsilon$ 的概率说 A 赢、以 $\\varepsilon$ 的概率说 B 赢, 两种情况各按概率算 loss。分差拉得太大时, 那 $\\varepsilon$ 份「说 B 赢」的样本 loss 会越来越大, 所以曲线变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon = 0.2$ 时 1.386, $0.1$ 时 2.197, $0.5$ 时 0 (纯噪声, 学不到任何偏好)。\n- 碗底的含义: 此时 $\\sigma(\\Delta^*) = 1-\\varepsilon$, 也就是 RM 预测的胜率正好等于标注员的一致率, 训练良好的 RM 是校准过的。碗底的高度是二元熵 $H(\\varepsilon)$, 是噪声数据上 loss 的下限, 训到这里就别再训了。\n- 一起 +2: $\\Delta$ 不变, $P$ 和 loss 完全不变。BT 模型对整体平移不可辨识, 分数只有相对意义。这也是 GRPO / PPO 要对奖励做 baseline 或归一化的原因之一。本仓库 train_rm 实测: 留出集偏好准确率 0.549 → 0.930。',
     }"
   >
     <template #controls>

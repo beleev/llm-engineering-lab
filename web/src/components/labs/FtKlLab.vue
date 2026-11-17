@@ -7,15 +7,25 @@
 <template>
   <LabFrame
     title="forward KL vs reverse KL — 容量不够的学生该盖住所有峰, 还是钻进一个峰"
-    sub="- 模拟什么: 蒸馏时 student 常常比 teacher 小, 装不下 teacher 的全部行为。这个台子把这件事压成一维: teacher 是双峰分布 $p$ (两种都对的答法), student 只能是单峰的高斯 $q$ (容量不够)。两种 KL 散度 (衡量两个分布差多远的量) 各代表一种训练方式: forward KL $= \mathbb{E}_{x\sim p}[\log p/q]$, 在 teacher 的样本上算, 对应离线蒸馏 / SFT (在 teacher 写的数据上做极大似然); reverse KL $= \mathbb{E}_{x\sim q}[\log q/p]$, 在 student 自己的样本上算, 对应 on-policy 蒸馏 (学生自己生成, teacher 逐 token 打分)。期望在谁的样本上取, 决定了惩罚落在哪。
+    sub="- 模拟什么: 蒸馏时 student 常常比 teacher 小, 装不下 teacher 的全部行为。这个台子把这件事压成一维: teacher 是双峰分布 $p$ (两种都对的答法), student 只能是单峰的高斯 $q$ (容量不够)。两种 KL 散度 (衡量两个分布差多远的量) 各代表一种训练方式, 期望在谁的样本上取, 决定了惩罚落在哪:
+        - forward KL $= \mathbb{E}_{x\sim p}[\log p/q]$: 在 teacher 的样本上算, 对应离线蒸馏 / SFT (在 teacher 写的数据上做极大似然)。
+        - reverse KL $= \mathbb{E}_{x\sim q}[\log q/p]$: 在 student 自己的样本上算, 对应 on-policy 蒸馏 (学生自己生成, teacher 逐 token 打分)。
       - 图上是什么: 上图紫色是 teacher 的密度曲线 (双峰), 绿色是 student 的密度曲线 (单峰), 峰顶的绿点可以拖。下图是当前选中的那种 KL 的逐点被积函数: 曲线下的面积就是 KL 的值, 哪里鼓起来, 惩罚就来自哪里。
-      - 可以做什么: 「看 forward / reverse KL 的被积函数」切换下图画哪一个; 「最小化 forward KL」把学生放到 forward KL 最小的位置 (高斯族内有闭式解: 均值和方差匹配); 「最小化 reverse KL」用数值下降找 reverse KL 最小的位置 (从当前位置和两个峰各下降一次, 取最小的); 拖「teacher 两峰间距」和「左峰的质量」改 teacher 的形状。拖绿点 (或聚焦后按方向键): 左右改均值 $\mu$, 上下改宽度 $\sigma$ (越高越窄)。
-      - 应该看到: forward 的最优解是一个摊开盖住两峰的宽高斯, 大量概率放在两峰之间的低谷; reverse 的最优解缩进其中一个峰。右侧读数: 两个 KL 的当前值, 选中的那个带 ▸ 标记; 「垃圾样本率」是 student 的样本落在 teacher 认为几乎不可能的区域 (密度低于 teacher 峰值的 5%) 的概率, 就是生成时「胡说」的比例; 「漏掉的 teacher 质量」是 teacher 的样本落在 student 几乎不会去的区域的比例, 就是学生「不会」的答法。"
+      - 可以做什么: 按界面顺序:
+        - 「看 forward / reverse KL 的被积函数」: 切换下图画哪一个。
+        - 「最小化 forward KL」: 把学生放到 forward KL 最小的位置 (高斯族内有闭式解: 均值和方差匹配)。
+        - 「最小化 reverse KL」: 用数值下降找 reverse KL 最小的位置 (从当前位置和两个峰各下降一次, 取最小的)。
+        - 拖「teacher 两峰间距」和「左峰的质量」: 改 teacher 的形状。
+        - 拖绿点 (或聚焦后按方向键): 左右改均值 $\mu$, 上下改宽度 $\sigma$ (越高越窄)。
+      - 应该看到: forward 的最优解是一个摊开盖住两峰的宽高斯, 大量概率放在两峰之间的低谷; reverse 的最优解缩进其中一个峰。右侧读数:
+        - 前两行: 两个 KL 的当前值, 选中的那个带 ▸ 标记。
+        - 「垃圾样本率」: student 的样本落在 teacher 认为几乎不可能的区域 (密度低于 teacher 峰值的 5%) 的概率, 就是生成时「胡说」的比例。
+        - 「漏掉的 teacher 质量」: teacher 的样本落在 student 几乎不会去的区域的比例, 就是学生「不会」的答法。"
     module="llm_finetune/methods/on_policy_distill.py"
     run="python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill"
     :challenge="{
-      ask: '先点「最小化 forward KL」, 再点「最小化 reverse KL」。两个最优学生分别落在哪? 各自的「垃圾样本率」是多少? 哪一个更像你希望小模型在生成时的表现?',
-      answer: '答案: forward 最优的学生是一个盖住两峰的宽高斯, 垃圾样本率很高; reverse 最优的学生缩进一个峰, 垃圾样本率接近 0 但漏掉另一个峰; 生成时希望小模型像后者。\n一步步看:\n- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$, 这个式子在说: 在 teacher 有质量的每个地方, 检查 student 给了多少。teacher 有质量而 student 没有的地方, $\\log(p/q)$ 爆炸, 所以学生被迫摊开盖住两个峰。代价是把大量概率放在两峰之间的低谷里, 那里 teacher 认为几乎不可能, 垃圾样本率很高。这就是离线蒸馏 / SFT 的行为: 在 teacher 写的数据上做极大似然。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$, 这个式子在说: 在 student 自己去的每个地方, 检查 teacher 认不认可。没去的地方完全不罚, 去了 teacher 不认可的地方重罚, 于是它缩进一个峰。它样样像 teacher, 但放弃了另一种答法。\n- on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的正是 reverse KL: 容量小的学生宁可少会一点, 也不要胡说。本仓库实测样本合格率从 0.059 (离线) 到 0.402 (on-policy), 代价是 teacher 的少数派答法被放弃。',
+      ask: '先点「最小化 forward KL」, 再点「最小化 reverse KL」, 然后回答:\n1. 两个最优学生分别落在哪?\n2. 各自的「垃圾样本率」是多少?\n3. 哪一个更像你希望小模型在生成时的表现?',
+      answer: '答案:\n1. forward 最优的学生是一个盖住两峰的宽高斯, reverse 最优的学生缩进一个峰。\n2. forward 的垃圾样本率很高; reverse 的垃圾样本率接近 0, 但漏掉另一个峰。\n3. 生成时希望小模型像后者。\n为什么:\n- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$, 这个式子在说: 在 teacher 有质量的每个地方, 检查 student 给了多少。teacher 有质量而 student 没有的地方, $\\log(p/q)$ 会变得极大, 所以学生被迫摊开盖住两个峰。代价是把大量概率放在两峰之间的低谷里, 那里 teacher 认为几乎不可能, 垃圾样本率很高。离线蒸馏 / SFT 优化的是 forward KL: 在 teacher 写的数据上做极大似然。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$, 这个式子在说: 在 student 自己去的每个地方, 检查 teacher 认不认可。没去的地方完全不罚, 去了 teacher 不认可的地方重罚, 于是它缩进一个峰。它生成的样本都像 teacher 会写的, 但放弃了另一种答法。\n- on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的是 reverse KL: 容量小的学生因此少会一种答法, 但很少胡说。本仓库实测样本合格率从 0.059 (离线) 到 0.402 (on-policy), 代价是 teacher 的少数派答法被放弃。',
     }"
   >
     <template #controls>

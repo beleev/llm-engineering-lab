@@ -37,7 +37,7 @@
     <section v-if="evolution || page.links?.length" :id="ids.origin" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('origin') }}</span>它从哪来</h2>
       <p class="lead">
-        先别急着看机制。顺着箭头读一遍: 最早的做法卡在哪, 后来每一代补了什么, 本章实现的是其中哪一步。
+        顺着箭头读一遍: 最早的做法卡在哪, 后来每一代补了什么, 本章实现的是其中哪一步。
       </p>
       <EvolutionChain
         v-if="evolution"
@@ -71,12 +71,12 @@
     <section :id="ids.points" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('points') }}</span>要点</h2>
       <p class="lead">
-        这一章要带走的就这 {{ page.points.length }} 条, 按顺序读, 每条都是先说结论, 再说它是怎么发生的。带「重点」的那条是走的时候必须带上的。
+        本章共 {{ page.points.length }} 条要点, 按顺序读。每条先说结论, 再说它是怎么发生的。标了「重点」的那条最该掌握。
       </p>
       <ol class="points-list">
         <li v-for="(p, i) in page.points" :key="p.title" class="card point-card" :class="{ key: p.key }">
           <h3><span class="point-num">{{ i + 1 }}</span><Tex :text="p.title" /> <span v-if="p.key" class="key-tag">重点</span></h3>
-          <Prose class="desc" :text="p.body" />
+          <Prose class="desc" :text="p.body" lead />
         </li>
       </ol>
     </section>

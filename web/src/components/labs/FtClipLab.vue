@@ -7,14 +7,30 @@
   <LabFrame
     title="ratio clip — 一批样本更新多轮时, 哪些 token 这一步已经不许再推"
     sub="- 模拟什么: PPO / GRPO 为了把一批昂贵的采样多用几轮, 从第二轮起策略已经变了, 要用重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 来修正 (新策略比旧策略给这个 token 的概率涨了几倍)。为了不让单步走太远, 目标函数写成 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$, 这个式子在说: $\rho$ 一旦超出 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 并且是往对自己有利的方向超, 就取裁剪后的那一项, 它对 $\rho$ 的导数是 0, 这个 token 本轮不再被推。$\hat{A}$ 是优势: 正表示这是个好 token 想推高, 负表示想压低。DAPO 的 clip-higher 把上界单独放宽。
-      - 图上是什么: 横轴是 $\rho$, 竖虚线是 $\rho = 1$ (新旧策略一样); 两条黄竖线是裁剪边界 $1-\varepsilon_{\text{low}}$ 和 $1+\varepsilon_{\text{high}}$; 灰色虚线是不裁剪的 $\rho\hat{A}$, 紫色折线是裁剪后的目标; 黄色阴影是梯度为 0 的区域。右侧灰色区域是 $\rho \gt 1/\pi_{\text{old}}$: 新概率超过 1 了, 不可能到达。圆点是这个 token 当前的 $\rho$, 绿色表示还有梯度, 黄色表示被 clip。
-      - 可以做什么: 「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」切换这是好 token 还是坏 token; 「PPO/GRPO 对称 0.2」和「DAPO clip-higher 0.2/0.28」是两组 $\varepsilon$ 预设; 拖「ε_low」「ε_high」单独改两条边界; 拖「π_old」改旧策略给这个 token 的概率 (0.01 到 0.89), 它决定灰色不可达区从哪开始。左右拖圆点 (或聚焦后按方向键) 改 $\rho$。
-      - 应该看到: $\hat{A} \gt 0$ 时只有右边有阴影 (只封顶), $\hat{A} \lt 0$ 时只有左边有阴影 (只托底)。右侧读数: 第一行是 $\rho$ 换算成新概率 $\rho\,\pi_{\text{old}}$; 「这个 token 的梯度」是绿色的 ±1·|Â| 或红色的 0 (被 clip); 「上界内 π 最多涨到」是这一轮新概率能到的上限 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$; 「上界碰得到吗」: $\pi_{\text{old}}$ 很大时 $1/\pi_{\text{old}}$ 不到 $1+\varepsilon$, 上界根本碰不到, 这个 token 实际上不受约束。"
+      - 图上是什么: 横轴是 $\rho$。图里各部分:
+        - 竖虚线: $\rho = 1$ (新旧策略一样)。
+        - 两条黄竖线: 裁剪边界 $1-\varepsilon_{\text{low}}$ 和 $1+\varepsilon_{\text{high}}$。
+        - 灰色虚线: 不裁剪的 $\rho\hat{A}$。
+        - 紫色折线: 裁剪后的目标。
+        - 黄色阴影: 梯度为 0 的区域。
+        - 右侧灰色区域: $\rho \gt 1/\pi_{\text{old}}$, 新概率超过 1 了, 不可能到达。
+        - 圆点: 这个 token 当前的 $\rho$, 绿色表示还有梯度, 黄色表示被 clip。
+      - 可以做什么: 按界面顺序:
+        - 「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」: 切换这是好 token 还是坏 token。
+        - 「PPO/GRPO 对称 0.2」和「DAPO clip-higher 0.2/0.28」: 两组 $\varepsilon$ 预设。
+        - 拖「ε_low」「ε_high」: 单独改两条边界。
+        - 拖「π_old」: 改旧策略给这个 token 的概率 (0.01 到 0.89), 它决定灰色不可达区从哪开始。
+        - 左右拖圆点 (或聚焦后按方向键): 改 $\rho$。
+      - 应该看到: $\hat{A} \gt 0$ 时只有右边有阴影 (只封顶), $\hat{A} \lt 0$ 时只有左边有阴影 (只托底)。右侧读数:
+        - 第一行: $\rho$ 换算成新概率 $\rho\,\pi_{\text{old}}$。
+        - 「这个 token 的梯度」: 绿色的 ±1·|Â| 或红色的 0 (被 clip)。
+        - 「上界内 π 最多涨到」: 这一轮新概率能到的上限 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$。
+        - 「上界碰得到吗」: $\pi_{\text{old}}$ 很大时 $1/\pi_{\text{old}}$ 不到 $1+\varepsilon$, 上界碰不到, 这个 token 不受上界约束。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
-      ask: '设 Â 大于 0。把 π_old 拖到最右 (约 0.89): 这个 token 能撞到 1+ε_high 的上界吗? 再拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少? 换成 DAPO 的 0.2 / 0.28 呢?',
-      answer: '答案: $\\pi_{\\text{old}} \\approx 0.89$ 时碰不到上界; $\\pi_{\\text{old}} = 0.01$ 时对称 0.2 一步最多涨到 0.012, DAPO 的 0.28 最多涨到 0.0128。\n一步步看:\n- 新概率不能超过 1, 所以 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}} \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。它实际上不受约束, 想涨就涨。\n- 低概率的探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 $0.01 \\times 1.2 = 0.012$, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。结果是强者恒强, 分布越来越尖, 熵一路塌缩。\n- DAPO 的 clip-higher 只放宽上界 ($0.01 \\times 1.28 = 0.0128$), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n- 只有「一批样本做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1, 落在裁剪区间里, clip 是死代码。',
+      ask: '设 Â 大于 0, 按顺序做:\n1. 把 π_old 拖到最右 (约 0.89): 这个 token 能撞到 1+ε_high 的上界吗?\n2. 把 π_old 拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少?\n3. 换成 DAPO 的 0.2 / 0.28 呢?',
+      answer: '答案:\n1. $\\pi_{\\text{old}} \\approx 0.89$ 时碰不到上界。\n2. $\\pi_{\\text{old}} = 0.01$ 时对称 0.2 一步最多涨到 0.012。\n3. DAPO 的 0.28 最多涨到 0.0128。\n为什么:\n- 新概率不能超过 1, 所以 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}} \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。它不受上界约束, 想涨就涨。\n- 低概率的探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 $0.01 \\times 1.2 = 0.012$, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。结果是高概率 token 越涨越高, 分布越来越尖, 熵一路塌缩。\n- DAPO 的 clip-higher 只放宽上界 ($0.01 \\times 1.28 = 0.0128$), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n- 只有「一批样本做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1, 落在裁剪区间里, clip 是死代码。',
     }"
   >
     <template #controls>

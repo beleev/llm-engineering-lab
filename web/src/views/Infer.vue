@@ -10,7 +10,7 @@
       :tldr="tldr"
       question="为什么训练时最贵的是反向, 推理时最贵的却常常是 KV cache、调度和内存带宽?"
       :goals="[
-        '说清 KV cache / 分页 / 前缀复用各自省掉的到底是什么',
+        '说清 KV cache / 分页 / 前缀复用各自省掉的是什么',
         '看懂连续批和分块 prefill 怎么把 GPU 喂饱, 以及代价落在谁头上',
         '把 mini-vLLM 的主循环逐行对上真实的 vLLM / SGLang',
       ]"
@@ -124,10 +124,14 @@
       <h2>5. full_engine · 把模块接成服务主循环</h2>
       <div class="lead-group">
         <p><RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 是最值得对着源码读的一页。</p>
-        <p>
-          它不是完整的 vLLM, 但把调度 (m03)、真分页 KV pool (m02)、前缀复用 (m04)、分块 prefill (m03 的开关, 原理见 m06)、抢占和采样 (m10)
-          串在同一条控制流上。
-        </p>
+        <p>它不是完整的 vLLM, 但把下面这几块串在同一条控制流上:</p>
+        <ul class="pts">
+          <li>调度 (m03)。</li>
+          <li>真分页 KV pool (m02)。</li>
+          <li>前缀复用 (m04)。</li>
+          <li>分块 prefill (m03 的开关, 原理见 m06)。</li>
+          <li>抢占和采样 (m10)。</li>
+        </ul>
         <p>它断言 greedy 输出与朴素生成逐 token 相同。哪怕 9 个 block 的小 pool 逼出了 4 次抢占, 也一样。</p>
       </div>
       <div class="grid grid-2" style="gap: 16px;">
@@ -143,7 +147,7 @@
           <h3>接纳新请求时发生什么 <span class="tag">资源账本</span></h3>
           <pre class="code">{{ prefillCode }}</pre>
           <p class="hint">
-            命中前缀的 token 是真的跳过了前向: KV 就在全局分页 pool 里, 经页表读回即可。
+            命中前缀的 token 跳过了前向: KV 就在全局分页 pool 里, 经页表读回即可。
             demo 里 305 个待算 token = 233 个真前向 + 72 个前缀命中, 这笔账必须对得上。
           </p>
         </div>
@@ -199,7 +203,10 @@ const prevChapter = { name: prevItem.route, label: `上一章 · ${prevItem.labe
 
 // 模块数从数据里数, 不写死 (inferModules 里除了 mNN 还有一行 full)
 const moduleCount = inferModules.filter((m) => /^m\d+$/.test(m.id)).length
-const tldr = `推理分两段: prefill 把整段 prompt 一次算完, decode 之后一个 token 一个 token 往外吐。decode 每出 1 个 token, 都要把整份模型权重和前面所有 token 缓存下来的 K/V (KV cache) 从显存读一遍, 而真正的计算量很小: 卡住的是显存带宽, 不是算力。
+const tldr = `推理分两段:
+- prefill: 把整段 prompt 一次算完。
+- decode: 之后一个 token 一个 token 往外吐。
+decode 每出 1 个 token, 都要把整份模型权重和前面所有 token 缓存下来的 K/V (KV cache) 从显存读一遍, 而计算量很小: 卡住的是显存带宽, 不是算力。
 ${moduleCount} 个模块里, 主线这几组都在省 KV 的搬运和存储:
 - cache: 旧 token 的 K/V 算一次存起来, 省重算
 - 分页: 把 KV 显存切成固定大小的块按需分配, 省碎片

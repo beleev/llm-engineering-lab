@@ -13,8 +13,14 @@
     </div>
 
     <ChapterIntro
-      tldr="- 一个 LLM 是几十个相同的 block 叠起来的。每个 block 里, 向量先过归一化 (norm) 再进注意力 (attn), 结果加回原向量; 再过一次 norm 进前馈网络 (ffn), 再加回来。位置编码 (pos) 告诉注意力 token 的先后。
-- 本仓库把这副骨架只写了一份 PreLNBlock, attn / ffn / norm 当构造参数传进去。GPT-3 = MHA + GELU-FFN + LayerNorm, LLaMA = GQA + SwiGLU + RMSNorm, DeepSeek-V3 = MLA + MoE + RMSNorm: 不是三个新模型, 是同一份骨架换了零件。
+      tldr="- 一个 LLM 是几十个相同的 block 叠起来的。每个 block 里:
+  1. 向量先过归一化 (norm) 再进注意力 (attn), 结果加回原向量。
+  2. 再过一次 norm 进前馈网络 (ffn), 再加回来。
+- 位置编码 (pos) 告诉注意力 token 的先后。
+- 本仓库把这副骨架只写了一份 PreLNBlock, attn / ffn / norm 当构造参数传进去。下面三者是同一份骨架换了零件:
+  - GPT-3 = MHA + GELU-FFN + LayerNorm。
+  - LLaMA = GQA + SwiGLU + RMSNorm。
+  - DeepSeek-V3 = MLA + MoE + RMSNorm。
 - 骨架用 Pre-LN: norm 放在分支里, 主干上只有加法, 几十层堆起来, 训练信号也能原样传回底部。"
       question="模型之间就差 4 个构造参数的话, 「读 N 个模型的源码」是不是变成了「读 N 张零件配置表」?"
       :goals="[
@@ -72,7 +78,12 @@
             所以得靠精细的 warmup (学习率先很小再慢慢升) 才敢开训。
           </li>
         </ul>
-        <p class="desc" style="margin: 6px 0 16px;">可以做什么: 左边换零件, 图里对应节点的名字跟着换; 切到 Post-LN, 看主干上多出两个 norm 节点。图可以拖, 子层可以折叠。</p>
+        <p class="desc" style="margin-top: 6px;">可以做什么:</p>
+        <ul class="desc pts" style="margin-bottom: 16px;">
+          <li>左边换零件, 图里对应节点的名字跟着换。</li>
+          <li>切到 Post-LN, 看主干上多出两个 norm 节点。</li>
+          <li>图可以拖, 子层可以折叠。</li>
+        </ul>
 
         <DagView v-bind="blockDag" />
       </div>
@@ -112,7 +123,7 @@
       <div class="lead-group">
         <p>
           点任意一个模型, 它的零件配置会自动填进上面的菜单。
-          按年份依次点 Transformer、GPT-3、LLaMA、Mixtral、DeepSeek-V3, 你会看到四个槽位是一个一个被换掉的:
+          按年份依次点 Transformer、GPT-3、LLaMA、Mixtral、DeepSeek-V3, 能看到四个槽位是一个一个被换掉的:
         </p>
         <ul class="pts">
           <li><b>norm:</b> 先从 Post-LN 挪到 Pre-LN (norm 从主干挪进分支), 再瘦成 RMSNorm (只按均方根缩放, 不减均值)。</li>
@@ -160,16 +171,18 @@
           典型的坑: LLaMA 把 lm_head (最后把隐藏向量变成每个词一个分数的那个矩阵) 和输入嵌入绑权重 (两处共用同一个矩阵, 省参数), 嵌入又用了 <span class="mono">nn.Embedding</span> 默认的
           <Tex text="$\mathcal{N}(0, 1)$" /> 初始化 (每个数的标准差 <Tex text="$\sigma = 1$" />)。
         </p>
-        <p>
-          为什么会炸: 残差流一路做加法, 最后一层输出的向量几乎还是 token 自己的嵌入。lm_head 给每个词打分, 是拿这个向量和那个词的嵌入做内积; 和「自己」的嵌入做内积得到约 <Tex text="$\sigma\cdot d$" /> 的高分 (d 是模型宽度), 其它词的分数只有 <Tex text="$\sigma\sqrt{d}$" /> 量级。
-          于是模型极度自信地猜「下一个词就是我自己」, 而正确答案几乎从来不是它自己。
-        </p>
+        <p>出错的过程:</p>
+        <ol class="pts">
+          <li>残差流一路做加法, 最后一层输出的向量几乎还是 token 自己的嵌入。</li>
+          <li>lm_head 给每个词打分, 是拿这个向量和那个词的嵌入做内积; 和「自己」的嵌入做内积得到约 <Tex text="$\sigma\cdot d$" /> 的高分 (d 是模型宽度), 其它词的分数只有 <Tex text="$\sigma\sqrt{d}$" /> 量级。</li>
+          <li>于是模型很自信地猜「下一个词就是我自己」, 而正确答案几乎从来不是它自己。</li>
+        </ol>
         <ul class="pts">
           <li><b><Tex text="$\sigma = 1$" />:</b> d=256、V=1000 时首步 CE 是 <strong class="mono">258</strong>, 而 <Tex text="$\ln 1000 = 6.91$" />, 差了 37 倍。</li>
           <li><b><Tex text="$\sigma = 0.02$" />:</b> 改法只有这一行 (本仓库 utils/init.py 把所有 Linear 和 Embedding 初始化成 <Tex text="$\mathcal{N}(0, 0.02^2)$" />), LLaMA 的首步 CE 回到 <strong class="mono">7.07</strong> (llama 的 README 实测 7.073, 和 ln V = 6.908 只差 0.17)。</li>
         </ul>
         <p>
-          这类 bug 骗人的地方在于 loss 照样在降。它只是在把「给自己打高分」纠正回来, 不代表模型学会了任务。下面的实验台把 <Tex text="$\sigma$" /> 交到你手上。
+          这类 bug 不容易发现, 因为 loss 照样在降: 它只是在把「给自己打高分」纠正回来, 不代表模型学会了任务。下面的实验台可以自己调 <Tex text="$\sigma$" />。
         </p>
       </div>
     </section>
@@ -183,7 +196,7 @@
 
     <ChapterNav
       :prev="{ ...prevChapter, hint: '本章 pos 槽位的所有候选项的来历' }"
-      :next="{ ...nextChapter, hint: '把 ffn 槽位拆成多专家 — Mixtral / DeepSeek 的两条路' }"
+      :next="{ ...nextChapter, hint: '把 ffn 槽位拆成多专家: Mixtral / DeepSeek 的两条路' }"
     />
   </div>
 </template>
@@ -428,8 +441,8 @@ const ffnParams = computed(() => {
   switch (config.ffn) {
     case 'relu':
     case 'gelu':   return (2 * d * d_ff).toLocaleString() + ' ≈ 134M'
-    case 'swiglu': return (3 * d * Math.floor(d_ff * 2 / 3)).toLocaleString() + ' ≈ 100M'
-    case 'moe_mx': return '8 × 100M ≈ 800M (激活 2×)'
+    case 'swiglu': return (3 * d * Math.floor(d_ff * 2 / 3)).toLocaleString() + ' ≈ 134M'
+    case 'moe_mx': return '8 × 134M ≈ 1.07B (激活 2×)'
     case 'moe_ds': return '64 × 12.5M + 2 × 12.5M ≈ 825M (激活 8×)'
   }
   return '—'

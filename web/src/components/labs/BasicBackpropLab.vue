@@ -6,15 +6,28 @@
 <template>
   <LabFrame
     title="反向传播 — 点一个节点, 看 loss 的梯度怎么一步步传回它"
-    sub="- 模拟什么: 一个最小的分类网络怎么「学」。输入 x (2 个数) 乘权重 W (3×2 的矩阵) 得到 3 个分数 z (叫 logits, 每个候选类一个分); softmax 把分数变成加起来等于 1 的概率 p; loss $L = -\log p[y]$ 衡量「正确答案 y 的概率有多低」, 概率越低 loss 越大。训练要让 loss 变小, 就得知道每个权重往哪边改、改多少, 这个量就是梯度 $\partial L/\partial W$。反向传播是算梯度的办法: 从 loss 出发, 沿着前向的路倒着走, 每经过一个节点就乘上这个节点的本地导数。llm_basic/model.py 里每个算子的 backward 函数干的都是这一句话。
-      - 图上是什么: 从左到右是前向的计算图: x 和 W 进 z, z 进 p, p 进 L。每个节点里灰色数字是前向算出来的值, 粉色数字是 loss 对这个节点的梯度 $\partial L/\partial(\text{节点})$。点一个节点, 粉色的边就是梯度从 L 传回它走过的路。
-      - 可以做什么: 拖 x₁、x₂ 改输入。点「类 0 / 1 / 2」换正确答案 y。点「走一步 SGD」用当前梯度更新一次 W (W 减去 0.5 倍梯度), 看 loss 掉下来; 「重置 W」回到初始权重。点任意节点, 右侧把它的梯度拆成「上游梯度 × 本地导数」: 上游梯度是 loss 对它下游节点的梯度 (已经算好、传过来的), 本地导数是这个节点的输出对输入的导数, 两者相乘就是这个节点的梯度。
-      - 应该看到: 默认 x = (1, −0.5)、y = 1 时 p ≈ (0.57, 0.13, 0.30): 正确类的概率只有 0.128, 所以 loss = 2.057。z 的梯度 dz = p − onehot(y): 正确类那一项是 p[y] − 1 (负数, 要把它的分推高), 其余项就是 p 本身 (正数, 要把它们压低)。右侧「dW[0][0] 反向算的 / 差商验的」两个数应该一样: 左边是反向传播算出来的, 右边是把 W[0][0] 挪一点点、重新算 loss 得到的差商 (下一个实验台 gradcheck 讲的就是它), 两者一致说明反向没写错。连点几次 SGD, loss 会一步步变小, p[y] 一步步变大。"
+    sub="- 模拟什么: 一个最小的分类网络怎么「学」, 先前向三步, 再反向:
+        1. 输入 x (2 个数) 乘权重 W (3×2 的矩阵) 得到 3 个分数 z (叫 logits, 每个候选类一个分)。
+        2. softmax 把分数变成加起来等于 1 的概率 p。
+        3. loss $L = -\log p[y]$ 衡量「正确答案 y 的概率有多低」, 概率越低 loss 越大。
+        4. 训练要让 loss 变小, 就得知道每个权重往哪边改、改多少, 这个量就是梯度 $\partial L/\partial W$。反向传播是算梯度的办法: 从 loss 出发, 沿着前向的路倒着走, 每经过一个节点就乘上这个节点的本地导数。llm_basic/model.py 里每个算子的 backward 函数干的都是这件事。
+      - 图上是什么: 从左到右是前向的计算图: x 和 W 进 z, z 进 p, p 进 L。
+        - 灰色数字: 每个节点里前向算出来的值。
+        - 粉色数字: loss 对这个节点的梯度 $\partial L/\partial(\text{节点})$。
+        - 粉色的边: 点一个节点后, 梯度从 L 传回它走过的路。
+      - 可以做什么: 按界面从上到下:
+        - 拖 x₁、x₂ 改输入。
+        - 点「类 0 / 1 / 2」换正确答案 y。
+        - 点「走一步 SGD」用当前梯度更新一次 W (W 减去 0.5 倍梯度), 看 loss 掉下来; 「重置 W」回到初始权重。
+        - 点任意节点, 右侧把它的梯度拆成「上游梯度 × 本地导数」: 上游梯度是 loss 对它下游节点的梯度 (已经算好、传过来的), 本地导数是这个节点的输出对输入的导数, 两者相乘就是这个节点的梯度。
+      - 应该看到: 默认 x = (1, −0.5)、y = 1 时 p ≈ (0.57, 0.13, 0.30): 正确类的概率只有 0.128, 所以 loss = 2.057。连点几次 SGD, loss 会一步步变小, p[y] 一步步变大。另外两处:
+        - z 的梯度 dz = p − onehot(y): 正确类那一项是 p[y] − 1 (负数, 要把它的分推高), 其余项就是 p 本身 (正数, 要把它们压低)。
+        - 右侧「dW[0][0] 反向算的 / 差商验的」两个数应该一样: 左边是反向传播算出来的, 右边是把 W[0][0] 挪一点点、重新算 loss 得到的差商 (下一个实验台 gradcheck 讲的就是它), 两者一致说明反向没写错。"
     module="llm_basic/model.py"
     run="python llm_basic/gradcheck.py"
     :challenge="{
       ask: '把目标类 y 换成模型当前概率最低的那一类。dz (logits 的梯度) 里哪一项绝对值最大? 为什么 softmax+CE 的梯度永远是 p − onehot 这么干净?',
-      answer: '目标类那一项绝对值最大。\n- $dz = p - \\mathrm{onehot}(y)$, 目标类那一项是 $p_y - 1$: $p_y$ 越小它越接近 $-1$; 其余项是 $p_i$ 本身, 加起来还不到 1。错得越离谱, 把正确类推上去的力越大。\n- 为什么这么干净: 单看交叉熵 CE 这一步, 本地导数是 $-1/p_y$, $p_y$ 很小时它会爆成一个巨大的数。单看 softmax 这一步, 本地导数是一个矩阵 $\\mathrm{diag}(p) - pp^\\top$ (叫雅可比: 每个输出都依赖所有输入, 所以是矩阵), 很麻烦。\n- 两步一乘, $1/p_y$ 正好被约掉, 剩下的就是 $p - \\mathrm{onehot}$。所以 llm_basic 把 softmax 和 CE 合并成一个 cross_entropy_forward_backward 函数, 直接算 $(p - \\mathrm{onehot})/N$: 又简单, 又不会数值溢出。',
+      answer: '目标类那一项绝对值最大。\n- $dz = p - \\mathrm{onehot}(y)$, 目标类那一项是 $p_y - 1$: $p_y$ 越小它越接近 $-1$; 其余项是 $p_i$ 本身, 加起来还不到 1。错得越离谱, 把正确类推上去的力越大。\n- 为什么这么干净: 单看交叉熵 CE 这一步, 本地导数是 $-1/p_y$, $p_y$ 很小时它会变成一个巨大的数。单看 softmax 这一步, 本地导数是一个矩阵 $\\mathrm{diag}(p) - pp^\\top$ (叫雅可比: 每个输出都依赖所有输入, 所以是矩阵), 很麻烦。\n- 两步一乘, $1/p_y$ 正好被约掉, 剩下的就是 $p - \\mathrm{onehot}$。所以 llm_basic 把 softmax 和 CE 合并成一个 cross_entropy_forward_backward 函数, 直接算 $(p - \\mathrm{onehot})/N$: 又简单, 又不会数值溢出。',
     }"
   >
     <template #controls>
@@ -119,9 +132,9 @@ const info = computed(() => {
   const G = g.value
   return {
     L: { title: 'L: 反向的起点', up: '—', local: '$\\partial L/\\partial L = 1$', out: '1', note: '反向传播永远从标量 loss 对自己的导数 1 出发。' },
-    p: { title: 'p ← L', up: '1', local: `$\\partial L/\\partial p[y] = -1/p[y]$ = ${(-1 / G.p[y.value]).toFixed(2)}`, out: v(G.dp), note: '只有目标类那一项有梯度; $p[y]$ 越小, $-1/p[y]$ 越大。单独算这一步数值上很危险。' },
+    p: { title: 'p ← L', up: '1', local: `$\\partial L/\\partial p[y] = -1/p[y]$ = ${(-1 / G.p[y.value]).toFixed(2)}`, out: v(G.dp), note: '只有目标类那一项有梯度; $p[y]$ 越小, $-1/p[y]$ 越大。单独算这一步容易数值溢出。' },
     z: { title: 'z ← p', up: v(G.dp), local: '$J^\\top$, $J = \\mathrm{diag}(p) - pp^\\top$', out: v(G.dz) + ' = $p - \\mathrm{onehot}$', note: 'softmax 的每个输出依赖所有输入, 所以本地导数是一个矩阵 (耦合项)。乘上上游后化简成 $p - \\mathrm{onehot}$, $1/p[y]$ 被约掉了。' },
-    W: { title: 'W ← z', up: v(G.dz), local: `$\\partial z_i/\\partial W_{ij} = x_j$ = ${v(x.value)}`, out: '$dz \\otimes x$, 第0行 ' + v(G.dW[0]), note: '$dW = dz \\otimes x$: 这就是 linear_backward 里的 x.T @ dout。把 $x$ 拖到 0, $dW$ 整个变 0: 输入为 0 的权重学不到东西。' },
+    W: { title: 'W ← z', up: v(G.dz), local: `$\\partial z_i/\\partial W_{ij} = x_j$ = ${v(x.value)}`, out: '$dz \\otimes x$, 第0行 ' + v(G.dW[0]), note: '$dW = dz \\otimes x$, 对应 linear_backward 里的 x.T @ dout。把 $x$ 拖到 0, $dW$ 整个变 0: 输入为 0 的权重学不到东西。' },
     x: { title: 'x ← z', up: v(G.dz), local: '$\\partial z/\\partial x = W$', out: '$W^\\top\\cdot dz$ = ' + v(G.dx), note: '$dx = W^\\top dz$: 这份梯度会继续往更前面的层传, 多层网络就是把这一步重复 n_layer 次。' },
   }[sel.value]
 })

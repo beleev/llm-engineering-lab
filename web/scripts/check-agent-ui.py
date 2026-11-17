@@ -114,7 +114,7 @@ def run(base: str, screenshots: bool = False) -> None:
                 first.locator('input[type="range"]').fill("2")
             elif route == "trajectory-learning":
                 first.locator("select").select_option("true")
-                assert "当前最高奖励：verified" in first.inner_text()
+                assert "当前奖励最高的轨迹：verified" in first.inner_text()  # 页面显示中文冒号 (数据里写半角, utils/zhPunct.js 显示时转换)
             elif route == "learning-loop":
                 first.locator("select").select_option("versioned")
                 assert stats(first) == ["50%", "100%", "50%", "100%"]

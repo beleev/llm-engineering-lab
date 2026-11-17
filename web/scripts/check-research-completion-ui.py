@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+from zh_punct import zh  # 页面显示中文标点, 期望文字先按同样规则转换
 ROOT=Path(__file__).resolve().parents[2]
 
 
@@ -42,11 +43,11 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
                 for width in (1440,768,320):
                     page.set_viewport_size({'width':width,'height':1000})
                     for condition in entry['conditions']:
-                        button=lab.get_by_role('button',name=condition['label'],exact=True)
+                        button=lab.get_by_role('button',name=zh(condition['label']),exact=True)
                         button.focus();button.press('Enter')
                         expect(button).to_have_attribute('aria-pressed','true')
                         for label,value in condition['metrics'].items():
-                            row=lab.locator('.kv').filter(has=page.get_by_text(label,exact=True))
+                            row=lab.locator('.kv').filter(has=page.get_by_text(zh(label),exact=True))
                             expect(row.locator('b')).to_have_text(display(value))
                         expect(lab.locator('.lab-note')).to_have_text(condition['note'])
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(entry['id'],theme,width)

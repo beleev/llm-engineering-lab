@@ -3,18 +3,29 @@
     <h1 class="page-title">任务适配 · 从 SFT / LoRA 到 DPO / GRPO / 蒸馏</h1>
     <div class="page-subtitle lead-group">
       <p>
-        预训练给了你一个只会接龙的模型。微调要回答的是:
-        <strong>怎么用尽量少的数据和算力, 把它拨到你手上这个任务上</strong>。
+        预训练得到的是一个只会接龙的模型。微调要解决的是:
+        <strong>用尽量少的数据和算力, 把它拨到手上这个任务上</strong>。
       </p>
       <p><RepoLink path="llm_finetune/" label="llm_finetune/" tiny /> 把这条路上的 16 种方法都写成了能跑的最小实现。</p>
       <ul class="pts">
-        <li><b>本页三根主柱:</b> 全参 SFT (用「问题 + 标准回答」做监督微调)、LoRA (不动原模型, 只训一对很小的补丁矩阵)、不用奖励模型 (RM) 的偏好对齐 (DPO)。</li>
+        <li>
+          <b>本页三根主柱:</b>
+          <ul class="pts">
+            <li>全参 SFT (用「问题 + 标准回答」做监督微调)。</li>
+            <li>LoRA (不动原模型, 只训一对很小的补丁矩阵)。</li>
+            <li>不用奖励模型 (RM) 的偏好对齐 (DPO)。</li>
+          </ul>
+        </li>
         <li><b>各有专章:</b> QLoRA / DoRA、SimPO / ORPO、奖励模型、GRPO 及其变体 (DAPO · Dr.GRPO · GSPO)、离线与 on-policy 蒸馏。每章都带一个能拖的实验台。</li>
       </ul>
     </div>
 
     <ChapterIntro
-      tldr="SFT 用「问题 + 标准回答」教模型按指令回答; LoRA 不动原模型, 只训一对很小的补丁矩阵, 可训参数压到百分之零点几; DPO 直接在「同一个问题的好回答 / 差回答」上训, 把 RLHF (先训奖励模型、再做强化学习的三阶段流程) 塌缩成一个分类 loss。每一步都是上一步在「数据 / 参数 / 流程」上的减法。"
+      tldr="三根主柱:
+        1. SFT: 用「问题 + 标准回答」教模型按指令回答。
+        2. LoRA: 不动原模型, 只训一对很小的补丁矩阵, 可训参数压到百分之零点几。
+        3. DPO: 直接在「同一个问题的好回答 / 差回答」上训, 把 RLHF (先训奖励模型、再做强化学习的三阶段流程) 塌缩成一个分类 loss。
+        每一步都是上一步在「数据 / 参数 / 流程」上的减法。"
       question="同样的偏好数据, 为什么 PPO 要同时养 4 个模型, 而 DPO 只要 2 个加一行 logsigmoid?"
       :goals="[
         '说出 SFT / LoRA / DPO 各自要什么数据、动哪些参数、每步几次前向',
@@ -37,11 +48,13 @@
     <section class="section">
       <h2>1. 三阶段 alignment 与 DPO 的塌缩</h2>
       <div class="lead-group">
-        <p>
-          ChatGPT (2022) 之后, 把通用 LM 变成能用的助手, 标准流程是三步:
-          先 <strong>SFT</strong>, 再训一个 <strong>Reward Model</strong> (奖励模型, 给任意回答打分), 最后用 <strong>PPO</strong> (一种强化学习算法) 让模型朝高分方向调。
-          三步各要一次训练, PPO 那步还要同时养 4 个模型。
-        </p>
+        <p>ChatGPT (2022) 之后, 把通用 LM 变成能用的助手, 标准流程是三步:</p>
+        <ol class="pts">
+          <li>先 <strong>SFT</strong>。</li>
+          <li>再训一个 <strong>Reward Model</strong> (奖励模型, 给任意回答打分)。</li>
+          <li>最后用 <strong>PPO</strong> (一种强化学习算法) 让模型朝高分方向调。</li>
+        </ol>
+        <p>三步各要一次训练, PPO 那步还要同时养 4 个模型。</p>
         <ul class="pts">
           <li><b>4 个怎么数:</b> 经典 RLHF (含奖励模型) 的口径是 policy、冻结的 ref、critic、奖励模型 (RM)。</li>
           <li>
@@ -81,7 +94,7 @@
           <h3>labels 怎么构造 <span class="tag">关键</span></h3>
           <pre class="code">{{ sftLabels }}</pre>
           <p class="hint">
-            为什么要 mask prompt? prompt 是人写的, 模型不该把 "用户怎么提问" 也学成自己要生成的东西。
+            mask 掉 prompt 是因为 prompt 是人写的, 模型不该把 "用户怎么提问" 也学成自己要生成的东西。
           </p>
           <p class="hint">
             mask 不省显存也不省计算 (前向照样要算完整条序列), 它只是把监督信号全部押在 response 上。
@@ -96,7 +109,7 @@
             <code class="inline">StandardLMLoss</code> 的别名, 一行赋值。
           </p>
           <p class="hint">
-            SFT 与预训练的差别 100% 在 labels 里, 不在 loss 里。这是本章最该记住的一句。
+            SFT 与预训练的差别 100% 在 labels 里, 不在 loss 里。
             对应代码: <RepoLink path="llm_finetune/methods/sft.py" label="llm_finetune/methods/sft.py" tiny />
           </p>
         </div>
@@ -108,7 +121,7 @@
       <h2>3. LoRA · 给冻结的 W 加一对低秩补丁</h2>
       <div class="lead-group">
         <p>
-          论文 (Hu et al., 2021) 的关键观察: 微调带来的增量 <Tex text="$\Delta W$" /> <strong>本征秩很低</strong>,
+          论文 (Hu et al., 2021) 观察到: 微调带来的增量 <Tex text="$\Delta W$" /> <strong>本征秩很低</strong>,
           一对 r 维矩阵就装得下。训练时只更新这对矩阵, 推理时合并回去, 零额外开销。
         </p>
         <ul class="pts">
@@ -125,10 +138,11 @@
             <strong>无害启动</strong>: <Tex text="$B$ 全零 $\Rightarrow$ 第 0 步 $BA = 0$ $\Rightarrow$" /> forward 输出与原模型逐位相同。
             微调起点就是预训练终点, 不会一上来先把已有能力砸坏。
           </p>
-          <p class="hint">
-            为什么是 B 而不是 A? 置零哪个都能让 <Tex text="$BA = 0$" />, 但被置零的那个第 1 步就有梯度, 另一个要等第 2 步。
-            两个都置零, 梯度永远是 0。
-          </p>
+          <p class="hint">置零 A 或 B 都能让 <Tex text="$BA = 0$" />:</p>
+          <ul class="hint pts">
+            <li><b>只置零一个:</b> 被置零的那个第 1 步就有梯度, 另一个要等第 2 步。</li>
+            <li><b>两个都置零:</b> 梯度永远是 0。</li>
+          </ul>
         </div>
 
         <div class="card">
@@ -157,7 +171,7 @@
           <ul class="hint pts">
             <li><b>r:</b> 任务越难、数据越多, r 就要越大。</li>
             <li><b><Tex text="$\alpha$" />:</b> 一般取 <Tex text="$2r$" /> 或 <Tex text="$r$" />。<code class="inline">scale = α/r</code> 让你改 r 之后不必重调学习率。</li>
-            <li><b>lr:</b> LoRA 常常要比全参高 3~10 倍。B 从 0 起步, <Tex text="$\Delta W$" /> 的有效步长本来就小。</li>
+            <li><b>lr:</b> LoRA 常常要比全参高 3~10 倍。B 从 0 起步, <Tex text="$\Delta W$" /> 的有效步长小。</li>
           </ul>
         </div>
       </div>
@@ -165,10 +179,10 @@
       <div class="card" style="margin-top: 16px;">
         <h3>LoRALinear · 一张图看清训练 / 合并两条路径</h3>
         <DagView v-bind="loraDag" />
-        <p class="hint">
-          推理 <code class="inline">merge()</code>: <Tex text="$W \leftarrow W + (\alpha/r)\cdot BA$" />, 之后跳过 A/B 分支;
-          训练 <code class="inline">unmerge()</code>: <Tex text="$W \leftarrow W - (\alpha/r)\cdot BA$" />, 恢复双分支。
-        </p>
+        <ul class="hint pts">
+          <li><b>推理 <code class="inline">merge()</code>:</b> <Tex text="$W \leftarrow W + (\alpha/r)\cdot BA$" />, 之后跳过 A/B 分支。</li>
+          <li><b>训练 <code class="inline">unmerge()</code>:</b> <Tex text="$W \leftarrow W - (\alpha/r)\cdot BA$" />, 恢复双分支。</li>
+        </ul>
         <div class="lora-points">
           <div class="point">
             <strong>训练时</strong>
@@ -229,7 +243,7 @@
       <h2>4. DPO · 把偏好学习写成一行 logsigmoid</h2>
       <div class="lead-group">
         <p>
-          DPO 的洞见: KL 约束下的策略提升问题有<strong>解析最优解</strong>。把它代回 Bradley-Terry (成对比较的偏好模型),
+          DPO 用到一个结论: KL 约束下的策略提升问题有<strong>解析最优解</strong>。把它代回 Bradley-Terry (成对比较的偏好模型),
           loss 就退化成 "chosen 比 rejected 领先多少" 的二分类。RM 和 PPO 都不用了。
         </p>
         <p>
@@ -276,13 +290,13 @@
         <h3>compute_sequence_logprobs · 序列级 log-prob 怎么算</h3>
         <pre class="code">{{ seqLogprob }}</pre>
         <p class="hint">
-          为什么不直接用 <code class="inline">F.cross_entropy(reduction='sum')</code>?
+          这里不能直接用 <code class="inline">F.cross_entropy(reduction='sum')</code>:
           它会把 batch 里所有样本的 NLL 加成一个数, 逐样本的粒度就没了。
           DPO 要的是 <strong>每个样本各自的 <Tex text="$\sum \log p$" /></strong>, 才能逐对做 (chosen − rejected) 差分。
         </p>
         <p class="hint">
           求和范围包含<strong>第一个回复 token</strong>。prompt mask 多盖一位就丢掉了 <Tex text="$\log p(y_1 \mid x)$" />,
-          而 chosen 与 rejected 的 <Tex text="$y_1$" /> 恰恰可能不同。
+          而 chosen 与 rejected 的 <Tex text="$y_1$" /> 可能不同。
         </p>
       </div>
     </section>
@@ -323,10 +337,11 @@
             <span class="a">→ {{ d.a }}</span>
           </li>
         </ol>
-        <p class="hint">
-          一条常见的实战路线: <strong>base → LoRA-SFT → 解锁基座 → DPO</strong>。
-          先用 LoRA 在指令数据上廉价预热, 再用 DPO 在偏好对上对齐。
-        </p>
+        <p class="hint">一条常见的实战路线: <strong>base → LoRA-SFT → 解锁基座 → DPO</strong>。</p>
+        <ol class="hint pts">
+          <li>先用 LoRA 在指令数据上廉价预热。</li>
+          <li>再用 DPO 在偏好对上对齐。</li>
+        </ol>
         <p class="hint">
           这张表只给方向。想把 "每步几次前向、常驻几份权重、落盘什么" 一起摆出来比,
           去<router-link :to="{ name: 'finetune-runs' }">训练脚本与落盘一章的选型计算器</router-link>。
@@ -470,14 +485,14 @@ const pillars = [
 ]
 
 const decisions = [
-  { q: '只有 (问, 答), 显卡够大?',                    a: '全参 SFT — 上限最高, 同步数下也最快' },
-  { q: '只有 (问, 答), 显卡紧?',                      a: 'LoRA SFT — 可训参数 2r/d, 适配器好切换' },
-  { q: '连冻结的基座都塞不进显存?',                   a: 'QLoRA — 基座 NF4 约 4.5 bit/参数, 只训 adapter' },
-  { q: '同样的 r, 想再往全参靠一点?',                 a: 'DoRA — 低秩只管方向, 长度另学一个标量' },
-  { q: '有 SFT 模型, 又拿到了 (chosen, rejected)?',   a: 'DPO — 跳过 RM 与 PPO, 一行 loss' },
-  { q: '有偏好对, 但不想再养一个 ref?',               a: 'SimPO / ORPO — 前向次数和常驻权重都减半' },
-  { q: '连 SFT 阶段都想省掉?',                        a: 'ORPO — loss 里的 NLL 项就是 SFT' },
-  { q: '答案能被程序判对错 (数学 / 代码)?',            a: 'GRPO 系 (DAPO · Dr.GRPO · GSPO) — 在线采样 + 可验证奖励' },
+  { q: '只有 (问, 答), 显卡够大?',                    a: '全参 SFT: 上限最高, 同步数下也最快' },
+  { q: '只有 (问, 答), 显卡紧?',                      a: 'LoRA SFT: 可训参数 2r/d, 适配器好切换' },
+  { q: '连冻结的基座都塞不进显存?',                   a: 'QLoRA: 基座 NF4 约 4.5 bit/参数, 只训 adapter' },
+  { q: '同样的 r, 想再往全参靠一点?',                 a: 'DoRA: 低秩只管方向, 长度另学一个标量' },
+  { q: '有 SFT 模型, 又拿到了 (chosen, rejected)?',   a: 'DPO: 跳过 RM 与 PPO, 一行 loss' },
+  { q: '有偏好对, 但不想再养一个 ref?',               a: 'SimPO / ORPO: 前向次数和常驻权重都减半' },
+  { q: '连 SFT 阶段都想省掉?',                        a: 'ORPO: loss 里的 NLL 项就是 SFT' },
+  { q: '答案能被程序判对错 (数学 / 代码)?',            a: 'GRPO 系 (DAPO · Dr.GRPO · GSPO): 在线采样 + 可验证奖励' },
   { q: '有一个强 teacher, 想把能力压进小模型?',        a: '离线蒸馏起步, on-policy 蒸馏收尾' },
 ]
 </script>

@@ -5,15 +5,32 @@
 <template>
   <LabFrame
     title="Plan 模式 — 计划批准之前「只许看不许动」, 是权限门强制的, 不是模型自觉的"
-    sub="- 模拟什么: 多步任务里让人在动手之前有否决权的机制。模型先用 todo_write 工具把计划写成一份显式的待办列表, 再用 exit_plan_mode 工具把计划提交给用户。用户批准之前, 权限门处于 plan 模式, 只放行声明了 read_only=true 的只读工具, 任何写操作一律拒绝; 用户批准后, exit_plan_mode 把门切到 accept_edits 模式, 写操作才解锁。关键是这个限制由门强制: 模型不交计划直接写, 门照样不开。
-- 图上是什么: 左边是模型用 todo_write 写下的最新一版计划 (两项, 状态是待办或已完成), 下面一行是 exit_plan_mode 这次提交得到的答复。右边是 7 个工具, 每行写着工具名、它自己声明的 read_only 和风险等级 risk, 最右边是它在当前模式下会被裁决成 allow 还是 deny, 左边绿条是放行, 红条是拒绝。点任意一个工具, 下方画出它的裁决路径: 先查 deny 规则, 再查 ask / allow 规则 (plan 模式下直接跳过), 再按模式兜底, 最后是结论; 红色的那一格就是把它拒掉的那一步。
-- 可以做什么: 第一排扮演用户: 「plan 模式 · 计划待批」是提交后还没答复; 「用户拒绝计划」门留在 plan 模式; 「用户批准」门切到 accept_edits。第二排三个开关: 「配一条 allow write_note 规则」演示一条早先配好的放行规则在 plan 模式下为什么不管用; 「把 delegate 标成只读 (漏洞)」把委托子 agent 的工具错标成只读, 看它捅出多大的洞; 「有人审批高风险工具」只在批准之后有意义, 决定 shell、delegate 这类高风险工具是问人批准, 还是无人可问直接拒。
-- 应该看到: plan 模式下只有 4 个只读工具放行, write_note、delegate、shell 全拒, 右侧「放行 / 拒绝」是 4 / 3; 打开 allow write_note 规则也不变, 因为 plan 模式查完 deny 规则就跳出, ask / allow 规则根本不看。批准之后 write_note 放行, 「直接写进的笔记 / 已获批」变成 1 / 1, 计划里只有一条写笔记, 写一条在授权之内, 绿色。把 delegate 标成只读再回到 plan 模式: delegate 被放行, 子 agent 用它自己那扇门写了笔记, 「经子 agent 写进的笔记 / 已获批」变成 1 / 0 标红, 这就是「批准前零写入」被一层委托绕开。「gate.mode」是门现在处于哪个模式。"
+    sub="- 模拟什么: 多步任务里让人在动手之前有否决权的机制, 流程是:
+  1. 模型先用 todo_write 工具把计划写成一份显式的待办列表。
+  2. 再用 exit_plan_mode 工具把计划提交给用户。
+  3. 用户批准之前, 权限门处于 plan 模式, 只放行声明了 read_only=true 的只读工具, 任何写操作一律拒绝。这个限制由门强制: 模型不交计划直接写, 门照样不开。
+  4. 用户批准后, exit_plan_mode 把门切到 accept_edits 模式, 写操作才解锁。
+- 图上是什么: 左边是计划, 右边是工具:
+  - 左边: 模型用 todo_write 写下的最新一版计划 (两项, 状态是待办或已完成), 下面一行是 exit_plan_mode 这次提交得到的答复。
+  - 右边 7 个工具: 每行写着工具名、它自己声明的 read_only 和风险等级 risk, 最右边是它在当前模式下会被裁决成 allow 还是 deny, 左边绿条是放行, 红条是拒绝。
+  - 点任意一个工具: 下方画出它的裁决路径, 先查 deny 规则, 再查 ask / allow 规则 (plan 模式下直接跳过), 再按模式兜底, 最后是结论; 红色的那一格就是把它拒掉的那一步。
+- 可以做什么: 第一排扮演用户, 第二排是三个开关:
+  - 「plan 模式 · 计划待批」: 提交后还没答复。
+  - 「用户拒绝计划」: 门留在 plan 模式。
+  - 「用户批准」: 门切到 accept_edits。
+  - 「配一条 allow write_note 规则」: 演示一条早先配好的放行规则在 plan 模式下为什么不管用。
+  - 「把 delegate 标成只读 (漏洞)」: 把委托子 agent 的工具错标成只读, 看写入怎样绕过 plan 模式。
+  - 「有人审批高风险工具」: 只在批准之后有意义, 决定 shell、delegate 这类高风险工具是问人批准, 还是无人可问直接拒。
+- 应该看到: 三种情形和右侧读数:
+  - plan 模式下: 只有 4 个只读工具放行, write_note、delegate、shell 全拒, 右侧「放行 / 拒绝」是 4 / 3。打开 allow write_note 规则也不变, 因为 plan 模式查完 deny 规则就跳出, ask / allow 规则都不看。
+  - 批准之后: write_note 放行, 「直接写进的笔记 / 已获批」变成 1 / 1。计划里只有一条写笔记, 写一条在授权之内, 绿色。
+  - 把 delegate 标成只读再回到 plan 模式: delegate 被放行, 子 agent 用它自己那扇门写了笔记, 「经子 agent 写进的笔记 / 已获批」变成 1 / 0 标红: 「批准前零写入」被一层委托绕开了。
+  - 「gate.mode」: 门现在处于哪个模式。"
     module="llm_agent/m10"
     run="python -m llm_agent.m10_planning.demo"
     :challenge="{
       ask: '打开「配一条 allow write_note 规则」, 停在 plan 模式: write_note 会被放行吗? 再打开「把 delegate 标成只读」: 计划还没批准, 右侧为什么已经有一条笔记被写进去了?',
-      answer: '第一问: 不放行。\n一步步看: 权限门的 _evaluate_one 按 deny、ask、allow 的顺序查规则, 但在 plan 模式下处理完 deny 规则就 break, ask 和 allow 根本不看, 然后按「只读才放行」兜底; write_note 不是只读, 拒绝。点右边的 write_note 看裁决路径, 「plan 模式 → break」那一格是红的。这样设计是因为 plan 模式的承诺是「批准之前零写入」, 不能被一条早先配好的 allow 打穿; deny 规则倒是照常生效, 连只读工具也能被它拒掉。\n第二问: 洞在 read_only 这个标记上。\n- read_only 是写工具的人自己在类属性里声明的, harness 没法验证, 标错就是漏洞。\n- delegate 一旦被标成只读, plan 模式就放行它; 子 agent 跑的是自己那扇 auto 模式的门, 和父级的 plan 模式无关, 里面的 write_note 是 medium 风险, 直接放行。笔记就这样在计划批准之前写进去了, 右侧「经子 agent 写进的笔记 / 已获批」是 1 / 0。\n所以 core/subagents.py 里 DelegateTool 显式写了 read_only = False 并按高风险处理, 注释里说明了原因。',
+      answer: '第一问: 不放行。\n权限门的 _evaluate_one 按 deny、ask、allow 的顺序查规则, 但在 plan 模式下:\n1. 处理完 deny 规则就 break, ask 和 allow 都不看。\n2. 然后按「只读才放行」兜底; write_note 不是只读, 拒绝。\n点右边的 write_note 看裁决路径, 「plan 模式 → break」那一格是红的。这样设计是因为 plan 模式的承诺是「批准之前零写入」, 不能被一条早先配好的 allow 绕开; deny 规则倒是照常生效, 连只读工具也能被它拒掉。\n第二问: 洞在 read_only 这个标记上。\n- read_only 是写工具的人自己在类属性里声明的, harness 没法验证, 标错就是漏洞。\n- delegate 一旦被标成只读, plan 模式就放行它; 子 agent 跑的是自己那扇 auto 模式的门, 和父级的 plan 模式无关, 里面的 write_note 是 medium 风险, 直接放行。笔记就这样在计划批准之前写进去了, 右侧「经子 agent 写进的笔记 / 已获批」是 1 / 0。\n所以 core/subagents.py 里 DelegateTool 显式写了 read_only = False 并按高风险处理, 注释里说明了原因。',
     }"
   >
     <template #controls>
@@ -64,7 +81,7 @@
       <div class="kv"><span>经子 agent 写进的笔记 / 已获批的条数</span><b :class="viaChild > 0 ? 'bad' : 'good'">{{ viaChild }} / 0</b></div>
       <div class="lab-note">
         <p>写进的笔记比已获批的多就标红: 那是在用户点头之前就发生的写入。</p>
-        <p>todo_write 标成只读, 是因为它只改 agent 自己的计划状态, 不碰外部世界。否则「先列个计划」这一步本身就会被 plan 模式拒掉。</p>
+        <p>todo_write 标成只读, 是因为它只改 agent 自己的计划状态, 不碰外部世界。否则连「先列个计划」这一步都会被 plan 模式拒掉。</p>
         <p>模式的翻转发生在 ExitPlanModeTool.execute 里: 人点了同意, 它才去改 gate.mode。模型没有别的路径能自己改模式, 所以批准绕不过去。</p>
       </div>
     </template>
@@ -139,8 +156,8 @@ const counts = computed(() => {
 const todos = computed(() => {
   const s = stage.value === 'approved' ? 'completed' : 'pending'
   return [
-    { content: 'search_docs — 需要外部知识', status: s },
-    { content: 'write_note — 把结论落成笔记', status: s },
+    { content: 'search_docs: 需要外部知识', status: s },
+    { content: 'write_note: 把结论落成笔记', status: s },
   ]
 })
 const stageNote = computed(() => ({

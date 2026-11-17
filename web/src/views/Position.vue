@@ -7,13 +7,13 @@
         所以不给位置编码, attention 就是一袋 token: 把句子里的词打乱顺序, 每个词算出来的结果一模一样 (本仓库的 attention demo 断言了这一点, 误差 8.9e-08)。
       </p>
       <p>
-        本章拖一根滑条就能看明白一件事。
-        <strong>为什么 RoPE 把 Q 和 K 各转一个角之后, <Tex text="$Q\cdot K$" /> 内积 (也就是注意力分数) 就只剩下「隔了多远」, 绝对位置自动消失</strong>。
+        <strong>RoPE 把 Q 和 K 各转一个角之后, <Tex text="$Q\cdot K$" /> 内积 (也就是注意力分数) 就只剩下「隔了多远」, 绝对位置自动消失</strong>。
+        本章拖一根滑条就能看到这一点。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="- 位置信息的注入点一路往后挪, 越挪越靠近 attention 真正用它的地方。
+      tldr="- 位置信息的注入点一路往后挪, 越挪越靠近 attention 用它的地方。
 - Sinusoidal / Learnable (2017 / 2018): 给每个位置配一个向量, 加到 token 的 embedding 上。编的是绝对位置: 第 5 个就是第 5 个。
 - RoPE (2021): 不加向量, 改成把 Q 和 K 按位置各转一个角。两个转过的向量做内积, 角度相减, 只剩「隔了多远」。零参数, 位置超出训练长度也能转。
 - M-RoPE (2024): 图像 patch 有行有列, 把旋转的维度切成三段, 分别按 (时间, 行, 列) 转。文本三个位置号相同, 结果和普通 RoPE 逐位相等 (demo 实测差 0.0e+00)。"
@@ -58,10 +58,16 @@
         </div>
         <div class="card">
           <h3>频率谱 <span class="tag">d_model=64</span></h3>
-          <p class="desc" style="margin-bottom: 8px;">
-            图上是什么: 画的是 d_model=64 的编码里前 16 个维度, 一条线是一个维度, 横轴是位置 0 到 79, 纵轴是这个维度的值 (正弦或余弦, 在 -1 到 1 之间)。
-            应该看到: 靠前的维度波长短、抖得快, 位置挪一步值就变很多; 靠后的维度波长长, 在 80 个位置内几乎是一条斜线。
-          </p>
+          <ul class="desc pts" style="margin-bottom: 8px;">
+            <li><b>图上是什么:</b> 画的是 d_model=64 的编码里前 16 个维度, 一条线是一个维度, 横轴是位置 0 到 79, 纵轴是这个维度的值 (正弦或余弦, 在 -1 到 1 之间)。</li>
+            <li>
+              <b>应该看到:</b>
+              <ul class="pts">
+                <li>靠前的维度波长短、抖得快, 位置挪一步值就变很多。</li>
+                <li>靠后的维度波长长, 在 80 个位置内几乎是一条斜线。</li>
+              </ul>
+            </li>
+          </ul>
           <svg viewBox="0 0 480 320" width="100%" height="320" role="img" aria-label="Sinusoidal 位置编码的 16 个维度随位置变化的曲线">
             <path v-for="(line, idx) in sinLines" :key="idx"
                   :d="line" fill="none"
@@ -76,15 +82,27 @@
       <div class="grid grid-2">
         <div class="card">
           <h3>RoPE 旋转可视化 <span class="tag">拖动滑条体验</span></h3>
+          <p class="desc">RoPE 不往 embedding 里加东西, 它直接改 Q 和 K:</p>
+          <ol class="desc pts">
+            <li>把向量的维度两两配对。</li>
+            <li>每一对 <Tex text="$(a, b)$" /> 当成一个复数 <Tex text="$z = a + ib$" />。</li>
+            <li>在位置 <Tex text="$m$" /> 处乘上 <Tex text="$e^{im\theta}$" />。</li>
+          </ol>
           <p class="desc">
-            RoPE 不往 embedding 里加东西, 它直接改 Q 和 K: 把向量的维度两两配对, 每一对 <Tex text="$(a, b)$" /> 当成一个复数 <Tex text="$z = a + ib$" />,
-            在位置 <Tex text="$m$" /> 处乘上 <Tex text="$e^{im\theta}$" />。复数乘 <Tex text="$e^{i\phi}$" /> 就是在平面上把这个点转 <Tex text="$\phi$" /> 角、长度不变,
+            复数乘 <Tex text="$e^{i\phi}$" /> 就是在平面上把这个点转 <Tex text="$\phi$" /> 角、长度不变,
             所以这一步等于把每一对转了 <Tex text="$m\theta$" /> 这么大的角: 位置越靠后, 转得越多。
           </p>
-          <p class="desc" style="margin: 6px 0 16px;">
-            图上是什么: 圆上的 4 个点是 4 个维度对 (d0、d2、d4、d6), 每对有自己的转速 <Tex text="$\theta_i$" />。图里的转速是示意值, 真实 RoPE 用 <Tex text="$\theta_i = 10000^{-2i/d}$" />, 越靠后的对越慢。
-            可以做什么: 拖「位置 m」从 0 到 64。应该看到: m=0 时四个点都在正右方重合; m 变大后 d0 转得最快, 到 64 已经转了 5 圈多, d6 还没转过四分之一圈。
-          </p>
+          <ul class="desc pts" style="margin: 6px 0 16px;">
+            <li><b>图上是什么:</b> 圆上的 4 个点是 4 个维度对 (d0、d2、d4、d6), 每对有自己的转速 <Tex text="$\theta_i$" />。图里的转速是示意值, 真实 RoPE 用 <Tex text="$\theta_i = 10000^{-2i/d}$" />, 越靠后的对越慢。</li>
+            <li><b>可以做什么:</b> 拖「位置 m」从 0 到 64。</li>
+            <li>
+              <b>应该看到:</b>
+              <ul class="pts">
+                <li>m=0 时四个点都在正右方重合。</li>
+                <li>m 变大后 d0 转得最快, 到 64 已经转了 5 圈多, d6 还没转过四分之一圈。</li>
+              </ul>
+            </li>
+          </ul>
 
           <div class="form-row">
             <label for="position-rope-m">位置 m</label>
@@ -121,10 +139,21 @@
             <li><b>高维 (d6):</b> 频率低、转得慢, 隔了很远角度才差出一点, 管的是远距离。像时针。</li>
           </ul>
           <p class="desc" style="font-size: 12px; margin-top: 6px;">
-            长度外推 (让模型处理比训练时更长的序列) 出事的, 正是「时针」那一端: 低频的对在训练长度内连一圈都没转完, 位置一超出训练长度, 指针就指向从未见过的角度。
-            修法叫 YaRN: 把这些转得慢的对再放慢 s 倍 (s 是上下文要扩几倍), 转得快的对原样不动, 中间的线性过渡; 再把注意力分数乘一个 <Tex text="$(0.1\ln s + 1)^2$" /> 的系数, 补偿长序列 softmax 变平。
-            本仓库 demo 用 s=4, 把越界 4 倍的低频维全拉回 1.00 倍。
+            长度外推 (让模型处理比训练时更长的序列) 出问题的是「时针」那一端: 低频的对在训练长度内连一圈都没转完, 位置一超出训练长度, 指针就指向从未见过的角度。
+            修法叫 YaRN, 分两步:
           </p>
+          <ol class="desc pts" style="font-size: 12px;">
+            <li>
+              调各对的转速:
+              <ul class="pts">
+                <li><b>转得慢的对:</b> 再放慢 s 倍 (s 是上下文要扩几倍)。</li>
+                <li><b>转得快的对:</b> 原样不动。</li>
+                <li><b>中间的:</b> 线性过渡。</li>
+              </ul>
+            </li>
+            <li>再把注意力分数乘一个 <Tex text="$(0.1\ln s + 1)^2$" /> 的系数, 补偿长序列 softmax 变平。</li>
+          </ol>
+          <p class="desc" style="font-size: 12px;">本仓库 demo 用 s=4, 把越界 4 倍的低频维全拉回 1.00 倍。</p>
         </div>
 
         <div class="card">
@@ -139,12 +168,18 @@
             <strong>转过的 Q 和 K 一做内积, 相对距离就自己冒出来了</strong>, 绝对位置 <Tex text="$m$" />、<Tex text="$n$" /> 被约掉。
           </p>
           <p class="desc" style="margin-top: 6px;">
-            整个过程没有一个可学参数, 位置往外推也不会遇到「没训过的参数」(会遇到的是上面说的没见过的角度)。现代 LLM 几乎全换成了 RoPE, 原因就是这个。
+            整个过程没有一个可学参数, 位置往外推也不会遇到「没训过的参数」(会遇到的是上面说的没见过的角度), 所以现代 LLM 几乎全换成了 RoPE。
           </p>
-          <p class="desc" style="margin-top: 6px;">
-            可以做什么: 下面两根滑条随便拖。读数是 d0 这一对的模拟相似度: 假设 q 和 k 都是 (1, 0), 各自转完再做内积, 就是 <Tex text="$\cos((n-m)\theta_0)$" />。
-            应该看到: 两根一起挪, 只要 <Tex text="$|m-n|$" /> 不变, 读数就不动; 只挪一根, 读数才变。
-          </p>
+          <ul class="desc pts" style="margin-top: 6px;">
+            <li><b>可以做什么:</b> 下面两根滑条随便拖。读数是 d0 这一对的模拟相似度: 假设 q 和 k 都是 (1, 0), 各自转完再做内积, 就是 <Tex text="$\cos((n-m)\theta_0)$" />。</li>
+            <li>
+              <b>应该看到:</b>
+              <ul class="pts">
+                <li>两根一起挪, 只要 <Tex text="$|m-n|$" /> 不变, 读数就不动。</li>
+                <li>只挪一根, 读数才变。</li>
+              </ul>
+            </li>
+          </ul>
 
           <div class="form-row" style="margin-top: 16px;">
             <label for="position-q-pos">Q 位置 m</label>
@@ -225,16 +260,18 @@
               <div class="ids">({{ 3 + i }}, {{ 3 + i }}, {{ 3 + i }})</div>
             </div>
           </div>
-          <p class="desc" style="font-size: 12px; margin-top: 10px;">
-            H、i 是第 0、1 个 token, 三个号都填自己的序号。整张图算时间轴上的一个位置 2, 所以 9 个 patch 的 t 都是 2, h 和 w 按它在网格里的行、列填 0 到 2。后面的文本从 3 接着数, 三个号又回到相同。
-          </p>
+          <ul class="desc pts" style="font-size: 12px; margin-top: 10px;">
+            <li><b>H、i:</b> 第 0、1 个 token, 三个号都填自己的序号。</li>
+            <li><b>整张图:</b> 算时间轴上的一个位置 2, 所以 9 个 patch 的 t 都是 2, h 和 w 按它在网格里的行、列填 0 到 2。</li>
+            <li><b>后面的文本:</b> 从 3 接着数, 三个号又回到相同。</li>
+          </ul>
         </div>
       </div>
     </div>
 
     <section class="section">
       <h2>代码路径</h2>
-      <p class="lead">这三个类都在 <RepoLink path="llm_models/layers/core/position_encoding.py" label="llm_models/layers/core/position_encoding.py" tiny /> 里, 住在 <RepoLink path="llm_models/layers/core/" label="core/" tiny /> 子包下。任何一个 Transformer 都得从中挑一个用。</p>
+      <p class="lead">这三个类都在 <RepoLink path="llm_models/layers/core/position_encoding.py" label="llm_models/layers/core/position_encoding.py" tiny /> 里, 在 <RepoLink path="llm_models/layers/core/" label="core/" tiny /> 子包下。任何一个 Transformer 都得从中挑一个用。</p>
       <div class="grid grid-3">
         <div class="card"><h3 style="font-size: 13px;">SinPositionalEncoding</h3><p class="desc">原始 Transformer 那一版: 按公式算好一张位置表, 加在 embedding 上。编的是绝对位置, 推不到训练长度之外。</p></div>
         <div class="card"><h3 style="font-size: 13px;">RotaryPositionalEncoding</h3><p class="desc">按位置旋转 Q 和 K, 内积只剩相对距离。零可学参数, 长度能往外推; 配上面说的 YaRN 缩放 (同一个类的 scaling 参数) 能把上下文扩到训练长度的 4 到 32 倍。</p></div>

@@ -6,15 +6,30 @@
 <template>
   <LabFrame
     title="SFT 标签对齐 — mask 边界差一格, 第一个回答 token 就丢了"
-    sub="- 模拟什么: SFT (监督微调) 拿「问题 + 标准回答」教模型, 每个位置的任务都是「看到前面的 token, 预测下一个」。我们只想教它写回答, 不想教它复述问题, 所以把 prompt 那一段的标签换成 -100 (这叫 loss mask: PyTorch 的 cross_entropy 会跳过标签为 -100 的位置)。但 labels 在数据侧已经整体左移了一格 (labels = x[1:], 第 t 格放的是 x[t+1]), 所以 prompt 长 P 时边界该写在 P-1 而不是 P。本仓库真的犯过这个错。
-      - 图上是什么: 一句「问: 法国的首都? 答: 巴黎。」被切成 token, 横着排。第一行「位置 t」是列号。第二行「输入 idx」是模型每一步看到的 token, 灰色是 prompt, 带绿框的是回答。第三行的箭头表示「看到上面这个 token, 要预测下面这个」。第四行「labels」是每个位置的预测目标, 写着 -100 的格子被 mask 掉, 不进 loss。最后一行「进 loss?」用符号总结每一列: ✓ 是回答 token 在教模型; ✗ 丢了 是回答 token 却被 mask; ⚠ 泄漏 是 prompt token 混进了 loss; — 是 prompt 被正确 mask。
-      - 可以做什么: 三个按钮直接设 mask 边界: 「错误写法 [:P]」盖住前 P 格 (仓库里出过的 bug); 「正确写法 [:P-1]」盖住前 P-1 格; 「不 mask」什么都不盖 (预训练式, 连问题一起学)。也可以直接点 labels 行的任意格子, 把边界挪到那里。拖「prompt 长度 P」和「response 长度」改句子长短。悬停任一列, 格子下方会解释这一列为什么该或不该进 loss。
-      - 应该看到: 错误写法下, 位置 P-1 (输入是「答:」) 的目标本来是「巴黎」, 却被写成 -100, 「进 loss?」那一行多出一个「✗ 丢了」。右侧读数: 「进入 loss 的位置数」是没被 mask 的格子数; 「回答 token 被监督」是回答里有几个 token 真的在教模型, 分母是回答长度, 应该填满; 「prompt 混进 loss」应该是 0; 「首个回答 token」显示它是学到了还是被 mask。把 response 长度拖到 1 再点错误写法, 所有标签都是 -100, 读数区会提示 loss 变成 nan。"
+    sub="- 模拟什么: SFT (监督微调) 拿「问题 + 标准回答」教模型, 每个位置的任务都是「看到前面的 token, 预测下一个」。我们只想教它写回答, 不想教它复述问题, 所以把 prompt 那一段的标签换成 -100 (这叫 loss mask: PyTorch 的 cross_entropy 会跳过标签为 -100 的位置)。但 labels 在数据侧已经整体左移了一格 (labels = x[1:], 第 t 格放的是 x[t+1]), 所以 prompt 长 P 时边界该写在 P-1 而不是 P。本仓库犯过这个错。
+      - 图上是什么: 一句「问: 法国的首都? 答: 巴黎。」被切成 token, 横着排。从上到下每一行:
+        1. 「位置 t」: 列号。
+        2. 「输入 idx」: 模型每一步看到的 token, 灰色是 prompt, 带绿框的是回答。
+        3. 箭头: 表示「看到上面这个 token, 要预测下面这个」。
+        4. 「labels」: 每个位置的预测目标, 写着 -100 的格子被 mask 掉, 不进 loss。
+        5. 「进 loss?」: 用符号总结每一列。✓ 是回答 token 在教模型; ✗ 丢了 是回答 token 却被 mask; ⚠ 泄漏 是 prompt token 混进了 loss; — 是 prompt 被正确 mask。
+      - 可以做什么: 三个按钮直接设 mask 边界, 也可以点格子、拖滑杆:
+        - 错误边界: 「错误写法 [:P]」盖住前 P 格 (仓库里出过的 bug)。
+        - 正确边界: 「正确写法 [:P-1]」盖住前 P-1 格。
+        - 不设边界: 「不 mask」什么都不盖 (预训练式, 连问题一起学)。
+        - 点 labels 行的任意格子: 把边界挪到那里。
+        - 拖「prompt 长度 P」和「response 长度」: 改句子长短。
+        - 悬停任一列: 格子下方会解释这一列为什么该或不该进 loss。
+      - 应该看到: 错误写法下, 位置 P-1 (输入是「答:」) 的目标本来是「巴黎」, 却被写成 -100, 「进 loss?」那一行多出一个「✗ 丢了」。把 response 长度拖到 1 再点错误写法, 所有标签都是 -100, 读数区会提示 loss 变成 nan。右侧读数:
+        - 「进入 loss 的位置数」: 没被 mask 的格子数。
+        - 「回答 token 被监督」: 回答里有几个 token 在教模型, 分母是回答长度, 应该填满。
+        - 「prompt 混进 loss」: 应该是 0。
+        - 「首个回答 token」: 显示它是学到了还是被 mask。"
     module="llm_finetune/data"
     run="python -m llm_finetune.run_finetune.sft.train_sft"
     :challenge="{
       ask: '把 response 长度拖到 1 (单 token 答案, 例如分类或选择题), 再点「错误写法 [:P]」。还剩几个 token 在教模型? loss 会是多少?',
-      answer: '答案: 0 个, loss 是 nan。\n一步步看:\n- labels 已经左移一格: labels[t] = x[t+1]。位置 P-1 的输入是最后一个 prompt token「答:」, 它的目标是第一个回答 token「巴黎」, 这个目标就放在 labels 的第 P-1 格。\n- 错误写法 labels[:, :P] = -100 盖住了第 0 到第 P-1 格, 把「巴黎」也一起盖掉了。\n- 回答只有 1 个 token 时, 它就是唯一一个该进 loss 的位置。现在全部标签都是 -100, cross_entropy 对空集求平均, 0 除以 0 得到 nan, 训练第一步就炸。\n- 回答更长时 bug 更隐蔽: loss 照常下降, 但模型从没学过「回答该怎么开头」, 而开头恰恰是决定整条回复走向的 token。本仓库实测同配置: 正确写法留出集 exact-match 1.000, 多盖一位 0.000。\n正确写法是 labels[:, :P-1] = -100。',
+      answer: '答案: 0 个, loss 是 nan。\n- labels 已经左移一格: labels[t] = x[t+1]。位置 P-1 的输入是最后一个 prompt token「答:」, 它的目标是第一个回答 token「巴黎」, 这个目标就放在 labels 的第 P-1 格。\n- 错误写法: labels[:, :P] = -100 盖住了第 0 到第 P-1 格, 把「巴黎」也一起盖掉了。\n- 回答只有 1 个 token 时, 它就是唯一一个该进 loss 的位置。现在全部标签都是 -100, cross_entropy 对空集求平均, 0 除以 0 得到 nan, 训练第一步就炸。\n- 回答更长时 bug 更隐蔽: loss 照常下降, 但模型从没学过「回答该怎么开头」, 而开头是决定整条回复走向的 token。本仓库实测同配置: 正确写法留出集 exact-match 1.000, 多盖一位 0.000。\n正确写法是 labels[:, :P-1] = -100。',
     }"
   >
     <template #controls>
@@ -124,7 +139,7 @@ const hoverText = computed(() => {
   if (!c) return ''
   const head = `位置 ${t}: 输入「${idx.value[t]}」→ 目标「${c.tok}」。`
   if (c.isResp && c.masked) return head + '目标是 response token 却被 mask, 这部分监督信号白白丢掉。'
-  if (c.isResp) return head + '目标是 response token, 进入 loss, 正是 SFT 想教的东西。'
+  if (c.isResp) return head + '目标是 response token, 进入 loss, 是 SFT 想教的东西。'
   if (c.masked) return head + '目标还是 prompt 的一部分, mask 掉是对的: 不教模型复述用户的问题。'
   return head + '目标是 prompt token 却进了 loss: 模型在学"怎么提问", 稀释了回答的梯度。'
 })

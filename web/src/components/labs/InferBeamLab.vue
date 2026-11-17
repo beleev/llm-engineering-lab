@@ -6,9 +6,16 @@
   <LabFrame
     title="Beam search — 更可能的序列, 不等于更好的序列"
     sub="- 模拟什么: beam search 是一种解码策略。greedy 每一步只留 1 条最可能的序列; beam search 每一步留累计 log 概率 (每个 token 概率的对数相加, 是负数, 越接近 0 越可能) 最高的 $w$ 条候选, $w$ 叫 beam 宽度, 最后交出分数最高的那条。它找的是「最可能」的序列, 这个台子看「最可能」是不是等于「更好」。图 ① 是 Python 实测: 随机权重的 TinyLM, 10 个 prompt 各生成 20 个 token。图 ② 是前端现算的一个长度惩罚小例子。
-      - 图上是什么: 图 ① 横轴是 beam 宽度 $w$ (1 到 32, $w = 1$ 就是 greedy)。红色柱是重复率 rep-2 (输出里相邻两个词的组合有多少是重复出现的, 越高越复读), 读左轴; 紫线是每个 token 的平均 log 概率 logP/token (越高越「可能」), 读右轴; 柱子下面的「输 2」是 10 个 prompt 里有几个 beam 的总分反而输给了 greedy。图 ② 比的是两条已经结束的候选: 红线是「第 1 个 token 就输出 EOS (结束符) 收尾」的候选, 总 log 概率 −3; 绿线是 15 个 token 的候选, 总 log 概率 −35。横轴是长度惩罚 $\alpha$, 纵轴是归一化分数 $\text{score}/\text{len}^\alpha$, 高的那条胜出; 虚线 $\alpha^*$ 是两条线交叉的位置。
-      - 可以做什么: 拖「beam 宽度 w」或点图 ① 的柱子, 选一个 $w$ 看它的实测数字; 拖「长度惩罚 α」、点 α = 0 / 0.5 / 1 按钮, 或直接拖图 ② 里的黄色把手, 改 $\alpha$ 看两条候选谁赢。
-      - 应该看到: 图 ① 里 $w$ 越大 logP/token 越高 (更可能), 但 rep-2 不降反升, $w = 32$ 到 0.563 (greedy 是 0.453): 更可能的序列更复读。图 ② 里 $\alpha = 0$ 时短候选稳赢 (−3 比 −35 高), 把 $\alpha$ 拖过 0.91 长候选才翻盘。右侧四个读数: 前三个是当前 $w$ 的实测 logP/token、rep-2、输给 greedy 的 prompt 数; 最后一个是当前 $\alpha$ 下图 ② 谁胜出。"
+      - 图上是什么: 上下两张图:
+        - 图 ①: 横轴是 beam 宽度 $w$ (1 到 32, $w = 1$ 就是 greedy)。红色柱是重复率 rep-2 (输出里相邻两个词的组合有多少是重复出现的, 越高越复读), 读左轴; 紫线是每个 token 的平均 log 概率 logP/token (越高越「可能」), 读右轴; 柱子下面的「输 2」是 10 个 prompt 里有几个 beam 的总分反而输给了 greedy。
+        - 图 ②: 比的是两条已经结束的候选。红线是「第 1 个 token 就输出 EOS (结束符) 收尾」的候选, 总 log 概率 −3; 绿线是 15 个 token 的候选, 总 log 概率 −35。横轴是长度惩罚 $\alpha$, 纵轴是归一化分数 $\text{score}/\text{len}^\alpha$, 高的那条胜出; 虚线 $\alpha^*$ 是两条线交叉的位置。
+      - 可以做什么: 两组操作:
+        - 拖「beam 宽度 w」或点图 ① 的柱子, 选一个 $w$ 看它的实测数字。
+        - 拖「长度惩罚 α」、点 α = 0 / 0.5 / 1 按钮, 或直接拖图 ② 里的黄色把手, 改 $\alpha$ 看两条候选谁赢。
+      - 应该看到: 两张图和右侧读数:
+        - 图 ①: $w$ 越大 logP/token 越高 (更可能), 但 rep-2 不降反升, $w = 32$ 到 0.563 (greedy 是 0.453): 更可能的序列更复读。
+        - 图 ②: $\alpha = 0$ 时短候选稳赢 (−3 比 −35 高), 把 $\alpha$ 拖过 0.91 长候选才翻盘。
+        - 右侧四个读数: 前三个是当前 $w$ 的实测 logP/token、rep-2、输给 greedy 的 prompt 数; 最后一个是当前 $\alpha$ 下图 ② 谁胜出。"
     module="llm_infer/m24"
     run="python -m llm_infer.m24_beam_search.demo"
     :challenge="{
@@ -59,7 +66,11 @@
       <div class="kv"><span>总分输给 greedy 的 prompt 数 (共 10 个)</span><b :class="LOSE[wi] ? 'bad' : 'good'">{{ LOSE[wi] }}</b></div>
       <div class="kv"><span>② α = {{ alpha.toFixed(2) }} 时胜出的候选</span><b :class="win === 'long' ? 'good' : 'bad'">{{ win === 'long' ? '15 token 的候选' : '1 token 就收尾' }}</b></div>
       <div class="lab-note">
-        <p>对照 (demo 实测): 采样 T=1 的 logP/token 是 −4.303, rep-2 是 0.003, 采样走的是低概率区域, 几乎不复读。给 EOS 的 logit 加 3 让模型学会停之后, α = 0 / 0.5 / 1 的平均输出长度是 1.3 / 1.3 / 15.7 个 token。</p>
+        <p>对照 (demo 实测):</p>
+        <ul class="pts">
+          <li>采样 T=1 的 logP/token 是 −4.303, rep-2 是 0.003, 采样走的是低概率区域, 几乎不复读。</li>
+          <li>给 EOS 的 logit 加 3 让模型学会停之后, α = 0 / 0.5 / 1 的平均输出长度是 1.3 / 1.3 / 15.7 个 token。</li>
+        </ul>
         <p>图 ① 和上面的长度数字来自 demo 的 [1] [3] 段。图 ② 的两条候选取 README 自测题里的量级 (−3 与 −35), 分数按公式现算。</p>
         <p>多样性 (demo [2]): 同一个 prompt 的 8 条 beam 候选平均只有 3.5/20 个位置不同, 8 条采样有 19.7 个位置不同: beam 给的几条候选长得都差不多, 要多样性得用采样。</p>
       </div>

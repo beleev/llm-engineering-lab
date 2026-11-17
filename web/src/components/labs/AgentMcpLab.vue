@@ -5,15 +5,36 @@
 <template>
   <LabFrame
     title="MCP — 住在另一个进程里的工具是怎么接进 agent 的, 一次调用走了哪些报文"
-    sub="- 模拟什么: MCP (Model Context Protocol) 让工具住在另一个进程里: agent 进程 (这边叫 MCP client) 把一个 server 程序作为子进程拉起来, 通过它的标准输入输出 (stdio) 一行一行地收发 JSON-RPC 2.0 报文 (一种约定: 请求带一个 id, 响应必须带同一个 id)。先握手 (initialize), 再问它有哪些工具 (tools/list), 最后调用 (tools/call)。对模型来说 MCP 工具和内置工具没有区别, 都是「一个名字 + 一份参数 schema」; 接进来之后也走同一套参数校验和权限门。这里模拟的是一个只有 get_weather 和 add 两个工具的玩具天气 server。
-- 图上是什么: 一张时序图, 左边是 agent 进程, 右边是 server 子进程。靠左、带 ──▶ 的紫边条是 agent 发给 server 的一行 JSON (请求或通知); 靠右、带 ◀── 的绿边条是 server 回来的一行 JSON (响应); 带 ● 的虚线条是只发生在 agent 进程内部、没有上管道的事 (拉起子进程、模型发出 tool_use、权限门、参数校验、结果回填)。红色的是出错的那一步。还没走到的步骤是灰的, 当前这一步有黄框。图下方是当前这一步的说明和真实报文 JSON。
-- 可以做什么: 第一排切换四个场景: 「正常调用」city 传 Beijing; 「参数类型错」city 传了数字 123; 「工具内部出错」city 传 Atlantis, server 执行时抛异常; 「server 不支持的方法」agent 去调一个这个 server 没实现的 resources/list。第二排的开关是权限门里有没有一条 allow mcp__weather__* 规则: 没有这条规则时 MCP 工具按高风险处理, 要问人, 没人可问就拒绝。下面的播放器按步骤播放, 点时序图里任意一条可以直接跳到那一步看它的报文。
-- 应该看到: 正常调用走完 12 步, 其中真正上管道的请求只有 initialize、tools/list、tools/call 三条, 外加一条没有 id 的 notifications/initialized 通知。「参数类型错」在 validate_args 那一步就停了: agent 用 tools/list 拿回的 inputSchema 在本地校验, 坏参数变成一条 is_error 的 tool_result 回给模型, server 根本没收到 tools/call。关掉 allow 规则, 停在权限门那一步, 同样没有报文发出。右侧「已发 JSON-RPC 请求」数的是带 id 的请求; 「到达 server 的 tools/call」是真正发出去的调用数, 为 0 时标绿, 意思是坏调用在本地就拦住了; 「stdio 上已走的 JSON 行」是发出 / 收到的行数, 通知也占一行; 「结局」是这个场景最终怎么收场。"
+    sub="- 模拟什么: MCP (Model Context Protocol) 让工具住在另一个进程里: agent 进程 (这边叫 MCP client) 把一个 server 程序作为子进程拉起来, 通过它的标准输入输出 (stdio) 一行一行地收发 JSON-RPC 2.0 报文 (一种约定: 请求带一个 id, 响应必须带同一个 id)。对模型来说 MCP 工具和内置工具没有区别, 都是「一个名字 + 一份参数 schema」; 接进来之后也走同一套参数校验和权限门。这里模拟的是一个只有 get_weather 和 add 两个工具的玩具天气 server。接入分三步:
+  1. 先握手 (initialize)。
+  2. 再问它有哪些工具 (tools/list)。
+  3. 最后调用 (tools/call)。
+- 图上是什么: 一张时序图, 左边是 agent 进程, 右边是 server 子进程:
+  - 靠左、带 ──▶ 的紫边条: agent 发给 server 的一行 JSON (请求或通知)。
+  - 靠右、带 ◀── 的绿边条: server 回来的一行 JSON (响应)。
+  - 带 ● 的虚线条: 只发生在 agent 进程内部、没有上管道的事 (拉起子进程、模型发出 tool_use、权限门、参数校验、结果回填)。
+  - 颜色: 红色的是出错的那一步。还没走到的步骤是灰的, 当前这一步有黄框。
+  - 图下方: 当前这一步的说明和真实报文 JSON。
+- 可以做什么: 第一排切换四个场景, 第二排是一个开关, 下面是播放器:
+  - 「正常调用」: city 传 Beijing。
+  - 「参数类型错」: city 传了数字 123。
+  - 「工具内部出错」: city 传 Atlantis, server 执行时抛异常。
+  - 「server 不支持的方法」: agent 去调一个这个 server 没实现的 resources/list。
+  - 第二排的开关: 权限门里有没有一条 allow mcp__weather__* 规则。没有这条规则时 MCP 工具按高风险处理, 要问人, 没人可问就拒绝。
+  - 下面的播放器: 按步骤播放, 点时序图里任意一条可以直接跳到那一步看它的报文。
+- 应该看到: 几个场景的对照和右侧读数:
+  - 正常调用: 走完 12 步, 其中上管道的请求只有 initialize、tools/list、tools/call 三条, 外加一条没有 id 的 notifications/initialized 通知。
+  - 「参数类型错」: 在 validate_args 那一步就停了。agent 用 tools/list 拿回的 inputSchema 在本地校验, 坏参数变成一条 is_error 的 tool_result 回给模型, server 没收到 tools/call。
+  - 关掉 allow 规则: 停在权限门那一步, 同样没有报文发出。
+  - 右侧「已发 JSON-RPC 请求」: 数的是带 id 的请求。
+  - 「到达 server 的 tools/call」: 实际发出去的调用数, 为 0 时标绿, 意思是坏调用在本地就拦住了。
+  - 「stdio 上已走的 JSON 行」: 发出 / 收到的行数, 通知也占一行。
+  - 「结局」: 这个场景最终怎么收场。"
     module="llm_agent/m09"
     run="python -m llm_agent.m09_mcp.demo"
     :challenge="{
       ask: '场景选「参数类型错」(city 传了数字 123)。先猜: 这次会产生几条 tools/call 报文? server 会看到这个坏参数吗?',
-      answer: '0 条, server 根本看不到。\n一步步看: tools/list 返回的每个工具都带一份 inputSchema (JSON Schema, 写明 city 必须是 string)。client 把它原样当作本地工具的参数 schema, 执行前先 validate_args; 123 不是 string, 校验失败, 本地直接生成一条 INVALID_ARGS 的 is_error tool_result 回填给模型, 让它下一轮改参数。时序停在 validate_args 那一步, 右侧「到达 server 的 tools/call」是 0。\n再关掉 allow 规则, 会停得更早: 权限门发现没有规则命中, 而 MCP 工具一律按 high 风险处理 (server 自己说「我只读」也不信), 要问人; 这里无人可问, 按 fail closed 拒绝, 同样一条 tools/call 都不发。\n两道检查都在发报文之前: 协议只负责「怎么把外部工具接进来」, 不负责「能不能信它」, 信不信由 agent 自己的校验和权限门决定。',
+      answer: '0 条, server 看不到这个坏参数。\ntools/list 返回的每个工具都带一份 inputSchema (JSON Schema, 写明 city 必须是 string)。client 把它原样当作本地工具的参数 schema:\n1. 执行前先 validate_args。\n2. 123 不是 string, 校验失败。\n3. 本地直接生成一条 INVALID_ARGS 的 is_error tool_result 回填给模型, 让它下一轮改参数。\n时序停在 validate_args 那一步, 右侧「到达 server 的 tools/call」是 0。\n再关掉 allow 规则, 会停得更早:\n1. 权限门发现没有规则命中。\n2. MCP 工具一律按 high 风险处理 (server 自己说「我只读」也不信), 要问人。\n3. 这里无人可问, 按 fail closed 拒绝, 同样一条 tools/call 都不发。\n两道检查都在发报文之前: 协议只负责「怎么把外部工具接进来」, 不负责「能不能信它」, 信不信由 agent 自己的校验和权限门决定。',
     }"
   >
     <template #controls>
@@ -46,7 +67,12 @@
       <div class="kv"><span>stdio 上已走的 JSON 行 (发 / 收)</span><b>{{ sent.out }} / {{ sent.back }}</b></div>
       <div class="kv"><span>结局</span><b :class="outcome.cls">{{ outcome.text }}</b></div>
       <div class="lab-note">
-        <p>模型看到的工具名是 <code class="inline">mcp__weather__get_weather</code>, 不是 server 自己叫的 get_weather。前缀 <code class="inline">mcp__server__tool</code> 有两个用途: 防止两个 server 的工具和内置工具重名; 让权限规则可以按 server 粒度写, 一条 allow mcp__weather__* 就管住这个 server 的全部工具。发给 server 的 tools/call 里前缀会被剥掉, 还原成它自己的工具名。</p>
+        <p>模型看到的工具名是 <code class="inline">mcp__weather__get_weather</code>, 不是 server 自己叫的 get_weather。前缀 <code class="inline">mcp__server__tool</code> 有两个用途:</p>
+        <ul class="pts">
+          <li>防止两个 server 的工具和内置工具重名。</li>
+          <li>让权限规则可以按 server 粒度写, 一条 allow mcp__weather__* 就管住这个 server 的全部工具。</li>
+        </ul>
+        <p>发给 server 的 tools/call 里前缀会被剥掉, 还原成它自己的工具名。</p>
         <p>读数只统计播放器已经走到的步骤: 把时间轴拖回前面, 数字也会回退。</p>
       </div>
     </template>
@@ -98,10 +124,10 @@ const steps = computed(() => {
   const bad = typeof sc.args.city === 'number'
   st.push({ dir: 'local', state: bad ? 'bad' : 'ok', title: `validate_args: ${bad ? 'INVALID_ARGS' : '通过'}`, json: bad ? { type: 'tool_result', tool_use_id: 'toolu_0001', content: "INVALID_ARGS: 'city' should be string, got int", is_error: true } : null, note: bad ? '用 tools/list 拿到的 inputSchema 在本地校验, 错误直接回填给模型, 让它下一轮改参数。' : '参数符合 inputSchema。' })
   if (bad) return st
-  st.push({ dir: 'req', title: 'tools/call', json: rpc(3, 'tools/call', { name: sc.name, arguments: sc.args }), note: `注意 name 是 "${sc.name}": 前缀 mcp__weather__ 已被剥掉。` })
+  st.push({ dir: 'req', title: 'tools/call', json: rpc(3, 'tools/call', { name: sc.name, arguments: sc.args }), note: `name 是 "${sc.name}": 前缀 mcp__weather__ 已被剥掉。` })
   const err = scene.value === 'toolerr'
   const text = err ? "tool error: KeyError('Atlantis')" : 'Beijing: sunny, 24C, light wind'
-  st.push({ dir: 'res', state: err ? 'bad' : 'ok', title: `result: isError=${err}`, json: { jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text }], isError: err } }, note: err ? '工具失败是「正常结果」: 仍然走 result, 只是 isError=true。协议没坏, 模型可以据此换个做法。(教学 server 其实什么城市都答, 这里的异常是示意。)' : '结果是 content block 列表, client 取出其中的 text。' })
+  st.push({ dir: 'res', state: err ? 'bad' : 'ok', title: `result: isError=${err}`, json: { jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text }], isError: err } }, note: err ? '工具失败是「正常结果」: 仍然走 result, 只是 isError=true。协议没坏, 模型可以据此换个做法。(教学 server 对任何城市都会回答, 这里的异常是示意。)' : '结果是 content block 列表, client 取出其中的 text。' })
   st.push({ dir: 'local', title: err ? 'tool_result 回填 (is_error)' : 'tool_result 回填 (标记为不可信数据)', json: { type: 'tool_result', tool_use_id: 'toolu_0001', content: err ? text : `<untrusted_data>\n${text}\n</untrusted_data>`, is_error: err }, note: 'MCP 工具的输出来自第三方: untrusted_output = True, 开了护栏就会被包进 <untrusted_data>, 见「护栏」一章。' })
   return st
 })

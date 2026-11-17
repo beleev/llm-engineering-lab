@@ -6,9 +6,20 @@
   <LabFrame
     title="初始化 — 刚建好的模型, 第一步 loss 该是多少?"
     sub="- 模拟什么: 训练第 1 步, 权重还是随机数, 模型应该什么都不懂, 对词表里 V 个 token 均匀瞎猜, 这时交叉熵 loss (CE) 恰好等于 $\ln V$。如果第一步 loss 远大于 $\ln V$, 说明模型一上来就在「极度自信地猜错」, 原因几乎都在初始化的尺度 $\sigma$ (随机权重的标准差)。这里模拟的是模型的最后一步: 最后一层 norm 之后的隐藏向量 h 和输出头 lm_head 的每一行做点积得到 logits, 再算 CE。还有一个常见坑: 把 lm_head 和输入 embedding 绑成同一张表 (weight tying, 省参数), 这时 h 几乎还贴着输入 token 自己的 embedding, 模型会给「输入 token 自己」打一个高达 $\sigma \cdot d$ 的分, 而正确答案几乎从来不是它自己。对应 llm_models/utils/init.py。
-      - 图上是什么: 横轴是 $\sigma$ (对数刻度), 纵轴是第 1 步的 CE (也是对数刻度)。曲线是每个 $\sigma$ 下的首步 CE, 用蒙特卡洛估计 (随机抽 24 组 logits 取平均); 虚线是 $\ln V$, 均匀瞎猜的参考线; 圆点是当前 $\sigma$, 可以直接拖。
-      - 可以做什么: 「绑权重」开关 lm_head 和 embedding 是否共用一张表。两个快捷按钮跳到 $\sigma$ = 0.02 (本仓库 init_weights 用的值) 和 $\sigma$ = 1 (PyTorch nn.Embedding 的默认值)。「换一组随机权重」重抽。拖「嵌入初始化 $\sigma$」、「模型宽度 d」、「词表大小 V」看曲线怎么变。
-      - 应该看到: 默认 $\sigma$ = 1、d = 256、V = 1000、绑权重时首步 CE 约 250, 而 $\ln V$ = 6.91, 差了几十倍。拖到 $\sigma$ = 0.02 后 CE 约 7.1, 贴到参考线上。右侧「首步 CE」和 $\ln V$ 相差不到 0.5 时算正常 (和 train 脚本里的断言同一阈值)。「自己的 logit ≈ $\sigma \cdot d$」是绑权重时输入 token 自己拿到的分; 「其余 logit 的标准差 $\sigma \sqrt{d}$」是别的 token 分数的散布, 它远大于 1 时 softmax 已经很尖, 哪怕不绑权重 loss 也会远高于 $\ln V$。"
+      - 图上是什么: 一张曲线图:
+        - 坐标轴: 横轴是 $\sigma$ (对数刻度), 纵轴是第 1 步的 CE (也是对数刻度)。
+        - 曲线: 每个 $\sigma$ 下的首步 CE, 用蒙特卡洛估计 (随机抽 24 组 logits 取平均)。
+        - 虚线: $\ln V$, 均匀瞎猜的参考线。
+        - 圆点: 当前 $\sigma$, 可以直接拖。
+      - 可以做什么: 按界面顺序:
+        - 「绑权重」: 开关 lm_head 和 embedding 是否共用一张表。
+        - 两个快捷按钮: 跳到 $\sigma$ = 0.02 (本仓库 init_weights 用的值) 和 $\sigma$ = 1 (PyTorch nn.Embedding 的默认值)。
+        - 「换一组随机权重」: 重抽。
+        - 三根滑杆: 拖「嵌入初始化 $\sigma$」、「模型宽度 d」、「词表大小 V」看曲线怎么变。
+      - 应该看到: 默认 $\sigma$ = 1、d = 256、V = 1000、绑权重时首步 CE 约 250, 而 $\ln V$ = 6.91, 差了几十倍。拖到 $\sigma$ = 0.02 后 CE 约 7.1, 贴到参考线上。右侧读数:
+        - 「首步 CE」: 和 $\ln V$ 相差不到 0.5 时算正常 (和 train 脚本里的断言同一阈值)。
+        - 「自己的 logit ≈ $\sigma \cdot d$」: 绑权重时输入 token 自己拿到的分。
+        - 「其余 logit 的标准差 $\sigma \sqrt{d}$」: 别的 token 分数的散布。它远大于 1 时 softmax 已经很尖, 哪怕不绑权重 loss 也会远高于 $\ln V$。"
     module="llm_models/utils/init.py"
     run="python -m llm_models.run_models.language_models.llama.train_llama"
     :challenge="{
@@ -50,10 +61,16 @@
       <div class="kv"><span><Tex text="绑权重时「自己」的 logit $\approx \sigma \cdot d$" /></span><b>{{ tied ? (sigma * d).toFixed(1) : '— (没绑, 这一项不存在)' }}</b></div>
       <div class="kv"><span><Tex text="其余 logit 的标准差 $\sigma \cdot \sqrt{d}$" /></span><b>{{ (sigma * Math.sqrt(d)).toFixed(2) }}</b></div>
       <p class="lab-note">
-        <Tex :text="ok ? '✓ 接近 $\\ln V$: 模型从「均匀瞎猜」出发, 之后 loss 下降才说明它真的学到了东西。'
+        <Tex :text="ok ? '✓ 接近 $\\ln V$: 模型从「均匀瞎猜」出发, 之后 loss 下降才说明它学到了东西。'
               : '✗ 远高于 $\\ln V$: 模型一上来就极度自信地猜错。这时「loss 在下降」只是在纠正初始化, 不代表学会了任务。'" />
       </p>
-      <p class="lab-note"><Tex text="简化模型: 最后一层归一化之后隐藏向量的范数约为 $\sqrt{d}$, 而且方向仍贴着输入 token 的嵌入 (残差连接一路把它带了过来)。它复现了仓库里的实测值: $\sigma=1$, $d=256$, $V=1000$ 时约 250; $\sigma=0.02$ 时约 7.1。" /></p>
+      <div class="lab-note">
+        <p><Tex text="简化模型: 最后一层归一化之后隐藏向量的范数约为 $\sqrt{d}$, 而且方向仍贴着输入 token 的嵌入 (残差连接一路把它带了过来)。它复现了仓库里的实测值:" /></p>
+        <ul class="pts">
+          <li><Tex text="$\sigma=1$, $d=256$, $V=1000$ 时约 250。" /></li>
+          <li><Tex text="$\sigma=0.02$ 时约 7.1。" /></li>
+        </ul>
+      </div>
     </template>
   </LabFrame>
 </template>

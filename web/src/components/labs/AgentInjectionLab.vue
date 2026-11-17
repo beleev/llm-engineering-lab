@@ -4,22 +4,43 @@
 -->
 <template>
   <LabFrame
-    title="Prompt injection — 假设模型已经上当, 四层防御里哪几层还拦得住?"
-    sub="- 模拟什么: prompt injection (提示注入): agent 用工具抓回来的文档里混着一句「指令」, 模型分不清这是用户的要求还是文档里的字, 就可能照着做。场景是用户只说了一句「总结 release.md」, fetch_doc 抓回来的文档里却藏着三件坏事: 让 agent 去读沙箱外的私钥 (../../.ssh/id_rsa), 再用邮件工具 mcp__mail__send 把它发到外网地址, 而且文档本身还夹着一个 API key (sk-live 开头)。这个台子不赌模型会不会上当, 而是问: 假设它上当了, 哪几层防御还能兜住。
-- 图上是什么: 上面的代码框是模型实际看到的 fetch_doc 结果 (tool_result): 开了「标记不可信数据」, 整段会被包进 untrusted_data 标签, 正则认出注入句式时标签上还会多一个 injection_suspected 属性; 开了「密钥脱敏」, 里面的 key 会变成 [REDACTED]。下面三行是这一轮会发生的三个动作, 按顺序是 fetch_doc (用户要的), read_file (注入让它读的那个路径), mcp__mail__send (注入让它外发); 每行右侧是这个动作的下场: 红色是执行了而且造成了伤害, 绿色是被某一层拦下, 黄色是执行了但没伤害, 普通边框是正常执行。点任意一行, 下方会解释为什么是这个下场。
-- 可以做什么: 第一排选注入的写法: 「直白的注入」用 Ignore previous instructions 这种教科书句式, 「改写过的注入」换成一段像运维备注的话, 意思一样但正则认不出来; 「模型上当了 / 没上当」切换模型会不会照着文档里的指令去做。第二排是四层防御, 可以任意组合: 「标记不可信数据 + 特征检测」把工具结果包进 untrusted_data 标签, 并用几条正则扫可疑句式, 这一层只是提醒模型; 「污点规则」是确定性代码, 本轮上下文一旦混进过不可信数据, 高风险工具 (这里是外发邮件) 一律拒绝, 不管权限怎么配; 「路径围栏 confine()」先把路径 resolve 成真实路径 (展开 ..), 再检查它是否还在沙箱根目录 /work 之内; 「密钥脱敏」在内容进入上下文和日志之前把 key 替换掉。最下面的输入框是注入让 agent 读的路径, 可以自己改, 比如改成 notes/a.txt (沙箱内) 或 /work/../etc/passwd (字面上以 /work 开头, 实际在外面)。
-- 应该看到: 默认只开了「标记」而且模型上当了: 文档被标记、特征检测报警, 但模型照样读到了沙箱外的私钥并把它发了出去, 右侧「执行了的危险动作」是 2。打开「路径围栏」, read_file 被拦, 邮件还是发了但里面没有私钥 (变黄); 再打开「污点规则」, 邮件根本发不出去。右侧读数: 「执行了的危险动作」是三个动作里标红的个数; 「进入 transcript 的密钥」数的是模型看到的那段文本里还剩几个 sk- 开头的 key, 开「密钥脱敏」后归 0; 「特征检测」是正则有没有在文档里认出注入句式, 换成「改写过的注入」就会漏过; 「路径: 朴素前缀 / resolve」对比两种判断路径有没有越界的方法, 朴素前缀只看拼出来的字符串是不是以 /work 开头, resolve 先展开 .. 再看真实位置, 两边结论不一致时标红, 那就是朴素方法被骗了。"
+    title="Prompt injection — 假设模型已经照着注入做了, 四层防御里哪几层还拦得住?"
+    sub="- 模拟什么: prompt injection (提示注入): agent 用工具抓回来的文档里混着一句「指令」, 模型分不清这是用户的要求还是文档里的字, 就可能照着做。这个台子直接假设模型照着注入的指令做了, 看哪几层防御还能兜住。场景是用户只说了一句「总结 release.md」, fetch_doc 抓回来的文档里却藏着三件坏事:
+  - 让 agent 去读沙箱外的私钥 (../../.ssh/id_rsa)。
+  - 再用邮件工具 mcp__mail__send 把它发到外网地址。
+  - 文档本身还夹着一个 API key (sk-live 开头)。
+- 图上是什么: 代码框和下面三行动作:
+  - 上面的代码框: 模型实际看到的 fetch_doc 结果 (tool_result)。开了「标记不可信数据」, 整段会被包进 untrusted_data 标签, 正则认出注入句式时标签上还会多一个 injection_suspected 属性; 开了「密钥脱敏」, 里面的 key 会变成 [REDACTED]。
+  - 下面三行: 这一轮会发生的三个动作, 按顺序是 fetch_doc (用户要的), read_file (注入让它读的那个路径), mcp__mail__send (注入让它外发)。
+  - 每行右侧: 这个动作的下场。红色是执行了而且造成了伤害, 绿色是被某一层拦下, 黄色是执行了但没伤害, 普通边框是正常执行。点任意一行, 下方会解释为什么是这个下场。
+- 可以做什么: 第一排选注入的写法和模型反应, 第二排是四层防御 (可以任意组合), 最下面是输入框:
+  - 「直白的注入」: 用 Ignore previous instructions 这种教科书句式。
+  - 「改写过的注入」: 换成一段像运维备注的话, 意思一样但正则认不出来。
+  - 「模型照做了 / 没照做」: 切换模型会不会照着文档里的指令去做。
+  - 「标记不可信数据 + 特征检测」: 把工具结果包进 untrusted_data 标签, 并用几条正则扫可疑句式, 这一层只是提醒模型。
+  - 「污点规则」: 确定性代码, 本轮上下文一旦混进过不可信数据, 高风险工具 (这里是外发邮件) 一律拒绝, 不管权限怎么配。
+  - 「路径围栏 confine()」: 先把路径 resolve 成真实路径 (展开 ..), 再检查它是否还在沙箱根目录 /work 之内。
+  - 「密钥脱敏」: 在内容进入上下文和日志之前把 key 替换掉。
+  - 最下面的输入框: 注入让 agent 读的路径, 可以自己改, 比如改成 notes/a.txt (沙箱内) 或 /work/../etc/passwd (字面上以 /work 开头, 实际在外面)。
+- 应该看到: 几组对照和右侧读数:
+  - 默认只开了「标记」而且模型照做了: 文档被标记、特征检测报警, 但模型照样读到了沙箱外的私钥并把它发了出去, 右侧「执行了的危险动作」是 2。
+  - 打开「路径围栏」: read_file 被拦, 邮件还是发了但里面没有私钥 (变黄)。
+  - 再打开「污点规则」: 邮件发不出去。
+  - 右侧「执行了的危险动作」: 三个动作里标红的个数。
+  - 「进入 transcript 的密钥」: 数的是模型看到的那段文本里还剩几个 sk- 开头的 key, 开「密钥脱敏」后归 0。
+  - 「特征检测」: 正则有没有在文档里认出注入句式, 换成「改写过的注入」就会漏过。
+  - 对比两种判断路径有没有越界的方法, 就是「路径: 朴素前缀 / resolve」这一项。朴素前缀只看拼出来的字符串是不是以 /work 开头, resolve 先展开 .. 再看真实位置, 两边结论不一致时标红, 那就是朴素方法被骗了。"
     module="llm_agent/m12"
     run="python -m llm_agent.m12_guardrails.demo"
     :challenge="{
-      ask: '只开「标记不可信数据」, 把注入换成「改写过的」: 标签还在, 特征检测却没报警。如果模型这次上当了, 私钥会被发出去吗? 要关掉哪一条链路才一定安全?',
-      answer: '会发出去。\n一步步看: 「改写过的注入」里没有 Ignore previous instructions 之类的固定句式, 几条正则一个都没命中, 所以标签上没有 injection_suspected, 右侧「特征检测」显示漏过。但就算报警了也一样: 标记和特征检测都只是在「劝」模型, 把文档包进 untrusted_data 标签, 模型也可能就是不听。这一层能降低上当的概率, 不能让攻击不可能。\n要一定安全, 得靠不看模型脸色的确定性防线, 有两条, 开任意一条就够:\n- 路径围栏: 让私钥根本读不到。confine() 把 ../../.ssh/id_rsa 接在 /work 后面 resolve 成真实路径 /.ssh/id_rsa, 发现它不在 /work 之内, 直接抛错。read_file 读不到私钥, 邮件里就没有私钥可发。\n- 污点规则: 本轮上下文里混进过不可信数据 (fetch_doc 的结果) 之后, 高风险工具一律拒绝, mcp__mail__send 发不出去, 对外通道被切断。\n这就是 lethal trifecta (致命三件套) 的拆法: 私有数据 + 不可信内容 + 对外通道, 三者同时成立才会出事, 切断任意一个就安全。',
+      ask: '只开「标记不可信数据」, 把注入换成「改写过的」: 标签还在, 特征检测却没报警。如果模型这次照做了, 私钥会被发出去吗? 要关掉哪一条链路才一定安全?',
+      answer: '会发出去。\n「改写过的注入」里没有 Ignore previous instructions 之类的固定句式, 几条正则一个都没命中, 所以标签上没有 injection_suspected, 右侧「特征检测」显示漏过。但就算报警了也一样: 标记和特征检测都只是在「劝」模型, 把文档包进 untrusted_data 标签, 模型也可能就是不听。这一层能降低模型照做的概率, 不能杜绝攻击。\n要一定安全, 得靠不看模型脸色的确定性防线, 有两条, 开任意一条就够:\n- 路径围栏: 让私钥读不到。confine() 把 ../../.ssh/id_rsa 接在 /work 后面 resolve 成真实路径 /.ssh/id_rsa, 发现它不在 /work 之内, 直接抛错。read_file 读不到私钥, 邮件里就没有私钥可发。\n- 污点规则: 本轮上下文里混进过不可信数据 (fetch_doc 的结果) 之后, 高风险工具一律拒绝, mcp__mail__send 发不出去, 对外通道被切断。\n这两条拆的是 lethal trifecta (致命三件套): 私有数据 + 不可信内容 + 对外通道, 三者同时成立才会出事, 切断任意一个就安全。',
     }"
   >
     <template #controls>
       <div class="row">
         <button v-for="a in ATTACKS" :key="a.id" type="button" :class="{ active: attack === a.id }" @click="attack = a.id">{{ a.label }}</button>
-        <button type="button" :class="{ active: fooled }" :aria-pressed="fooled" @click="fooled = !fooled">模型{{ fooled ? '上当了 (照做)' : '没上当' }}</button>
+        <button type="button" :class="{ active: fooled }" :aria-pressed="fooled" @click="fooled = !fooled">模型{{ fooled ? '照做了 (执行注入的指令)' : '没照做' }}</button>
       </div>
       <div class="row">
         <button v-for="d in DEFENSES" :key="d.id" type="button" :class="{ active: on[d.id] }" :aria-pressed="on[d.id]" @click="on[d.id] = !on[d.id]">{{ on[d.id] ? '☑' : '☐' }} {{ d.label }}</button>
@@ -99,7 +120,7 @@ const confine = computed(() => {
 const actions = computed(() => {
   const list = [{ call: 'fetch_doc("release.md")', state: 'ok', verdict: '执行', why: '用户要求的正常动作。fetch_doc 标了 untrusted_output: 它的结果进入上下文的那一刻, 本轮就被「污染」了。' }]
   if (!fooled.value) {
-    list.push({ call: '(模型没有照做)', state: 'ok', verdict: '这次躲过了', why: '模型把文档当数据, 只做了总结。但这是概率事件: 换个措辞、换个模型、多试几次, 总有一次会上当, 所以下面几层不能省。' })
+    list.push({ call: '(模型没有照做)', state: 'ok', verdict: '这次躲过了', why: '模型把文档当数据, 只做了总结。但这是概率事件: 换个措辞、换个模型、多试几次, 总有一次会照做, 所以下面几层不能省。' })
     return list
   }
   const readOk = !on.sandbox || confine.value.safe

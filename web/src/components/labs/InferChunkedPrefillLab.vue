@@ -2,15 +2,27 @@
 <template>
   <LabFrame
     title="Chunked prefill — 长 prompt 切块混进 decode, 用 token 预算封顶卡顿"
-    sub="- 模拟什么: 推理引擎每一步前向处理一个 batch。prefill 是把一条新 prompt 的全部 token 一次算完 (算力瓶颈, 耗时随 token 数涨); decode 是给每条正在生成的请求算 1 个新 token (访存瓶颈, 耗时几乎固定)。D 个用户正在逐 token 生成, 第 3 步来了一条 P 个 token 的长 prompt。「prefill 优先」把它整段一步算完, 所有 decode 用户停一步等它。chunked prefill (Sarathi 的做法) 定一个每步 token 预算 B: 先给每个 decode 用户 1 个 token, 剩下的预算切一块 prefill 混进同一个 batch, 长 prompt 分几步算完。耗时用代价模型: 每步 20 ms 固定开销 + 0.25 ms × 这一步的 token 数, 不是实测。
-      - 图上是什么: 上面每根柱子是一步前向, 高度是这一步的耗时 (ms): 灰色底是 20 ms 固定开销, 绿色是 decode 的 token, 黄色是 prefill 的 token; 红色虚线是每步耗时的上限 (分块时是 20 + 0.25 × B)。下面的时间轴横坐标是真实时间: 每个绿点是一个 decode 用户收到一个 token 的时刻, 相邻两点的间隔就是 TBT (time between tokens, 用户看到的两个字之间的停顿), 红色粗线标出最长的那一段; 黄色线段是新请求的 TTFT (time to first token, 从到达到吐出第一个 token 的时间)。
-      - 可以做什么: 点「prefill 优先 (整段)」或「分块混批 (Sarathi)」切换调度方式; 拖「token 预算 B」改分块时每步最多算几个 token; 拖「长 prompt 长度 P」和「正在 decode 的用户 D」改负载; 用播放器逐步看, 或点一根柱子看那一步的构成。
-      - 应该看到: 整段模式下有一根特别高的柱子, 时间轴上对应一个很长的空档 (decode 用户卡住了); 分块模式下柱子都被压在红线以下, 空档消失, 但黄色柱子变多, 新请求的 TTFT 变长。右侧读数把两种模式放在一起比: 「decode 用户的最大 TBT」是时间轴上最长的那个间隔; 「新请求的 TTFT」是长 prompt 等了多久才出第一个 token; 「prefill 切成几块」是 P 个 token 被分成了几步; 「第 x 步耗时」是当前选中那一步的耗时。分块比整段低 10% 以上显示绿色, 高 10% 以上红色。"
+    sub="- 模拟什么: 推理引擎每一步前向处理一个 batch。prefill 是把一条新 prompt 的全部 token 一次算完 (算力瓶颈, 耗时随 token 数涨); decode 是给每条正在生成的请求算 1 个新 token (访存瓶颈, 耗时几乎固定)。D 个用户正在逐 token 生成, 第 3 步来了一条 P 个 token 的长 prompt。耗时用代价模型: 每步 20 ms 固定开销 + 0.25 ms × 这一步的 token 数, 不是实测。两种调度:
+        - 「prefill 优先」: 把它整段一步算完, 所有 decode 用户停一步等它。
+        - chunked prefill: Sarathi 的做法, 定一个每步 token 预算 B。先给每个 decode 用户 1 个 token, 剩下的预算切一块 prefill 混进同一个 batch, 长 prompt 分几步算完。
+      - 图上是什么: 上下两部分:
+        - 上面的柱子: 每根是一步前向, 高度是这一步的耗时 (ms)。灰色底是 20 ms 固定开销, 绿色是 decode 的 token, 黄色是 prefill 的 token; 红色虚线是每步耗时的上限 (分块时是 20 + 0.25 × B)。
+        - 下面的时间轴: 横坐标是真实时间。每个绿点是一个 decode 用户收到一个 token 的时刻, 相邻两点的间隔就是 TBT (time between tokens, 用户看到的两个字之间的停顿), 红色粗线标出最长的那一段; 黄色线段是新请求的 TTFT (time to first token, 从到达到吐出第一个 token 的时间)。
+      - 可以做什么: 按界面从上到下:
+        - 点「prefill 优先 (整段)」或「分块混批 (Sarathi)」切换调度方式。
+        - 拖「token 预算 B」改分块时每步最多算几个 token。
+        - 拖「长 prompt 长度 P」和「正在 decode 的用户 D」改负载。
+        - 用播放器逐步看, 或点一根柱子看那一步的构成。
+      - 应该看到: 整段模式下有一根特别高的柱子, 时间轴上对应一个很长的空档 (decode 用户卡住了)。分块模式下柱子都被压在红线以下, 空档消失, 但黄色柱子变多, 新请求的 TTFT 变长。右侧读数把两种模式放在一起比, 分块比整段低 10% 以上显示绿色, 高 10% 以上红色:
+        - decode 用户的最大 TBT: 时间轴上最长的那个间隔。
+        - 新请求的 TTFT: 长 prompt 等了多久才出第一个 token。
+        - prefill 切成几块: P 个 token 被分成了几步。
+        - 第 x 步耗时: 当前选中那一步的耗时。"
     module="llm_infer/m06"
     run="python -m llm_infer.m06_chunked_prefill.demo"
     :challenge="{
       ask: '把 token 预算 B 从 128 拖到 1024。有没有一个 B 能让最大 TBT 和 TTFT 两头都好?',
-      answer: '没有。默认 P = 1024、D = 4 时:\n- B = 128: 最大 TBT 52 ms, TTFT 445 ms。\n- B = 1024: 最大 TBT 276 ms, TTFT 298 ms。\n- 整段 prefill: 最大 TBT 297 ms, TTFT 276 ms。\nB 越小, 每步耗时的上限 $20 + 0.25 \\cdot B$ 越低, decode 用户之间最长的等待 (最大 TBT) 就越小。\n代价: 长 prompt 被切成更多块, 每块都要多付一次 20 ms 固定开销, 还要和 D 个 decode 用户分享预算 (每步只有 B − D 个 token 给 prefill), 所以新请求要等更久才出第一个 token, TTFT 变长。\nB 是「decode 卡顿」和「首 token 延迟」之间的旋钮, 压低一头就抬高另一头。真实系统里这个旋钮叫 max_num_batched_tokens (vLLM) 或 chunked_prefill_size (SGLang)。',
+      answer: '没有。默认 P = 1024、D = 4 时:\n- B = 128: 最大 TBT 52 ms, TTFT 445 ms。\n- B = 1024: 最大 TBT 276 ms, TTFT 298 ms。\n- 整段 prefill: 最大 TBT 297 ms, TTFT 276 ms。\nB 越小, 每步耗时的上限 $20 + 0.25 \\cdot B$ 越低, decode 用户之间最长的等待 (最大 TBT) 就越小。\n代价有两处:\n- 长 prompt 被切成更多块, 每块都要多付一次 20 ms 固定开销。\n- 还要和 D 个 decode 用户分享预算 (每步只有 B − D 个 token 给 prefill)。\n所以新请求要等更久才出第一个 token, TTFT 变长。\nB 是「decode 卡顿」和「首 token 延迟」之间的旋钮, 压低一头就抬高另一头。真实系统里这个旋钮叫 max_num_batched_tokens (vLLM) 或 chunked_prefill_size (SGLang)。',
     }"
   >
     <template #controls>

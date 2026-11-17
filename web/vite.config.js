@@ -3,10 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
 import courseCatalog from './plugins/course-catalog.js'
+import { zhPunctTransform } from './plugins/zh-punct-template.js'
 
 export default defineConfig({
   base: '/llm-engineering-lab/',
-  plugins: [vue(), courseCatalog(), {
+  plugins: [vue({ template: { compilerOptions: { nodeTransforms: [zhPunctTransform] } } }), courseCatalog(), {
     name: 'watch-course-python',
     configureServer(server) {
       // glob 的 Python 文件在 web 根目录外；显式监听目录才能发现新增文件。

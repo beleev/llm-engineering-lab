@@ -17,7 +17,7 @@
       <Prose class="intuition" :text="entry.intuition" />
       <details class="reading" open>
         <summary>原理与验证方法</summary>
-        <Prose v-for="(paragraph, i) in entry.principles" :key="i" :text="paragraph" />
+        <Prose v-for="(paragraph, i) in entry.principles" :key="i" :text="paragraph" lead />
         <p class="protocol"><strong>怎样验证: </strong><Prose :text="entry.protocol" /></p>
         <ul v-if="entry.references.length" class="references">
           <li v-for="ref in entry.references" :key="ref.url"><a :href="ref.url" target="_blank" rel="noopener noreferrer">{{ ref.title }} ↗</a></li>

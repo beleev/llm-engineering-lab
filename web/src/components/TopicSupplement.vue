@@ -11,7 +11,7 @@
     <ol class="points-list">
       <li v-for="(point, i) in section.points" :key="point.title" class="card point-card">
         <h3><span class="point-num">{{ i + 1 }}</span><Tex :text="point.title" /></h3>
-        <Prose class="desc" :text="point.body" />
+        <Prose class="desc" :text="point.body" lead />
       </li>
     </ol>
     <details class="card supplement-source">

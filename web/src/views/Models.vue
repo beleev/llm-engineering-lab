@@ -7,7 +7,7 @@
         阶段 2 进 <RepoLink path="llm_models/" label="llm_models/" tiny /> 换成 PyTorch,
         把 attention、FFN、norm、position 四种零件装进同一个 Block, 堆出 Transformer、MoE、多模态和扩散模型。
       </p>
-      <p><strong>换一个零件只需要改前向, 反向交给 autograd (PyTorch 的自动求导)</strong>。这才有可能在一个仓库里放下二十多种架构。</p>
+      <p><strong>换一个零件只需要改前向, 反向交给 autograd (PyTorch 的自动求导)</strong>。所以一个仓库里放得下二十多种架构。</p>
     </div>
 
     <ChapterIntro
@@ -54,12 +54,33 @@
           <li>
             <b>注意力:</b> 先读它, 因为它直接决定长上下文的推理成本。生成时每个 token 的 K 和 V 都要缓存下来,
             一个 token 在全部层上的 KV 占多少显存, 各代差很多:
-            LLaMA-2-7B (MHA) 要 512 KiB, LLaMA-3-8B 换成 GQA 后 128 KiB, DeepSeek-V3 换成 MLA 后 68.6 KiB。
+            <ul class="pts">
+              <li>LLaMA-2-7B (MHA) 要 512 KiB。</li>
+              <li>LLaMA-3-8B 换成 GQA 后 128 KiB。</li>
+              <li>DeepSeek-V3 换成 MLA 后 68.6 KiB。</li>
+            </ul>
           </li>
-          <li><b>位置编码和 Block 组装:</b> 位置编码告诉模型每个 token 排在第几位; Block 组装决定四种零件怎么接成一层。</li>
-          <li><b>两条分支:</b> MoE 把 FFN 拆成多个专家, 每个 token 只用其中几个; 扩散模型换掉「一个 token 一个 token 生成」这套方式, 改成从噪声逐步去噪。</li>
+          <li>
+            <b>位置编码和 Block 组装:</b>
+            <ul class="pts">
+              <li><b>位置编码:</b> 告诉模型每个 token 排在第几位。</li>
+              <li><b>Block 组装:</b> 决定四种零件怎么接成一层。</li>
+            </ul>
+          </li>
+          <li>
+            <b>两条分支:</b>
+            <ul class="pts">
+              <li><b>MoE:</b> 把 FFN 拆成多个专家, 每个 token 只用其中几个。</li>
+              <li><b>扩散模型:</b> 换掉「一个 token 一个 token 生成」这套方式, 改成从噪声逐步去噪。</li>
+            </ul>
+          </li>
         </ol>
-        <p>每一章的形状都一样: 上一代哪里疼, 这一代怎么止疼, 又引出了什么新疼。</p>
+        <p>每一章都按同一个顺序讲:</p>
+        <ol class="pts">
+          <li>上一代的痛点。</li>
+          <li>这一代的解法。</li>
+          <li>解法引出的新问题。</li>
+        </ol>
       </div>
 
     </section>

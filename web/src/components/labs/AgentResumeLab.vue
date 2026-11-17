@@ -6,15 +6,31 @@
 <template>
   <LabFrame
     title="Resume — 进程重启后从磁盘恢复会话, 哪些东西回来了, 哪些没有"
-    sub="- 模拟什么: agent 的全部状态就是 messages 列表, 它只活在内存里。为了能在进程退出后恢复, 每产生一条消息就往一个 JSONL 文件 (每行一条 JSON) 的末尾追加一行, 只追加, 从不改写。resume 就是新进程把这些行读回来当作 messages 继续跑。这个台子讲两种「磁盘上有, 上下文里却没有」: ① 会话 A 搜了一次文档就关掉了进程, 新进程 resume 它, 看哪些行回来了、上次的权限为什么没跟着回来; ② 子 agent (lead 用 delegate 工具派出去的助手) 的完整对话也落在磁盘上, 但从来不进 lead 的上下文。
-- 图上是什么: ① 左栏是磁盘上的 session.jsonl, 一行一个按钮: 绿边是能正常恢复的行, 黄边是出了问题的行 (悬空的调用, 或写了一半的坏行)。右栏是新进程 resume 出来的 agent.messages: 有编号的是从磁盘恢复的, 标「+」的是新进程自己加的 (补的占位结果、重复注入的 session_start、新会话的第一句); 最下面一行是新会话里 write_note 这个写操作过权限门的结果, 绿是放行, 红是拒绝。点左栏任意一行, 下方显示它的原始 JSON 和 resume 时的下场。② 两根横条: 上面黄色是子 agent 的 transcript 有多少 token, 下面绿色是 lead 的峰值上下文。
-- 可以做什么: ① 三个故障开关: 「崩在 tool_use 和 tool_result 之间」在日志末尾留下一个没有结果的调用; 「最后一行只写了一半」模拟进程被 kill 时写到一半的坏行; 「resume 重放 session_start」模拟一个 bug, 每次 resume 都把启动时注入的 system 消息再注入一遍。「新会话的权限门」切换新进程用哪种门: default 且无人可问, default 且有人审批, auto。② 拖「子 agent 读几份文档」, 看子 transcript 涨多少, lead 的上下文动不动。
-- 应该看到: ① 默认 5 行全回来, 「恢复出的消息」等于「磁盘行数」。打开前两个故障开关, 磁盘 7 行, 恢复 6 条 (坏行被跳过), 再加 1 条新进程补的占位 tool_result, 因为每个 tool_use 都必须有配对的结果, 否则真实 API 会拒绝这段历史; 「跳过的坏行 / 补的占位结果」显示 1 / 1。权限门: 上次会话里 write_note 是放行过的, 但新会话选「default · 无人可问」就被拒, 因为权限不在 JSONL 里, 授权是当前运行环境的决定, 不是文件里能恢复的状态。② 子 agent 多读几份文档, 黄条一直涨, 绿条 (lead) 固定 107 token, 因为 lead 只收到一条硬截断到 200 字符的摘要; 「子 agent 峰值 / lead 峰值」里 lead 小于子级就标绿, 说明隔离在起作用。"
+    sub="- 模拟什么: agent 的全部状态就是 messages 列表, 它只活在内存里。为了能在进程退出后恢复, 每产生一条消息就往一个 JSONL 文件 (每行一条 JSON) 的末尾追加一行, 只追加, 从不改写。resume 就是新进程把这些行读回来当作 messages 继续跑。这个台子讲两种「磁盘上有, 上下文里却没有」:
+  - ① 会话 A 搜了一次文档就关掉了进程, 新进程 resume 它, 看哪些行回来了、上次的权限为什么没跟着回来。
+  - ② 子 agent (lead 用 delegate 工具派出去的助手) 的完整对话也落在磁盘上, 但从来不进 lead 的上下文。
+- 图上是什么: 分 ① ② 两个区块:
+  - ① 左栏: 磁盘上的 session.jsonl, 一行一个按钮。绿边是能正常恢复的行, 黄边是出了问题的行 (悬空的调用, 或写了一半的坏行)。点左栏任意一行, 下方显示它的原始 JSON 和 resume 时的下场。
+  - ① 右栏: 新进程 resume 出来的 agent.messages。有编号的是从磁盘恢复的, 标「+」的是新进程自己加的 (补的占位结果、重复注入的 session_start、新会话的第一句)。
+  - ① 右栏最下面一行: 新会话里 write_note 这个写操作过权限门的结果, 绿是放行, 红是拒绝。
+  - ② 两根横条: 上面黄色是子 agent 的 transcript 有多少 token, 下面绿色是 lead 的峰值上下文。
+- 可以做什么: ① 区有三个故障开关和一排权限门按钮, ② 区有一根滑杆:
+  - 「崩在 tool_use 和 tool_result 之间」: 在日志末尾留下一个没有结果的调用。
+  - 「最后一行只写了一半」: 模拟进程被 kill 时写到一半的坏行。
+  - 「resume 重放 session_start」: 模拟一个 bug, 每次 resume 都把启动时注入的 system 消息再注入一遍。
+  - 「新会话的权限门」: 切换新进程用哪种门, default 且无人可问, default 且有人审批, auto。
+  - ② 拖「子 agent 读几份文档」: 看子 transcript 涨多少, lead 的上下文动不动。
+- 应该看到: 两个区块各自的现象和右侧读数:
+  - ① 默认: 5 行全回来, 「恢复出的消息」等于「磁盘行数」。
+  - ① 打开前两个故障开关: 磁盘 7 行, 恢复 6 条 (坏行被跳过), 再加 1 条新进程补的占位 tool_result, 因为每个 tool_use 都必须有配对的结果, 否则真实 API 会拒绝这段历史; 「跳过的坏行 / 补的占位结果」显示 1 / 1。
+  - ① 权限门: 上次会话里 write_note 是放行过的, 但新会话选「default · 无人可问」就被拒, 因为权限不在 JSONL 里, 授权是当前运行环境的决定, 不是文件里能恢复的状态。
+  - ② 子 agent 多读几份文档: 黄条一直涨, 绿条 (lead) 固定 107 token, 因为 lead 只收到一条硬截断到 200 字符的摘要。
+  - ② 「子 agent 峰值 / lead 峰值」: lead 小于子级就标绿, 说明隔离在起作用。"
     module="llm_agent/m06 · m07"
     run="python -m llm_agent.m06_persistence_resume.demo"
     :challenge="{
       ask: '三个故障开关全打开, 磁盘上有 7 行。resume 出来几条消息? 再把新会话的权限门换成「default · 无人可问」: 上次放行过的 write_note, 这次为什么被拒?',
-      answer: '从磁盘恢复出 6 条, 外加新进程补上的 1 条占位结果。\n一行一行看:\n- 第 1 到 5 行是会话 A 正常写下的, 照单全收。\n- 第 7 行 (写了一半): 它不是合法 JSON, json.loads 抛 JSONDecodeError, load() 直接跳过它。坏一行不该让整个会话无法恢复。\n- 第 6 行 (悬空调用): 进程崩在 tool_use 写入之后、tool_result 写入之前, 日志里留下一个没有结果的调用。Agent.__init__ 发现最后一条是悬空的 tool_use, 给它补一条 is_error 的占位 tool_result, 并写回 JSONL。要补, 是因为没有配对的 tool_use 发给真实 Messages API 会直接 400; 要写回盘, 是因为只在内存里补的话盘上那行还悬空, 本会话一写入新消息它就不在末尾了, 下次 resume 查不出来。\n- 「resume 重放 session_start」是个反例: 历史里已经有 session_start 消息就不该再注入, 否则每次 resume 都多一条。\n权限被拒, 是因为 PermissionGate 根本不在 JSONL 里, 文件里每行只有 role、content、name 三个字段。授权是当前运行环境的决定, 不是可以被文件恢复的状态; 否则一个磁盘上的文件就能给自己提权。上次的「同意」是对当时情境的同意, 新会话要重新问。\n同理, hooks、skills、工具在外面留下的改动、子 agent 的 transcript 也都不会跟着 resume 回来。',
+      answer: '从磁盘恢复出 6 条, 外加新进程补上的 1 条占位结果。\n- 第 1 到 5 行是会话 A 正常写下的, 照单全收。\n- 第 7 行 (写了一半): 它不是合法 JSON, json.loads 抛 JSONDecodeError, load() 直接跳过它。坏一行不该让整个会话无法恢复。\n- 第 6 行 (悬空调用): 进程崩在 tool_use 写入之后、tool_result 写入之前, 日志里留下一个没有结果的调用。Agent.__init__ 发现最后一条是悬空的 tool_use, 给它补一条 is_error 的占位 tool_result, 并写回 JSONL:\n  - 要补, 是因为没有配对的 tool_use 发给真实 Messages API 会直接 400。\n  - 要写回盘, 是因为只在内存里补的话盘上那行还悬空, 本会话一写入新消息它就不在末尾了, 下次 resume 查不出来。\n- 「resume 重放 session_start」是个反例: 历史里已经有 session_start 消息就不该再注入, 否则每次 resume 都多一条。\n权限被拒, 是因为 PermissionGate 不在 JSONL 里, 文件里每行只有 role、content、name 三个字段。授权是当前运行环境的决定, 不是可以被文件恢复的状态; 否则一个磁盘上的文件就能给自己提权。上次的「同意」是对当时情境的同意, 新会话要重新问。\n同理, hooks、skills、工具在外面留下的改动、子 agent 的 transcript 也都不会跟着 resume 回来。',
     }"
   >
     <template #controls>
@@ -75,10 +91,14 @@
       <div class="kv"><span>① 跳过的坏行 / 补的占位结果</span><b>{{ +halfLine }} / {{ +dangling }}</b></div>
       <div class="kv"><span>② 子 agent 峰值 / lead 峰值 (lead 小就标绿)</span><b :class="LEAD < childTok ? 'good' : 'bad'">{{ childTok }} / {{ LEAD }} tok</b></div>
       <div class="lab-note">
-        <p><b>resume 回来了的:</b> 消息本身 (含 tool_use / tool_result 的配对)、tool_use id 的续号起点 (新调用从 toolu_0002 往下编, 不和旧的撞号)。</p>
+        <p><b>resume 回来了的:</b></p>
+        <ul class="pts">
+          <li>消息本身 (含 tool_use / tool_result 的配对)。</li>
+          <li>tool_use id 的续号起点 (新调用从 toolu_0002 往下编, 不和旧的撞号)。</li>
+        </ul>
         <p><b>没回来的:</b></p>
         <ul class="pts">
-          <li>权限模式和上次的审批结果: JSONL 里根本没有这个字段, 新会话自己建门。</li>
+          <li>权限模式和上次的审批结果: JSONL 里没有这个字段, 新会话自己建门。</li>
           <li>hooks 和 skills: 由新进程自己装。</li>
           <li>工具在外面留下的改动 (写过的文件、发过的请求): 存储管不着, resume 不会回滚也不会重放。</li>
           <li>子 agent 的 transcript: 它在磁盘上可以审计, 但从来不属于 lead 的上下文。</li>

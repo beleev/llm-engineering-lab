@@ -13,7 +13,12 @@
     </div>
 
     <ChapterIntro
-      tldr="一张卡装不下、也算不完大模型, 规模化训练就是把一次训练拆到很多张卡上。能切的东西有四种: 切 batch (每张卡算不同的样本)、切层或切矩阵 (每张卡放模型的一部分)、切优化器状态 (每张卡只存一片)、切序列。本阶段每切一刀都用 assert 证明: 算出来的梯度和更新与单卡完全一样。"
+      tldr="一张卡装不下、也算不完大模型, 规模化训练就是把一次训练拆到很多张卡上。能切的东西有四种:
+        - 切 batch: 每张卡算不同的样本。
+        - 切层或切矩阵: 每张卡放模型的一部分。
+        - 切优化器状态: 每张卡只存一片。
+        - 切序列。
+        本阶段每切一刀都用 assert 证明: 算出来的梯度和更新与单卡完全一样。"
       question="什么时候该切 batch, 什么时候该切矩阵, 什么时候该切优化器状态?"
       :goals="[
         '看懂 DDP (数据并行) 切 batch、TP (张量并行) 切矩阵、PP (流水线并行) 切层、ZeRO 切优化器状态, 各自解决哪种放不下',
@@ -35,7 +40,7 @@
     <section class="section">
       <h2>1. 训练技术的依赖链</h2>
       <div class="lead-group">
-        <p>这个顺序按瓶颈排: 每一步都等前一步的瓶颈真的撞上了才出场。</p>
+        <p>这个顺序按瓶颈排: 前一步的瓶颈撞上了, 才需要下一步。</p>
         <ul class="pts">
           <li>先把大 batch 拆开, 再扩到多卡。</li>
           <li>模型本身放不下, 才去切矩阵和层。</li>
@@ -80,9 +85,12 @@
     <section class="section">
       <h2>3. 四个关键等价 · 对照原始代码</h2>
       <div class="lead-group">
-        <p>
-          这些 demo 的写法都一样: 先算一个单机基线, 再算并行版本, 最后用 <code class="inline">assert</code> 把两者对齐。
-        </p>
+        <p>这些 demo 的写法都一样:</p>
+        <ol class="pts">
+          <li>先算一个单机基线。</li>
+          <li>再算并行版本。</li>
+          <li>最后用 <code class="inline">assert</code> 把两者对齐。</li>
+        </ol>
         <p>等价性是所有并行策略的验收标准。一旦对不上, 训出来的就不是同一个模型。</p>
       </div>
 
@@ -134,11 +142,16 @@
 
     <section class="section">
       <h2>5. 模块索引 · 运行时看什么</h2>
-      <p class="lead">
-        每个模块都会打印"现象 → 数字 → 结论"。先跑单模块, 再跑
-        <code class="inline">python -m llm_train.run_all</code> 看完整学习顺序
-        (<RepoLink path="llm_train/run_all.py" label="llm_train/run_all.py" tiny />)。
-      </p>
+      <div class="lead-group">
+        <p>每个模块都会打印"现象 → 数字 → 结论"。跑的顺序:</p>
+        <ol class="pts">
+          <li>先跑单模块。</li>
+          <li>
+            再跑 <code class="inline">python -m llm_train.run_all</code> 看完整学习顺序
+            (<RepoLink path="llm_train/run_all.py" label="llm_train/run_all.py" tiny />)。
+          </li>
+        </ol>
+      </div>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="train-table">
           <thead>
@@ -293,7 +306,7 @@ tp_out   = all_reduce_sum(partial)[0] + b2`,
   {
     title: 'ZeRO / FSDP',
     tag: 'state sharding',
-    desc: '核心动作是梯度先 reduce-scatter, 每张卡只更新自己那片参数。',
+    desc: '梯度先 reduce-scatter, 每张卡只更新自己那片参数。',
     file: 'llm_train/m05_zero_fsdp/demo.py',
     code: `grad_shards  = reduce_scatter_sum(grad_per_rank, axis=0)
 param_shards = split(param, world, axis=0)

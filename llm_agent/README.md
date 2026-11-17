@@ -144,17 +144,17 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | [m28_coding_agent](m28_coding_agent/README.md) | demo 里一个写死的修复策略 (RepairPolicy, 代替真实模型) 去修 pricing.py 里的折扣函数。 |
 | [m29_async_runtime](m29_async_runtime/README.md) | demo 用真实的 asyncio 任务模拟一个会往账本里记 10 元的工具, 分三种时序跑: 跑完、提交前被取消、提交后被取消。 |
 | [m30_collaboration](m30_collaboration/README.md) | 两个 worker 并行改一份共享计划, 各改自己负责的那个资源, 合并时没有任何文本冲突; 可合起来总量 12 超过上限 10。 |
-| [m31_eval_suite](m31_eval_suite/README.md) | 同一份 3 道题的题集 (内容哈希成 suite id 191d7ed87046) 跑三种条件: 什么机制都不开的 baseline 过 1/3; 只开授权门 (不允许写的题真的不写) 过 2/3; 再开澄清 (账户不明时问用户一句) 过 3/3。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 同一份 3 道题的题集 (内容哈希成 suite id 191d7ed87046) 跑三种条件: - 什么机制都不开的 baseline 过 1/3。 |
 | [m32_agent_training](m32_agent_training/README.md) | demo 让一个极小的 LLaMA 模型 (在 CPU 上真的更新参数) 学一个只有 4 个动作的工具协议, 训练用 16 个实体, 验收用另外 16 个没见过的实体 (留出集)。 |
 | [m33_skill_evolution](m33_skill_evolution/README.md) | demo 里的 Skill 是一条 "按项目选编程语言" 的规则: 默认 Python, 可以给单个项目设例外。 |
-| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音助手分四段: VAD 判断有没有人在说话, ASR 把语音转成文字, LLM 想答案, TTS 把答案变成声音。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音助手分四段: 1. VAD 判断有没有人在说话。 |
 | [m35_visual_grounding](m35_visual_grounding/README.md) | 视觉定位 (visual grounding) 是从截图像素里算出目标在哪。 |
 | [m36_embodied_control](m36_embodied_control/README.md) | demo 是一个一维的小车: 位置 x 从 0 出发, 目标 1.0, 每步 x 增加 增益 × 动作。 |
 | [m37_midtraining](m37_midtraining/README.md) | 中期训练指的是: 预训练之后, 继续用 "预测下一个 token" 的目标在新领域语料上训练模型, 把新知识写进权重。 |
 | [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序化行动指让模型把规则写成代码交给解释器算, 而不是在文字里心算。 |
 | [m39_meta_optimization](m39_meta_optimization/README.md) | 元优化改的不是模型知道什么, 而是 agent "怎么探索": 本章比较两个搜索策略, breadth (按发现顺序展开节点) 和 prior (先展开先验分 prior 最高的节点)。 |
 | [m40_agent_society](m40_agent_society/README.md) | demo 是一个重复的囚徒困境: 两个 agent 每轮各选合作 (C) 或背叛 (D), 按一张收益表拿分, 连玩 6 轮。 |
-| [m41_system_design](m41_system_design/README.md) | 两种做法: workflow 是事先写好步骤清单的固定流程, 便宜但清单里没有的事做不了; Agent 是让模型每一步自己决定下一步, 什么都能做但贵。 |
+| [m41_system_design](m41_system_design/README.md) | 两种做法: - workflow 是事先写好步骤清单的固定流程, 便宜但清单里没有的事做不了。 |
 | [m42_memory_privacy](m42_memory_privacy/README.md) | 权限要在召回之前查, 不是先把记忆全取出来再过滤。 |
 
 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。

@@ -19,11 +19,11 @@
         :class="['lv', `lv-${l.id}`, { active: level === l.id }]" @click="progress.setLevel(l.id)"
       >{{ l.label }} · {{ countOf(l.id) }} 章, {{ l.hint }}</button>
     </div>
-    <p class="assume legend">
-      档位和侧栏同步, 「下一章」和键盘 ← / → 也按它走。
-      每章前的标记: <span class="tier core">★</span> 冲刺 <span class="tier core">●</span> 主干 <span class="tier ext">○</span> 扩展;
-      行尾 <span class="state">✓</span> 自测全对, <span class="state">已读</span> 打开过这一章。
-    </p>
+    <p class="assume legend">档位和侧栏同步, 「下一章」和键盘 ← / → 也按它走。</p>
+    <ul class="assume legend pts">
+      <li><b>每章前的标记:</b> <span class="tier core">★</span> 冲刺 <span class="tier core">●</span> 主干 <span class="tier ext">○</span> 扩展。</li>
+      <li><b>行尾:</b> <span class="state">✓</span> 自测全对, <span class="state">已读</span> 打开过这一章。</li>
+    </ul>
 
     <div class="card summary">
       <div class="sum-item"><span class="v mono">{{ list.length }}</span><span class="k">章</span></div>
@@ -68,8 +68,8 @@
         </div>
       </div>
       <p class="assume">
-        扩展章不是"次要内容", 是分支和深水区: 里面全是 2026 年真实系统正在用的东西。
-        只是先走完主干, 再读它们才有落点。
+        扩展章是分支和深水区, 内容并不次要: 里面全是 2026 年真实系统正在用的东西。
+        先走完主干, 再读它们才有落点。
       </p>
     </section>
   </div>

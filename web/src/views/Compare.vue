@@ -7,7 +7,9 @@
     </p>
 
     <ChapterIntro
-      tldr="竖着读模型表 = 一个组件维度的演进史。横着读六阶段表 = 一个 LLM 从公式到可行动系统的工程闭环。"
+      tldr="两种读法:
+        - 竖着读模型表: 读到的是每个组件维度的演进史。
+        - 横着读六阶段表: 读到的是一个 LLM 从公式到可行动系统的工程闭环。"
       question="遇到一个真实大模型系统, 你能快速判断问题发生在结构、训练、微调、推理还是 Agent harness 层吗?"
       :goals="[
         `快速对照 ${timeline.length} 种主流模型的零件配置 (attn / ffn / norm / pos)`,
@@ -271,7 +273,7 @@ const projectRows = [
   },
   {
     code: 'llm_models/',
-    question: '主流模型的差别到底落在哪些零件上?',
+    question: '主流模型的差别落在哪些零件上?',
     link: '把 basic 的单层单头替换成 attention/ffn/norm/pos 的现代组合。',
     file: 'layers/core/ · models/',
   },

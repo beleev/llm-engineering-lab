@@ -6,10 +6,29 @@
 <template>
   <LabFrame
     title="注意力掩码实验台 — 每个位置能看见哪些位置"
-    sub="- 模拟什么: attention 里每个 token (query, 正在看的位置) 会给它前面的每个 token (key, 被看的位置) 打一个分, 再按分数加权取信息。掩码 mask 规定哪些 (query, key) 对子允许打分: 不允许的直接填 −inf, softmax 之后权重为 0。语言模型最基本的一条是因果 (causal) 掩码: 只能看过去, 不能看未来。在它之上, 各家模型再用不同的 mask 限制「能看多远」; 同一套 QKV 投影, 换一张 mask 就是另一个模型: 全因果是 LLaMA, 带状窗口是 Mistral 的滑动窗口注意力 (SWA), 带状 + sink 是 StreamingLLM (对应 llm_infer/m16_attention_sinks), top-k 稀疏是 DeepSeek 的 DSA。
-      - 图上是什么: 一张 T×T 的格子, 第 i 行是第 i 个 query, 第 j 列是第 j 个 key。涂色的格子表示这个 query 能看见这个 key; 右上半边空白是未来位置, 被因果屏蔽; 浅色的是被当前策略裁掉的历史; sink 模式下另一种颜色标的是永久保留的开头几个 token。颜色图例在矩阵下方。细框圈住的是当前选中的 query 行。
-      - 可以做什么: 上排按钮切 4 种掩码。拖「序列长度 T」改矩阵大小。滑动窗口和 sink 模式下拖「窗口 W」改每个 query 能回看最近几个 token; sink 模式下拖「sink 数 S」改开头永久保留几个; top-k 模式下拖「稀疏候选 top-k」改每个 query 最多挑几个 key。鼠标移到某一行或点它 (键盘: 聚焦矩阵后按上下键) 选一个 query, 右侧显示它能看见几个 key。
-      - 应该看到: 右侧「当前机制」一句话说明此刻的策略。「可见格子数」是整张图涂色格子的总数, 它正比于注意力要算多少次打分 (FLOPs); 「相对全因果的计算量」是它和全因果 (T(T+1)/2 格) 的百分比。「KV cache 条目上限」是生成时每层要为这条序列存多少个 token 的 K 和 V: 全因果随 T 线性长 (O(T)), 滑动窗口钉死在 W (O(W)), sink 模式是 S+W, top-k 稀疏虽然算得少但 cache 一个都不能丢 (O(T))。拖 T 时注意: 全因果的可见格子按 T 的平方涨, 滑动窗口只按 T 线性涨。"
+    sub="- 模拟什么: attention 里每个 token (query, 正在看的位置) 会给它前面的每个 token (key, 被看的位置) 打一个分, 再按分数加权取信息。掩码 mask 规定哪些 (query, key) 对子允许打分: 不允许的直接填 −inf, softmax 之后权重为 0。语言模型最基本的一条是因果 (causal) 掩码: 只能看过去, 不能看未来。在它之上, 各家模型再用不同的 mask 限制「能看多远」; 同一套 QKV 投影, 换一张 mask 就是另一个模型:
+        - 全因果: LLaMA。
+        - 带状窗口: Mistral 的滑动窗口注意力 (SWA)。
+        - 带状 + sink: StreamingLLM (对应 llm_infer/m16_attention_sinks)。
+        - top-k 稀疏: DeepSeek 的 DSA。
+      - 图上是什么: 一张 T×T 的格子, 第 i 行是第 i 个 query, 第 j 列是第 j 个 key。颜色图例在矩阵下方:
+        - 涂色的格子: 这个 query 能看见这个 key。
+        - 右上半边空白: 未来位置, 被因果屏蔽。
+        - 浅色的: 被当前策略裁掉的历史。
+        - sink 模式下另一种颜色: 永久保留的开头几个 token。
+        - 细框: 圈住的是当前选中的 query 行。
+      - 可以做什么: 按界面从上到下:
+        - 上排按钮切 4 种掩码。
+        - 拖「序列长度 T」改矩阵大小。
+        - 滑动窗口和 sink 模式下拖「窗口 W」改每个 query 能回看最近几个 token。
+        - sink 模式下拖「sink 数 S」改开头永久保留几个。
+        - top-k 模式下拖「稀疏候选 top-k」改每个 query 最多挑几个 key。
+        - 鼠标移到某一行或点它 (用键盘就聚焦矩阵后按上下键) 选一个 query, 右侧显示它能看见几个 key。
+      - 应该看到: 拖 T 时注意: 全因果的可见格子按 T 的平方涨, 滑动窗口只按 T 线性涨。右侧读数:
+        - 「当前机制」一句话说明此刻的策略。
+        - 「可见格子数」是整张图涂色格子的总数, 它正比于注意力要算多少次打分 (FLOPs)。
+        - 「相对全因果的计算量」是它和全因果 (T(T+1)/2 格) 的百分比。
+        - 「KV cache 条目上限」是生成时每层要为这条序列存多少个 token 的 K 和 V: 全因果随 T 线性长 (O(T)), 滑动窗口钉死在 W (O(W)), sink 模式是 S+W, top-k 稀疏虽然算得少但 cache 一个都不能丢 (O(T))。"
     module="llm_infer/m16"
     run="python -m llm_infer.m16_attention_sinks.demo"
     :challenge="{
@@ -142,8 +161,8 @@ const currentModeLabel = computed(() => modes.find((item) => item.id === mode.va
 const modeSummary = computed(() => ({
   full: `第 ${T.value} 个 token 可以回看全部 ${T.value} 个历史位置; 上下文越长, 计算与 KV 都持续增长。`,
   swa: `每个 query 只保留最近 ${Math.min(T.value, W.value)} 个位置; 旧信息必须跨层逐步传递。`,
-  sink: `最近 ${Math.min(T.value, W.value)} 个位置负责局部信息, 开头 ${Math.min(T.value, S.value)} 个 sink 负责稳定全局锚点。`,
-  topk: `全部 ${T.value} 个 KV 仍被保存, 但每个 query 只选择最多 ${Math.min(T.value, K.value)} 个位置参与重计算。`,
+  sink: `最近 ${Math.min(T.value, W.value)} 个位置负责局部信息, 开头 ${Math.min(T.value, S.value)} 个 sink 一直保留, 接住多余的注意力。`,
+  topk: `全部 ${T.value} 个 KV 仍被保存, 但每个 query 只选择最多 ${Math.min(T.value, K.value)} 个位置参与注意力计算。`,
 }[mode.value]))
 
 const maskAriaLabel = computed(() =>

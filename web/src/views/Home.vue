@@ -5,7 +5,7 @@
       <p>
         把 "训出一个能用、能部署、能行动的大模型系统" 拆成 <strong>六个递进阶段</strong>。每个阶段对应仓库根目录下的一个子项目。
       </p>
-      <p>教程与代码逐行对照, 你看到的每一段叙述都能在 Python 文件里找到出处。</p>
+      <p>教程与代码逐行对照, 每一段叙述都能在 Python 文件里找到出处。</p>
     </div>
 
     <!-- ── 新手 30 秒导览: 第一次来的人先看这里, 所以紧跟在副标题下面 ───────── -->
@@ -30,14 +30,25 @@
           <div class="onboard-num">3</div>
           <h3>怎么读</h3>
           <p class="desc">
-            <strong>不用全读。</strong>先选档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章)。每章先拖实验台, 再看要点和源码, 最后做自测。
+            <strong>不用全读。</strong>先选档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章)。每章按这个顺序读:
           </p>
+          <ol class="desc pts">
+            <li>拖实验台。</li>
+            <li>看要点和源码。</li>
+            <li>做自测。</li>
+          </ol>
         </div>
       </div>
     </section>
 
     <ChapterIntro
-      tldr="一条主线, 把模型从公式带到能行动的系统。依次是: numpy 手写最小闭环 → 现代架构家族 → 规模化训练 → 任务微调 → 推理优化 → Agent 应用层。"
+      tldr="一条主线, 把模型从公式带到能行动的系统。依次是:
+        1. numpy 手写最小闭环。
+        2. 现代架构家族。
+        3. 规模化训练。
+        4. 任务微调。
+        5. 推理优化。
+        6. Agent 应用层。"
       question="如果一个新人要从零开始, 先看哪一段, 跳过哪一段?"
       :goals="[
         '看清 LLM 全栈的六个工程阶段, 各自解决什么问题',
@@ -75,7 +86,11 @@
       <div class="card route-cta">
         <div>
           <p class="cta-k">{{ chapters.length }} 章不用全读</p>
-          <p class="cta-t">主干 {{ coreCount }} 章走完整条链路, 冲刺 {{ sprintCount }} 章一天读完; 其余是分支和深水区, 随时回来补。</p>
+          <ul class="cta-t pts">
+            <li><b>主干 {{ coreCount }} 章:</b> 走完整条链路。</li>
+            <li><b>冲刺 {{ sprintCount }} 章:</b> 一天读完。</li>
+            <li><b>其余:</b> 分支和深水区, 随时回来补。</li>
+          </ul>
         </div>
         <div class="cta-go">
           <router-link :to="{ name: 'basic' }" :class="['btn', { active: !resume }]">从阶段 1 开始 →</router-link>
@@ -92,7 +107,7 @@
           <span class="path-tag green">🟢 入门</span>
           <h3>从零开始</h3>
           <ol class="path-steps">
-            <li>读完 <router-link :to="{ name: 'basic' }">阶段 1</router-link> — 用 numpy 跑通最小闭环</li>
+            <li>读完 <router-link :to="{ name: 'basic' }">阶段 1</router-link>, 用 numpy 跑通最小闭环</li>
             <li>挑 <router-link :to="{ name: 'attention' }">注意力</router-link> 与 <router-link :to="{ name: 'blocks' }">Block 组装</router-link> 看现代零件</li>
             <li>看 <router-link :to="{ name: 'compare' }">总览对照表</router-link>, 决定下一站</li>
           </ol>
@@ -170,7 +185,11 @@
       <h2>阶段 2 内部 · llm_models 演进时间轴</h2>
       <div class="lead-group">
         <p>2017 → 2025, 三条主线 (语言 / 多模态理解 / 图像视频生成) 各自的代表模型。</p>
-        <p><strong>点一个节点看它的零件配置</strong>; 再点一次, 或点卡片里的「去这一章」, 跳到对应章节。那里用一份 PyTorch 实现把零件还原。</p>
+        <p>时间轴这样用:</p>
+        <ol class="pts">
+          <li><strong>点一个节点看它的零件配置。</strong></li>
+          <li>再点一次, 或点卡片里的「去这一章」, 跳到对应章节。那里用一份 PyTorch 实现把零件还原。</li>
+        </ol>
       </div>
 
       <div class="legend">
@@ -251,7 +270,7 @@
     <section class="section">
       <h2>六个目录之间的依赖</h2>
       <p class="lead">
-        这不是六块孤立知识。后一阶段会复用前一阶段的抽象, 只是把约束换成更真实的工程约束。
+        后一阶段会复用前一阶段的抽象, 只是把约束换成更真实的工程约束。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="path-table">

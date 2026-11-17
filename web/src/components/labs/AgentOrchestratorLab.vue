@@ -5,10 +5,24 @@
 <template>
   <LabFrame
     title="Orchestrator–workers — 把调研拆给几个子 agent, 三本账怎么变: lead 上下文 / 总 token / 墙钟时间"
-    sub="- 模拟什么: 一个调研任务要读很多长文档, 比较两种做法。「单 agent 全自己读」: 一个 agent 把全部 N×r 份文档一份一份读进自己的上下文。「orchestrator-workers」: 一个 lead agent 把任务拆成 N 个子任务, 用 delegate 工具分给 N 个 worker (子 agent), 每个 worker 在自己独立的上下文里读文档, 做完只交回一条很短的摘要 (harness 硬截断到 200 字符, 约 50 token), lead 再汇总。worker 可以一个接一个串行跑, 也可以用线程池并行跑 (最多 4 个同时)。
-- 图上是什么: 一张甘特图, 横轴是墙钟时间 (用户实际要等的秒数, 每次「模型调用 + 工具执行」按 3 秒算)。orchestrator 模式下第一行是 lead, 两段橙色条分别是开头的「扇出」和结尾的「汇总」; 下面每行一个 worker, 紫色条是它从领到任务到交回摘要的这段时间, 长度带一点随机, 条上写着它读了几份。单 agent 模式只有一行, 一条长条从头读到尾。点任意一个 worker 条, 图下方会显示这个 worker 自己读了多少 token 的文档、花了多少 input token, 以及 lead 实际只收到多少。
-- 可以做什么: 第一排切换三种做法, 「换一组耗时」重新随机每个 worker 的耗时。四根滑杆: 「子任务数 N」是有几个 worker; 「每个子任务读几份文档」是每个 worker 要读几份, 单 agent 则要读 N×r 份; 「每份文档」是一份文档的 tool_result 有多少 token; 「worker 多探索」模拟真实系统里 worker 常常会自己多翻几份资料, 这个倍数让每个 worker 读 r 乘倍数那么多份, 单 agent 不受它影响。
-- 应该看到: 三本账方向不一样。「峰值上下文」是单次模型调用里上下文最大有多少 token, lead 的永远比单 agent 小, 因为长文档都在 worker 那边, lead 只看到摘要。「总 input tokens」是所有模型调用的输入加起来 (lead 加全部 worker): 文档少又短时 orchestrator 更贵 (默认 11.1K 对 9.4K), 因为每个 worker 都要重建一份 system prompt 加任务简报 (800 + 150 token); 文档一多, 单 agent 每一轮都要重发前面读过的全部文档, 账按平方涨, orchestrator 反而便宜。「总 token 相对单 agent」就是这个倍数。「墙钟时间」默认大致打平, 子任务多了并行才拉开差距。每一项下面的灰字是对照组的数, 比它小 10% 以上标绿, 大 10% 以上标红。"
+    sub="- 模拟什么: 一个调研任务要读很多长文档, 比较两种做法:
+  - 「单 agent 全自己读」: 一个 agent 把全部 N×r 份文档一份一份读进自己的上下文。
+  - 「orchestrator-workers」: 一个 lead agent 把任务拆成 N 个子任务, 用 delegate 工具分给 N 个 worker (子 agent), 每个 worker 在自己独立的上下文里读文档, 做完只交回一条很短的摘要 (harness 硬截断到 200 字符, 约 50 token), lead 再汇总。worker 可以一个接一个串行跑, 也可以用线程池并行跑 (最多 4 个同时)。
+- 图上是什么: 一张甘特图, 横轴是墙钟时间 (用户实际要等的秒数, 每次「模型调用 + 工具执行」按 3 秒算):
+  - orchestrator 模式: 第一行是 lead, 两段橙色条分别是开头的「扇出」和结尾的「汇总」; 下面每行一个 worker, 紫色条是它从领到任务到交回摘要的这段时间, 长度带一点随机, 条上写着它读了几份。
+  - 单 agent 模式: 只有一行, 一条长条从头读到尾。
+  - 点任意一个 worker 条: 图下方会显示这个 worker 自己读了多少 token 的文档、花了多少 input token, 以及 lead 实际只收到多少。
+- 可以做什么: 第一排切换三种做法, 「换一组耗时」重新随机每个 worker 的耗时。四根滑杆:
+  - 「子任务数 N」: 有几个 worker。
+  - 「每个子任务读几份文档」: 每个 worker 要读几份, 单 agent 则要读 N×r 份。
+  - 「每份文档」: 一份文档的 tool_result 有多少 token。
+  - 「worker 多探索」: 模拟真实系统里 worker 常常会自己多翻几份资料, 这个倍数让每个 worker 读 r 乘倍数那么多份, 单 agent 不受它影响。
+- 应该看到: 三本账方向不一样。右侧读数:
+  - 「峰值上下文」: 单次模型调用里上下文最大有多少 token。lead 的永远比单 agent 小, 因为长文档都在 worker 那边, lead 只看到摘要。
+  - 「总 input tokens」: 所有模型调用的输入加起来 (lead 加全部 worker)。文档少又短时 orchestrator 更贵 (默认 11.1K 对 9.4K), 因为每个 worker 都要重建一份 system prompt 加任务简报 (800 + 150 token); 文档一多, 单 agent 每一轮都要重发前面读过的全部文档, 账按平方涨, orchestrator 反而便宜。
+  - 「总 token 相对单 agent」: 就是这个倍数。
+  - 「墙钟时间」: 默认大致打平, 子任务多了并行才拉开差距。
+  - 每一项下面的灰字: 对照组的数, 比它小 10% 以上标绿, 大 10% 以上标红。"
     module="llm_agent/m11"
     run="python -m llm_agent.m11_orchestrator.demo"
     :challenge="{

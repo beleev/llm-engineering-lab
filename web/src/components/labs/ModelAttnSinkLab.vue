@@ -7,14 +7,27 @@
   <LabFrame
     title="Attention sink — 让一个注意力头可以「谁都不看」"
     sub="- 模拟什么: 注意力里的一个 head 在某个位置给 6 个历史 key 各打一个分 (logit), 过 softmax 变成概率, 再用概率加权各 key 的 value 得到输出。softmax 强迫 6 个概率加起来恰好等于 1, 所以哪怕 6 个 key 都没用, 这个 head 也得把 1 分完, 输出一堆无关 value 的平均。attention sink 是 GPT-OSS 的补救: 给每个 head 加一个可学的标量 logit (sink), 它一起参加 softmax, 但没有 value; 分到它头上的概率直接丢掉, 真实 key 的概率和就可以小于 1。
-      - 图上是什么: 上排 6 根柱子是 6 个 key (k0 到 k5) 的 logit, 零线在中间, 柱子向上是正、向下是负, 柱顶的圆点可以拖。下排是 softmax 之后每个 key 分到的概率, 柱顶标着百分比。最右边标着 sink 的那一列只在 use_sink 打开时出现: 上面是 sink 的 logit, 下面的虚线柱是被它吸走、直接丢弃的概率。
-      - 可以做什么: 上下拖上排任意圆点改那个 key 的 logit (键盘上下键每次 0.5)。「use_sink = True」和「标准 softmax」切换有没有 sink。三个预设: 「有一个相关 key」把 k2 设成 4、其余是负数; 「全都不相关」把 6 个 logit 都压到 −3 附近; 「Python demo」复现 infer_gpt_oss 里的算例, 3 个 key 是 0 分、3 个 key 是 −6, sink 是 ln 3 ≈ 1.1。打开 sink 后出现「sink logit」滑杆 (−4 到 4), 模拟这个 head 训练后学到的 sink 值。
-      - 应该看到: 标准 softmax 下把 6 根柱子一起往下拖, 下排概率纹丝不动, 因为 softmax 只看 logit 之间的差。打开 sink 后再做同样的事, sink 不动而 6 个 key 都在下滑, 概率就一路流向 sink。右侧「真实 key 的概率和」就是这个 head 输出的幅度, 100% 是满幅输出, 越小表示它越「小声」; 「被 sink 吸走」是丢掉的那部分, 两者相加恒为 100%; 「最大单 key 概率」看注意力有多集中; 「最大 key logit − sink logit」是正数且较大时 sink 几乎隐身, 是负数时 sink 占大头。"
+      - 图上是什么: 上下两排柱子, 最右边可能多一列:
+        - 上排: 6 根柱子是 6 个 key (k0 到 k5) 的 logit, 零线在中间, 柱子向上是正、向下是负, 柱顶的圆点可以拖。
+        - 下排: softmax 之后每个 key 分到的概率, 柱顶标着百分比。
+        - 最右边标着 sink 的那一列: 只在 use_sink 打开时出现。上面是 sink 的 logit, 下面的虚线柱是被它吸走、直接丢弃的概率。
+      - 可以做什么: 能动的地方有这些:
+        - 拖圆点: 上下拖上排任意圆点改那个 key 的 logit (键盘上下键每次 0.5)。
+        - 切换按钮: 「use_sink = True」和「标准 softmax」切换有没有 sink。
+        - 预设「有一个相关 key」: 把 k2 设成 4、其余是负数。
+        - 预设「全都不相关」: 把 6 个 logit 都压到 −3 附近。
+        - 预设「Python demo」: 复现 infer_gpt_oss 里的算例, 3 个 key 是 0 分、3 个 key 是 −6, sink 是 ln 3 ≈ 1.1。
+        - 「sink logit」滑杆: 打开 sink 后出现 (−4 到 4), 模拟这个 head 训练后学到的 sink 值。
+      - 应该看到: 标准 softmax 下把 6 根柱子一起往下拖, 下排概率纹丝不动, 因为 softmax 只看 logit 之间的差。打开 sink 后再做同样的事, sink 不动而 6 个 key 都在下滑, 概率就一路流向 sink。右侧读数:
+        - 「真实 key 的概率和」: 就是这个 head 输出的幅度, 100% 是满幅输出, 越小表示它越「小声」。
+        - 「被 sink 吸走」: 丢掉的那部分, 它和上一项相加恒为 100%。
+        - 「最大单 key 概率」: 看注意力有多集中。
+        - 「最大 key logit − sink logit」是正数且较大时 sink 几乎隐身, 是负数时 sink 占大头。"
     module="llm_models/layers/core/attention.py"
     run="python -m llm_models.run_models.moe.gpt_oss.infer_gpt_oss"
     :challenge="{
       ask: '点「预设: 全都不相关」, 再点「标准 softmax」关掉 sink。先猜: 6 个 key 的概率各是多少、加起来多少? 这个 head 的输出是什么? 猜完再点「use_sink = True」打开 sink 对比。',
-      answer: '答案: 每个 key 约 1/6 (17% 上下), 加起来恒为 100%; 这个 head 的输出是 6 个无关 value 的平均, 一团满幅度的噪声。\n一步步看:\n- 6 个 logit 都在 −3 左右。softmax 的公式是 $e^{s_j} / \\sum_k e^{s_k}$, 分子分母同乘一个常数结果不变, 所以它只认 logit 之间的差, 不认绝对大小。6 个差不多的 logit 就是 6 个差不多的概率。\n- 概率和恒为 1, 所以输出 $\\sum_j p_j v_j$ 的幅度和「有一个很相关的 key」时一样大, 这堆噪声会原样加进残差流。\n- 没有 sink 的真实模型为了自救, 会学着把多余的概率倒到第一个 token 上 (StreamingLLM 论文观察到的 attention sink 现象)。于是滑动窗口一旦把开头 token 挤出 cache, 模型就崩。\n- 打开 sink (logit = 0): 分母多了一项 $e^0 = 1$, 而 6 个 key 合计只有 $6 \\cdot e^{-3} \\approx 0.3$。于是 sink 吸走约 77%, 真实 key 的概率和只剩约 23%: 这个 head 学会了「小声说话」。\n- 再点「预设: 有一个相关 key」: k2 的 logit 是 4, $e^4 \\approx 55$ 远大于 sink 的 1, sink 几乎不影响结果。\n所以 sink 和滑动窗口是绝配: 模型不再依赖必须留在 cache 里的开头 token。',
+      answer: '答案: 每个 key 约 1/6 (17% 上下), 加起来恒为 100%; 这个 head 的输出是 6 个无关 value 的平均, 一团满幅度的噪声。\n- 6 个 logit 都在 −3 左右。softmax 的公式是 $e^{s_j} / \\sum_k e^{s_k}$, 分子分母同乘一个常数结果不变, 所以它只认 logit 之间的差, 不认绝对大小。6 个差不多的 logit 就是 6 个差不多的概率。\n- 概率和恒为 1, 所以输出 $\\sum_j p_j v_j$ 的幅度和「有一个很相关的 key」时一样大, 这堆噪声会原样加进残差流。\n- 没有 sink 的真实模型会学着把多余的概率倒到第一个 token 上 (StreamingLLM 论文观察到的 attention sink 现象)。于是滑动窗口一旦把开头 token 挤出 cache, 模型输出就会严重变差。\n- 打开 sink (logit = 0): 分母多了一项 $e^0 = 1$, 而 6 个 key 合计只有 $6 \\cdot e^{-3} \\approx 0.3$。于是 sink 吸走约 77%, 真实 key 的概率和只剩约 23%, 这个 head 的输出随之变小。\n- 对照: 再点「预设: 有一个相关 key」, k2 的 logit 是 4, $e^4 \\approx 55$ 远大于 sink 的 1, sink 几乎不影响结果。\n有了 sink, 模型不用再把多余概率倒给开头 token, 滑动窗口把开头 token 挤出 cache 也不受影响。',
     }"
   >
     <template #controls>
@@ -57,10 +70,17 @@
       <div class="kv"><span>被 sink 吸走并丢弃的概率</span><b>{{ (sinkP * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>最大单 key 概率 (注意力有多集中)</span><b>{{ (Math.max(...probs) * 100).toFixed(1) }}%</b></div>
       <div class="kv"><span>最大 key logit − sink logit (越正 sink 越隐身)</span><b>{{ useSink ? (Math.max(...logits) - sink).toFixed(1) : '—' }}</b></div>
-      <p class="lab-note">
-        {{ useSink ? 'sink 像一个「分数固定的空 key」: 某个 key 的 logit 明显高于它时, 它分不到什么概率, 等于隐身; 所有 key 都低于它时, 它把大部分概率吸走, 这个 head 的输出就变小。它初始化为 0, 训练时每个 head 各自学到自己的值。'
-          : '标准 softmax: 把所有 logit 一起往下拖, 概率纹丝不动。它只认 logit 之间的相对差, 表达不了「这些我都不想看」, 所以 6 个无关 key 也会拿到满额的 100%。' }}
-      </p>
+      <div class="lab-note">
+        <template v-if="useSink">
+          <p>sink 像一个「分数固定的空 key」:</p>
+          <ul class="pts">
+            <li>某个 key 的 logit 明显高于它时, 它分不到什么概率, 等于隐身。</li>
+            <li>所有 key 都低于它时, 它把大部分概率吸走, 这个 head 的输出就变小。</li>
+          </ul>
+          <p>它初始化为 0, 训练时每个 head 各自学到自己的值。</p>
+        </template>
+        <p v-else>标准 softmax: 把所有 logit 一起往下拖, 概率纹丝不动。它只认 logit 之间的相对差, 表达不了「这些我都不想看」, 所以 6 个无关 key 也会拿到满额的 100%。</p>
+      </div>
     </template>
   </LabFrame>
 </template>

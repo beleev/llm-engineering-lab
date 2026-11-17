@@ -7,13 +7,19 @@
         把前向计算 (forward)、反向求梯度 (backward)、Adam 优化器、采样生成这四件事一行不落地摊开写。
       </p>
       <p>
-        <strong>它只干一件事</strong>: 让你看清梯度怎么流过模型。之后再读
-        <RepoLink path="llm_models/" label="llm_models/" tiny /> 里的 PyTorch 代码, 你会知道 autograd (PyTorch 的自动求导, 平时替你算所有梯度) 在背后做了什么。
+        <strong>目标</strong>: 看清梯度怎么流过模型。之后再读
+        <RepoLink path="llm_models/" label="llm_models/" tiny /> 里的 PyTorch 代码, 就知道 autograd (PyTorch 的自动求导, 平时替你算所有梯度) 在背后做了什么。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="现代 LLM 的训练循环只有 5 步: 取一批数据 (get_batch), 前向算出预测 (forward), 算预测和答案差多少 (loss), 反向算出每个参数该往哪动 (backward), 更新参数 (adam_step)。本阶段用 numpy 把这 5 步一行不落地写出来, Transformer 里就没有黑盒了。"
+      tldr="现代 LLM 的训练循环只有 5 步:
+        1. 取一批数据 (get_batch)。
+        2. 前向算出预测 (forward)。
+        3. 算预测和答案差多少 (loss)。
+        4. 反向算出每个参数该往哪动 (backward)。
+        5. 更新参数 (adam_step)。
+        本阶段用 numpy 把这 5 步一行不落地写出来, Transformer 里就没有黑盒了。"
       question="不许用 PyTorch 的自动求导, 只凭链式法则, 你能把 RMSNorm、softmax、残差这几个算子的反向传播写对吗? 写错了又怎么发现?"
       :goals="[
         '不用 PyTorch, 约 20 秒把一个 45,568 参数的 GPT 训到 val_loss 1.99',
@@ -42,11 +48,16 @@
     <!-- ── 1. 整体闭环 ─────────────────────────────────────────── -->
     <section class="section">
       <h2>1. 一张图看完整闭环</h2>
-      <p class="lead">
-        左边是数据 / 训练 / 采样三条管道, 右边是撑起它们的 7 个函数对。
-        <strong>每个算子 (embedding、linear 这类基本运算) 都是 forward + backward 成对写的</strong>:
-        forward 算结果时顺手把反向要用的中间量存进一个叫 cache 的字典, backward 按相反的顺序取出来算梯度。
-      </p>
+      <div class="lead-group">
+        <p>
+          左边是数据 / 训练 / 采样三条管道, 右边是撑起它们的 7 个函数对。
+          <strong>每个算子 (embedding、linear 这类基本运算) 都是 forward + backward 成对写的</strong>:
+        </p>
+        <ul class="pts">
+          <li><b>forward:</b> 算结果时顺手把反向要用的中间量存进一个叫 cache 的字典。</li>
+          <li><b>backward:</b> 按相反的顺序取出来算梯度。</li>
+        </ul>
+      </div>
 
       <div class="grid grid-2" style="gap: 16px;">
         <div class="card">
@@ -94,7 +105,7 @@
       <h2>2. 模型结构 · 默认 1 层 1 头, 零件一个不少</h2>
       <p class="lead">
         故意做到最小: 默认单层 (<code class="inline">--n-layer</code> 可加层, 加层只是一个 for 循环) + 单头 + ReLU MLP + 学得式位置编码。
-        骨架和现代 LLaMA 一模一样, <strong>差的只是零件</strong>, 不是结构。
+        骨架和现代 LLaMA 一模一样, <strong>差的只是零件</strong>。
       </p>
 
       <div class="card">
@@ -115,7 +126,7 @@
     <section class="section">
       <h2>3. 反向四大坑 · 看清梯度怎么流</h2>
       <p class="lead">
-        这四件事 autograd 都替你处理了, 而且处理得悄无声息。手写一遍才知道它在做什么,
+        这四件事 autograd 都在后台替你处理了。手写一遍才知道它在做什么,
         也才知道自己写错时为什么不会报错。
       </p>
 
@@ -135,7 +146,7 @@
     <section class="section">
       <h2>4. 训练循环 · 5 行代码, 60 行 Adam</h2>
       <p class="lead">
-        看完这一节, PyTorch 里的 <code class="inline">loss.backward(); opt.step()</code> 对你就不再是两个动词。
+        PyTorch 里的 <code class="inline">loss.backward(); opt.step()</code> 两行, 在这一节展开成手写的 backward 和 Adam。
       </p>
 
       <div class="grid grid-2" style="gap: 16px;">
@@ -153,13 +164,13 @@
           <h3>Adam · 4 步 + 2 个修正 <span class="tag"><RepoLink path="llm_basic/optim.py" label="optim.py" tiny /></span></h3>
           <Prose :text="adamMath" />
           <div class="adam-why">
-            <p><strong>为什么不用 SGD?</strong></p>
+            <p><strong>不用 SGD 的原因</strong></p>
             <p class="hint">
               Transformer 各层的梯度尺度差好几个数量级 (lm_head 远大于 embedding), 单一学习率压不住。
               学习率大到能让平缓方向动起来, 陡的方向就发散了。
             </p>
             <p class="hint">
-              Adam 除以 <Tex text="$\sqrt{\hat v}$" /> 把每个坐标归一化, 每步位移约等于 lr, 与坡度无关。核心就
+              Adam 除以 <Tex text="$\sqrt{\hat v}$" /> 把每个坐标归一化, 每步位移约等于 lr, 与坡度无关。实现就是
               <RepoLink path="llm_basic/optim.py:adam_step" label="adam_step" tiny /> 里那十来行。
             </p>
           </div>
@@ -172,7 +183,7 @@
       <h2>5. gradcheck · 用数值梯度反查解析梯度</h2>
       <div class="lead-group">
         <p>
-          手写反向最难的不是写, 是<strong>知道自己写对了</strong>。转置写反、sum 错维度不会让程序崩,
+          手写反向最难的是<strong>确认自己写对了</strong>: 转置写反、sum 错维度不会让程序崩,
           loss 也照样下降, 只是降得慢一点。
         </p>
         <p>
@@ -183,19 +194,25 @@
 
       <div class="card">
         <pre class="code">{{ gradcheckCode }}</pre>
-        <p class="hint">判定为什么是相对 + 绝对的组合?</p>
+        <p class="hint">判定条件把相对容差和绝对容差合在一起用, 单用哪一种都有问题:</p>
         <ul class="hint pts">
           <li><b>纯绝对容差:</b> 对大梯度太松。</li>
           <li><b>纯相对容差:</b> 对接近 0 的梯度太严。抽样常落在 batch 里没出现过的那行 tok_emb 上, 两个 1e-10 的数相对误差能很大。</li>
         </ul>
-        <p class="hint">所以用 <code class="inline">atol + rtol · max(|g_a|, |g_n|)</code>。</p>
+        <p class="hint">合起来的阈值是 <code class="inline">atol + rtol · max(|g_a|, |g_n|)</code>。</p>
+        <p class="hint">eps 取 1e-5, 是 float64 下 U 形误差曲线的谷底:</p>
+        <ul class="hint pts">
+          <li><b>更小:</b> 舍入误差吃掉信号。</li>
+          <li><b>更大:</b> 又跑出截断误差。</li>
+        </ul>
         <p class="hint">
-          eps 取 1e-5, 是 float64 下 U 形误差曲线的谷底: 更小, 舍入误差吃掉信号; 更大, 又跑出截断误差。
           <router-link :to="{ name: 'basic-backward' }" class="dt-link">{{ chapterNo('basic-backward') }} 的实验台</router-link>可以亲手拖这条曲线。
         </p>
-        <p class="hint">
-          gradcheck.py 分两级: 先逐算子全元素检查 (7 个算子相对误差 1e-11 ~ 2e-10), 再对 n_layer = 1 和 2 做端到端抽样检查。
-        </p>
+        <p class="hint">gradcheck.py 分两级:</p>
+        <ol class="hint pts">
+          <li>先逐算子全元素检查 (7 个算子相对误差 1e-11 ~ 2e-10)。</li>
+          <li>再对 n_layer = 1 和 2 做端到端抽样检查。</li>
+        </ol>
       </div>
     </section>
 
@@ -390,7 +407,7 @@ const gotchas = [
   {
     title: '残差的反向 = 两路相加',
     tag: '梯度高速公路',
-    intuition: '加法把一份梯度原样复制给两条路。回到 x 时要把"绕过子层的"和"穿过子层的"加起来。那个原样的 dout 就是梯度不会在层层相乘中消失的原因。',
+    intuition: '加法把一份梯度原样复制给两条路。回到 x 时要把"绕过子层的"和"穿过子层的"加起来。这份原样传回的 dout 让梯度不会在层层相乘中消失。',
     formula: 'h = x + Attn(RMSNorm(x))\nout = h + MLP(RMSNorm(h))\n\ndh = dout + 穿过 MLP 回来的那份\ndx = dh   + 穿过 Attn 回来的那份',
     where: 'model.py: block_backward',
   },

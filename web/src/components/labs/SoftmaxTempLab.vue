@@ -6,10 +6,19 @@
 <template>
   <LabFrame
     title="温度实验台 — 一根滑杆把同一组 logits 调尖或压平"
-    sub="- 模拟什么: 模型每生成一步, 都对词表里每个候选 token 给一个分数, 叫 logit; softmax 把这些分数变成加起来等于 1 的概率, 分越高概率越大。采样前常先把所有 logit 除以一个温度 $T$ 再做 softmax: $\mathrm{softmax}(z/T)$。$T$ 小于 1 把高分和低分的差距拉大, 分布更尖, 几乎只会抽到最高分; $T$ 大于 1 把差距缩小, 分布更平, 低分 token 也有机会被抽到。推理时的采样 (llm_infer/m10_sampling) 和知识蒸馏里的软标签 (让学生模型学老师模型的整个分布, 而不只是正确答案) 用的都是这一个公式。
+    sub="- 模拟什么: 模型每生成一步, 都对词表里每个候选 token 给一个分数, 叫 logit; softmax 把这些分数变成加起来等于 1 的概率, 分越高概率越大。采样前常先把所有 logit 除以一个温度 $T$ 再做 softmax: $\mathrm{softmax}(z/T)$。推理时的采样 (llm_infer/m10_sampling) 和知识蒸馏里的软标签 (让学生模型学老师模型的整个分布, 而不只是正确答案) 用的都是这一个公式。温度往两个方向调:
+        - $T$ 小于 1: 把高分和低分的差距拉大, 分布更尖, 几乎只会抽到最高分。
+        - $T$ 大于 1: 把差距缩小, 分布更平, 低分 token 也有机会被抽到。
       - 图上是什么: 8 根柱子是 8 个候选 token, 按 logit 从高到低排, tok0 永远是分最高的那个。柱高是这个 token 此刻的概率, 刻度是 0 到 1 的绝对值, 柱顶写着数值; 每根柱上的橙色横线是 $T = 1$ 时它的概率, 方便对比。
-      - 可以做什么: 拖「温度 T」从 0.1 到 5。「重新随机 logits」换一组分数, 「回到 T = 1」复位。点一根柱子, 右侧显示它相对 $T = 1$ 时涨了或缩了几倍 (默认选的是最矮的 tok7, 它的变化倍数最大)。
-      - 应该看到: $T$ 往小拖, tok0 的柱子涨到接近 1, 其他柱子贴地; $T$ 往大拖, 最高的柱子矮下去, 矮的长起来, 最终趋向 8 根一样高。右侧「top-1 概率」是最高分 token 的概率。「熵 $H(p)$」衡量分布有多「散」: 全押一个 token 时是 0, 8 个一样高时最大 ($\ln 8 \approx 2.08$)。「有效候选数 $\exp(H)$」把熵换算成「相当于在几个 token 里等概率抽」, 更直观: 默认这组 logits 在 $T = 1$ 时约 3.9 个, $T = 2$ 时 6.0 个。下面三行标出当前 $T$ 落在哪个区间。"
+      - 可以做什么: 一根滑杆、两个按钮和柱子:
+        - 拖「温度 T」从 0.1 到 5。
+        - 「重新随机 logits」换一组分数, 「回到 T = 1」复位。
+        - 点一根柱子, 右侧显示它相对 $T = 1$ 时涨了或缩了几倍 (默认选的是最矮的 tok7, 它的变化倍数最大)。
+      - 应该看到: $T$ 往小拖, tok0 的柱子涨到接近 1, 其他柱子贴地; $T$ 往大拖, 最高的柱子矮下去, 矮的长起来, 最终趋向 8 根一样高。右侧读数:
+        - 「top-1 概率」是最高分 token 的概率。
+        - 「熵 $H(p)$」衡量分布有多「散」, 全押一个 token 时是 0, 8 个一样高时最大 ($\ln 8 \approx 2.08$)。
+        - 「有效候选数 $\exp(H)$」把熵换算成「相当于在几个 token 里等概率抽」: 默认这组 logits 在 $T = 1$ 时约 3.9 个, $T = 2$ 时 6.0 个。
+        - 下面三行标出当前 $T$ 落在哪个区间。"
     module="llm_infer/m10"
     run="python -m llm_infer.m10_sampling.demo"
     :challenge="{
@@ -54,9 +63,13 @@
       <p class="regime" :class="{ now: T > 1 }">
         <Tex text="$T \gt 1$: 次优 token 之间的相对排序被放大。蒸馏时学生模型学到的不止正确答案 (KL 项要乘 $T^2$ 补偿变小的梯度)" />
       </p>
-      <p class="lab-note">
-        同一个公式两处复用: 解码采样在 llm_infer/m10_sampling (temperature_sample 就是 softmax(logits / temperature) 再抽样), 知识蒸馏在 llm_finetune/run_finetune/distill (老师和学生的 logits 都除以同一个 T 再比分布)。
-      </p>
+      <div class="lab-note">
+        <p>同一个公式两处复用:</p>
+        <ul class="pts">
+          <li><b>解码采样:</b> 在 llm_infer/m10_sampling (temperature_sample 就是 softmax(logits / temperature) 再抽样)。</li>
+          <li><b>知识蒸馏:</b> 在 llm_finetune/run_finetune/distill (老师和学生的 logits 都除以同一个 T 再比分布)。</li>
+        </ul>
+      </div>
     </template>
   </LabFrame>
 </template>

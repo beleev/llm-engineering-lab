@@ -28,16 +28,16 @@ const topic = {
       points: [
         {
           title: '词表只建一次, 之后谁都不许改',
-          body: 'tokenizer 就是把文本变成整数编号的那个东西。这里的 tokenizer 是字符级的: 一个字符对应一个整数 id。所谓 “训练 tokenizer” 就一行 sorted(set(text)): 把语料里出现过的字符去重 (set), 再按字典序排好 (sorted), 一共 65 个, 排第几就是几号。\n- 为什么排序: set 的顺序不保证, 排序后换台机器也得到同一张表, 同一个字符永远是同一个 id。\n- 为什么存盘: 这张表存进 meta.npz。train.py 训练时用它把字符变 id, sample.py 生成时用它把 id 变回字符。两边读同一个文件, 今天训好的 ckpt.npz 明天解码出来才不会是乱码。\n- 存多大: 65 小于 256, 一个 id 用一个字节 (uint8) 就够, prepare.py 里有 assert vocab_size < 256 把关。',
+          body: 'tokenizer 把文本变成整数编号, 它的编号表 (词表) 只建一次, 训练和采样读的是同一张。这里的 tokenizer 是字符级的: 一个字符对应一个整数 id。所谓 “训练 tokenizer” 就一行 sorted(set(text)): 把语料里出现过的字符去重 (set), 再按字典序排好 (sorted), 一共 65 个, 排第几就是几号。\n- 为什么排序: set 的顺序不保证, 排序后换台机器也得到同一张表, 同一个字符永远是同一个 id。\n- 为什么存盘: 这张表存进 meta.npz。prepare.py 用它把整份文本一次性编成 id, 存进 train.bin / val.bin, train.py 训练时直接读这些 id; sample.py 生成时用它把 id 变回字符。两边读同一个文件, 今天训好的 ckpt.npz 明天解码出来才不会是乱码。\n- 存多大: 65 小于 256, 一个 id 用一个字节 (uint8) 就够, prepare.py 里有 assert vocab_size < 256 把关。',
         },
         {
           key: true,
           title: '训练用字符级, BPE 只是独立演示',
-          body: '本目录有两个 tokenizer, 只有一个接进了训练。\n- 训练、采样、自带的 ckpt.npz: 全部基于 tokenizer.py 的 65 个字符。\n- bpe.py: 只读 input.txt, 自己跑自己的, 不接训练流水线。\nBPE (Byte Pair Encoding) 是另一种切法: 先把文本拆成 256 种字节, 然后反复找 “当前出现次数最多的相邻两个 token”, 把它们合并成一个新 token; 合并几百次之后, 常见的词和词组就各自变成了单个 token。跑 python bpe.py (默认 300 次合并), 看同一句话 “First Citizen: Before we proceed any further, hear me speak.”:\n- 字符级: 60 个 token, 一个字符一个。\n- BPE: 24 个 token, 压缩率 2.50 字符/token。\n序列短了一半多, 注意力的计算量跟着降 (它按序列长度的平方涨)。这里训练仍用字符级, 是为了让注意力和梯度当主角, 不让分词细节抢戏; BPE 本身照样重要, 所以单独留了一个演示, 上面的实验台把合并过程一步步摊开了。',
+          body: '本目录有两个 tokenizer, 只有一个接进了训练。\n- 训练、采样、自带的 ckpt.npz: 全部基于 tokenizer.py 的 65 个字符。\n- bpe.py: 只读 input.txt, 自己跑自己的, 不接训练流水线。\nBPE (Byte Pair Encoding) 是另一种切法:\n1. 先把文本拆成 256 种字节。\n2. 反复找 “当前出现次数最多的相邻两个 token”, 把它们合并成一个新 token。\n合并几百次之后, 常见的词和词组就各自变成了单个 token。跑 python bpe.py (默认 300 次合并), 看同一句话 “First Citizen: Before we proceed any further, hear me speak.”:\n- 字符级: 60 个 token, 一个字符一个。\n- BPE: 24 个 token, 压缩率 2.50 字符/token。\n序列短了一半多, 注意力的计算量跟着降 (它按序列长度的平方涨)。这里训练仍用字符级, 是为了把篇幅留给注意力和梯度, 分词细节不展开; BPE 本身照样重要, 所以单独留了一个演示, 上面的实验台把合并过程一步步摊开了。',
         },
         {
           title: 'y 就是 x 右移一位',
-          body: '语言模型的训练目标只有一个: 看着前面的文本, 猜下一个字符是什么。所以 “答案” 不用另外标注, 它就在文本里。\n- get_batch 怎么切: 从 train.bin 里随机挑 32 个起点 (batch_size=32), 从每个起点往后切 64 个 token (seq_len=64) 当输入 x; 再从起点加 1 的位置切 64 个当目标 y。于是 y 的第 i 个 token 正好是 x 的第 i+1 个。\n- 一条序列 64 道题: 位置 0 看着 x[0] 猜 y[0], 位置 1 看着 x[0..1] 猜 y[1], 一直到位置 63。一次前向把 64 个位置一起算, 一条长度 64 的序列就提供了 64 道 next-token 题。\n- 前提: 答案 y[i] 就是 x[i+1], 它明明在输入里。所以注意力里必须有因果 mask, 让位置 i 只能看到 x[0..i], 看不到 x[i+1] 以后; 否则模型直接抄答案, 什么也学不到。',
+          body: '语言模型的训练目标只有一个: 看着前面的文本, 猜下一个字符是什么。所以 “答案” 不用另外标注, 它就在文本里。\n- get_batch 怎么切:\n  1. 从 train.bin 里随机挑 32 个起点 (batch_size=32)。\n  2. 从每个起点往后切 64 个 token (seq_len=64) 当输入 x。\n  3. 再从起点加 1 的位置切 64 个当目标 y。于是 y 的第 i 个 token 正好是 x 的第 i+1 个。\n- 一条序列 64 道题: 位置 0 看着 x[0] 猜 y[0], 位置 1 看着 x[0..1] 猜 y[1], 一直到位置 63。一次前向把 64 个位置一起算, 一条长度 64 的序列就提供了 64 道 next-token 题。\n- 前提: 答案 y[i] 就是 x[i+1], 它明明在输入里。所以注意力里必须有因果 mask, 让位置 i 只能看到 x[0..i], 看不到 x[i+1] 以后; 否则模型直接抄答案, 什么也学不到。',
         },
       ],
       links: [
@@ -47,10 +47,10 @@ const topic = {
       ],
       sourceRows: [
         { concept: 'vocab 构造', code: 'prepare.py', takeaway: 'chars = sorted(set(text)) 得到 65 个去重并排序的字符; stoi 是它的反查表, 字符到 id。整个 “tokenizer 训练” 就这两行, 没有任何可学的参数。' },
-        { concept: '训练/验证切分', code: 'prepare.py', takeaway: '先按位置切 90/10 (前 90% 训练, 后 10% 验证) 再落盘。验证集是一段模型完全没见过的连续文本, 测出来的 loss 才可信。' },
+        { concept: '训练/验证切分', code: 'prepare.py', takeaway: '先按位置切 90/10 (前 90% 训练, 后 10% 验证) 再落盘。验证集是一段模型没见过的连续文本, 测出来的 loss 才可信。' },
         { concept: 'uint8 存储', code: 'prepare.py', takeaway: 'assert vocab_size < 256: 一个 id 一字节装得下。越过这条线就得换 uint16 (两字节), 文件直接翻倍。' },
         { concept: 'batch 对齐', code: 'train.py:get_batch', takeaway: 'x = data[i:i+T], y = data[i+1:i+T+1]: y 比 x 整体往后挪一格。起点 i 最多取到 len−T−1, 留一位给 y 的末尾, 否则切 y 时会越过文件结尾。' },
-        { concept: 'BPE 训练 (独立 demo)', code: 'bpe.py:train_bpe', takeaway: '三步循环: 数一遍相邻 token 对各出现几次, 把最高频的那一对合并成一个新 id, 重复 num_merges 次。纯贪心的计数和替换, 一个梯度都没有。' },
+        { concept: 'BPE 训练 (独立 demo)', code: 'bpe.py:train_bpe', takeaway: '三步循环:\n1. 数一遍相邻 token 对各出现几次。\n2. 把最高频的那一对合并成一个新 id。\n3. 重复 num_merges 次。\n纯贪心的计数和替换, 一个梯度都没有。' },
         { concept: 'BPE 编码', code: 'bpe.py:encode', takeaway: '对新文本按训练时的合并先后顺序重放规则: 每轮在当前序列里找出 “训练时最早被合并” 的那一对先合。顺序错了, 同一个词会切成不同 token, 模型就认不出它。' },
       ],
       snippetTitle: 'next-token 数据形态',
@@ -68,7 +68,7 @@ y:     [e, l, l, o]
     'basic-forward': {
       title: 'forward 与形状流 · 从 ids 到 logits',
       subtitle: '读完你能报出每一步张量的形状, 说出每个 forward 往 cache 里塞了什么、为什么非塞不可。',
-      tldr: '- forward 是 “把输入 id 变成每个位置的打分” 的那一趟计算。输入 ids 形状 [B,T] (B 条序列, 每条 T 个 token), 输出 logits 形状 [B,T,V]: 每个位置给词表里 V 个字符各打一个分, 分越高越可能是下一个字符。\n- 路径: embedding 查表把 id 变成向量, 过 n_layer 个 Pre-LN block (每个 block 先归一化再进注意力和 MLP), 最后 final norm 加 lm_head 打分。\n- 每一步都顺手把反向传播要用的中间量装进 cache 带回来, 因为这里没有 autograd 替你记。',
+      tldr: '- forward 是 “把输入 id 变成每个位置的打分” 的那一趟计算。输入 ids 形状 [B,T] (B 条序列, 每条 T 个 token), 输出 logits 形状 [B,T,V]: 每个位置给词表里 V 个字符各打一个分, 分越高越可能是下一个字符。\n- 路径:\n  1. embedding 查表把 id 变成向量。\n  2. 过 n_layer 个 Pre-LN block (每个 block 先归一化再进注意力和 MLP)。\n  3. final norm 加 lm_head 打分。\n- 每一步都顺手把反向传播要用的中间量装进 cache 带回来, 因为这里没有 autograd 替你记。',
       question: 'forward 算出 logits 不就完事了吗, 为什么还要拖着一长串 cache 一起返回?',
       evolution: {
         title: '让每个位置都看得见全部前文',
@@ -89,11 +89,11 @@ y:     [e, l, l, o]
         {
           key: true,
           title: 'cache 替代了 autograd',
-          body: 'forward 只负责算出 logits, 但训练还要反向传播: 从 loss 倒推每个参数该往哪动。反向要用到前向算过的中间值, 例如 RMSNorm 除过的那个 rms、softmax 的输出 attn、每个 linear 层的输入 x。\n在 torch 里, autograd 会在背后把这些中间值记在一张 “磁带” (tape) 上, 你看不见。这里没有 autograd, 所以每个 xxx_forward 自己把反向要用的东西打包成一个 tuple 返回, 这个 tuple 就是 cache; 对应的 xxx_backward 再从里面取。\n- 该存的没存: 对应的 backward 写不出来。比如 linear_backward 要算 dW = xᵀ @ dout, 没有存 x 就没法算。\n- 用不上的不存: softmax 的反向只需要它的输出 attn, 不需要输入 scores, 所以 attention 的 cache 存 attn, 不存 scores。\n代价是显存: 整段前向的中间量都得留到反向结束。',
+          body: 'cache 是每个 forward 替反向存下的中间值, 做的是 torch 里 autograd 做的事。forward 只负责算出 logits, 但训练还要反向传播: 从 loss 倒推每个参数该往哪动。反向要用到前向算过的中间值, 例如 RMSNorm 除过的那个 rms、softmax 的输出 attn、每个 linear 层的输入 x。\n在 torch 里, autograd 会在背后把这些中间值记在一张 “磁带” (tape) 上, 你看不见。这里没有 autograd, 所以每个 xxx_forward 自己把反向要用的东西打包成一个 tuple 返回, 这个 tuple 就是 cache; 对应的 xxx_backward 再从里面取。\n- 该存的没存: 对应的 backward 写不出来。比如 linear_backward 要算 dW = xᵀ @ dout, 没有存 x 就没法算。\n- 用不上的不存: softmax 的反向只需要它的输出 attn, 不需要输入 scores, 所以 attention 的 cache 存 attn, 不存 scores。\n代价是显存: 整段前向的中间量都得留到反向结束。',
         },
         {
           title: '形状只有四个字母',
-          body: '读这份代码先认四个字母: B 是 batch 里有几条序列, T 是每条序列多长, D 是模型内部向量的维度 (默认 64), V 是词表大小 (65)。\n主干上所有张量都是 [B,T,D]: 每条序列的每个位置, 都是一个 D 维向量。只有两处例外:\n- 注意力里的 [B,T,T]: 每个位置对每个位置打一个相关度分, 所以是 T 乘 T 的矩阵。\n- 最后的 logits [B,T,V]: 每个位置对词表里 V 个字符各打一分。\n读代码先对上矩阵乘法两边的形状: [B,T,D] 乘 [D,V] 得到 [B,T,V], 对上了再看数值细节。',
+          body: '这份代码里的形状只用四个字母: B、T、D、V。\n- B: batch 里有几条序列。\n- T: 每条序列多长。\n- D: 模型内部向量的维度 (默认 64)。\n- V: 词表大小 (65)。\n主干上所有张量都是 [B,T,D]: 每条序列的每个位置, 都是一个 D 维向量。只有两处例外:\n- 注意力里的 [B,T,T]: 每个位置对每个位置打一个相关度分, 所以是 T 乘 T 的矩阵。\n- 最后的 logits [B,T,V]: 每个位置对词表里 V 个字符各打一分。\n读代码先对上矩阵乘法两边的形状: [B,T,D] 乘 [D,V] 得到 [B,T,V], 对上了再看数值细节。',
         },
         {
           title: '加层只是一个 for 循环',
@@ -152,7 +152,7 @@ y:     [e, l, l, o]
         {
           key: true,
           title: '反向写错不报错, 模型只会悄悄变笨',
-          body: '反向传播里常见的错: 矩阵转置写反、sum 加错了维度、softmax 的导数漏一项。这些错程序都不会崩: 形状对得上, 算出来的梯度也是个像模像样的数, 只是方向略偏。loss 照样下降, 只是降得慢一点, 你很难从训练曲线上发现。\n所以要一个 “不可能写错” 的参照: 数值梯度。做法是把某个参数 w 加一点点 $\\varepsilon$ 跑一次前向看 loss, 再减一点点跑一次, 两次 loss 之差除以 $2\\varepsilon$, 就是 loss 对 w 的导数, 公式是 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$ (中心差分)。它慢 (每个参数要跑两次前向), 但不涉及任何手推公式, 不会错。\ngradcheck.py 就拿它和手写 backward 算出来的梯度逐个元素比。README 做了一个实验: 故意删掉 rmsnorm_backward 的耦合项 (rms 依赖整行 x 的那一项), 逐算子检查立刻报 dx 相对误差 3.11e-01; 正常时这个数在 1e-10 量级。',
+          body: '反向传播写错了, 程序也不会崩。常见的错有矩阵转置写反、sum 加错了维度、softmax 的导数漏一项: 形状照样对得上, 算出来的梯度也是个像模像样的数, 只是方向略偏。loss 照样下降, 只是降得慢一点, 从训练曲线上很难发现。\n所以要一个 “不可能写错” 的参照: 数值梯度。做法:\n1. 把某个参数 w 加一点点 $\\varepsilon$ 跑一次前向看 loss。\n2. 再减一点点跑一次。\n3. 两次 loss 之差除以 $2\\varepsilon$, 就是 loss 对 w 的导数, 公式是 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$ (中心差分)。\n它慢 (每个参数要跑两次前向), 但不涉及任何手推公式, 不会错。\ngradcheck.py 就拿它和手写 backward 算出来的梯度逐个元素比。README 做了一个实验: 故意删掉 rmsnorm_backward 的耦合项 (rms 依赖整行 x 的那一项), 逐算子检查立刻报 dx 相对误差 3.11e-01; 正常时这个数在 1e-10 量级。',
         },
         {
           title: '一个张量被用了几次, 梯度就是几路之和',
@@ -160,19 +160,19 @@ y:     [e, l, l, o]
         },
         {
           title: 'gradcheck 分两级, 各管一头',
-          body: '- 逐算子: 单独拿一个算子 (linear、rmsnorm、attention 等) 来验, 不搭整个模型。它没有 loss, 所以造一个: 拿一个随机张量 R, 令 $L = \\sum(\\text{out} \\odot R)$ (输出和 R 逐元素相乘再求和), 这样 $dL/d\\,\\text{out}$ 正好是 $R$, 把 R 当 dout 喂给 backward 就行。然后对每个输入的每个元素做差分, 和 backward 的结果比。7 个算子的相对误差落在 1e-11 到 2e-10, 哪个算子错一目了然。\n- 端到端: 整个模型加 CE (交叉熵 loss, 衡量预测分布和正确答案差多远), n_layer = 1 和 2 各跑一遍, 每个参数随机抽 8 个位置做差分 (全抽太慢, 每个位置要两次完整前向)。\n端到端的判定用 $\\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$, 意思是允许的误差等于一个绝对下限加一个和梯度大小成比例的量。为什么不直接比相对误差: 抽样常落在真实梯度约等于 0 的位置 (比如 batch 里没出现过的 token 那一行 tok_emb), 两个 1e-10 量级的数相对误差可以很大, 但并不是 bug。',
+          body: 'gradcheck 分两级: 先逐个算子单独验, 再整个模型端到端验。\n- 逐算子: 单独拿一个算子 (linear、rmsnorm、attention 等) 来验, 不搭整个模型。它没有 loss, 所以造一个: 拿一个随机张量 R, 令 $L = \\sum(\\text{out} \\odot R)$ (输出和 R 逐元素相乘再求和), 这样 $dL/d\\,\\text{out}$ 正好是 $R$, 把 R 当 dout 喂给 backward 就行。然后对每个输入的每个元素做差分, 和 backward 的结果比。7 个算子的相对误差落在 1e-11 到 2e-10, 哪个算子错一目了然。\n- 端到端: 整个模型加 CE (交叉熵 loss, 衡量预测分布和正确答案差多远), n_layer = 1 和 2 各跑一遍, 每个参数随机抽 8 个位置做差分 (全抽太慢, 每个位置要两次完整前向)。\n端到端的判定用 $\\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$, 意思是允许的误差等于一个绝对下限加一个和梯度大小成比例的量。不直接比相对误差, 是因为抽样常落在真实梯度约等于 0 的位置 (比如 batch 里没出现过的 token 那一行 tok_emb), 两个 1e-10 量级的数相对误差可以很大, 但并不是 bug。',
         },
       ],
       links: [
         { from: 'softmax backward', to: '所有注意力变体', body: '$ds = a \\odot (da - \\sum a\\cdot da)$ 是 softmax 的反向公式: a 是 softmax 的输出, da 是上游传来的梯度, ds 是对输入分数的梯度。从 MHA 到 FlashAttention, 每换一次注意力的实现, 这一行都要重新写对一次。' },
-        { from: 'gradcheck', to: 'llm_train 的等价性断言', body: '这里拿数值梯度当参照来验手写反向。阶段 3 做并行训练时用同一个套路: 先算一个单卡的 dense baseline, 再断言并行版本和它一致。参照物不同, 思路一样: 先有一个确定对的答案, 再拿新实现去对。' },
+        { from: 'gradcheck', to: 'llm_train 的等价性断言', body: '这里拿数值梯度当参照来验手写反向。阶段 3 做并行训练时用同一个套路: 先算一个单卡的 dense baseline, 再断言并行版本和它一致。两处都是先有一个确定对的答案, 再拿新实现去对。' },
         { from: 'RMSNorm backward', to: '深层训练稳定性', body: '前向里 RMSNorm 把每行向量的均方根 (RMS) 拉回固定值, 层数一多数值才不会越叠越大。\n反向的耦合项是同一件事的另一面: 把 x 整体放大, 输出不变 (因为除以了自己的 RMS), 所以沿 x 本身方向的梯度被减掉, 这就是公式里减去的第二项。' },
       ],
       sourceRows: [
-        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p − onehot)/N: p 是 softmax 给每个字符的概率, onehot 在正确答案那一位是 1 其余是 0, N 是位置总数。每一行的 p 加起来是 1, onehot 也是 1, 所以每行梯度加起来恰好为 0。gradcheck.py 断言的是所有行的总和为 0。' },
+        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p − onehot)/N:\n- p: softmax 给每个字符的概率。\n- onehot: 在正确答案那一位是 1 其余是 0。\n- N: 位置总数。\n每一行的 p 加起来是 1, onehot 也是 1, 所以每行梯度加起来恰好为 0。gradcheck.py 断言的是所有行的总和为 0。' },
         { concept: 'embedding backward', code: 'np.add.at(dW, ids, dout)', takeaway: '把每个位置的梯度加回它查过的那一行。花式索引的 += 遇到重复 id 只加一次, 必须用 add.at。' },
         { concept: 'softmax backward', code: 'model.py:attention_backward', takeaway: '$ds = a \\odot (da - \\sum a\\cdot da)$。被 mask 的位置 $a = 0$, 公式带一个因子 a, 这些位置的梯度自动归零, 不用再 mask 一次。' },
-        { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$。代码里 c = dout·g, s 是 c·x 整行求和。第一项是 “除以 rms” 的直接导数; 第二项来自 rms 本身依赖整行 x, 一行里每个元素的梯度因此互相牵连。' },
+        { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$。代码里 c = dout·g, s 是 c·x 整行求和。\n- 第一项是 “除以 rms” 的直接导数。\n- 第二项来自 rms 本身依赖整行 x, 一行里每个元素的梯度因此互相牵连。' },
         { concept: '数值梯度', code: 'gradcheck.py:numeric_grad', takeaway: '$(f(w+\\varepsilon) - f(w-\\varepsilon))/2\\varepsilon$: 把 w 加一点、减一点各跑一次前向, 差值除以 $2\\varepsilon$。截断误差是 $O(\\varepsilon^2)$, 意思是 ε 缩小 10 倍误差缩小 100 倍。代码就地改 w、算完还原。' },
         { concept: '逐算子检查', code: 'gradcheck.py:check_op', takeaway: '随机张量 R 当 dout: 任何算子都能单独验, 不用搭整个模型, 错在哪个算子直接定位。' },
         { concept: '多层反向', code: 'model.py:transformer_backward', takeaway: 'reversed(range(n_layer)): 从最后一层往第一层逐层回传, 和前向正好相反。前向是 h = tok + pos, 所以 tok_emb 和 pos_emb 最后收到同一个 dh。' },
@@ -195,7 +195,7 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
     'basic-optim-sample': {
       title: 'Adam 与采样 · 训练后如何生成文本',
       subtitle: '读完你能说清 Adam 每步到底走多远, 以及生成为什么只能一个 token 一个 token 往外挤。',
-      tldr: '- Adam 是优化器, 负责拿着梯度去改参数。它给每个参数单独定步长: 一阶矩 (梯度的滑动平均) 定方向, 二阶矩 (梯度平方的滑动平均) 把步长按坐标归一化。结果是每步每个参数的位移大约就是 lr (学习率), 和梯度本身多大无关。\n- 采样是训练完拿模型写字: 不再算 loss, 只取序列最后一个位置的 logits, 按概率抽一个字符接到后面, 再把整段送进去重来一遍。',
+      tldr: '- Adam 是优化器, 负责拿着梯度去改参数。它给每个参数单独定步长: 一阶矩 (梯度的滑动平均) 定方向, 二阶矩 (梯度平方的滑动平均) 把步长按坐标归一化。结果是每步每个参数的位移大约就是 lr (学习率), 和梯度本身多大无关。\n- 采样是训练完拿模型写字: 不再算 loss, 而是:\n  1. 只取序列最后一个位置的 logits。\n  2. 按概率抽一个字符接到后面。\n  3. 再把整段送进去重来一遍。',
       question: '训练时 64 个位置一次算完, 生成时为什么只能一个一个来?',
       evolution: {
         title: '先把参数挪到位, 再把分布变成字',
@@ -216,19 +216,19 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         {
           key: true,
           title: '除以 √v̂: 每个参数有自己的学习率',
-          body: '先说 SGD (最朴素的优化器): 所有参数共用一个学习率 lr, 每步 $W \\leftarrow W - \\text{lr}\\cdot g$, 意思是每个参数沿梯度反方向走 “lr 乘梯度” 那么远。问题是 Transformer 各层的梯度尺度差几个数量级: 梯度大的参数一步跳得很远, 梯度小的几乎不动。\n- SGD 的上限: lr 超过 $2/\\lambda_{\\max}$ 就发散, $\\lambda_{\\max}$ 是 loss 曲面最陡那个方向的曲率。所以 lr 只能按最陡的方向定, 平缓方向就被拖得几乎不动。\n- Adam 的做法: 给每个参数分别记两个滑动平均, m 是梯度本身的平均 (管方向), v 是梯度平方的平均 (管大小)。更新量是 $\\hat m/\\sqrt{\\hat v}$: 梯度除以自己的典型大小, 结果每个元素都在 ±1 上下。再乘 lr, 每步每个参数的位移约等于 lr, 跟这个方向的坡度基本无关。\n- 偏置修正: m、v 从 0 起步, 前几步的平均值被低估 (第 t 步只攒到真实值的 $1-\\beta^t$ 倍), 所以除以 $1 - \\beta^t$ 补回来。第 1 步修正后 $\\hat m/\\sqrt{\\hat v}$ 正好等于 $\\mathrm{sign}(g)$ (只剩正负号), 每个元素恰好移动 lr; optim.py 的自检断言了这一点。',
+          body: 'Adam 把每个参数的梯度除以这个参数自己梯度的典型大小 $\\sqrt{\\hat v}$, 相当于每个参数有了自己的学习率。对比 SGD (最朴素的优化器): 所有参数共用一个学习率 lr, 每步 $W \\leftarrow W - \\text{lr}\\cdot g$, 意思是每个参数沿梯度反方向走 “lr 乘梯度” 那么远。问题是 Transformer 各层的梯度尺度差几个数量级: 梯度大的参数一步跳得很远, 梯度小的几乎不动。\n- SGD 的上限: lr 超过 $2/\\lambda_{\\max}$ 就发散, $\\lambda_{\\max}$ 是 loss 曲面最陡那个方向的曲率。所以 lr 只能按最陡的方向定, 平缓方向就被拖得几乎不动。\n- Adam 的做法: 给每个参数分别记两个滑动平均, m 是梯度本身的平均 (管方向), v 是梯度平方的平均 (管大小)。更新量是 $\\hat m/\\sqrt{\\hat v}$: 梯度除以自己的典型大小, 结果每个元素都在 ±1 上下。再乘 lr, 每步每个参数的位移约等于 lr, 跟这个方向的坡度基本无关。\n- 偏置修正: m、v 从 0 起步, 前几步的平均值被低估 (第 t 步只攒到真实值的 $1-\\beta^t$ 倍), 所以除以 $1 - \\beta^t$ 补回来。第 1 步修正后 $\\hat m/\\sqrt{\\hat v}$ 正好等于 $\\mathrm{sign}(g)$ (只剩正负号), 每个元素恰好移动 lr; optim.py 的自检断言了这一点。',
         },
         {
           title: '训练并行, 生成串行, 这条依赖链省不掉',
-          body: '- 训练: 完整答案 y 事先已知 (这叫 teacher forcing: 每个位置的输入用真实的前文, 而不是模型自己猜的)。因果 mask 让 T 个位置互不偷看, 所以一次前向就能算完所有 64 个位置的 CE (交叉熵 loss)。\n- 生成: 第 t+1 个 token 的输入里得包含第 t 个, 而第 t 个要等模型抽出来才有。所以只能一个一个来, 没法并行。\n生成能省的只有重复计算: sample.py 每生成 1 个 token, 就把整段 (含前面已经算过的 token) 重新前向一遍; 每次前向注意力是 $O(T^2)$, 生成 T 个 token 就要重算 T 次, 按它的注释整体是 $O(T^3)$。其实前面的 token 在每层算出的 K、V 每次都一样, 阶段 5 的 KV cache 把它们存下来, 干掉的就是这部分重复。',
+          body: '训练时所有位置一次前向算完, 生成时只能一个 token 一个 token 往外出。\n- 训练: 完整答案 y 事先已知 (这叫 teacher forcing: 每个位置的输入用真实的前文, 而不是模型自己猜的)。因果 mask 让 T 个位置互不偷看, 所以一次前向就能算完所有 64 个位置的 CE (交叉熵 loss)。\n- 生成: 第 t+1 个 token 的输入里得包含第 t 个, 而第 t 个要等模型抽出来才有。所以只能一个一个来, 没法并行。\n生成能省的只有重复计算: sample.py 每生成 1 个 token, 就把整段 (含前面已经算过的 token) 重新前向一遍; 每次前向注意力是 $O(T^2)$, 生成 T 个 token 就要重算 T 次, 按它的注释整体是 $O(T^3)$。前面的 token 在每层算出的 K、V 每次都一样, 阶段 5 的 KV cache 把它们存下来, 省掉的就是这部分重复计算。',
         },
         {
           title: '三个开关默认全关, 开了也不一定更好',
-          body: 'optim.py 里有三个可选项, 默认都不启用, 跑的就是原始 Adam 加恒定 lr:\n- AdamW 解耦衰减 (weight_decay): 每步把参数自身往 0 拉一点, 防止参数越长越大。\n- 全局范数裁剪 (grad_clip): 所有梯度拼成一个长向量, 长度超过阈值就整体等比缩小, 防单步跳太远。\n- warmup+cosine (--cosine): 学习率先线性升, 再按余弦曲线降到 lr/10。\nREADME 的实测, 都是 2000 步:\n- 2 层 + AdamW(0.1) + clip(1.0) + cosine, 78,656 参数: val_loss 2.042。\n- 默认 1 层、三个开关全关, 45,568 参数: val_loss 1.986。\n开了反而更差。原因是步数这么少, cosine 过早把 lr 压到 3e-5, 多出来那层还没学起来。这一节要学的是这些开关怎么实现, 不是 “开了就好”。',
+          body: 'optim.py 里有三个可选项, 默认都不启用, 跑的就是原始 Adam 加恒定 lr:\n- AdamW 解耦衰减 (weight_decay): 每步把参数自身往 0 拉一点, 防止参数越长越大。\n- 全局范数裁剪 (grad_clip): 所有梯度拼成一个长向量, 长度超过阈值就整体等比缩小, 防单步跳太远。\n- warmup+cosine (--cosine): 学习率先线性升, 再按余弦曲线降到 lr/10。\nREADME 的实测, 都是 2000 步:\n- 2 层 + AdamW(0.1) + clip(1.0) + cosine, 78,656 参数: val_loss 2.042。\n- 默认 1 层、三个开关全关, 45,568 参数: val_loss 1.986。\n开了反而更差。原因是步数这么少, cosine 过早把 lr 压到 3e-5, 多出来那层还没学起来。这一节演示的是这些开关的实现, 步数少时开了不一定更好。',
         },
       ],
       links: [
-        { from: 'Adam', to: 'llm_train 的稳定性工具', body: 'Adam 的更新式是核心; 阶段 3 的 warmup、cosine、grad clip、混合精度的 loss scaling, 都是在这个更新式外面再加一层保护, 让大模型训练不炸。' },
+        { from: 'Adam', to: 'llm_train 的稳定性工具', body: '阶段 3 的 warmup、cosine、grad clip、混合精度的 loss scaling, 都是在 Adam 这个更新式外面再加一层保护, 让大模型训练不炸。' },
         { from: 'sample.py', to: 'llm_infer 的采样', body: 'temperature 把 logits 除以一个数 (小于 1 分布更尖, 大于 1 更平), top-k 只保留概率最高的 k 个候选。两者都只是对 logits 的后处理, 不碰参数。推理章节在同一个位置接着加 top-p、min-p、重复惩罚。' },
         { from: '每步重算整段前向', to: 'KV cache', body: '第 t 步和第 t+1 步的输入只差最后一个 token, 前 t 个 token 在每层算出的 K/V 完全一样。把它们缓存下来, 下一步就只算新 token 的那一份。' },
       ],
@@ -239,7 +239,7 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         { concept: 'AdamW 与 L2 的区别', code: 'optim.py:adam_step', takeaway: '$\\lambda W$ 加在 update 上而不是加进 $g$, 因此不被 $1/\\sqrt{v}$ 缩放, 所有参数按同一比例衰减; 加进 g 的 L2 会被梯度大的参数自己抵消掉。1 维的 gain/bias 不衰减。' },
         { concept: '全局范数裁剪', code: 'optim.py:clip_grad_norm', takeaway: '所有参数的梯度拼成一个长向量算 $\\|g\\|$, 整体同乘 $\\min(1, \\text{max\\_norm}/\\|g\\|)$: 只缩不放, 方向不变。逐参数裁会改变梯度方向。' },
         { concept: 'warmup + cosine', code: 'optim.py:cosine_lr', takeaway: '前 warmup 步 lr 从接近 0 线性升到 max_lr (一开始参数还乱, 先走小步), 之后沿半个余弦曲线降到 min_lr (后期走小步收敛)。' },
-        { concept: '自回归循环', code: 'sample.py:generate', takeaway: '每轮五步: 取 logits[0, -1] (只要最后一个位置), 除以 temperature, top-k 过滤, 按概率抽样, append 到 ids, 然后整段再 forward 一次。' },
+        { concept: '自回归循环', code: 'sample.py:generate', takeaway: '每轮五步:\n1. 取 logits[0, -1] (只要最后一个位置)。\n2. 除以 temperature。\n3. top-k 过滤。\n4. 按概率抽样。\n5. append 到 ids。\n然后整段再 forward 一次。' },
         { concept: '滑动窗口', code: 'sample.py:generate', takeaway: 'pos_emb 只有 T_max = 64 行, 第 65 个位置没有对应的向量。所以上下文超长时只保留最后 64 个 token 送进模型, 更早的直接看不到。' },
       ],
       snippetTitle: 'Adam 一步 + 采样一轮',
@@ -268,7 +268,7 @@ const supplements = {
   "basic-forward": [
     {
       "title": "感受野: 这个位置能从哪些输入取得信息",
-      "body": "感受野指的是: 某个位置的输出, 最多能受到哪些输入 token 的影响。它说的是信息有没有路可走, 不是模型「看得清不清楚」。\n本页的模型用因果全注意力: 位置 t 在每一层都能直接看到位置 0 到 t 的全部 token, 所以一层就连到了前面所有输入。\n换成滑动窗口注意力 (简称滑窗) 就不同了。滑窗让每个位置只看最近的 W 个 token, 这 W 个里包括它自己, 更早的被 mask 挡掉。所以一层滑窗只能往前多看 W−1 个位置。但第 2 层的输入是第 1 层的输出, 而第 1 层的每个位置已经汇总过自己窗口里的内容, 所以每多叠一层, 能间接够到的范围就再往前伸 W−1 个。L 层叠下来, 上界是 1+L×(W−1): 那个 1 是位置自己, 每层再贡献 W−1 个更早的位置。\n- 例子: W=8、L=4 时是 1+4×7=29, 不是 4×8=32。32 把每层窗口里的「自己」重复算了 4 次。\n- 截断: 位置 t 前面 (含自己) 一共只有 t+1 个 token, 所以实际能够到的数还要和 t+1 取较小的那个。\n这只是结构上限: 信息有路传过来, 不代表训练后的模型真的记住了远处的细节。",
+      "body": "感受野指的是: 某个位置的输出, 最多能受到哪些输入 token 的影响。它说的是信息有没有路可走, 不是模型「看得清不清楚」。\n本页的模型用因果全注意力: 位置 t 在每一层都能直接看到位置 0 到 t 的全部 token, 所以一层就连到了前面所有输入。\n滑动窗口注意力 (简称滑窗) 让每个位置只看最近的 W 个 token, 这 W 个里包括它自己, 更早的被 mask 挡掉。所以一层滑窗只能往前多看 W−1 个位置。但第 2 层的输入是第 1 层的输出, 而第 1 层的每个位置已经汇总过自己窗口里的内容, 所以每多叠一层, 能间接够到的范围就再往前伸 W−1 个。L 层叠下来, 上界是 1+L×(W−1): 那个 1 是位置自己, 每层再贡献 W−1 个更早的位置。\n- 例子: W=8、L=4 时是 1+4×7=29, 不是 4×8=32。32 把每层窗口里的「自己」重复算了 4 次。\n- 截断: 位置 t 前面 (含自己) 一共只有 t+1 个 token, 所以实际能够到的数还要和 t+1 取较小的那个。\n这只是结构上限: 信息有路传过来, 不代表训练后的模型记住了远处的细节。",
       "source": null
     }
   ]

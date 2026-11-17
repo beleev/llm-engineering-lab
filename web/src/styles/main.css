@@ -330,14 +330,15 @@ input[type="range"]:focus-visible {
 .grid { display: grid; gap: 16px; }
 
 /* ---- 要点列表: 章节正文的主体, 单栏逐条编号, 正文用正常字色 (StageTopic / TopicSupplement 共用) ---- */
-.points-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
-.points-list .point-card { padding: 22px 26px; }
-.points-list .point-card h3 { font-size: 16px; margin-bottom: 10px; align-items: baseline; }
-.points-list .point-card .desc { color: var(--text); font-size: 14.5px; line-height: 1.85; }
-/* 长要点: 段与段之间留出呼吸, 一段只讲一件事 */
-.points-list .point-card .desc > * + * { margin-top: 0.9em; }
-.points-list .point-card .desc li + li { margin-top: 0.45em; }
+.points-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; max-width: 800px; }
+.points-list .point-card { padding: 24px 30px 26px; }
+.points-list .point-card h3 { font-size: 17px; margin-bottom: 12px; align-items: baseline; line-height: 1.5; }
+/* 正文: 每行约 44 个汉字, 行距 1.9, 段距一行 —— 中文长文最不累眼的区间 */
+.points-list .point-card .desc { color: var(--text); font-size: 15.5px; line-height: 1.9; letter-spacing: 0.01em; }
+.points-list .point-card .desc > * + * { margin-top: 1em; }
+.points-list .point-card .desc li + li { margin-top: 0.5em; }
 .points-list .point-card .desc ul { list-style: disc; } /* 在 <ol> 里嵌套时浏览器默认会变成空心圆 */
+.points-list .point-card .desc li::marker { color: var(--text-dim); }
 .points-list .point-card.key { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .point-num {
   flex: 0 0 auto;
@@ -350,6 +351,24 @@ input[type="range"]:focus-visible {
   font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 3px;
   background: var(--accent-soft); color: var(--accent); letter-spacing: 0.3px;
 }
+/* ---- 正文的视觉锚点 (Prose + Tex rich, 见 utils/richText.js): 让眼睛先落在结论、数字和名字上 ---- */
+.prose .lead-sentence { font-weight: 600; color: var(--text); }
+.prose p.has-lead .lead-sentence { margin-right: 0.25em; }
+.prose .rt-gloss { color: var(--text-muted); font-size: 0.93em; }
+.prose .rt-code {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace; font-size: 0.86em;
+  padding: 0.05em 0.28em; border-radius: 4px;
+  background: var(--code-bg); color: var(--code-text); overflow-wrap: anywhere;
+}
+.prose .rt-num { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.prose .rt-gloss .rt-num { color: inherit; }
+.prose .p-label {
+  display: inline-block; font-size: 12px; line-height: 1.7; font-weight: 600; letter-spacing: 0.04em;
+  padding: 0 7px; margin-right: 8px; border-radius: 4px; vertical-align: 1px;
+  background: var(--bg-elev); color: var(--text-muted); border: 1px solid var(--border);
+}
+.prose .p-label.key { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.prose .p-label.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: transparent; }
 /* 节编号 (页首「本章顺序」与各节标题一致) */
 .section h2 .sec-num {
   display: inline-flex; align-items: center; justify-content: center;
@@ -510,7 +529,7 @@ ol.pts { padding-left: 1.4em; }
 .lab-head h3 { margin-bottom: 4px; flex-wrap: wrap; }
 /* 实验台说明: 「模拟什么 / 图上是什么 / 可以做什么 / 应该看到」四段, 是读者操作前唯一的指引, 用正常字色 */
 .lab-sub {
-  color: var(--text); font-size: 13.5px; line-height: 1.75; margin: 8px 0 18px;
+  color: var(--text); font-size: 14.5px; line-height: 1.85; margin: 8px 0 18px; max-width: 920px;
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px;
 }
 .lab .lab-head .lab-sub > * + * { margin-top: 0.6em; }
@@ -521,6 +540,13 @@ ol.pts { padding-left: 1.4em; }
 .lab .lab-head .lab-sub li.labeled > b { color: var(--accent); font-size: 12.5px; white-space: nowrap; }
 .lab .lab-head .lab-sub li:not(.labeled) { padding-left: 1.1em; text-indent: -1.1em; }
 .lab .lab-head .lab-sub li:not(.labeled)::before { content: "• "; color: var(--text-dim); }
+/* 说明面板里的子列表 (可以做什么 → 各个控件): 正常的列表符号, 不要一级项的分隔线和悬挂缩进 */
+.lab .lab-head .lab-sub .sub-list { list-style: disc; padding-left: 1.2em; margin-top: 4px; }
+.lab .lab-head .lab-sub ol.sub-list { list-style: decimal; }
+.lab .lab-head .lab-sub .sub-list li { padding: 0; margin-top: 2px; border-top: 0; text-indent: 0; }
+.lab .lab-head .lab-sub .sub-list li::before { content: none; }
+.points-list .point-card .desc ol { list-style: decimal; }
+.points-list .point-card .desc ol li::marker { color: var(--accent); font-weight: 600; }
 @media (max-width: 640px) {
   .lab .lab-head .lab-sub li.labeled { grid-template-columns: 1fr; gap: 2px; }
 }
@@ -560,7 +586,7 @@ div.lab-note > * + * { margin-top: 6px; }
 .lab-challenge .ask-k { font-weight: 600; }
 .lab-challenge .ask-hint { margin-left: 8px; font-size: 11px; color: var(--text-dim); }
 .lab-challenge[open] .ask-hint { display: none; }
-.lab-challenge .prose { margin-top: 8px; color: var(--text); line-height: 1.75; }
+.lab-challenge .prose { margin-top: 8px; color: var(--text); line-height: 1.85; font-size: 14.5px; }
 /* 问题本身: 在「试一试」下面另起一段, 正常换行; 和答案同样支持分段与要点 */
 .lab-challenge summary .prose { margin-top: 4px; color: var(--text); line-height: 1.6; }
 /* 实验台分包下载中 / 下载失败时的占位框, 见 components/LabMount.vue */
