@@ -23,7 +23,7 @@ const topic = {
     'models-mtp': {
       widgets: ['MtpLab'],
       title: 'SWA · MTP · 混合线性 — 三种给 Transformer 减负的改法',
-      subtitle: '读完你能分辨一个新模型动了哪一处:\n- 把注意力的 mask 裁窄了, 每个 token 只看最近一段 (Mistral 的 SWA)?\n- 让每个位置多预测几步 (MTP)?\n- 还是把装历史的容器从 KV cache 换成了定长状态 (Qwen3-Next)?',
+      subtitle: '围绕滑动窗口掩码、多 token 预测与定长线性状态三条路线, 拆解现代架构怎样给长上下文注意力减负。',
       tldr: '- SWA (滑动窗口注意力): 不新增任何类, 只把下三角 mask 换成带状的, 每个 token 只看最近 W 个。KV cache 从随长度涨的 $O(T)$ 封顶到 $O(W)$。\n- MTP (多 token 预测): 在主干后面接级联模块, 共享 lm_head, 让位置 i 除了预测下一个, 还预测下下个。每个位置的监督从 1 份变成 K+1 份; 推理时还白送一份投机解码的草稿。\n- 混合线性 (Qwen3-Next): 大部分层用固定大小的状态矩阵代替 KV cache, 每 4 层留 1 层全注意力兜底精确召回。',
       question: '每层只看最近 W 个 token, 远处的信息怎么过来? 一次预测好几个 token, 为什么不算偷看未来?',
       evolution: {
@@ -74,8 +74,8 @@ loss = ce_main + lam * mean(ce_mtp_k)            # 联合训练`,
 
     'models-generation': {
       title: 'KV cache 生成 · 推理为什么不用每步重算整段',
-      subtitle: '读完你能说清: generate() 的三个分支每一支在干什么, 以及 MLA 为什么只缓存 latent 而不缓存 K/V。',
-      tldr: '- 模型生成是一个 token 一个 token 往外吐的。每吐一个, 序列只长 1, 而旧 token 在每一层算出来的 K 和 V 一个字节都不变。把它们存下来 (这叫 KV cache), 生成 N 个 token 时累计送进模型的 token 数从 $O(N^2)$ 降到 $O(N)$。\n- MHA/GQA: 存 K、V 本体。\n- MLA: 只存一个低秩的 latent c_kv 和所有 head 共享的 k_rope, 每步现场把它们升维成 K 和 V, 用一点算力换 cache 变小。',
+      subtitle: '自回归生成每步只新增 1 个 token, 历史位置的 K 和 V 在因果掩码下始终不变。围绕这一性质拆解 prefill 与 decode 两段流程, 并对比 MHA/GQA 与 MLA 的缓存形态。',
+      tldr: '- 避免重复前向: 首次 prefill 并行算完整段输入并把各层的历史 K/V 存入缓存, 后续 decode 每步只送入最新 1 个 token, 累计送入模型的 token 数从 $O(N^2)$ 降为 $O(N)$。\n- 两种缓存形态: MHA 与 GQA 直接缓存 K、V 张量本体; MLA 只缓存低维压缩向量 c_kv 与共享位置向量 k_rope, 用少量升维计算换取更小的显存占用。',
       question: '为什么只缓存 K/V, 不缓存 Q? 上下文窗口一满, 整个 cache 为什么就作废了?',
       evolution: {
         title: '把重复计算一刀刀剔掉',
@@ -127,7 +127,7 @@ c_kv = cat([cache["c_kv"], c_new]); k, v = k_up(c_kv), v_up(c_kv)  # MLA`,
 
     'models-qknorm-yarn': {
       title: 'QK-Norm 与 YaRN · 两个给注意力兜底的补丁',
-      subtitle: '- 管数值: 注意力 logit (softmax 之前的分数) 不许随 q、k 的范数一起长大。\n- 管位置: RoPE 超出训练长度时, 不许看到没见过的角度。\n读完你能说出两者各改了哪一行, 以及为什么顺序不能调。',
+      subtitle: '分别从注意力分数上限与位置旋转频率入手: QK-Norm 锁住点积数值范围, YaRN 按频率分段缩放实现长上下文外推。',
       tldr: '- QK-Norm: q、k 在 RoPE 之前各过一次 head_dim 上的 RMSNorm (把向量长度拉回固定值), 于是 logit 只剩夹角和一个可学增益, 上界锁死在 $g^2\\sqrt{d}$。\n- YaRN: RoPE 的每对维度像一根转速不同的表针。按 “训练长度内转了几圈” 给每个频率分段缩放: 高频不动, 低频 $\\div s$ (s 是上下文要扩几倍), 中间线性过渡, 再乘 mscale 补回注意力温度。',
       question: '都已经除以 $\\sqrt{d}$ 了, logit 为什么还会炸? 长度外推时, 为什么先出问题的是低频维度而不是高频?',
       evolution: {
@@ -177,8 +177,8 @@ mscale = 0.1 * ln(s) + 1`,
 
     'models-mamba': {
       title: 'Mamba · 让状态空间模型学会挑着记',
-      subtitle: '- 注意力: 所有历史的 K/V 都留着, 用的时候再挑。\n- SSM (状态空间模型): 只有一个固定大小的状态, 每来一个 token 就得当场决定留什么、丢什么。\n读完你能说清 Mamba 的答案 (让步长 $\\Delta$ 由输入自己决定), 以及它为此放弃了什么。',
-      tldr: '- Mamba 不用注意力, 用一个递推: $h_t = \\exp(\\Delta_t\\cdot A)\\cdot h_{t-1} + \\Delta_t\\cdot B_t\\cdot x_t$, $y_t = C_t\\cdot h_t$。这个式子在说: 新状态等于旧状态乘一个衰减系数, 再加上当前输入写入的一份; 输出从状态里读出来。\n- $\\Delta_t$、$B_t$、$C_t$ 全由当前 token $x_t$ 线性投影得到, 这叫 “选择性”:\n  - Δ 大: 清掉旧状态、写入当前 token。\n  - Δ 接近 0: 当前 token 被跳过。\n- 解码每步只要 $O(1)$ 的状态, 和读过多少 token 无关。训练在生产实现里靠并行 scan, 教学版是逐 token 的顺序循环。',
+      subtitle: '注意力机制把全部历史都留在缓存里供随时检索, 而状态空间模型 (SSM) 只能把历史压进固定大小的状态。Mamba 的突破在于让步长与投影参数随当前输入动态变化, 在定长状态里实现按内容取舍。',
+      tldr: '- 选择性状态递推: 状态按 $h_t = \\exp(\\Delta_t A)h_{t-1} + \\Delta_t B_t x_t$ 更新, 再经 $y_t = C_t h_t$ 读出输出。其中步长 $\\Delta_t$ 与 $B_t, C_t$ 均由当前输入 $x_t$ 动态投影生成 —— $\\Delta_t$ 变大时冲刷旧状态并写入当前词, 接近 0 时则跳过无关词。\n- 常数级推理状态: 解码每步只需维护固定大小的状态张量 ($O(1)$ 内存), 序列再长也不膨胀; 代价是放弃了固定卷积核训练, 需改用并行扫描 (parallel scan)。',
       question: 'S4 这种参数不随位置变的 SSM 可以写成卷积、训练飞快, Mamba 为什么宁可把这个性质扔了?',
       evolution: {
         title: '在定长状态里学会挑着记',
@@ -226,8 +226,8 @@ return y + D_skip * x`,
 
     'models-moe-balance': {
       title: 'Aux-loss-free 负载均衡 · 会自己动的路由偏置',
-      subtitle: 'MoE (混合专家) 模型里每个 token 只交给少数几个专家算, 专家之间的负载必须均衡, 否则热门专家排队、冷门专家闲着。传统做法加一项 aux loss 来压热门专家, 但它往语言建模目标里掺了一股不相干的梯度。\n读完你能说清 DeepSeek-V3 怎么把 “均衡” 从 loss 里搬出来, 变成一个不收梯度的控制器。',
-      tldr: '每个专家配一个偏置 $b_e$:\n- 选 top-k (决定哪几个专家上场) 时: 用 $s+b$, s 是路由器给的分数。\n- 算门控权重 (上场的专家各信多少) 时: 只用 $s$。\n每个训练 step 之后, $b_e \\mathrel{+}= \\gamma\\cdot\\mathrm{sign}(\\text{平均负载} - \\text{专家 } e \\text{ 的负载})$: 接到的 token 比平均多就减一点 γ, 比平均少就加一点 γ。',
+      subtitle: '混合专家模型 (MoE) 容易把流量集中在少数热门专家上, 传统辅助损失 (aux loss) 虽然能强行打散负载, 却会干扰语言建模梯度。DeepSeek-V3 用一组不参与反向传播的动态路由偏置解开了这个矛盾。',
+      tldr: '- 选人与加权分离: 给每个专家维护一个不收梯度的偏置 $b_e$; 挑选 top-k 上场专家时按 $s + b_e$ 排序, 但汇总专家输出时仍使用不带偏置的原始亲和度 $s$。\n- 步后符号反馈: 每个训练步结束后统计各专家实际接到的 token 数, 超出均值就将 $b_e$ 减去 $\\gamma$, 低于均值就加上 $\\gamma$, 在不污染主损失梯度的前提下动态拉平负载。',
       question: '同样是把热门专家压一压, 为什么改偏置比加 aux loss 对模型质量更友好?',
       evolution: {
         title: '均衡从 loss 里搬出来',
@@ -274,8 +274,8 @@ with no_grad():
 
     'models-dsa': {
       title: 'DSA · 用一个便宜的 indexer 挑出值得算注意力的那 k 个',
-      subtitle: 'DeepSeek-V3.2 的稀疏注意力 (DSA) 不规定每个 token 该看哪些位置, 而是让模型自己学: 一个便宜的打分器 (indexer) 给所有 key 打分, 每个 query 只在得分最高的 k 个 key 上做 MLA 注意力。\n读完你能说清 indexer 是怎么被训出来的, 以及为什么不能一上来就稀疏。',
-      tldr: '- 稀疏注意力的意思是每个 query 不看全部 T 个 key, 只看一小部分。DSA 用一个很小的 LightningIndexer 给每对 (query t, key s) 打分 $I[t,s] = \\sum_h \\mathrm{ReLU}(q_h\\cdot k_h/\\sqrt{d})$ (几个小 head 的点积过 ReLU 再相加), 每行只留分最高的 k 个, 主注意力只看这 k 个。\n- 选 top-k 是 “取最大的 k 个” 这种离散操作, 不可导, 语言模型的梯度传不到 indexer。所以 indexer 单独训: 让 $\\mathrm{softmax}(I)$ 去模仿主注意力的分布, 两者的差距用 KL 散度衡量 (KL 是衡量两个概率分布差多远的量, 0 表示完全一样)。\n- 训练分三步:\n  1. 稠密预训练。\n  2. 冻住主模型只预热 indexer。\n  3. 切成稀疏。',
+      subtitle: 'MLA 把 KV 缓存压小了, 但超长上下文下主注意力的计算量仍按 $O(T^2)$ 增长。DeepSeek-V3.2 的动态稀疏注意力 (DSA) 先用极轻量的打分器筛出 top-k 个候选位置, 只在这些位置上运行昂贵的主注意力。',
+      tldr: '- 先粗筛再精算: 轻量级 LightningIndexer 用少量小维度头快速给历史位置打分, 每个 query 只保留得分最高的 $k$ 个位置送入 MLA 计算。\n- 蒸馏式三段训练: top-k 离散截断会阻断主损失梯度, 因此 indexer 通过拟合主注意力分布的 KL 散度单独学习, 并按「稠密预训练 → 冻结主干预热 indexer → 切换稀疏联合训练」分阶段推进。',
       question: 'indexer 自己也要给所有 (t, s) 打分, 还是 $O(T^2)$, 那到底省在哪?',
       evolution: {
         title: '稀疏的形状从人定到学出来',
@@ -295,7 +295,7 @@ with no_grad():
         { title: '先 mask, 再 top-k', body: '顺序是: 先把因果 mask 之外的分数 (未来位置、pad 位置) 填 −inf, 再在剩下的里取 top-k。\n反过来会出两个问题:\n- top-k 会选中未来位置, 它们随后被因果 mask 挡掉, 这一行有效的 key 就不足 k 个。\n- indexer 对齐时学到的是 “哪些未来 token 重要” 这种泄漏的信号, 推理时看不到未来。\n序列开头几行本来就不到 k 个可见位置 (第 0 行只能看 1 个), top-k 会把填了 −inf 的位置也选进来。所以最后再和因果 mask 取一次交集, 把它们剔掉。demo 里 T=24、k=8, 每个 query 看到的 key 数是 1, 2, 3 一直到 8, 之后封顶在 8。' },
       ],
       links: [
-        { from: 'attention · MLA', to: 'MultiHeadLatentSparseAttention', body: '左边是 MLA, 右边是 DSA 的类。DSA 没有改注意力本身: 它就是 LightningIndexer 打分, 加一张由 top-k 生成的 mask, 加一个原封不动的 MLA。' },
+        { from: 'attention · MLA', to: 'MultiHeadLatentSparseAttention', body: 'DSA 并没有改动 MLA 注意力本身, 只是在外层套上 LightningIndexer 打分与 top-k 稀疏掩码, 再交给原有的 MLA 执行计算。' },
         { from: 'models-mtp · 掩码实验台', to: 'top-k 稀疏', body: '那一章的实验台有一个 top-k 模式, 显示 mask 长什么样; 这一章讲这张 mask 是怎么被学出来的, 以及 k 取多少才够。' },
         { from: 'cache["idx_k"]', to: 'KV cache 生成', body: '解码时每个新 token 都要让 indexer 给全部历史位置打分, 所以历史 token 的 indexer key 也得缓存, 存在 cache 的 idx_k 键里, demo 里每 token 每层多存 64 个数。这是 DSA 多付的代价: 它省算力, 不省 cache。' },
       ],
@@ -324,8 +324,8 @@ index_loss = (p * (log(p) - log_softmax(I))).sum(-1).mean()`,
 
     'models-gptoss': {
       title: 'GPT-OSS 结构 · 滑窗/全注意力交替 + 可学 sink + MoE',
-      subtitle: 'OpenAI 2025 年的开放权重模型没发明新零件, 只是把三个已知零件拼得很讲究: 滑动窗口注意力、attention sink、MoE。\n读完你能说清交替排布省在哪, 以及为什么滑窗把开头 token 挤出去之后它不会崩。',
-      tldr: '- 偶数层用滑动窗口注意力 (SWA): 每个 token 只看最近 W 个, 所以这些层的 KV cache 封顶在 W, 不随上下文长度涨。\n- 奇数层用全注意力: 看全部历史, 兜住远处的信息。\n- sink logit: 每个注意力 head 多一个可学的分数, 拼进 softmax 的分母一起算, 算完就丢掉它那一列。效果是 head 可以 “谁都不看”, 滑窗也不再依赖开头那几个 token。',
+      subtitle: 'GPT-OSS 没有引入全新的底层算子, 而是把滑动窗口注意力、全注意力、可学习的 attention sink 与 MoE 路由组合在一起, 在砍掉近一半长上下文缓存的同时保住远距召回与滑窗稳定性。',
+      tldr: '- 隔层交替省缓存: 偶数层使用滑动窗口注意力, KV 缓存封顶在窗口长度 $W$; 奇数层保留全因果注意力, 确保任意远的历史信息都能一步直达。\n- 参数化 sink 吸收冗余概率: 每个注意力头额外配一个只参与 softmax 分母的可学习标量 sink, 让注意力头在不需关注上文时有处安放权重, 即使首 token 滑出窗口也不会分布崩溃。',
       question: '滑窗会把开头 token 挤出 cache, StreamingLLM 发现这会让模型崩溃, GPT-OSS 为什么不怕?',
       evolution: {
         title: '省 cache, 又不丢远处和开头',
@@ -377,8 +377,8 @@ kv_entries = W if layer % 2 == 0 else T`,
 
     'models-llada': {
       title: 'LLaDA · 不从左到右写的语言模型',
-      subtitle: '扩散模型原本是给图像加噪再学去噪。LLaDA 把它搬到离散 token 上: 加噪就是随机把 token 换成 [MASK], 去噪就是用双向 Transformer 一次预测所有 [MASK]。读完你能说清它和 BERT 差在哪, 以及为什么它用不了 KV cache。',
-      tldr: '- 训练:\n  1. 每条序列抽一个遮盖率 $t$ (0 到 1 之间)。\n  2. 每个 token 以概率 $t$ 被换成 [MASK]。\n  3. 只在被遮位置算交叉熵 CE, 再乘 $1/t$。乘完之后这个 loss 是 $-\\log p(x)$ 的上界 (ELBO), 意思是压低它就是在抬高模型给真实文本的概率, 它因此是一个正经的生成模型。\n- 采样: 从全是 [MASK] 的序列出发, 每步:\n  1. 并行预测全部位置。\n  2. 留下最有把握的几个。\n  3. 其余重新遮回去。剩余 [MASK] 的个数按线性日程递减到 0。',
+      subtitle: '把扩散去噪的思想搬到离散文本上: 训练时按随机比例把词遮成 [MASK] 再并行还原, 生成时从全遮盖序列出发、按模型把握大小分批落字, 打破从左到右的固定生成顺序。',
+      tldr: '- 全范围随机遮盖训练: 每条样本在 $(0, 1)$ 间抽取遮盖率 $t$ 将词替换为 [MASK], 仅对被遮位置计算交叉熵并乘上权重 $1/t$, 使损失构成真实对数似然的变分上界。\n- 低置信度重遮采样: 从全 [MASK] 序列开始迭代, 每步双向并行预测全部位置, 只锁定把握最高的一批词, 把低置信度位置重新遮回留给下一步结合新上下文再定。',
       question: 'BERT 也是遮盖再预测, 为什么 BERT 不能拿来生成而 LLaDA 能?',
       evolution: {
         title: '从左到右之外的另一条生成路',
@@ -429,8 +429,8 @@ for s in range(1, steps + 1):
 
     'models-var': {
       title: 'VAR · 自回归的单位从 “下一个 token” 换成 “下一个分辨率”',
-      subtitle: '把图像按光栅顺序 (一行一行) 展平再做 next-token 生成: 既慢 (步数等于 token 数), 又把二维结构拆了。\nVAR 让模型先画 1×1 的总体印象, 再画 2×2、4×4, 一次出一整级。读完你能说清级内并行为什么不会把画面搞乱。',
-      tldr: '- 多尺度 VQ: 先用一个 tokenizer 把图像编码成一座 token 金字塔 (1×1、2×2、4×4 三张 token 表)。每一级量化的是 “前面所有级还没解释掉的残差”, 粗级管大块颜色, 细级补细节。\n- Transformer: 用块状因果 mask 逐级预测。同一级的 token 互相可见, 另外只能看更粗的级, 看不到更细的。\nscales=(1,2,4) 时生成整张图只要 3 次前向 (一次出一级); 光栅序 4×4 的 16 个 token 要 16 次。',
+      subtitle: '把二维图像按行展平逐个预测 token 既慢又割裂空间邻域。视觉自回归 (VAR) 改为按尺度由粗到细生成: 先定 1×1 的整体色调, 再逐级并行补齐 2×2、4×4 的局部细节。',
+      tldr: '- 多尺度残差量化: 图像先编码成由粗到细的 token 金字塔, 每一级只量化前序粗尺度尚未还原的残差特征, 各级共享同一套码本。\n- 逐尺度块状自回归: Transformer 采用块状因果掩码, 同尺度内的位置彼此可见且只依赖更粗尺度; scales=(1, 2, 4) 时只需 3 次前向就能生成整张图, 无需像光栅序那样串行走 16 步。',
       question: '同一尺度内的 token 是一次并行采样出来的。它们看不到彼此的采样结果, 画面为什么不会乱?',
       evolution: {
         title: '自回归的一步从一个 token 变成一整级',
@@ -480,8 +480,8 @@ image = decoder(f_hat + upsample(codebook[indices[-1]], H))
 
     'models-multimodal': {
       title: '图像与音频怎样接入语言模型 · 前缀、交叉注意力与 Talker',
-      subtitle: 'CLIP、Whisper、Qwen2-VL、Qwen2.5-Omni 四套模型都在回答同一个问题: 不是文本的输入 (图、声音) 怎么变成 Transformer 认的 token, 又从哪一扇门进语言模型。\n读完你能对着任意一个多模态模型说出它的 token 化方式、接入点和训练目标, 并算出一张图要占多少上下文。',
-      tldr: '- token 化: 图像切成不重叠的小方块 (patch), 每块变一个向量; 224×224 的图切 16×16 的块得 196 个。声音先变成 mel 声谱 (时间 × 频率的二维图), 沿时间用卷积切成帧; Whisper 把 30 秒的 3000 帧压成 1500 帧。\n- 接入:\n  - CLIP 只把图和文各压成一个向量比相似度, 不生成。\n  - Qwen2-VL 把视觉 token 当前缀拼在文本前面送进 decoder。\n  - Whisper 的 decoder 每层用 cross-attention 去读音频编码器的输出。\n  - Omni 的 Talker 用 cross-attention 读 Thinker 的隐状态。\n- 训练目标: CLIP 是图文双向的对比交叉熵; Qwen2-VL 和 Whisper 是文本位置的 next-token 交叉熵; Omni 是文本 CE 加 0.5 倍语音 CE。',
+      subtitle: '对比 CLIP、Whisper、Qwen2-VL 与 Qwen2.5-Omni 四种代表架构, 梳理非文本信号怎样切成连续向量序列, 又通过哪条路径接入语言模型完成理解与生成。',
+      tldr: '- 模态切片化: 图像经无重叠卷积切成二维 patch 向量, 音频先转为 mel 声谱再沿时间轴卷积压成帧序列。\n- 三种融合与输出架构:\n  - 双塔对比 (CLIP): 图文各自编码成单个全局向量算相似度, 只做检索打分、不负责生成。\n  - 序列前缀 (Qwen2-VL): 视觉向量直接拼在文本前面送入同一个因果解码器, 不改 LLM 主干但占用上下文窗口。\n  - 交叉注意力与双核协作 (Whisper / Omni): 用 cross-attention 读取音频编码器特征, 或由 Talker 读取 Thinker 的隐状态流式生成语音编码。',
       question: '一张图要占语言模型多少个 token? 把它拼在文本前面, 和让 decoder 用 cross-attention 去看, 差在哪?',
       evolution: {
         title: '把眼睛和耳朵接到同一个 Transformer 上',
@@ -592,8 +592,8 @@ topic.pages['models-mamba'].sections = [
   { ...supplement(mixed, 'linear-hybrid', '进阶 · DeltaNet 与混合线性架构', mixed.points.slice(3, 5), ['ModelLinearAttnLab']), tldr: '- Gated DeltaNet 和 Mamba 一样, 用一个固定大小的状态代替 KV cache, 但两者的机制不同:\n  - DeltaNet 的状态是一个矩阵, 每来一个 token 先用 k 擦掉旧值, 再写入新的 v (delta rule)。\n  - Mamba 的选择性 SSM 靠 Δ 控制衰减和写入。\n- 两者都把全部历史压进定长状态, 压缩有损, 精确召回很久以前的某个 token 不如注意力。所以 Qwen3-Next 每 4 层留 1 层全注意力兜底。' },
 ]
 mixed.title = 'MTP 多 token 预测 · 一次前向, K+1 份监督'
-mixed.subtitle = '读完你能说清: MTP (multi-token prediction, 让每个位置多预测后面几步) 的第 k 级明明看到了后面的真 token $t_{i+k}$, 为什么不算偷看答案; 以及训练时拼进去的真 token 和生成时它给出的草稿, 为什么不是一回事。'
-mixed.tldr = '- 做法: 普通语言模型在位置 i 只预测下一个 token $t_{i+1}$。MTP 在主干后面串几级小模块: 第 k 级在位置 i 把真实 token $t_{i+k}$ 的 embedding 拼进来, 过一个 Transformer Block, 预测 $t_{i+k+1}$。每深一级多看一个真 token, 也多预测一步, 所以永远看不到自己要预测的那个 token, 因果链不断。\n- 训练: 总损失是 $\\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$。这个式子在说: 主干的交叉熵, 加上各级 MTP 交叉熵的平均再乘 λ。DeepSeek-V3 的 $\\lambda$ 取 0.3, 后期降到 0.1。\n- 成本和边界: 每级只新增一个拼接投影和 1 个 Block, embedding 和输出头 lm_head 都借主干的。丢掉 MTP 模块, 主 logits 和同权重的 LLaMA 逐元素相等。生成时它对 t+2 的预测只是投机草稿, 还要目标模型验证才能收下。'
+mixed.subtitle = '普通语言模型在每个位置只学紧邻的下一个词。多 token 预测 (MTP) 在主干后串联轻量模块同时预测未来多步, 既加密了训练监督信号, 又能顺手为推理提供投机解码草稿。'
+mixed.tldr = '- 串行级联不断因果链: 第 $k$ 级模块在位置 $i$ 接收上一级隐状态与真实词 $t_{i+k}$ 的嵌入, 经单个 Block 预测 $t_{i+k+1}$ —— 每往后推一步才多看一个真实词, 始终看不到待预测目标本身。\n- 共享词头与联合损失: 各级模块复用主干的输入嵌入与 lm_head, 总损失为主干交叉熵加上权重为 $\\lambda$ 的各级 MTP 平均交叉熵 (DeepSeek-V3 取 0.3 后退火至 0.1)。推理时可将 MTP 分支裁掉还原纯主干, 或拿它生成的 $t+2$ 候选交给主模型做投机验证。'
 mixed.points = [mixed.points[2]]
 mixed.evolution = null
 mixed.related = [{ route: 'attention', label: '滑窗与跨层感受野', reason: '滑窗 (每层只看最近 W 个) 和跨层感受野挪到了注意力一章的补充段, 和掩码实验台放在一起讲。' }, { route: 'models-mamba', label: '状态空间与混合线性架构', reason: '用定长状态代替 KV cache 的两条路 (Mamba 和 DeltaNet) 放在同一章对照: 各省了什么, 各丢了什么。' }, { route: 'infer-tree-speculation', label: '草稿怎样被验证', reason: 'MTP 训练出的 t+2 预测只是草稿。生成时草稿怎样交给目标模型一次验证、哪些被收下, 在那一章。' }]

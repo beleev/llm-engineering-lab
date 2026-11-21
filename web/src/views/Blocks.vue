@@ -13,15 +13,7 @@
     </div>
 
     <ChapterIntro
-      tldr="- 一个 LLM 是几十个相同的 block 叠起来的。每个 block 里:
-  1. 向量先过归一化 (norm) 再进注意力 (attn), 结果加回原向量。
-  2. 再过一次 norm 进前馈网络 (ffn), 再加回来。
-- 位置编码 (pos) 告诉注意力 token 的先后。
-- 本仓库把这副骨架只写了一份 PreLNBlock, attn / ffn / norm 当构造参数传进去。下面三者是同一份骨架换了零件:
-  - GPT-3 = MHA + GELU-FFN + LayerNorm。
-  - LLaMA = GQA + SwiGLU + RMSNorm。
-  - DeepSeek-V3 = MLA + MoE + RMSNorm。
-- 骨架用 Pre-LN: norm 放在分支里, 主干上只有加法, 几十层堆起来, 训练信号也能原样传回底部。"
+      tldr="现代大语言模型由几十层结构相同的 Pre-LN Block 堆叠而成: 残差主干一路只做加法, 让梯度无损传回底层; 注意力与前馈网络作为旁路分支接在归一化之后。本仓库只写了一份通用的 PreLNBlock 骨架, 把注意力、前馈网络、归一化和位置编码做成可插拔的构造参数——从 GPT-3、LLaMA 到 DeepSeek-V3, 本质上都是同一副骨架换上了不同代的零件组合。"
       question="模型之间就差 4 个构造参数的话, 「读 N 个模型的源码」是不是变成了「读 N 张零件配置表」?"
       :goals="[
         '把任意一个模型翻译成 PreLNBlock 的四个零件配置',

@@ -137,31 +137,31 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 ## Agent 专题实验
 
 
-| 模块 | 读完能解释什么 |
+| 模块 | 核心内容 |
 |---|---|
-| [m26_tool_discovery](m26_tool_discovery/README.md) | 目录里有 102 个工具, 全塞进请求 (flat 模式) 的话模型每轮都看到 103 个 Schema (工具的参数说明)。 |
-| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 知识库里的事实是一堆带来源 id 的小块, 一次只能取回几块, 取哪几块决定了答得全不全。 |
-| [m28_coding_agent](m28_coding_agent/README.md) | demo 里一个写死的修复策略 (RepairPolicy, 代替真实模型) 去修 pricing.py 里的折扣函数。 |
-| [m29_async_runtime](m29_async_runtime/README.md) | demo 用真实的 asyncio 任务模拟一个会往账本里记 10 元的工具, 分三种时序跑: 跑完、提交前被取消、提交后被取消。 |
-| [m30_collaboration](m30_collaboration/README.md) | 两个 worker 并行改一份共享计划, 各改自己负责的那个资源, 合并时没有任何文本冲突; 可合起来总量 12 超过上限 10。 |
-| [m31_eval_suite](m31_eval_suite/README.md) | 同一份 3 道题的题集 (内容哈希成 suite id 191d7ed87046) 跑三种条件: - 什么机制都不开的 baseline 过 1/3。 |
-| [m32_agent_training](m32_agent_training/README.md) | demo 让一个极小的 LLaMA 模型 (在 CPU 上真的更新参数) 学一个只有 4 个动作的工具协议, 训练用 16 个实体, 验收用另外 16 个没见过的实体 (留出集)。 |
-| [m33_skill_evolution](m33_skill_evolution/README.md) | demo 里的 Skill 是一条 "按项目选编程语言" 的规则: 默认 Python, 可以给单个项目设例外。 |
-| [m34_voice_interaction](m34_voice_interaction/README.md) | 语音助手分四段: 1. VAD 判断有没有人在说话。 |
-| [m35_visual_grounding](m35_visual_grounding/README.md) | 视觉定位 (visual grounding) 是从截图像素里算出目标在哪。 |
-| [m36_embodied_control](m36_embodied_control/README.md) | demo 是一个一维的小车: 位置 x 从 0 出发, 目标 1.0, 每步 x 增加 增益 × 动作。 |
-| [m37_midtraining](m37_midtraining/README.md) | 中期训练指的是: 预训练之后, 继续用 "预测下一个 token" 的目标在新领域语料上训练模型, 把新知识写进权重。 |
-| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 程序化行动指让模型把规则写成代码交给解释器算, 而不是在文字里心算。 |
-| [m39_meta_optimization](m39_meta_optimization/README.md) | 元优化改的不是模型知道什么, 而是 agent "怎么探索": 本章比较两个搜索策略, breadth (按发现顺序展开节点) 和 prior (先展开先验分 prior 最高的节点)。 |
-| [m40_agent_society](m40_agent_society/README.md) | demo 是一个重复的囚徒困境: 两个 agent 每轮各选合作 (C) 或背叛 (D), 按一张收益表拿分, 连玩 6 轮。 |
-| [m41_system_design](m41_system_design/README.md) | 两种做法: - workflow 是事先写好步骤清单的固定流程, 便宜但清单里没有的事做不了。 |
-| [m42_memory_privacy](m42_memory_privacy/README.md) | 权限要在召回之前查, 不是先把记忆全取出来再过滤。 |
+| [m26_tool_discovery](m26_tool_discovery/README.md) | 面对上百个工具定义时用按需检索替代全量加载, 兼顾工具召回率与上下文开销。 |
+| [m27_knowledge_organization](m27_knowledge_organization/README.md) | 对比平铺检索与结构化目录索引, 在有限召回预算下补齐带来源编号的关键事实。 |
+| [m28_coding_agent](m28_coding_agent/README.md) | 围绕测试失败信息执行定位、补丁生成与回归运行闭环, 用独立单测而非口头声明判定修复完成。 |
+| [m29_async_runtime](m29_async_runtime/README.md) | 基于真实 asyncio 与 SQLite 验证提交前取消、提交后取消及幂等重放对账本副作用的边界影响。 |
+| [m30_collaboration](m30_collaboration/README.md) | 展示并行子智能体无文本冲突却违反全局资源配额的场景, 引入共享预算与合并校验。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 用内容哈希固定评测集版本, 对比不同机制开关的通过率并用配对 bootstrap 检验差异显著性。 |
+| [m32_agent_training](m32_agent_training/README.md) | 在 CPU 小模型上训练 4 动作工具调用协议, 在未见过的留出实体集上检验协议泛化。 |
+| [m33_skill_evolution](m33_skill_evolution/README.md) | 演示三层渐进式资料披露, 以及新规则上线前经回归测试拦截旧场景退化的版本演进流程。 |
+| [m34_voice_interaction](m34_voice_interaction/README.md) | 串联 VAD 端点检测、ASR 识别、Agent 推理与 TTS 播报四段流水线, 处理用户中途打断 (barge-in)。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 对比基于截图像素坐标的视觉定位与无障碍树节点引用, 分析分辨率缩放与布局偏移下的稳定性。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | 在带扰动的一维控制环境中对比开环规划与闭环反馈控制, 说明观测校正对消除累积误差的作用。 |
+| [m37_midtraining](m37_midtraining/README.md) | 在预训练与后训练之间补充领域语料与长轨迹格式数据, 对比直接微调与先做中期训练的收敛差异。 |
+| [m38_programmatic_actions](m38_programmatic_actions/README.md) | 让模型生成可执行代码交由沙箱解释器批量运算, 替代高延迟、易算错的多轮自然语言心算。 |
+| [m39_meta_optimization](m39_meta_optimization/README.md) | 在固定预算下对比广度优先与先验引导搜索策略, 通过调整外层探索方式提升复杂任务命中率。 |
+| [m40_agent_society](m40_agent_society/README.md) | 通过多轮重复博弈实验观察不同策略组合的长期收益, 分析多智能体协作中的激励与背叛边界。 |
+| [m41_system_design](m41_system_design/README.md) | 对比固定步骤工作流 (workflow) 与开放循环智能体在成本、延迟与异常长尾任务处理能力上的取舍。 |
+| [m42_memory_privacy](m42_memory_privacy/README.md) | 将租户隔离、过期清理与用户删除前置到召回阶段之前, 避免越权记忆混入上下文窗口。 |
 
 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
 
-- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 向量检索要做的事: 给一个查询向量, 在库里找离它最近的那个。
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 对比暴力全量扫描与倒排分桶近似搜索 (IVF), 观察探针数 `nprobe` 在召回率与查询耗时之间的权衡。
 
-- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师和学生是同一个 nn.Linear(2, 2) (一个 2 进 2 出的线性层, 一共 4 个参数)。
+- [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师利用包含环境提示的特权上下文生成分布, 指导仅能看到部署期常规输入的学生模型对齐动作分布。
 
 ## 机制实验
 

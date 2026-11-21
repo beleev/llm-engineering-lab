@@ -3,23 +3,15 @@
     <h1 class="page-title">最小可跑闭环 · 用 numpy 把 Transformer 写穿</h1>
     <div class="page-subtitle lead-group">
       <p>
-        <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 不装 PyTorch, 只把 numpy 当一个数组容器,
-        把前向计算 (forward)、反向求梯度 (backward)、Adam 优化器、采样生成这四件事一行不落地摊开写。
+        <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 不依赖 PyTorch, 只用 numpy 数组把前向计算 (forward)、反向求导 (backward)、Adam 参数更新和自回归采样完整写出来。
       </p>
       <p>
-        <strong>目标</strong>: 看清梯度怎么流过模型。之后再读
-        <RepoLink path="llm_models/" label="llm_models/" tiny /> 里的 PyTorch 代码, 就知道 autograd (PyTorch 的自动求导, 平时替你算所有梯度) 在背后做了什么。
+        先把梯度在模型里的流动路径看清楚, 后续读 <RepoLink path="llm_models/" label="llm_models/" tiny /> 的 PyTorch 实现时, 就能明白 <code class="inline">autograd</code> 在底层替我们完成了哪些工作。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="现代 LLM 的训练循环只有 5 步:
-        1. 取一批数据 (get_batch)。
-        2. 前向算出预测 (forward)。
-        3. 算预测和答案差多少 (loss)。
-        4. 反向算出每个参数该往哪动 (backward)。
-        5. 更新参数 (adam_step)。
-        本阶段用 numpy 把这 5 步一行不落地写出来, Transformer 里就没有黑盒了。"
+      tldr="语言模型的训练主循环可以浓缩成五步: 取数据 (get_batch)、前向预测 (forward)、计算损失 (loss)、反向求梯度 (backward) 和更新参数 (adam_step)。本阶段用纯 numpy 手写这五步并用数值差分逐项校验, 把 Transformer 的训练闭环彻底拆开。"
       question="不许用 PyTorch 的自动求导, 只凭链式法则, 你能把 RMSNorm、softmax、残差这几个算子的反向传播写对吗? 写错了又怎么发现?"
       :goals="[
         '不用 PyTorch, 约 20 秒把一个 45,568 参数的 GPT 训到 val_loss 1.99',
@@ -50,13 +42,8 @@
       <h2>1. 一张图看完整闭环</h2>
       <div class="lead-group">
         <p>
-          左边是数据 / 训练 / 采样三条管道, 右边是撑起它们的 7 个函数对。
-          <strong>每个算子 (embedding、linear 这类基本运算) 都是 forward + backward 成对写的</strong>:
+          左表是数据准备、训练、采样与梯度检查四条入口脚本, 右表是支撑它们的 7 对核心函数。每个算子都按 <code class="inline">forward</code> 与 <code class="inline">backward</code> 成对编写: 前向计算时把反向所需的中间张量存入 <code class="inline">cache</code>, 反向传播时再按相反顺序取出并链式回传梯度。
         </p>
-        <ul class="pts">
-          <li><b>forward:</b> 算结果时顺手把反向要用的中间量存进一个叫 cache 的字典。</li>
-          <li><b>backward:</b> 按相反的顺序取出来算梯度。</li>
-        </ul>
       </div>
 
       <div class="grid grid-2" style="gap: 16px;">
@@ -194,25 +181,15 @@
 
       <div class="card">
         <pre class="code">{{ gradcheckCode }}</pre>
-        <p class="hint">判定条件把相对容差和绝对容差合在一起用, 单用哪一种都有问题:</p>
-        <ul class="hint pts">
-          <li><b>纯绝对容差:</b> 对大梯度太松。</li>
-          <li><b>纯相对容差:</b> 对接近 0 的梯度太严。抽样常落在 batch 里没出现过的那行 tok_emb 上, 两个 1e-10 的数相对误差能很大。</li>
-        </ul>
-        <p class="hint">合起来的阈值是 <code class="inline">atol + rtol · max(|g_a|, |g_n|)</code>。</p>
-        <p class="hint">eps 取 1e-5, 是 float64 下 U 形误差曲线的谷底:</p>
-        <ul class="hint pts">
-          <li><b>更小:</b> 舍入误差吃掉信号。</li>
-          <li><b>更大:</b> 又跑出截断误差。</li>
-        </ul>
         <p class="hint">
-          <router-link :to="{ name: 'basic-backward' }" class="dt-link">{{ chapterNo('basic-backward') }} 的实验台</router-link>可以亲手拖这条曲线。
+          判定阈值采用混合容差 <code class="inline">atol + rtol · max(|g_a|, |g_n|)</code>: 纯绝对容差对大梯度太松, 纯相对容差又会对接近 0 的梯度 (例如当前 batch 未出现的 <code class="inline">tok_emb</code> 行, 量级约 1e-10) 误报。
         </p>
-        <p class="hint">gradcheck.py 分两级:</p>
-        <ol class="hint pts">
-          <li>先逐算子全元素检查 (7 个算子相对误差 1e-11 ~ 2e-10)。</li>
-          <li>再对 n_layer = 1 和 2 做端到端抽样检查。</li>
-        </ol>
+        <p class="hint">
+          步长 <code class="inline">eps = 1e-5</code> 处在 float64 下 U 形误差曲线的谷底 —— 步长再小会被浮点舍入误差淹没, 再大则会引入高阶截断误差 (<router-link :to="{ name: 'basic-backward' }" class="dt-link">{{ chapterNo('basic-backward') }} 的实验台</router-link>可交互观察这条曲线)。
+        </p>
+        <p class="hint">
+          <code class="inline">gradcheck.py</code> 分两级检验: 先逐个算子做全元素核对 (7 个算子相对误差均在 1e-11 ~ 2e-10), 再对 <code class="inline">n_layer = 1</code> 和 <code class="inline">2</code> 做端到端抽样校验。
+        </p>
       </div>
     </section>
 

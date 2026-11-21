@@ -37,7 +37,7 @@
     <section v-if="evolution || page.links?.length" :id="ids.origin" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('origin') }}</span>它从哪来</h2>
       <p class="lead">
-        顺着箭头读一遍: 最早的做法卡在哪, 后来每一代补了什么, 本章实现的是其中哪一步。
+        从最早方案遇到的瓶颈出发, 看后续改进各自补上了哪块短板, 以及本章对应其中哪一步。
       </p>
       <EvolutionChain
         v-if="evolution"
@@ -47,7 +47,7 @@
       />
       <template v-if="page.links?.length">
         <h3 class="sub-h">它接在哪</h3>
-        <p class="lead">左边是它替换掉的东西, 右边是它后来被用在哪。</p>
+        <p class="lead">向上承接被替代的旧方案, 向下延伸到后续章节与工程场景。</p>
         <div class="card link-card">
           <div v-for="l in page.links" :key="`${l.from}-${l.to}`" class="link-row">
             <component
@@ -71,7 +71,7 @@
     <section :id="ids.points" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('points') }}</span>要点</h2>
       <p class="lead">
-        本章共 {{ page.points.length }} 条要点, 按顺序读。每条先说结论, 再说它是怎么发生的。标了「重点」的那条最该掌握。
+        共 {{ page.points.length }} 条核心脉络, 从问题背景逐步展开到计算机制、实测数据与适用边界; 标有「重点」的是本章最关键的一条。
       </p>
       <ol class="points-list">
         <li v-for="(p, i) in page.points" :key="p.title" class="card point-card" :class="{ key: p.key }">
@@ -85,7 +85,7 @@
     <section v-if="hasLabs" :id="ids.labs" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('labs') }}</span>动手验证</h2>
       <p class="lead">
-        把要点里的结论亲手拖出来。每个实验台开头都写了它在模拟什么、图上是什么、可以做什么、应该看到什么; 「试一试」先猜再看答案。
+        调整参数观察图表与关键指标的变化, 对照验证前面的机制分析; 每个实验台底部附有一道预测思考题。
       </p>
       <LabMount :names="primaryLabs" />
     </section>
@@ -94,7 +94,7 @@
     <section :id="ids.code" class="section" tabindex="-1">
       <h2><span class="sec-num">{{ num('code') }}</span>去代码里看</h2>
       <p class="lead">
-        打开源码之前先看这张表: 每一行告诉你一个概念落在代码的哪一行、那一行在说什么。只盯这几行, 其余的先放过。
+        阅读完整源码前可先对照下表, 定位核心概念对应的函数位置与关键表达式。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="topic-table">
@@ -102,7 +102,7 @@
             <tr>
               <th>概念</th>
               <th>代码位置 / 表达式</th>
-              <th>这一行在说什么</th>
+              <th>实现要点</th>
             </tr>
           </thead>
           <tbody>
@@ -123,9 +123,9 @@
         </table>
       </div>
 
-      <h3 class="sub-h">骨架长这样</h3>
+      <h3 class="sub-h">核心控制流</h3>
       <p class="lead">
-        只留控制流, 细节都砍了。想看完整实现就展开下面的真源码, 它直接从仓库文件里读出来, 不会和代码脱节。
+        下方代码隐去边界处理, 只保留主干步骤; 展开源码面板即可查看直接从仓库文件提取的完整实现。
       </p>
       <div class="card">
         <h3>{{ page.snippetTitle }} <span v-if="page.run" class="tag">可运行</span></h3>

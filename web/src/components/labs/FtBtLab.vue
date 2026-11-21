@@ -6,7 +6,7 @@
 <template>
   <LabFrame
     title="Bradley–Terry — 奖励模型学到的只是两条回答的「分差」"
-    sub="- 模拟什么: RLHF 的第一步是训一个奖励模型 (RM): 输入一条回答, 输出一个分数 $r$。训练数据只是「A 比 B 好」这种成对标注, 所以 RM 学的是 Bradley–Terry 模型: 标注员选 A 的概率 $P(A \succ B) = \sigma(r_A - r_B)$, 这个式子在说: 只有分差 $\Delta = r_A - r_B$ 说了算, 两个分数一起加减一个常数什么都不变。标注员也会标反, 这个台子用 $\varepsilon$ 表示标反的概率, 看噪声怎么限制 RM 能学到多大的分差。
+    sub="- 模拟什么: RLHF 的第一步是训一个奖励模型 (RM): 输入一条回答, 输出一个分数 $r$。训练数据只是「A 比 B 好」这种成对标注, 所以 RM 学的是 Bradley–Terry 模型: 标注员选 A 的概率 $P(A \succ B) = \sigma(r_A - r_B)$, 即胜率完全由相对分差 $\Delta = r_A - r_B$ 决定, 两个分数同时平移任意常数都不改变结果。标注员也会标反, 这个台子用 $\varepsilon$ 表示标反的概率, 看噪声怎么限制 RM 能学到多大的分差。
       - 图上是什么: 上下两张图:
         - 上面的数轴: RM 给两条回答打的分。绿色 A 是标注员 (大多数时候) 选的那条, 红色 B 是被拒的那条, 两点之间的粗线是分差 $\Delta$ (A 在右边时是绿色, 排反了是红色)。
         - 下面的紫色曲线: 「标注有 $\varepsilon$ 概率标反」时, 一对样本的期望 loss 随分差 $\Delta$ 的变化。
@@ -26,7 +26,7 @@
     run="python -m llm_finetune.run_finetune.rm.train_rm"
     :challenge="{
       ask: '按顺序做三件事:\n1. 把 ε 拖到 0, 一直把 A 往右拖: loss 有最小值吗?\n2. 把 ε 调到 0.2, 找到 loss 最低的分差, 它是多少?\n3. 点「两个一起 +2」: 什么变了?',
-      answer: '答案:\n1. $\\varepsilon = 0$ 时 loss 没有最小值, A 越远越好。\n2. $\\varepsilon = 0.2$ 时最低点在 $\\Delta^* = 1.386$。\n3. 「一起 +2」后 $P$ 和 loss 完全不变。\n为什么:\n- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 随 $\\Delta$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小, 不能当绝对值用。\n- 有标注噪声: 期望 loss $= -(1-\\varepsilon)\\log\\sigma(\\Delta) - \\varepsilon\\log\\sigma(-\\Delta)$, 这个式子在说: 标签以 $1-\\varepsilon$ 的概率说 A 赢、以 $\\varepsilon$ 的概率说 B 赢, 两种情况各按概率算 loss。分差拉得太大时, 那 $\\varepsilon$ 份「说 B 赢」的样本 loss 会越来越大, 所以曲线变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon = 0.2$ 时 1.386, $0.1$ 时 2.197, $0.5$ 时 0 (纯噪声, 学不到任何偏好)。\n- 碗底的含义: 此时 $\\sigma(\\Delta^*) = 1-\\varepsilon$, 也就是 RM 预测的胜率正好等于标注员的一致率, 训练良好的 RM 是校准过的。碗底的高度是二元熵 $H(\\varepsilon)$, 是噪声数据上 loss 的下限, 训到这里就别再训了。\n- 一起 +2: $\\Delta$ 不变, $P$ 和 loss 完全不变。BT 模型对整体平移不可辨识, 分数只有相对意义。这也是 GRPO / PPO 要对奖励做 baseline 或归一化的原因之一。本仓库 train_rm 实测: 留出集偏好准确率 0.549 → 0.930。',
+      answer: '答案:\n1. $\\varepsilon = 0$ 时 loss 没有最小值, A 越远越好。\n2. $\\varepsilon = 0.2$ 时最低点在 $\\Delta^* = 1.386$。\n3. 「一起 +2」后 $P$ 和 loss 完全不变。\n为什么:\n- $\\varepsilon = 0$: loss $= -\\log\\sigma(\\Delta)$ 随 $\\Delta$ 单调下降, 最优分差是 $+\\infty$。无噪声数据上 RM 会把分数无限拉开, 所以 RM 的分数没有量纲, 只能比大小, 不能当绝对值用。\n- 有标注噪声: 期望 loss $= -(1-\\varepsilon)\\log\\sigma(\\Delta) - \\varepsilon\\log\\sigma(-\\Delta)$, 按 $1-\\varepsilon$ 与 $\\varepsilon$ 的标签概率加权两侧交叉熵。分差拉得太大时, 那 $\\varepsilon$ 份「说 B 赢」的样本 loss 会越来越大, 所以曲线变成一个碗, 最低点在 $\\Delta^* = \\ln((1-\\varepsilon)/\\varepsilon)$: $\\varepsilon = 0.2$ 时 1.386, $0.1$ 时 2.197, $0.5$ 时 0 (纯噪声, 学不到任何偏好)。\n- 碗底的含义: 此时 $\\sigma(\\Delta^*) = 1-\\varepsilon$, 也就是 RM 预测的胜率正好等于标注员的一致率, 训练良好的 RM 是校准过的。碗底的高度是二元熵 $H(\\varepsilon)$, 是噪声数据上 loss 的下限, 训到这里就别再训了。\n- 一起 +2: $\\Delta$ 不变, $P$ 和 loss 完全不变。BT 模型对整体平移不可辨识, 分数只有相对意义。这也是 GRPO / PPO 要对奖励做 baseline 或归一化的原因之一。本仓库 train_rm 实测: 留出集偏好准确率 0.549 → 0.930。',
     }"
   >
     <template #controls>
@@ -57,7 +57,7 @@
 
       <!-- 下: 期望 loss vs Δ -->
       <text x="8" y="120" class="t" fill="var(--accent)">期望 loss(Δ) = −(1−ε)·log σ(Δ) − ε·log σ(−Δ)</text>
-      <line :x1="dx(-DM)" :x2="dx(DM)" :y1="ly(0)" :y2="ly(0)" stroke="var(--border-strong)" />
+      <line :x1="dx(-DM)" :x2="dx(DM)" y1="ly(0)" :y2="ly(0)" stroke="var(--border-strong)" />
       <text v-for="t in [-6, -3, 0, 3, 6]" :key="'d' + t" :x="dx(t)" y="322" text-anchor="middle" class="t">Δ={{ t }}</text>
       <path :d="lossPath" fill="none" stroke="var(--accent)" stroke-width="2" />
       <g v-if="eps > 0">
@@ -74,7 +74,7 @@
       <div class="kv"><span><Tex text="最优分差 $\Delta^* = \ln((1-\varepsilon)/\varepsilon)$ (碗底位置)" /></span><b>{{ eps === 0 ? '+∞' : dStar.toFixed(3) }}</b></div>
       <div class="kv"><span><Tex text="loss 下限 $= H(\varepsilon)$ (碗底高度)" /></span><b>{{ floor.toFixed(3) }}</b></div>
       <p class="lab-note">
-        <Tex text="梯度 $\partial\,\text{loss}/\partial\Delta = \sigma(\Delta) - (1-\varepsilon)$, 这个式子在说: RM 预测的胜率和标注员的真实一致率差多少, 梯度就有多大; 两者相等时梯度为 0, 训练停在碗底。" />
+        <Tex text="梯度 $\partial\,\text{loss}/\partial\Delta = \sigma(\Delta) - (1-\varepsilon)$: 等于预测胜率与标注员真实一致率之差; 两者相等时梯度归零, 训练停在碗底。" />
         噪声越大, 碗底越靠近 0, 学到的分差越扁, 下游 RL 拿到的奖励信号也就越弱。
       </p>
     </template>

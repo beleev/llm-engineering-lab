@@ -73,7 +73,7 @@
       <div class="kv"><span><Tex text="软标签项的梯度大小 $\|\nabla\mathrm{KD}\| \times T^2$, 补偿后" /></span><b>{{ kdNorm(T, true).toFixed(4) }}</b></div>
       <div class="kv"><span>软标签占总梯度 (按当前开关算)</span><b :class="share < 0.1 && alpha < 0.9 ? 'bad' : 'good'">{{ (share * 100).toFixed(1) }}%</b></div>
       <p class="lab-note">
-        <Tex text="占比 $= (1-\alpha)\cdot\|\nabla\mathrm{KD}\| \,/\, \big(\alpha\cdot\|\nabla\mathrm{CE}\| + (1-\alpha)\cdot\|\nabla\mathrm{KD}\|\big)$, 这个式子在说: 两项各乘自己的权重后, 软标签项占了总梯度的几成。" /><Tex text="$\alpha$" /> = {{ alpha.toFixed(2) }} 名义上给软标签 {{ ((1 - alpha) * 100).toFixed(0) }}%;
+        <Tex text="占比 $= (1-\alpha)\cdot\|\nabla\mathrm{KD}\| \,/\, \big(\alpha\cdot\|\nabla\mathrm{CE}\| + (1-\alpha)\cdot\|\nabla\mathrm{KD}\|\big)$, 表示两项各乘权重后软标签梯度占总梯度的比例。" /><Tex text="$\alpha$" /> = {{ alpha.toFixed(2) }} 名义上给软标签 {{ ((1 - alpha) * 100).toFixed(0) }}%;
         实际占比偏离它多少, 就是 <Tex text="$T^2$" /> 补没补到位的度量。
       </p>
     </template>

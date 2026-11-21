@@ -25,9 +25,9 @@ const topic = {
     'infer-kv-memory': {
       widgets: [],
       title: 'KV 与缓存内存 · 推理优化从"别重算"开始',
-      subtitle: '读完你能说清 KV cache 存的是什么、省掉了什么、没省掉什么, 能用一个公式算出一张卡同时放得下多少条序列, 并说清分页买到了什么。',
-      tldr: '- KV cache: 生成每个新 token 时, 前面 token 的 K 和 V 都不会变, 所以算一次存起来, 之后只算新 token 的。demo 里生成同一段话, 累计送进模型的 token 从 688 个降到 37 个 (少了 18.6 倍)。\n- 分页: 不重算了, 显存就成了瓶颈, 因为每条请求的 cache 随长度线性增长、事先不知道多长。分页把 cache 切成固定大小的块按需分配。它不让 attention 更快, 它让同一张卡能装下更多请求。',
-      question: '有了 KV cache 之后, 生成每个新 token 是不是就变成固定开销 (O(1)), 和上下文有多长没关系了?',
+      subtitle: '自回归解码每吐出一个新词都要参考全部前文。KV cache 省去了历史位置的重复计算, PagedAttention 则用按页动态分配消除了预留连续显存带来的大块浪费。',
+      tldr: '- KV cache: 因果掩码下历史 token 在各层的 K 与 V 向量恒定不变, 算完一次缓存起来后每步解码只需送入最新 1 个 token (demo 生成同段文本累计送入的 token 数从 688 降至 37, 缩减 18.6 倍)。\n- PagedAttention (分页管理): 请求生成长度事先未知, 按最大长度整块预留会浪费大半显存; 将 KV 切成定长物理块并经页表按需映射, 能把显存碎片压到每条序列最后一个未满块之内, 直接抬高单卡并发上限。',
+      question: '开启 KV cache 之后, 每多生成一个新 token 的开销变成与上下文长度无关的常数 O(1) 了吗?',
       evolution: {
         title: '从整块预留到按页记账',
         subtitle: '根问题: KV cache 省掉了重算, 代价是按 token 线性吃显存, 而每条请求会写多长事先不知道。',
@@ -41,30 +41,30 @@ const topic = {
       code: 'llm_infer/m01_kv_cache · llm_infer/m02_paged_attention (前缀复用另见「前缀复用 · hash 与 radix」)',
       points: [
         {
-          title: '只有 K/V 值得存',
-          body: 'KV cache 把注意力里不会再变的那部分结果存起来, 之后每一步直接复用。模型生成一句话时是一个 token 一个 token 往外吐的。每吐一个新 token, 都要把前面所有 token 再过一遍注意力。\n注意力层会给每个 token 算三个向量:\n- q (query): 它要去问什么。\n- k (key): 它能被谁问到。\n- v (value): 被问到时交出什么。\n语言模型用因果 mask, 意思是第 $i$ 个 token 只能看到它前面的 token, 看不到后面的。所以不管后面再来多少新 token, 旧 token 在每一层算出来的 k 和 v 都不会变。不变的东西算一次存起来就够了, 这就是 KV cache 里的 K 和 V。\n- prefill: 第一次把整段 prompt 送进模型, 顺手把每一层的 k、v 都存下来。\n- decode: 之后每生成一个 token, 只算这一个新 token 的 q、k、v, 把它的 k、v 追加到 cache 末尾。\nq 不用存: 一个 token 的 q 只在它自己那一步用来向前面的 token 提问, 之后再也用不上。',
+          title: '因果掩码让历史位置的 K 与 V 算一次即可长期复用',
+          body: '自回归生成分为两个阶段: 首次处理整段输入称为 prefill, 随后逐词追加称为 decode。注意力层在每个位置计算查询向量 $q$、键向量 $k$ 与值向量 $v$: 由于因果掩码严格阻断了历史位置读取未来词元, 不管后续再续写多少步, 前文每个位置在各层算出的 $k$ 和 $v$ 都完全不变。\n因此 prefill 阶段顺手把各层 $k, v$ 存入缓存, 后续每步 decode 只需计算最新 1 个 token 的 $q, k, v$, 将新 $k, v$ 追加到缓存尾部即可; 而历史位置的 $q$ 只在它自己提问的那一步使用过一次, 无需保留。',
         },
         {
-          title: 'cache 没省掉的那部分',
+          title: 'KV cache 省掉了历史投影与 MLP, 但没省掉 O(t) 的缓存读取',
           key: true,
-          body: '有了 cache, 生成一个新 token 仍然不是固定开销: 新 token 的 query 还是要和前面全部 t 个 key 逐个做点积, 这一步的工作量随上下文长度 t 线性增长。\n没有 cache 时, 每生成一个 token, 要把前面全部 t 个 token 重新送进模型, 每一层都要给这 t 个 token:\n1. 重新算 q、k、v (这叫 K/V 投影, 就是几次矩阵乘法)。\n2. 过 attention。\n3. 再过 MLP (每层后面那个两层的前馈网络)。\n有了 cache, 旧 token 的 k、v 直接从 cache 里读, 它们的投影和 MLP 都不用再算了, 每层只需要给新 token 这一个算。\n没省掉的是 attention 本身: 新 token 要决定看前面哪些 token, 就必须拿自己的 q 和 cache 里全部 t 个 k 各做一次点积, 再按权重把 t 个 v 加起来。t 越长, 这一步要读的 cache 越多。所以长上下文的 decode 仍然是 O(t) 的: 每生成一个 token, 都要把整个 cache 从显存里读一遍, 只为算这一个 token, 瓶颈在访存而不在算力。\n后面几章都在解决这件事:\n- GQA/MLA: 让 cache 本身变小。\n- KV 量化: 每个数用更少的字节存。\n- 稀疏读取: 每步只读 cache 的一部分。',
+          body: '加上 KV cache 后单步 decode 依然不是常数开销, 而是随当前上下文长度 $t$ 线性增长的访存密集型操作。\n对比省掉与没省掉的两笔账: 没有缓存时每步都要重跑全部 $t$ 个历史位置的 QKV 线性投影与两层 MLP; 有了缓存后这些大矩阵乘只需对最新 1 个 token 计算。然而在注意力内部, 最新位置的单个 $q$ 仍必须与缓存里全部 $t$ 个历史 $k$ 逐一点积, 再按权重加权全部 $t$ 个 $v$——每吐出 1 个词就要把整份历史 KV 从显存完整搬进计算核一遍, 这使长文本解码牢牢卡在显存带宽而非算力峰值上, 也引出了后续章节压缩 KV 体积、量化位宽与稀疏读取的全部优化。',
         },
         {
-          title: '分页买的是显存, 不是速度',
-          body: '分页提高的是显存利用率, 不是 attention 速度。有了 cache, 显存就成了新问题: 每条请求最后会写多长, 开始时不知道。最省事的做法是按最大长度 max_length 给每条请求预留一整段连续显存, 但大多数请求写不满, 预留的位置多数空着。分页 (PagedAttention) 借的是操作系统虚拟内存的办法。\n- 怎么切: 把 KV 按固定长度切成 block (demo 里一个 block 放 bs 个 token), 所有 block 放进一个公用的池子。\n- 怎么找: 每条请求有一张页表 block_table, 记着它的第几页放在池子里哪个 block。要取位置 pos 的 KV:\n  1. 先算它在第 pos // bs 页。\n  2. 查页表得到物理 block。\n  3. 再取这个 block 里第 pos % bs 个槽。写成代码就是 pool[table[pos // bs], pos % bs]。\n- 代价: 多了一次查表, 单次 attention 反而略慢。\n- 收益: 请求写多长就要多少 block, 不再按 max_length 预留。浪费只剩每条请求最后一个 block 里没填满的几个槽。\n显存利用率高了, 同一张卡能同时放更多请求, batch 更大, 吞吐才上得去。',
+          title: '分页 KV 买的不是单步计算提速, 而是高显存利用率与大并发',
+          body: '每条请求最终会输出多少个词在结束前无法预知: 若按最大长度 `max_len` 预先划拨连续显存, 大半空间常年闲置 (vLLM 统计真实有效占比仅 20%~40%); 若每步动态拼接扩容又会引发频繁整块拷贝与外部碎片。\nPagedAttention 借鉴操作系统虚拟内存, 将全局 KV 空间切成固定容纳 `bs` 个词元的物理块 (`block`), 每条请求维护一张轻量页表 `block_table`, 按 `pool[table[pos // bs], pos % bs]` 二级寻址。虽然多了一次页表间接寻址, 但外部碎片彻底归零, 内部浪费严格封顶在每条序列末尾块的 `bs - 1` 个空槽内——省出的显存可同时容纳数倍并发请求, 从而大幅拉升整体吞吐。',
         },
       ],
       links: [
-        { from: 'sample.py 逐 token 生成', to: 'KV cache', body: '左边是训练阶段的 sample.py, 它也是一个 token 一个 token 地生成 (自回归), 但每生成一个新 token 都把整段前文重新送进模型跑一遍。右边的 KV cache 做的是同一件事, 只是把前文每层的 K、V 存下来, 每步只算新 token 那一个。' },
-        { from: 'BlockManager.can_allocate', to: 'Scheduler._admit', body: 'BlockManager 是管理 KV block 池子的记账员, can_allocate 回答 "现在还有没有足够的空闲 block 给这条请求"。调度器 (Scheduler) 每一步接新请求 (_admit) 之前都先问它; 空闲块不够就不接, 甚至要把正在跑的某条请求踢出去腾地方, 这叫抢占。' },
-        { from: 'free_list 归还顺序', to: 'PrefixCache 的 LRU', body: 'free_list 是空闲 block 的队列。一条请求结束时, 它的 block 只是引用计数 ref_count 归零、排到队尾, 里面的 K/V 内容并没有被清掉, 要等这个 block 被重新分配出去、被新内容覆盖才会消失。前缀复用 (PrefixCache) 靠的就是这一点: 队列的顺序天然就是 "最久没用的先被覆盖", 也就是 LRU。' },
+        { from: 'sample.py 逐 token 生成', to: 'KV cache', body: '阶段 1 的 `sample.py` 每步重跑整段前文导致总复杂度达 $O(T^3)$; 引入 KV cache 后历史前文在每层不再重算投影与 MLP, 生成结果逐 token 完全一致。' },
+        { from: 'BlockManager.can_allocate', to: 'Scheduler._admit', body: '块管理器实时清点全局空闲物理块数量; 调度器接纳新请求或推进解码前先向其询价, 空闲块不足时暂缓准入或触发抢占回收。' },
+        { from: 'free_list 归还顺序', to: 'PrefixCache 的 LRU', body: '请求完成释放物理块时仅将引用计数 `ref_count` 减至 0 并挂回空闲队尾, 块内 KV 数据保留到被下次覆写前依然可被后续同前缀请求直接命中复用。' },
       ],
       sourceRows: [
-        { concept: '对照组', code: 'm01_kv_cache/demo.py:generate_with_cache', takeaway: 'demo 用同一个 prompt 跑两遍: 一遍每步重算, 一遍用 cache。两遍生成的 token id 必须逐个相同, 每步 logits (模型对下一个 token 的打分) 最大只差 2.80e-06, 这是 fp32 的舍入误差。累计送进模型的 token 数从 688 个降到 37 个。' },
-        { concept: 'KV 字节公式', code: '2 · n_layer · T · D · sizeof(dtype)', takeaway: '公式里各项:\n- 2: K 和 V 各一份。\n- n_layer: 层数。\n- T: cache 里的 token 数。\n- D: 每个 token 的 K (或 V) 向量维度。\n- sizeof(dtype): 每个数占几个字节。\ndemo 用 4 层、D=64、T=37、fp32 (4 字节) 代入算出 75776 B, 断言它等于 numpy 数组实际的 nbytes。代入 LLaMA-7B fp16 (32 层、D=4096、2 字节), 每个 token 的 KV 是 0.50 MiB, T=4096 的一条请求就是 2.00 GiB。' },
-        { concept: '地址翻译', code: 'm02_paged_attention/paged_attention.py:paged_attention', takeaway: 'paged_attention 先把要找的位置 pos 翻译成 (block_table[pos // bs], pos % bs): 先查页表找到物理 block, 再找块内的槽。这和操作系统把虚拟地址翻译成物理地址是同一个办法。demo 断言分页 KV 上算出的 attention 和连续 KV 算出的逐元素相同, $\\max|\\Delta|$ = 0.00e+00。' },
-        { concept: '碎片上界', code: 'BlockManager.stats', takeaway: 'stats 报告池子里有多少 block 在用、多少空闲。因为只有每条序列的最后一个 block 可能没填满, 每条序列最多浪费 bs−1 个槽; demo 里 11 个 token 占了 3 个 block 共 12 个槽, 实测浪费 1/12, 上界是 3。对比之下, 按 max_len 连续预留的方案, vLLM 论文测得只有 20~40% 的 KV 显存装着真数据。' },
-        { concept: '要不到块', code: 'MemoryError: 需要 25 个新 block, 只剩 3 个空闲', takeaway: 'demo 最后申请一条 100 个 token 的请求, 需要 25 个新 block, 池子只剩 3 个, BlockManager 抛出这个 MemoryError。调度器收到它就知道显存不够了, 这就是触发抢占 (把某条正在跑的请求暂停、腾出 block) 的信号。' },
+        { concept: '对照组', code: 'm01_kv_cache/demo.py:generate_with_cache', takeaway: '同一输入分别运行每步全量重算与增量缓存两条路径: 输出 token 序列逐位相等, 末位 logits 最大浮点差仅 `2.80e-06`, 累计前向词元数从 688 压至 37。' },
+        { concept: 'KV 字节公式', code: '2 · n_layer · T · D · sizeof(dtype)', takeaway: '核算 K 与 V 双份、层数、序列长、隐藏维与数据类型字节乘积: 代入 LLaMA-7B fp16 (`32 层, D=4096`) 可知每 token 占 `0.50 MiB`, 单条 4K 请求即占 `2.00 GiB`。' },
+        { concept: '地址翻译', code: 'm02_paged_attention/paged_attention.py:paged_attention', takeaway: '将逻辑位置 `pos` 映射为物理块号 `block_table[pos // bs]` 与块内偏移 `pos % bs`, 与连续存储注意力的最大误差为 `0.00e+00`。' },
+        { concept: '碎片上界', code: 'BlockManager.stats', takeaway: '仅每条活跃序列的最后一个物理块可能未填满: demo 中 11 个词元占 3 块 (12 槽), 仅余 1 个空闲槽位。' },
+        { concept: '要不到块', code: 'MemoryError: 需要 25 个新 block, 只剩 3 个空闲', takeaway: '当申请块数超出空闲池余量时显式抛出 `MemoryError`, 为上层调度器提供执行抢占或排队等待的精确信号。' },
       ],
       snippetTitle: 'KV cache 路径',
       snippet: `logits, kv_cache = lm.prefill(prompt_ids)
@@ -79,9 +79,9 @@ for _ in range(max_new - 1):
 
     'infer-scheduler': {
       title: '调度与 prefill · 每一步都重新组 batch',
-      subtitle: '读完你能说清调度器每一步怎么决定谁上场, 以及 "每步 token 预算" 这一个旋钮, 怎么同时拧动 TBT (同一条请求相邻两个输出 token 的间隔) 和 TTFT (从请求到达到吐出第一个 token 的时间)。',
-      tldr: 'GPU 要把很多请求攒成一批 (batch) 一起算才划算。\n- 静态 batch: 凑齐一批一起跑, 要等最长的那条结束才散。短请求陪跑, 新请求在外面干等。\n- 连续批 (continuous batching): 调度粒度从 "一个请求" 缩到 "一步前向"。每做一步前向就重问一遍谁进谁出: 结束的先退出, 能进来的马上补上。\n新问题出在 prefill 上。prefill 是第一次把整段 prompt 送进模型, 顺手把每个 token 在每层算出的 K、V 向量存下来, 这份存货叫 KV cache; 之后的 decode 每步只生成一个新 token, 要反复读它。一条长 prompt 的 prefill 一步算完, 所有正在 decode 的用户都得停下来等它。所以再加两道:\n- chunked prefill (分块 prefill): 把长 prompt 切成小块, 每步只算一块, 和 decode 混进同一个 batch。demo 的代价模型里, decode 用户的最大卡顿从 297 ms 降到 52 ms。\n- P/D 分离: 干脆把 prefill 和 decode 两类负载放到不同的机器 (节点) 上, 代价是 KV cache 要走网络传过去。',
-      question: '排在最前面的新请求因为放 KV 的显存 block 不够进不来, 这一步调度器该干什么? 能不能干脆什么都不做, 等下一步?',
+      subtitle: '线上请求长短不一且随时到达: 连续批处理 (continuous batching) 将组批粒度缩至单步前向, 分块 prefill 与 P/D 分离则消除长输入对正在生成用户的插队卡顿。',
+      tldr: '- 连续批处理: 每走完一步前向就即时让已结束的请求退场、让等待队列的新请求补位, 消除静态凑批的短请求陪跑与门外干等。\n- 消除长 prefill 干扰: 一条上千词的长 prompt 若独占一步算完, 会让同卡所有正在流式吐字的用户停顿数百毫秒; 分块 prefill (chunked prefill) 用单步 token 预算将长输入切块与 decode 混批执行 (模拟最大卡顿从 `297 ms` 压至 `52 ms`), P/D 分离则直接将 prefill 与 decode 拆到两组独立机器上。',
+      question: '当排在等待队首的新请求因空闲 KV 块不足暂时进不来时, 这一步调度器该怎么排? 如果直接返回空 batch 等下一步会发生什么?',
       evolution: {
         title: '调度粒度从请求缩到一步',
         subtitle: '根问题: GPU 要攒一批一起算才划算, 请求却长短不一、随时到达, prefill 和 decode 还抢同一份算力。',
@@ -95,30 +95,30 @@ for _ in range(max_new - 1):
       code: 'llm_infer/m03_continuous_batching · m06_chunked_prefill · m15_pd_disaggregation',
       points: [
         {
-          title: 'batch 只记谁算几个 token',
+          title: '统一调度抽象: 每步只需决定「哪条序列算几个 token」',
           key: true,
-          body: '调度器每一步返回一个 batch, 它就是一个列表 [(seq, n), ...]: 每一项是一条请求 seq, 加上这一步给它算几个 token n。一个列表说清了全部:\n- n>1: 这条请求在做 prefill, 或者是 prefill 的一个 chunk (长 prompt 切开后的一块)。\n- n=1: 这条请求在 decode, 这一步只生成 1 个新 token。\n两者可以出现在同一步。所以没有 "prefill 步" 和 "decode 步" 之分, 只有 "这一步谁算几个 token"。\n每条请求靠 num_computed 记进度, 它表示这条请求已经有 KV 的 token 数。每步算完, num_computed 加上 n; 追平整条序列的长度 num_tokens 时, 这一步的输出才是一个真正的新 token, 才去采样。\nm03 demo 的打印里, P5 表示 prefill 5 个 token, D 表示 decode 1 个。宽松池子下, step 4 时 s1 完成退出, step 5 新请求 s4 立刻以 P5 补位, 5 条请求共 11 步跑完。',
+          body: '现代推理调度器不再区分固定的「prefill 轮」和「decode 轮」, 每一步返回的调度单都是统一的二元组列表 `[(seq, n), ...]`: `n == 1` 代表该序列正在做单步 decode, `n > 1` 代表该序列正在做整段或分块 prefill, 两者可以在同一次模型前向中混合执行。\n每条请求通过 `num_computed` 记录已写入缓存的前缀长度: 每步算完加上 `n`, 只有当 `num_computed` 追平序列当前总长度 `num_tokens` 时才真正到达句尾并触发下一个新词采样 (m03 中 `s1` 在第 4 步结束退场, 新请求 `s4` 在第 5 步无缝补位)。',
         },
         {
-          title: '永远不能返回空 batch',
-          body: '调度器任何一步都不能返回空 batch, 否则引擎会原地空转、永远跑不完。调度器有两条队列:\n- waiting: 放还没开始的请求, 先来先到。\n- running: 放正在跑的请求。\nKV cache 按固定长度切成 block 存放, 每接一条新请求, 都要先从 block 池里分到足够的 block。\n假设队首那条请求要 6 个 block, 池子只剩 2 个空闲, running 里有 3 条在 decode。如果调度器这时直接返回一个空 batch, 会发生一串连锁反应:\n- running 里的请求这一步没被安排, 不前进。\n- 没有请求前进, 就没有请求结束。\n- 没有请求结束, block 就永远不释放。\n- block 不释放, 队首永远进不来。\n引擎每一步都在空转, 永远跑不完, 这叫活锁。\n修法只有一行, 在不分块、prefill 优先的那条路径上: _admit(budget) or _schedule_running(budget)。意思是先试着接新请求做 prefill (_admit); 一个都接不进来、返回空列表时, 就转去给 running 里的请求排 decode (_schedule_running)。prefill 进不来就落到 decode。分块的那条路径本来就先排 decode、再用剩下的预算接新请求, 见下方骨架。\n抢占也服从同一个原则。抢占是 block 不够时把一条正在跑的请求暂时踢出去、腾出显存。调度器只踢最年轻的, 保证最老的那条总能前进。m03 demo 用只有 7 个 block 的紧池子验证: 发生 2 次抢占, 17 步跑完, 全程没有一步是空 batch。',
+          title: '有在途请求时绝不返回空 batch, 防止资源死锁与活锁',
+          body: '调度器同时维护等待队列 `waiting` 与运行队列 `running`。设想 `waiting` 队首的大请求需要 6 个物理块而池中只剩 2 个, 此时 `running` 里还有 3 条请求在正常解码: 如果调度器因队首进不来而直接返回空列表, 在途请求就不会前进、永远无法结束归还物理块, 引擎便陷入原地空转的活锁!\n因此在非分块的 prefill 优先分支中必须回退执行 `_admit(budget) or _schedule_running(budget)` (接不进新请求就继续推进在途解码); 若推进在途解码时也缺新块, 则按后进先出踢出最晚入场的一条请求释放其物理块 (重算式抢占), 确保最老请求必定跑完。m03 在仅 7 个块的紧缩池下触发 2 次抢占、17 步全部跑通且零空转。',
         },
         {
-          title: 'token 预算就是 TBT 上限',
-          body: '每一步算的 token 数有个上限, 叫 token 预算。这个预算直接决定了用户等下一个 token 最多要等多久。\nTBT (time between tokens) 是同一条请求相邻两个输出 token 的间隔, 用户看到的 "输出卡一下" 就是 TBT 突然变大。TTFT (time to first token) 是从请求到达到吐出第一个 token 的时间。\nm06 用一个代价模型估算每步耗时: step_ms = 20 + 0.25 × 本步 token 数。这个式子在说: 每一步有 20 ms 固定开销 (读一遍权重、启动 kernel), 每多算 1 个 token 再加 0.25 ms。它是模型, 不是实测。按这个模型, 每步算多少 token 有上限, 每步耗时就有上限, 用户两个 token 之间的间隔也就被封顶。\ndemo 的场景: 4 条序列正在 decode, 每步只算 4 个 token, 一步 21 ms。这时来了一条 1024-token 的长 prompt。\n- prefill 优先, 整段一步算完: 这一步要算 1024 个 token, 光这一步就是 276 ms, decode 用户全都停下来等, 最大卡顿 297 ms。那条长请求自己的 TTFT 是 276 ms。\n- 分块, 每步预算 128 token: 每步先给 4 条 decode 各 1 个 token, 剩下的预算切一块 prefill 混进去。一步最多 128 个 token, 耗时最多 52 ms, decode 用户最大卡顿就是 52 ms。代价是长 prompt 要分很多步才算完, 它的 TTFT 涨到 445 ms。\n- 预算 512 时介于两者之间: 最大卡顿 148 ms, 长请求 TTFT 319 ms。\n分块不是白赚: 预算越小, 卡顿越小, 长请求的首 token 越晚。',
+          title: '单步 token 预算是在流式吐字间隔 (TBT) 与首字延迟 (TTFT) 间权衡的旋钮',
+          body: '用户体感由两个延迟指标刻画: 首字延迟 TTFT (提交请求到看见第 1 个字) 与吐字间隔 TBT / ITL (流式生成时相邻两个字之间的停顿)。在单步耗时近似满足 `20 ms + 0.25 ms × 本步总 token 数` 的代价模型下, 4 条请求正常解码每步仅需 `21 ms`, 此时突然插入一条 1024-token 的长请求:\n- 整段插队 prefill: 该步一口气涌入 1024 个 token, 在途解码用户被迫跟着停顿 `297 ms`, 长请求自身 TTFT 为 `276 ms`。\n- 分块 prefill (`budget = 128`): 每步先分给 4 条解码各 1 个配额, 剩余 124 个配额切一块长 prompt 混跑; 单步总负载封顶在 128 token, 解码用户最大卡顿压回 `52 ms`, 代价是长请求需分多步算完、自身 TTFT 升至 `445 ms` (`budget = 512` 则折中在卡顿 `148 ms`、TTFT `319 ms`)。',
         },
       ],
       links: [
-        { from: 'BlockManager.can_allocate', to: 'Scheduler._admit', body: 'BlockManager 管着 KV 池里所有 block 的分配和回收。调度器 _admit 接新请求前, 先调 can_allocate 问一句: 这条请求需要的 block (前缀命中、可以共用的 block 不用新分), 池子里还够不够。不够就不接, 让它继续在队首等。' },
-        { from: 'max_batch_tokens', to: '每步耗时 → TBT', body: 'max_batch_tokens 就是每步的 token 预算。它封顶每步耗时, 也就封顶了 TBT。它是 TBT 与 TTFT 之间的那个旋钮:\n- 调小: decode 用户卡顿小, 但长 prompt 的首 token 更晚。\n- 调大: 长 prompt 的首 token 早, 但 decode 用户卡得更久。\nvLLM 里对应的参数叫 max_num_batched_tokens。' },
-        { from: 'KVLink.send', to: 'P/D 分离', body: 'P/D 分离里, prefill 节点算完把 KV cache 按 byte 打包发给 decode 节点, KVLink.send 按带宽算出传输要多久。坑在单位: 网卡带宽按 bit 标 (Gbps, 每秒 10 亿 bit), KV 按 byte 算, 1 byte 是 8 bit, 少除一个 8 就把传输时间低估 8 倍。分离不会让单条请求更快, 还多了一次传输; 收益是消除干扰, 在同样的延迟要求下每张卡能承载更多请求, 这个指标叫 goodput (满足延迟要求的有效吞吐)。' },
+        { from: 'BlockManager.can_allocate', to: 'Scheduler._admit', body: '准入检查扣除掉前缀缓存已命中的共享块后核算净增块需求, 池中余量不足时把新请求留在队首等待而不破坏已运行请求。' },
+        { from: 'max_batch_tokens', to: '每步耗时 → TBT', body: '单步最大 token 预算 (对应 vLLM 的 `max_num_batched_tokens`) 直接封顶单次前向时长: 调小优先保流式顺滑度 (低 TBT), 调大优先保长文本首字响应 (低 TTFT)。' },
+        { from: 'KVLink.send', to: 'P/D 分离', body: 'P/D 分离把算力密集的 prefill 与带宽密集的 decode 物理隔离到不同节点以根除同卡抢占, 代价是跨网传输 KV (计算耗时时务必区分网卡 `Gbps` 比特率与 KV 字节数的 8 倍换算关系)。' },
       ],
       sourceRows: [
-        { concept: '每步重组 batch', code: 'm03_continuous_batching/scheduler.py:Scheduler.schedule', takeaway: 'schedule 每一步重新组 batch, 有两种策略, 由 chunked_prefill 开关决定:\n- 关掉时是 prefill 优先: 先接新请求整段 prefill, 接不进来才排 decode。\n- 打开时是 decode 优先: 先给 running 里每条请求它还欠的 token (decode 欠 1 个, 没算完的 prefill 接着算下一块), 剩余预算切给新请求的 prefill chunk。\n刚抢占过的那一步不接新请求, 免得腾出来的 block 马上又被占掉。' },
-        { concept: '抢占', code: 'Scheduler._preempt', takeaway: '这里是 recompute (重算) 式抢占:\n1. block 全还给池子。\n2. num_computed 归 0。\n3. 放回 waiting 队首。\n已生成的文本 output_ids 原样保留, 回来时连同 prompt 一起重新 prefill, 把 KV 重算一遍。m03 demo 里 s3 被抢占后重新进来是 P4: 2 个 prompt token 加 2 个已生成的 token 一起重算。' },
-        { concept: 'TBT 代价模型', code: 'm06_chunked_prefill/chunked_prefill.py:simulate', takeaway: 'simulate 用 m03 的真调度器回放一段负载, 但每步耗时不是测出来的, 是代价模型算的: step_ms = 固定开销 + 每 token 开销 × batch token 数 (demo 里是 20 ms 和 0.25 ms)。它记下每个输出 token 产出的时刻, 相邻两个相减是 TBT, 第一个减去到达时刻是 TTFT。因为每步 token 数被预算封顶, 每步的 token 预算决定 TBT 上限。' },
-        { concept: '分块不改结果', code: 'chunked_prefill(lm, ids, chunk)', takeaway: '把 prompt 每 chunk 个 token 一块送进模型, 前面块的 KV 留在 cache 里, 后面的块只算自己这几行的 Q, 再对已缓存的加本块的 K/V 做 attention。因果 mask 让每个 token 只看自己和前面的 token, 前面 token 的 KV 不依赖后面, 所以分块和整段一次算完结果相同。demo 用 64 个 token 对拍:\n- chunk ≥ 16 时 logits 与 KV 都和整段 prefill 逐位相同。\n- chunk=8 有极小的差 (logits 1.67e-06, KV 2.86e-06), 只来自分块求和顺序。\nattention 分数矩阵的峰值也从 64 × 64 = 4096 个数降到 8 × 64 = 512 个。' },
-        { concept: '干扰有多大', code: 'm15_pd_disaggregation/pd.py:KVLink', takeaway: 'm15 在 TinyLM 上用墙钟实测: 同卡混跑时, 被一次 400 个 token 的长 prefill 插队的那一步, decode 用户要等 decode 一步加整段 prefill 的时间, 延迟从 0.253 涨到 4.68 ms (18× 抖动)。分离后 prefill 在别的节点上, 回到 0.253 ms。m15 把这个间隔叫 ITL, 和 TBT 是同一个量。毫秒数随机器变化。KVLink 则是另一半账: 分离后 KV 要过网络, 它按字节数除以每秒字节数算传输时间。' },
+        { concept: '每步重组 batch', code: 'm03_continuous_batching/scheduler.py:Scheduler.schedule', takeaway: '支持关闭分块时的 prefill 优先回退与开启分块时的 decode 优先混批; 刚执行过抢占的当步暂停接纳新请求以防刚腾出的块被新请求抢走。' },
+        { concept: '抢占', code: 'Scheduler._preempt', takeaway: '采用重算 (recompute) 策略回收最年轻请求的全部物理块并放回 `waiting` 队首, 已生成的 `output_ids` 保留待下次连同 prompt 一并重算 KV。' },
+        { concept: 'TBT 代价模型', code: 'm06_chunked_prefill/chunked_prefill.py:simulate', takeaway: '驱动真实调度器重放请求轨迹并按线性耗时公式统计每条请求的 TTFT 与最大 TBT。' },
+        { concept: '分块不改结果', code: 'chunked_prefill(lm, ids, chunk)', takeaway: '因果掩码保证分块依次前向与整段一次前向数学等价 (`chunk >= 16` 逐位相等, `chunk = 8` 仅差 `1.67e-06` 浮点求和序误差), 同时将瞬时注意力矩阵峰值缩小 `T / chunk` 倍。' },
+        { concept: '同卡混跑抖动实测', code: 'm15_pd_disaggregation/pd.py:KVLink', takeaway: 'TinyLM 真机墙钟测量显示, 被 400-token 长 prefill 插队那一步解码延迟从 `0.253 ms` 跳升至 `4.68 ms` (18 倍抖动), 拆至独立节点后恢复平稳。' },
       ],
       snippetTitle: '调度骨架 (decode 优先 + 分块 prefill)',
       snippet: `def schedule(self):
@@ -135,9 +135,9 @@ for _ in range(max_new - 1):
     'infer-decode-control': {
       widgets: [],
       title: '解码加速与采样 · 更少 target 调用, 更可控的分布',
-      subtitle: '读完你能解释 "小模型先猜、大模型验证" 为什么不让输出变差, 采样参数的执行顺序为什么会改结果, 以及 beam search 找到的 "最可能" 为什么不等于最好。',
-      tldr: '生成阶段 (decode) 每一步只产出 1 个 token, 却要把整份模型权重从显存读一遍, 时间都花在读权重上, 算力大量闲着。\n投机解码 (speculative decoding) 利用这一点:\n1. 让一个便宜的 draft (小模型) 先连猜 $K$ 个 token。\n2. 再让 target (原来的大模型) 一次 forward 把这 $K+1$ 个位置一起验证。\n3. 猜对几个就收几个。\n输出分布和只用 target 完全一样, draft 只影响速度。\n- greedy 模式: 逐位比较 draft 的 token 和 target 的 argmax。\n- 采样模式: 用 rejection sampling (按 target 和 draft 给这个 token 的概率之比决定收不收) 保证分布不变。\n另一侧是采样本身: 温度、top-k、top-p 这些参数都是 logits 上的一串后处理, 执行顺序不同结果就不同。',
-      question: '小模型猜得再差, 为什么最后的输出分布还能和只用大模型采样时一模一样?',
+      subtitle: '自回归解码受显存带宽限制, 每读一遍大模型权重只出 1 个词; 投机解码通过「小模型连猜、大模型并行校验」在不改变输出分布的前提下减少大模型调用次数, 后处理采样链与束搜索则塑造最终输出行为。',
+      tldr: '- 投机解码 (Speculative Decoding): 用轻量草稿模型 (`draft`) 连续试猜 $K$ 个词, 再交由目标大模型 (`target`) 单次前向并行校验全部 $K+1$ 个位置; 贪心模式下逐位核对 argmax, 随机采样模式下通过拒绝采样 (`min(1, p/q)` 接受加残差分布重采) 严格保持输出分布与纯大模型一模一样。\n- 采样与搜索控制: 重复惩罚、温度、top-k、top-p 与 min-p 是一条顺序敏感的 logits 过滤链; 束搜索 (beam search) 寻找高概率序列但天然偏向短句且易陷入高频词复读。',
+      question: '就算草稿小模型猜得很离谱, 拒绝采样凭什么能从数学上保证最终吐出的每个词与单独运行大模型采样服从完全相同的概率分布?',
       evolution: {
         title: '读一遍权重, 多收几个 token',
         subtitle: '根问题: decode 每步只出 1 个 token, 却要把整份权重从显存读一遍, 算力大半闲着。',
@@ -151,40 +151,40 @@ for _ in range(max_new - 1):
       code: 'llm_infer/m07_speculative_decoding · m10_sampling (EAGLE / 树形投机、语法约束、attention sinks 各有独立章节)',
       points: [
         {
-          title: '一次验 K+1 个槽位',
-          body: 'draft 连猜 $K$ 个 token, target 只跑一次 forward 就把它们一起验完。target 是最终要用的大模型, 它的 KV cache 里存着到目前为止输出的所有 token (除了最后一个 out[-1], 它已经确定但还没喂进去)。draft 是便宜的小模型, 从同样的上下文往后连猜 $K$ 个 token $d_0, \\dots, d_{K-1}$。\n验证只需要 target 跑一次 forward: 一次喂进 [out[-1], $d_0, \\dots, d_{K-1}$] 这 $K+1$ 个 token。因果 mask 保证第 $i$ 行只看得到 $d_{<i}$, 所以这一次 forward 得到的 $K+1$ 行 logits, 和一个一个顺序 decode 得到的完全一样。第 0 行说的是 out[-1] 之后该是什么, 拿它和 $d_0$ 比; 第 1 行和 $d_1$ 比; 以此类推。\n接受规则 (greedy):\n1. 从前往后比, 接受最长的正确前缀。\n2. 第一个猜错的位置用 target 自己的 argmax 替换掉, 然后停。\n全部猜对时, 第 $K$ 行 logits 就是 "看完全部 $K$ 个 draft 之后的下一个 token", 已经算出来了, 白送 1 个 bonus token。所以每次 target 调用至少产出 1 个 token (不会比不用 draft 更差), 最多 $K+1$ 个。\n加速比取决于 draft 猜得准不准。demo 用 $K=4$ 生成 48 个 token, 不用 draft 要调用 target 48 次:\n- draft 和 target 完全一致 (上限): 只要 11 次 target 调用 (4.36×), 每轮接受 4.00/4\n- 蒸馏式 draft (用 target 权重加 10% 噪声模拟): 26 次 (1.85×), 每轮接受 0.88/4\n- 随便找个小模型 (独立随机的 1 层模型): 43 次 (1.12×), 每轮接受 0.14/4\n几种 draft 的输出都和 target 单独 greedy 逐 token 相同。这里的加速只按 target 调用数算, 没计 draft 自己的开销。',
+          title: '利用空闲算力: 单次大模型前向并行检验 K+1 个位置',
+          body: '单序列解码时 GPU 时间绝大部分花在从显存搬运整套大模型权重上, 喂 1 个词和一次喂 5 个词耗时相差无几。投机解码先让轻量 `draft` 连猜 $K$ 个候选词 $d_0, \\dots, d_{K-1}$, 再拼上已确认的末尾词一次送入 `target` 算出 $K+1$ 行 logits (因果掩码保证这与串行跑 $K+1$ 步完全等价)。\n在贪心解码下从左往右逐位核对: 接受最长匹配前缀, 在首个猜错处直接换上 `target` 自己的 `argmax` 纠错词; 若 $K$ 个全猜对, 第 $K$ 行还白送 1 个新词, 因此单次 `target` 调用保底产出 1 个词、至多产出 $K+1$ 个词。m07 生成 48 个词 (`K=4`): 完美草稿仅需 11 次调用 (`4.36×`), 加 10% 噪声的蒸馏草稿需 26 次 (`1.85×`), 完全无关的随机小模型需 43 次 (`1.12×`), 且所有输出与单跑 `target` 逐位一致。',
         },
         {
-          title: 'rejection sampling 让它无损',
+          title: '拒绝采样与残差重采保证随机解码严格无损',
           key: true,
-          body: '采样模式下不能再用 "逐位比 argmax": 采样本来就允许选非最大概率的 token, 要保证的是输出 token 的分布和只用 target 采样时一样。\n记 $p$ = target 给这个 token 的概率, $q$ = draft 给的概率。draft 抽出一个 token 之后:\n- 接受: 以 $\\min(1, p/q)$ 的概率接受它。target 觉得它比 draft 觉得的更可能 ($p \\ge q$) 就一定收; target 觉得没那么可能, 就只按 $p/q$ 的比例收一部分。\n- 拒绝: 不收时, 从归一化后的残差分布 $\\max(0, p-q)$ 里重新抽一个 token (只在 target 比 draft 更看好的那些 token 里抽), 然后停止, 后面的 draft token 全部作废。\n两步合起来恰好还是 $p$:\n- 直接接受: 一个 token 被 draft 抽中又被接受的概率是 $q\\cdot\\min(1, p/q) = \\min(p, q)$。\n- 拒绝后补上: 离 $p$ 还差的那截正好是 $\\max(0, p-q)$, 由重采样补齐。\n两部分加起来就是 $p$。所以 draft 再差也只影响速度, 不影响输出分布。\ndemo 用一个 16 个 token 的小词表, 枚举所有前缀算出 target 的精确分布, 再各采样 2500 条对照, 用 $\\chi^2$ 检验 (衡量采样频率和精确分布差多远, 越大越不像):\n- 正确规则的 $\\chi^2 \\le 13.6$, 低于临界值 37.7, 和 target 直接采样的噪声同量级。\n- 故意改成 "全收 draft" 的错误规则, 立刻涨到 585。',
+          body: '开启温度随机采样时不能再简单比对 `argmax`, 而需使用修正拒绝采样。设当前位置 `target` 概率为 $p$、`draft` 概率为 $q$, 对 `draft` 抽出的候选词:\n- 按概率 $\\min(1, p/q)$ 接受: 若大模型比小模型更认可该词 ($p \\ge q$) 则 100% 收下, 否则按比例概率打折接受, 这一步贡献的采样概率恰好是 $q \\cdot \\min(1, p/q) = \\min(p, q)$。\n- 一旦拒绝, 立即作废后续草稿词, 从归一化的正残差分布 $\\max(0, p - q)$ 中重抽一个纠错词补齐缺口。\n直接收下与拒绝重采两路概率相加恒等于 $\\min(p, q) + (p - \\min(p, q)) = p$! 草稿模型好坏只决定接受率高低 (跑得快慢), 绝不污染输出分布。m07 在 16 词表上采样 2,500 条做卡方检验: 修正拒绝采样的 $\\chi^2 \\le 13.6$ (远低于显著性阈值 `37.7`), 而盲目全收草稿则暴涨至 `585`。',
         },
         {
-          title: '采样是一串顺序敏感的 filter',
-          body: '模型最后给出 V 个 logit (每个 token 一个分数), 采样就是从里面挑一个。m10 的 sample 把这件事做成一串 filter: 每个 filter 都是 logits 进、logits 出, 被砍掉的 token 置成 −inf (softmax 之后概率为 0), 所以可以任意串联。顺序是: rep penalty → temperature → top-k → top-p → min-p → Gumbel-max。\n- repetition penalty: 已经出现过的 token 扣分。正 logit 除以 penalty, 负 logit 乘以 penalty, 两种情况都是往更小走。要是不分正负一律除, 负 logit 除以大于 1 的数反而变大: demo 里 token 9 (logit −1) 的概率从 0.0076 抬到 0.0144, 反而鼓励重复。\n- temperature: logits 除以 $T$ 再 softmax。$T$ 越大分布越平, 越小越尖; $T$ = 0 就是 greedy。\n- top-k: 只留分数最大的 k 个。\n- top-p: 按概率从大到小累加, 留下累计概率刚够 p 的最小集合。\n- min-p: 只留概率不低于 min_p 乘最大概率的 token, 模型越确定砍得越狠。\n- Gumbel-max: 最后实际抽出一个 token 的办法, 见下面表格。\n温度排在 top-p 前面, 所以 top-p 看到的是缩放后的分布: 同样的 top-p, $T$ 越大留下的 token 越多, $T \\lt 1$ 则相反。各框架的顺序不完全一致, 同一组参数跨框架结果可能不同。',
+          title: '采样算子链顺序敏感, 重复惩罚需区分正负 logit 符号',
+          body: 'm10 将词表打分后处理组织为可串联的原地掩码链 `rep_penalty -> temperature -> top_k -> top_p -> min_p -> Gumbel-max`, 被淘汰的词置为 `-inf`:\n- 正负异向的重复惩罚: 对已出现词降权时, 正 logit 需除以 `penalty > 1`, 而负 logit 必须乘以 `penalty` 往更负推; 若不分正负一律做除法, `-1.0 / 2.0 = -0.5` 反而把负分往上抬高, 变相鼓励复读 (demo 中概率从 `0.0076` 反升至 `0.0144`)。\n- 温度与截断的先后顺序: 温度排在 `top-p` 之前意味着高温拉平分布后会让更多长尾词挤进累计概率 `p` 的门槛内; 不同推理框架若调换两者顺序, 相同超参也会采出不同风格。',
         },
         {
-          title: '搜索式解码: beam 找的是"最可能"',
-          body: 'greedy 每步只选当下概率最高的 token, 选错一步就回不来。beam search 每步在 $w \\times V$ 个候选 (现有的 $w$ 条前缀各接 V 个 token) 里留下累计 log 概率最高的 $w$ 条前缀, 最后输出得分最高的那条; 代价约是 $w$ 倍的 decode。\nTinyLM (随机权重的小模型) 上 10 个 prompt × 20 token:\n- 平均每 token 的 log 概率 (logP/token, 越接近 0 越 "可能"): greedy −2.620, $w=32$ 到 −2.255。beam 确实找到了更可能的序列。\n- 重复率 rep-2 (重复出现的两字组合占比): 0.453 → 0.563。越 "可能" 越复读。\n- 多样性: 同一 prompt 的 8 条 beam 候选两两平均只差 3.5/20 个位置, 8 条采样差 19.7。beam 的候选共享大段前缀。\n趋势不单调: $w=4$ 的 rep-2 是 0.447, 比 greedy 还低。随机权重模型本身就爱复读, greedy 的 rep-2 已经 0.453; 真实模型上 "beam 越宽越退化" 更明显。',
+          title: '束搜索 (Beam Search) 追逐最高似然, 却不等于最佳生成文本',
+          body: '束搜索每步保留累计对数概率最高的 $w$ 条活跃前缀。在 TinyLM 上将束宽从贪心 (`w=1`) 扩至 `w=32`, 单词平均对数概率确实从 `-2.620` 升至 `-2.255`, 但双词重复率 `rep-2` 也从 `0.453` 升至 `0.563`, 且同组 8 条候选彼此高度同质 (20 个位置平均仅差 3.5 处, 随机采样则差 19.7 处)。',
         },
         {
-          title: 'beam 不是精确搜索, 还偏爱短句',
-          body: '- 会输给 greedy: $w=2$ 在 10 个 prompt 里有 2 个输给 greedy。原因是某一步 greedy 那条前缀的累计分排到第 3, 被剪掉就回不来, 而留下的两条后面走低了。所以 beam 只在平均意义上 $\\ge$ greedy, 不是定理。\n- 偏爱短句: 序列分数是每个 token 的 log 概率累加, 都是负数, 多一个 token 只会更低。demo 给 EOS 的 logit +3 造出一个会停的模型, 不加长度惩罚 ($\\alpha=0$) 时 beam 的输出平均只有 1.3 个 token, 几乎是空回复。\n- 长度惩罚: 最后按 $\\text{score}/\\text{len}^\\alpha$ 选答案。$\\alpha=0$ 是原始累加分; $\\alpha=1$ 是平均每 token 的 log 概率。demo 里 $\\alpha=0.5$ 仍是 1.3 个 token, $\\alpha=1$ 才到 15.7 (greedy 是 11.4)。\n怎么选:\n- 用 beam: 翻译、摘要这类任务, 好答案集中在一个概率峰附近, 找峰就对。\n- 用采样: 开放式对话, 好回答很多且分散, 找峰只会得到最平庸、最重复的那条。',
+          title: '局部剪枝的非精确性与偏向短句的长度惩罚校准',
+          body: '使用束搜索时还需避开两个常见误区:\n- 并非全局最优搜索: 早期某一步暂时排在第 $w+1$ 名的前缀一旦被剪枝便无法复活, 因此偶尔会出现 `w=2` 最终总分反输给 `w=1` 贪心的情况 (10 条测试中发生 2 次)。\n- 短句偏置与长度归一化: 每多走一步都在累加负的 $\\log p$, 不做修正 (`α=0`) 时一旦模型学会输出 EOS 便倾向于只吐 1~2 个词草草收尾 (demo 均值仅 `1.3` 词); 按 $\\text{score} / \\text{len}^\\alpha$ (`α=1.0` 即平均每词对数概率) 重排后句长才恢复至正常的 `15.7` 词。工程上机器翻译等强约束任务适合束搜索, 开放对话与创作则普遍采用核采样 (`top-p` / `min-p`)。',
         },
       ],
       links: [
-        { from: 'sample.py 的 temperature/top-k', to: 'm10_sampling', body: '训练阶段 sample.py 里只有温度和 top-k 两个旋钮。到了服务端, 它长成了一整套参数 (temperature、top_k、top_p、min_p、repetition_penalty), m10 的 SamplingParams 就是这套参数, 每个都是采样链上的一个 filter。' },
-        { from: 'accept_greedy / accept_sampling', to: 'EAGLE · 树形投机', body: '这两个函数是投机解码的接受规则: 给定 draft 的 token 和 target 的 logits, 决定收几个。后面两章只换 drafter (EAGLE 让 draft 看 target 的特征) 和验证的形状 (树形一次验多条分支), 接受规则原样复用。' },
-        { from: 'truncate_kv', to: 'KV 回滚', body: '验证那次 forward 会把 K+1 个 token 的 KV 都写进 cache。被拒绝的 draft token 的 KV 直接用 truncate_kv 截掉, 从不重新 prefill: 因果性保证前面 token 的 KV 和后面的 token 无关, 截掉后面的不影响前面的。' },
+        { from: 'sample.py 的 temperature/top-k', to: 'm10_sampling', body: '将阶段 1 的基础采样扩展为服务端标准 `SamplingParams` 过滤链, 并用无分支并行的 Gumbel-max 技巧替代串行前缀和二分查找。' },
+        { from: 'accept_greedy / accept_sampling', to: 'EAGLE · 树形投机', body: '本章确立的无损验证与拒绝重采规则在后续章节原样复用, EAGLE 与树形投机只升级草稿预测器准确度与单次验证拓扑。' },
+        { from: 'truncate_kv', to: 'KV 回滚', body: '并行验证时写进缓存但未获接受的尾部草稿 KV, 直接修改长度游标截断丢弃即可, 因果掩码保证已接受前缀无需重算。' },
       ],
       sourceRows: [
-        { concept: 'greedy 接受', code: 'm07_speculative_decoding/speculative.py:accept_greedy', takeaway: '拿 target 每一行的 argmax 和对应的 draft token 逐位比对, 第一个不一致处停下, 那个位置返回 target 自己的 argmax 作为纠错 token。' },
-        { concept: '采样接受', code: 'm07_speculative_decoding/speculative.py:accept_sampling', takeaway: '抽一个均匀随机数 $u$:\n- $u < p_t/p_d$ 就接受 ($p_t$、$p_d$ 是 target 和 draft 给这个 token 的概率)。\n- 否则从 $\\max(0, p_t - p_d)$ 归一化后重采样并停止。\n- K 个全接受时, bonus token 直接从 target 最后一行的分布里采。' },
-        { concept: '期望产出', code: '(1 − α^(K+1)) / (1 − α)', takeaway: '每次 target 调用平均能产出几个 token, $\\alpha$ 是每个 token 被接受的概率。链式接受一断全断, 第 k 个 token 被接受的概率约是 $\\alpha^k$, 所以 $K$ 再大, 产出也被 $1/(1-\\alpha)$ 封顶。所以树形投机把预算花在宽度上, 比花在深度上值。' },
-        { concept: '采样顺序', code: 'm10_sampling/samplers.py:sample', takeaway: '按 rep_penalty → /T → top_k → top_p → min_p → Gumbel-max 的顺序调用六个函数。每一步都是 "把被砍的 token 置 −inf", 不改其它 token 的 logit, 所以可以任意串联。' },
-        { concept: 'Gumbel-max 是精确的', code: 'argmax(log p + G), G = −log(−log U)', takeaway: '给每个 token 的 log 概率加一个 Gumbel 噪声 $G$ ($U$ 是均匀随机数), 再取 argmax, 得到的 token 和按 multinomial 直接抽是同一个分布。demo 用 TV (总变差距离, 衡量两个分布差多远) 检验: Gumbel-max 0.0064, multinomial 自己的采样噪声 0.0066, 同一水平。好处是只有逐元素运算加一次 argmax, 没有累加和二分搜索, 整个 batch 能用一个 kernel 做完。' },
-        { concept: 'beam search', code: 'm24_beam_search/beam.py:beam_search', takeaway: '每条活着的 beam 取 top-$(w+1)$ 个 token 作候选, 多取一个是为了有候选以 EOS 结束时仍能凑满 $w$ 条活 beam; 结束时所有候选按 $\\text{score}/\\text{len}^\\alpha$ 排序, 取第一条。demo 断言 $w=1$ 的输出与 greedy 逐 token 相同。' },
-        { concept: '造一个会停的模型', code: 'm24_beam_search/demo.py:EosBiased', takeaway: '随机权重的模型没学过何时结束, 每步 P(EOS) 约 0.5%, 从不停。EosBiased 给 EOS 的 logit 加 3, 之后每步 P(EOS) 约 8.3% (沿 greedy 路径走 24 步的均值), 才看得到 beam 偏爱短句的现象。' },
+        { concept: 'greedy 接受', code: 'm07_speculative_decoding/speculative.py:accept_greedy', takeaway: '从左至右比对草稿词与大模型 `argmax`, 在首个失配处直接采用大模型预测词作为纠错输出。' },
+        { concept: '采样接受', code: 'm07_speculative_decoding/speculative.py:accept_sampling', takeaway: '当均匀随机数 $u < p_t / p_d$ 时接受, 否则从正残差 $\\max(0, p_t - p_d)$ 归一化分布中重采并终止本轮草稿。' },
+        { concept: '期望产出', code: '(1 − α^(K+1)) / (1 − α)', takeaway: '单词接受率为 $\\alpha$ 时链式投机的单轮期望产出上界为 $1/(1-\\alpha)$, 深度过大收益递减, 为树形横向扩展埋下伏笔。' },
+        { concept: '采样顺序', code: 'm10_sampling/samplers.py:sample', takeaway: '依次串联重复惩罚、温度缩放、top-k、top-p、min-p 与 Gumbel-max 抽样。' },
+        { concept: 'Gumbel-max 等价抽样', code: 'argmax(log p + G), G = −log(−log U)', takeaway: '向对数概率注入标准 Gumbel 噪声后取最大值, 与多项式抽样严格同分布 (`TV = 0.0064`), 且纯逐元素加归约极其契合 GPU 批处理。' },
+        { concept: 'beam search', code: 'm24_beam_search/beam.py:beam_search', takeaway: '每步扩展并保留得分前 $w$ 条活跃序列, 结束时按长度惩罚系数 $\\alpha$ 归一化选优 (`w=1` 与贪心逐位一致)。' },
+        { concept: 'EOS 偏置对照', code: 'm24_beam_search/demo.py:EosBiased', takeaway: '抬高随机模型的结束符倾向以复现无长度惩罚时束搜索提前收尾输出超短句的现象。' },
       ],
       snippetTitle: 'rejection sampling 接受规则',
       snippet: `def accept_sampling(d_tokens, d_probs, t_probs, rng):
@@ -200,9 +200,9 @@ for _ in range(max_new - 1):
 
     'infer-compute': {
       title: '算子与调度开销 · 一样的数学, 少搬几趟',
-      subtitle: '读完你能说清 FlashAttention 快在哪一步 (不是少算, 是少搬)、Flash-Decoding 为什么要沿 KV 切、CUDA Graph 省的是谁的时间, 以及张量并行一层为什么只同步 2 次。',
-      tldr: '这一章的几件事都不改数学, 结果和朴素实现逐元素相等, 省的是搬运和等待:\n- FlashAttention: 朴素 attention 要把 $T \\times T$ 的分数矩阵写进显存再读回来。它把 Q 和 K/V 都切成小块, 用 online softmax (边算边更新最大值、分母和输出) 把各块结果精确地接起来, 从不把 $T \\times T$ 的矩阵写进显存。\n- Flash-Decoding: decode 时每条序列只有 1 个 query, 切不动 Q 就沿 KV 长度切, 让更多 GPU 计算单元同时干活。\n- CUDA Graph: 一步要向 GPU 提交几百个 kernel (GPU 上跑的小程序), 每次提交 CPU 都要花时间; 录一次之后每步只提交 1 次。\n- 推理 TP (张量并行): 每层权重切给多张卡, 一层 (一个 Transformer block) 只需 2 次 all-reduce (各卡把结果加起来的集体通信)。',
-      question: 'FlashAttention 的 FLOPs 一点没少, 凭什么还能快?',
+      subtitle: '不改动一行数学公式的前提下压榨硬件效率: FlashAttention 消除显存中的 $T \\times T$ 注意力矩阵读写, Flash-Decoding 在单步解码时沿 KV 维度切分跑满计算单元, CUDA Graph 消除 CPU 逐个提交算子的气泡, 张量并行则将单层多卡同步压至两次。',
+      tldr: '四项底层系统优化的输出均与朴素实现严格等价, 节省的全是数据搬运与调度空等:\n- FlashAttention: 将 Q 与 K/V 分块装入高速片上缓存 SRAM, 借 online softmax 流式重缩放分母, 避免在慢速显存 HBM 中反复读写巨大的 $T \\times T$ 中间矩阵。\n- Flash-Decoding: 解码阶段只有单个 query 导致并行度不足, 改为沿历史 KV 长度切分 $S$ 段并行计算再按对数分母 (`LSE`) 精确合并。\n- CUDA Graph: 将解码单步数百个碎小算子录制为一张静态执行图, CPU 每步只需下发 1 次重放指令。\n- 推理张量并行 (TP): 按注意力头边界做「列切接行切」配对, 单个 Transformer 层仅需 2 次 all-reduce。',
+      question: 'FlashAttention 的浮点乘加次数 (FLOPs) 一点都没比朴素注意力少, 为什么实际运行却快得多且显存大减?',
       evolution: {
         title: '一层层拆掉等待',
         subtitle: '根问题: GPU 算得快、搬得慢, 还要等 host 一个个提交 kernel; 耗时常卡在搬运和提交上, 不在乘法上。',
@@ -216,45 +216,45 @@ for _ in range(max_new - 1):
       code: 'llm_infer/m09_tensor_parallel · m11_flash_attention · m12_cuda_graph (量化见「INT4 · AWQ · KIVI」)',
       points: [
         {
-          title: 'softmax 的分母可以增量维护',
+          title: 'FlashAttention: 片上流式更新分母, 省掉 T×T 显存读写',
           key: true,
-          body: 'FlashAttention 边算边更新 softmax 的分母, 省掉了 $T \\times T$ 矩阵在显存里的来回搬运。朴素 attention 分三步:\n1. 先算分数矩阵 $S = QK^\\top$ (每个 query 对每个 key 一个分数, 共 $T \\times T$ 个数), 写进显存。\n2. 再读回来做 softmax 得到概率矩阵 $P$, 又写进显存。\n3. 再读回来乘 $V$。\nGPU 的显存 (HBM) 大但读写慢, 片上缓存 (SRAM) 快但很小。$T=4096$ 时每个头的分数矩阵有 16M 个元素, 来回搬这两张大矩阵的时间远超乘法本身。\nFlashAttention 把 Q、K、V 都切成小块, 每次只在 SRAM 里算一小块 (b_q 行 query 对 b_k 行 key) 的分数。难点是 softmax 看起来需要整行的全局分母 (所有 key 的 exp 之和), 一块一块算拿不到。解法: 每个 query 行只带三个运行量: 到目前为止见过的最大分数 $m$、分母 $l$、输出 $O$。来一块新分数就更新它们:\n1. 如果这一块里出现了更大的最大值, 先把旧的 $l$ 和 $O$ 整体乘 $\\exp(m_{\\text{old}} - m_{\\text{new}})$ 换成新基准。\n2. 再把这一块的贡献加进去。\n这就是 online softmax。\n于是每个 tile (小块) 只进一次 SRAM, 从不把 $T \\times T$ 的矩阵写进显存。快不是因为算得少 (FLOPs 一点没变), 是因为搬得少。临时工作集恒为 64×64 (一块 b_q × b_k 的分数), 与 $T$ 无关, $T=4096$ 时比 $T^2$ 小 4096 倍。demo 对 30 组配置和朴素实现对拍, 最坏只差 1.78e-06, 是浮点舍入。',
+          body: 'GPU 片上缓存 SRAM 带宽极高但容量极小, 主显存 HBM 容量大但带宽低一个数量级。朴素注意力先算完整的 $S = QK^\\top$ 写回 HBM, 再读出求 softmax 写回 $P$, 最后再读出乘 $V$——当 $T=4096$ 时单头矩阵就有 1,600 万个元素, 耗时全卡在反复读写 HBM 上。\nFlashAttention 将 Q、K、V 切成小块进 SRAM, 为每行 query 维护当前最大值 $m$、指数和分母 $l$ 与未归一输出 $O$ 三个标量/行向量: 每扫过一块新 K/V, 若最大值刷出新高 $m_{\\text{new}}$, 就把旧的 $l$ 和 $O$ 乘上 $\\exp(m_{\\text{old}} - m_{\\text{new}})$ 平滑换底后再累加当前块贡献。全程不往 HBM 物化 $T \\times T$ 矩阵, 临时空间恒为小块尺寸 (`64×64`), 30 组配置对拍与朴素注意力最大误差仅 `1.78e-06`。',
         },
         {
-          title: 'LSE 是可以拼接的凭证',
-          body: '$\\mathrm{lse} = m + \\log l$, 也就是这一行 softmax 分母的对数 (log-sum-exp)。有了它, 两段 K/V 上各自算出的部分结果就能精确合并成全量结果: 新的 lse 是两个 lse 的 logaddexp, 输出按 $\\exp(\\mathrm{lse}_i - \\mathrm{lse})$ 加权求和。这个权重就是每段占的 softmax 质量。\n- 用两段各自的 $(O, \\mathrm{lse})$ 合成: demo 和全量计算只差 2.68e-07。\n- 直接取两段输出的平均: 错到 0.212, 因为两段的 softmax 分母不相等, 质量大的那段应该占更大的权重。\nFlashAttention 的内层循环也在反复做这个合并。ring attention (K/V 分在多张卡上各算各的)、chunked prefill (prompt 分块算)、跨卡分段 KV, 全靠这一个原语: 只传 $(O, \\mathrm{lse})$, 不传 $T \\times T$。',
+          title: 'LSE (对数分母) 是跨块、跨步与跨卡精确拼接注意力的通用凭证',
+          body: '记录每段局部注意力的归一化输出 $O_i$ 与对数分母 $\\mathrm{lse}_i = m_i + \\log l_i$ 后, 任意多段独立的 K/V 计算结果都能无损合成为全局注意力: 合并后的总 $\\mathrm{lse} = \\mathrm{logaddexp}(\\mathrm{lse}_1, \\mathrm{lse}_2)$, 总输出即为按各段概率质量占比 $\\exp(\\mathrm{lse}_i - \\mathrm{lse})$ 加权之和。\n实测按 LSE 加权合并与全量一次计算误差仅 `2.68e-07` (若误作简单算术平均则错达 `0.212`)。分块 prefill、跨卡 Ring Attention 与下文的 Flash-Decoding 全都建立在这一合并算子之上。',
         },
         {
-          title: 'CUDA Graph 省的是 host',
-          body: 'decode 每步只算 1 个 token, 每个 kernel (GPU 上跑的一个小程序, 比如一次矩阵乘) 在 GPU 上几十 µs 就跑完。但 host (CPU 这一侧) 每提交一个 kernel 要经过 Python、框架、驱动, 也要约 10 µs; 一步几百个 kernel, GPU 大部分时间在等 CPU 提交。\nCUDA Graph 把一次 forward 提交的 kernel 序列 (连同参数和显存地址) 录下来, 之后每步 host 只发 1 次 replay。kernel 本身一点没变快, 省的是 host 的提交时间。所以形状必须固定: 录的是显存地址, 输入要拷进固定的 static_input 缓冲区, 不能换一个新数组。\n本仓库没有 GPU, launch 开销是显式注入的参数: 0 / 10 / 50 / 200 µs 分别对应加速比 1.3× / 6.4× / 12.2× / 15.0×。这组数这样读:\n- 开销为 0 时那 1.3× 来自 eager 每步重新分配中间 buffer, 和 launch 无关。\n- 加速比随开销一起上升, 说明 CUDA Graph 省下的主要是提交开销。\n这些加速比是代价模型的产物, 不是实测。\nbatch 越大, 单个 kernel 算得越久, launch 占比越小。所以 vLLM 这类系统只对 decode 用 graph, 大 prefill 通常回退 eager (逐个提交)。',
+          title: 'CUDA Graph 消除小批量解码时 CPU 下发算子的启动气泡',
+          body: '解码单步只处理几个 token, 单个 GPU kernel 往往几十微秒就跑完了, 而 CPU 侧经 Python 与驱动下发一次 kernel 就要花约 `10 µs`——一步几百个算子下来, GPU 大半时间都在空闲等待 CPU 派活。\nCUDA Graph 先试跑一遍把整条算子序列及绑定的固定显存地址录制成图, 后续每步只需 CPU 发 1 次 `replay` 指令 (代价是输入输出张量形状与缓冲区地址必须固定, 新数据需原地拷入 `static_input[...] = x`, 故常用于定形 decode 而大动态 prefill 仍走常规即时下发)。',
         },
         {
-          title: 'decode 时 FlashAttention 喂不饱 GPU',
-          body: 'FlashAttention 的并行单位是 (batch, head, Q 块): 每一个组合派一个线程块去算。\n- 线程块: GPU 派给一个 SM 去跑的一份活。它和 KV 分页的 block 是两回事。\n- SM: streaming multiprocessor, GPU 上的计算单元。A100 有 108 个, 代价模型里每个同一时刻跑一个线程块。\n- prefill: Q 有几千行, 切出来的 Q 块多得是, 线程块够多。\n- decode: 每条序列只有 1 个 query, Q 块只有一个, 并行单位只剩 $B \\times H$。\nB=1、H=32 的长对话 (batch 里 1 条序列, 32 个头) 只派得出 32 个线程块, 108 个 SM 只用上 30%。每个线程块还要独自把 32k token 的 KV 从头读到尾。',
+          title: '单步解码 Q 只有 1 行时, 标准 FlashAttention 派不满 GPU 计算单元',
+          body: '标准 FlashAttention 按 `(batch, head, Q_block)` 派发并行线程块: prefill 阶段几千行 Q 能切出海量块喂饱整张卡; 但到了单步 decode 阶段每个请求只有 1 行 query (`Q_block = 1`), 例如 `B=1, H=32` 的长上下文对话总共只能派出 32 个线程块, 在拥有 108 个流多处理器 (SM) 的 A100 上七成计算单元处于闲置状态, 工作的 32 个块还得各自从头到尾硬啃几万词的 KV。',
         },
         {
-          title: '推理 TP: 一层只同步 2 次',
-          body: 'LLaMA-70B 的 fp16 权重 140 GB, 一张 80 GB 的卡装不下。张量并行 (tensor parallel, TP) 把每一层的权重矩阵切成几份, 每张卡只存、只算自己那份; 输入激活 x 每张卡都有完整副本。\n切法有两种:\n- 列切 (按输出维切): 各卡的输出拼起来就是全量, 不用通信。\n- 行切 (按输入维切): 各卡算出的是部分和, 要加起来, 这一次相加就是 all-reduce (每张卡把自己的结果发出去, 所有卡都拿到总和)。\n先列切、后行切配对, 中间结果天然是切开的, 整个子层只在末尾 all-reduce 一次:\n- attention: Q/K/V 列切, 每卡拿到若干个完整的头, 各自 softmax。O 投影行切, 第 1 次 all-reduce。\n- MLP: gate/up 列切, down 行切, 第 2 次 all-reduce。\n每次 all-reduce 的载荷恒为 $T \\times D$ 个激活, 与卡数无关; 卡越多, 每卡算得越少, 通信占比反而上升。\n列切必须落在 head 边界: softmax 在每个头内部归一化, 一个头切到两张卡上各自 softmax 就错了。demo 把单头硬切成 4 份, 结果错 5.63e-01; 按头切则和不切分的基线只差 1e-7 量级。',
+          title: '推理张量并行 (TP): 沿注意力头边界列行配对, 每层仅两次同步',
+          body: '单卡装不下超大模型权重时, 推理 TP 与训练期 Megatron TP 一样采用「先列切、后行切」配对: 注意力 Q/K/V 按列切分让每张卡独立算完整的若干个头, O 投影按行切分后做第 1 次 all-reduce; MLP 的 gate/up 按列切、down 按行切后做第 2 次 all-reduce, 整层合计仅同步 2 次且单次通信量恒为 $T \\times D$。\n需特别注意列切必须严格落在注意力头边界上: 若把单个头拆到多张卡上各自求局部 softmax, 归一化分母失真会导致输出偏差高达 `5.63e-01`。',
         },
         {
-          title: 'Flash-Decoding: Q 切不动就切 KV',
-          body: 'Q 只有一行切不出并行, 那就把 KV 长度切成 $S$ 段。分两步:\n1. 每段派一个线程块, 算这一段上的局部结果 $(O_s, \\mathrm{lse}_s)$。\n2. 最后一个小 kernel 按 $\\exp(\\mathrm{lse}_s - \\mathrm{lse})$ 加权把 $S$ 段合并。\n这就是上面的 LSE 拼接, 只是一次合 $S$ 段, 结果严格相等: demo 13 组配置 (含 $S$ 不整除 $T$ 的) 最坏误差 2.06e-07。并行单位从 $B \\times H$ 变成 $B \\times H \\times S$。\n代价模型 (A100 参数: 108 个 SM, 显存带宽 2000 GB/s, 每个 SM 最多拿 1/108 的带宽; 不是实测) 下:\n- B=1、T=32k: $S=64$ 时 909.0 → 275.5 μs, 3.30× (上限是把闲着的 SM 全用上, $108/32 = 3.38$×)。\n- $S=4$ 和 $S=2$ 一样慢 (459.0 μs): 128 个线程块超过 108 个 SM, 要跑 2 波。\n- B=16 最多 1.05×, B=64 为 1.00×: 线程块本来就够, SM 已经满了, 切了只多一个合并 kernel。\n边界:\n- 带宽: 真卡上单个 SM 能拿到的带宽比 1/108 高, 少数 SM 也能吃掉一部分带宽, 真实加速更小。\n- 权重 GEMM: 这里只讲 attention 一个算子。整步 decode 里读权重的矩阵乘 (GEMM) 不受影响, 端到端加速远小于 attention 本身。',
+          title: 'Flash-Decoding: 沿 KV 历史长度切分 split-K 跑满空闲 SM',
+          body: '既然解码时单行 Q 切不出并行度, Flash-Decoding (split-K) 改为把长历史 KV 均匀切成 $S$ 段, 派出 $B \\times H \\times S$ 个线程块并行算出各段的 $(O_s, \\mathrm{lse}_s)$, 最后补一个小归约核按 LSE 精确合并 (13 组配置含非整除边界对拍最坏误差仅 `2.06e-07`)。\n在 A100 108-SM 解析代价模型下: `B=1, T=32k` 取 $S=64$ 可将注意力耗时从 `909.0 µs` 压至 `275.5 µs` (提速 `3.30×`, 逼近 $108/32 = 3.38\\times$ 的空闲单元填满上限); 当批大小升至 `B=64` 本就喂满 SM 时则自动无需再切。',
         },
       ],
       links: [
-        { from: '朴素 attention', to: 'flash_attention', body: '两者数学上严格相等 (30 组配置最坏差 1.78e-06, 浮点舍入)。省的是对 $N \\times N$ 中间矩阵 (分数和概率) 的反复读写, 不是乘法次数。' },
-        { from: 'merge_attention(O, lse)', to: 'chunked prefill / ring attention', body: 'merge_attention 让两段 K/V 上各自算完的结果能精确合并。有了它, prefill 才能把 prompt 切成块分批算 (chunked prefill), KV 才能分在多张卡上各算各的再合 (ring attention)。' },
-        { from: 'tp_block', to: '多卡推理', body: 'tp_block 是一个 Transformer block 的张量并行版本: 列切接行切配对, 中间结果天然是切开的, 只在 attention 和 MLP 两个子层的末尾各 all-reduce 一次。多卡推理就是把每一层都这样切。' },
+        { from: '朴素 attention', to: 'flash_attention', body: '数学输出一致 (`max|Δ| = 1.78e-06`), 通过片上分块与因果上三角整块跳过 (T=4096 时跳过 49.2% 无效块) 同时省下 HBM 带宽与一半无效乘加。' },
+        { from: 'merge_attention(O, lse)', to: 'chunked prefill / ring attention', body: '只要各子段保留自身的对数分母 `lse`, 时间分块或跨卡分片的注意力都能无损还原为全局精确值。' },
+        { from: 'tp_block', to: '多卡推理', body: '单层内两次 all-reduce 将多卡延迟敏感通信压缩到极致, 适合单机内高速 NVLink 互联部署超大模型。' },
       ],
       sourceRows: [
-        { concept: 'online softmax', code: 'm11_flash_attention/flash_attention.py:flash_attention', takeaway: '每个 query 行的 $m$ (最大值) / $l$ (分母) / $O$ (输出) 随 K/V 块增量更新。循环顺序是外层 Q 块、内层 K/V 块 (FlashAttention-2 的顺序), 一个 Q 块的状态在内层循环里常驻 SRAM, 算完只写回一次。' },
-        { concept: 'causal 整块跳过', code: 'flash_attention(..., causal=True)', takeaway: '因果 mask 下, 如果一个 K 块里最早的 key 都晚于 Q 块里最晚的 query, 这一块全被 mask, 连矩阵乘都不做, 整块跳过。$T=4096$、块大小 64 时 4096 块里跳过 2016 块 (49.2%); 省计算靠跳块, 不靠 mask 本身。' },
-        { concept: '分段合并', code: 'm11_flash_attention/flash_attention.py:merge_attention', takeaway: '按 lse 加权合并两段输出: 先算合并后的 lse, 再把两段的 $O$ 各乘 $\\exp(\\mathrm{lse}_i - \\mathrm{lse})$ 相加。只需传 $(O, \\mathrm{lse})$, 不传 $T \\times T$。' },
-        { concept: '图只认地址', code: 'm12_cuda_graph/graph.py:CudaGraph', takeaway: '录一次之后 host 提交从 16 次变 1 次, 输出和逐个提交逐位相同。录的是数组的地址, 所以新输入必须拷贝写进 static_input (static_input[...] = x); 写成 static_input = x 只是给名字重新绑定, 图读的还是旧数组, demo 复现了这个 bug。' },
-        { concept: 'TP 切在 head 边界', code: 'm09_tensor_parallel/parallel_linear.py:tp_block', takeaway: '每个 Transformer block 做 2 次 all-reduce, 载荷恒为 $T \\times D$ 个激活 (demo 里 8192 B), 与 tp 无关。切进单个 head 内部会错 5.63e-01, 因为 softmax 要在一个头内归一化, 不能跨 rank 拆开算。' },
-        { concept: '一段 KV 的局部结果', code: 'm26_flash_decoding/flash_decoding.py:partial_attention', takeaway: '对一段 KV 算局部 attention, 返回已归一化的输出 $O_s$ 和这一段分母的对数 $\\mathrm{lse}_s$。各段互不依赖, GPU 上是 $S$ 个并行线程块。' },
-        { concept: 'split-K + reduce', code: 'm26_flash_decoding/flash_decoding.py:flash_decoding', takeaway: '合并公式: $\\mathrm{lse} = \\log \\sum_s \\exp(\\mathrm{lse}_s)$, $O = \\sum_s \\exp(\\mathrm{lse}_s - \\mathrm{lse}) \\cdot O_s$, 每段按它占的 softmax 质量加权。T 不必整除 S, 最后一段短一点也行。' },
-        { concept: '延迟估算', code: 'm26_flash_decoding/flash_decoding.py:decode_latency_us', takeaway: '纯代价模型, 这样算:\n- 线程块数 units = B·H·S。\n- 108 个 SM 一次跑 108 个, 要跑 waves = ⌈units / 108⌉ 波。\n- 每波每个线程块读 T/S 个 token 的 KV, 每个 SM 最多拿到 1/108 的显存带宽。\n- S>1 时再加一个合并 kernel 的开销。' },
+        { concept: 'online softmax', code: 'm11_flash_attention/flash_attention.py:flash_attention', takeaway: '采用外层遍历 Q 块、内层遍历 K/V 块的 FlashAttention-2 循环序, 让累加器常驻片上直到整行算完只写回一次。' },
+        { concept: 'causal 整块跳过', code: 'flash_attention(..., causal=True)', takeaway: '若当前 K 块起始位置已晚于 Q 块最末位置则整块直接跳过, 省去近一半上三角无效矩阵乘。' },
+        { concept: '分段合并', code: 'm11_flash_attention/flash_attention.py:merge_attention', takeaway: '利用 `logaddexp` 合成总对数分母并重加权合并各段局部输出。' },
+        { concept: '图只认地址', code: 'm12_cuda_graph/graph.py:CudaGraph', takeaway: '将 16 次独立算子下发合并为单次图重放; 演示了重新绑定变量名而不原地拷贝会导致图反复读取旧缓冲区的经典坑。' },
+        { concept: 'TP 切在 head 边界', code: 'm09_tensor_parallel/parallel_linear.py:tp_block', takeaway: '校验按整数个注意力头切分与单卡基线对齐, 并展示切碎单个头引发的归一化错误。' },
+        { concept: '一段 KV 的局部结果', code: 'm26_flash_decoding/flash_decoding.py:partial_attention', takeaway: '独立计算单个 KV 切片上的局部归一化输出 $O_s$ 与对数分母 $\\mathrm{lse}_s$。' },
+        { concept: 'split-K + reduce', code: 'm26_flash_decoding/flash_decoding.py:flash_decoding', takeaway: '支持任意非整除长度切分 $S$ 段并行计算并在尾核通过 LSE 无损归约。' },
+        { concept: '延迟估算', code: 'm26_flash_decoding/flash_decoding.py:decode_latency_us', takeaway: '建模 SM 波次利用率 (`waves = ceil(B*H*S / 108)`) 与尾核合并开销, 量化小批量长上下文下的提速空间。' },
       ],
       snippetTitle: 'online softmax 的三个运行量',
       snippet: `m_new = maximum(m, max(S_block))
@@ -275,9 +275,9 @@ m = m_new
 
     'infer-engine': {
       title: 'mini-vLLM 引擎 · 把分页 KV、调度、前缀缓存、采样接成一个循环',
-      subtitle: '读完你能看懂一个推理引擎每一步在做什么, 并在 vLLM 的 step() 里认出每一行对应前面哪一章。',
-      tldr: '引擎的主循环就是反复调用 Engine.step, 每一步固定做四件事:\n1. 调度: 决定这一步哪些请求上场、各算几个 token。\n2. 前向: 把这些 token 送进模型算一遍。\n3. 采样: 挑出下一个 token。\n4. 后处理: 记进度、登记可复用的前缀、把结束请求占的显存还回去。\n所有请求的 KV cache (每个 token 在每层算出的 K、V 两组向量, 存起来供后面的 token 复用) 都写进一个全局的分页池子, 不挂在单条请求自己身上。分页的意思是: 池子切成固定大小的 block, 请求写到哪就按需分给它几个 block。所以别的请求算好的公共前缀, 新请求能直接读来用, 这部分 token 不做前向。demo 实测:\n- 首轮 5 条请求: 一共 305 个 token 需要 KV, 其中 233 个真算, 72 个靠前缀命中直接复用。\n- 同一批 prompt 再来一遍: 只需真算 105 个。\n- 池子只有 9 个 block 时: 显存不够, 逼出 4 次抢占 (把一条请求暂时踢出去腾显存, 之后再重算它)。输出仍和最朴素的 greedy 生成 (一条一条跑, 每步取概率最大的 token) 逐 token 相同。',
-      question: '推理引擎不就是给 model.forward 包一层循环吗? 为什么说它首先是调度器和资源管理器?',
+      subtitle: '将前面各章独立的内存池、连续批调度、前缀匹配与采样链组装成完整的推理服务主循环, 并用严格的 token 对账断言验证前缀命中确实跳过了重复前向计算。',
+      tldr: '`Engine.step` 每轮循环依次执行「调度组批 → 增量前向 → 到位采样 → 资源回收与前缀登记」四步:\n- 全局共享分页池: 所有请求的 KV 统一存放在按页寻址的全局 `pool` 中, 新请求命中的公共前缀直接挂载既有物理块并从 `start_pos` 之后开始算前向。\n- 端到端实测对账: 首轮 5 条共享系统提示词的请求共需 305 个 KV 位置, 实际仅前向计算 233 个、前缀直接复用 72 个; 将池容量压到 9 个块逼出 4 次抢占重算, 输出依然与逐条贪心基线逐词一致。',
+      question: '如果一个推理引擎只在统计数字上记了「前缀命中」, 前向计算时却照样把整条 prompt 重算了一遍, 输出文本完全正确——该用什么断言一眼抓出这种假复用?',
       evolution: {
         title: '省下的算力要对得上账',
         subtitle: '根问题: 请求随时来随时走, 长度和采样参数各不相同; 引擎要在一张卡上同时推进它们, 还不能重复算。',
@@ -291,32 +291,32 @@ m = m_new
       code: 'llm_infer/full_engine/engine.py · llm_infer/full_engine/model_runner.py · llm_infer/m13_lora_serving/lora.py',
       points: [
         {
-          title: 'KV 存在共用池子里',
-          body: '所有请求的 KV 都写进同一个全局池子, 别的请求算好的前缀可以直接读, 命中的部分不用再算。\n推理分两个阶段:\n- prefill: 第一次把整段 prompt 送进模型, 一次算很多 token。\n- decode: 之后每一步只生成一个新 token。\n两个阶段算出的 K、V 都要存进 KV cache。\n- 存在哪: 这个引擎不让每条请求各自保管 KV, 而是开一个全局的大池子。ModelRunner 里每层一份 pool[layer], 形状是 (num_blocks, block_size, D): 池子切成 num_blocks 个 block, 每个 block 装 block_size 个 token 的向量, D 是向量的维度。\n- 怎么找: 每条请求有一张页表 block_table, 记着它的第几页放在池子里哪个 block。attention 计算时按页表把整段前缀的 K、V 读回来。\n- 只算新的: ModelRunner.run 收到一个 start_pos, 表示前 start_pos 个 token 的 KV 已经在池子里了。它只对 ids[start_pos:] 这几个新 token 算 Q/K/V, 先把新的 K、V 写进池子, 再让它们对池子里的整段前缀做 attention。\nstart_pos 之前的 KV 直接从 pool 里取, 来源有三:\n- 前缀命中: 别的请求算好的公共前缀。\n- 上一个 chunk: 长 prompt 分块算时, 前一块刚写进去的。\n- 之前的 decode 步: 一个个追加进去的。\n三种都直接读, 不重算。所以 "命中" 是真的没算, 不只是记了一笔账。\nREADME 自测题里的例子: prompt 共 45 个 token, 前 24 个前缀命中, 预算充足时第一步 start_pos=24, Q 只有 21 行, K/V 经页表读回全部 45 行。',
+          title: '全局 KV 物理块池让跨请求前缀共享真正跳过前向计算',
+          body: '若每条请求各自持有私有 KV 数组, 就算查出两段输入前缀相同也无法直接借用对方的内存。`ModelRunner` 在引擎启动时按层开辟全局统一池 `pool[layer]` (形状 `(num_blocks, block_size, D)`), 所有请求的页表都指向同一个池中的物理块。\n每次执行 `run(ids, block_table, start_pos)` 时, 模型只为尚未计算的切片 `ids[start_pos:]` 计算 Q/K/V 并写入池中, 随后经页表把 `0 .. len(ids)` 的完整历史与当前块一并取出做注意力——无论 `start_pos` 之前的 KV 来自跨请求前缀命中、上一轮分块 prefill 还是历史 decode 步, 全都走同一套零重算读取路径。',
         },
         {
-          title: '难的只有调度那一步',
+          title: '主循环四步里, 复杂状态转移全收敛在调度器一步',
           key: true,
-          body: '引擎主循环 Engine.step 的四步里, 前向、采样、后处理都是固定动作, 给什么算什么。要做决定的只有调度: 这一步让哪些请求上场, 每条各算几个 token。\n调度器每一步都重新挑一遍: 结束的请求马上退出, 新请求有空位就补进来, 这叫连续批 (continuous batching)。它要同时管住三件事:\n- block 够不够: 每条请求往下算都要占新的 block。池子不够时, 调度器抢占最年轻 (最晚进来) 的那条: 收回它的全部 block, 让它回到等待队列 waiting 的队首, 以后再重算它的 KV。\n- 队首会不会饿死: waiting 队首如果因为 block 不够进不来, 这一步也不能空着, 必须落到 decode, 让已经在跑的请求继续生成。否则没有请求结束、没有 block 被归还, 队首永远进不来, 引擎原地空转, 这种情况叫活锁。\n- 这一步算多少 token: 每步有一个 token 预算 (demo [1] 是 48), 这一步所有请求的 token 加起来不能超过它。一步算的 token 越多这一步越慢, 所以预算封顶了每步耗时。\ndemo [1] 开着 chunked prefill (分块 prefill, 把长 prompt 切成几块分几步算), 打印里 P 表示 prefill 几个 token, D 表示 decode 1 个。step 2 是 s0:D s1:P39 s2:P8: s0 在 decode, s1 和 s2 各算一块 prompt, 合计 1 + 39 + 8 = 48, 正好用满预算。',
+          body: '`Engine.step` 的主干非常紧凑: 前向执行、末尾采样与后处理回收都是按单行事的确定操作, 真正的控制中心在首行 `scheduler.schedule()`——它必须在每一步同时平衡物理块余量 (不足时按 LIFO 抢占最晚入场的请求)、防活锁推进 (队首大请求进不来时照常排在途 decode) 以及单步最大 token 预算 (如 demo `[1]` 预算为 48 时第 2 步排出 `s0:D + s1:P39 + s2:P8 = 48` 恰好跑满预算)。',
         },
         {
-          title: '账必须对得上',
-          body: '引擎记两个数, 用来证明前缀复用真的省了计算:\n- tokens_computed: ModelRunner 每做一次前向, 就加上这次真算了几个 token。\n- prefix_hit_tokens: 调度器接入新请求时, 前缀命中了几个 token 就加几, 这些 token 的 KV 直接从池子里拿。\nprefix_hit_tokens + tokens_computed 必须等于全部需要 KV 的 token 数。需要 KV 的 token 数这样算: 每条请求的 prompt 加上生成的输出, 再减去最后采出的那一个 (它后面不再生成, 不用为它算 KV)。发生抢占时, 被踢出的请求回来要把 KV 重算一遍, 这部分重算也计入。README 和 report_stats 的注释只写了没有抢占时的等式, demo 也只在没有抢占的 [1] 里 assert 这笔账。\n这笔账要用 assert 卡死: 一个命中了却照样整段 prefill 的引擎, 输出完全正确, 从结果上看不出任何问题。只有对账能发现它: 它的实算数会多出命中的那部分, 账一对就露馅。所以这条 assert 是 "省下的算力是真的" 的唯一证据。\ndemo [1] 里需要 KV 的 305 个 token, 正好等于实算的 233 个加命中的 72 个。72 怎么来的: 5 条请求共用同一段 system prompt, block 大小是 8, 能整块复用的是前 3 个 block 共 24 个 token。s2、s3、s4 各命中 24 个; s1 和 s0 在同一步进来, 当时 s0 还没登记前缀, 所以 s1 没命中。',
+          title: '用「实算 token + 命中 token == 应有 KV 总数」断言真省算力',
+          body: '检验前缀缓存是不是「真跳过了计算而非只打印漂亮日志」, 光对输出文本是查不出来的——重算一遍同样会输出一模一样的正确文本! 因此引擎显式维护两本计数器: `tokens_computed` 统计每次实际送进模型前向的行数, `prefix_hit_tokens` 统计准入时直接挂载复用的前缀长度。\n无抢占场景下两者之和必须严格等于所有完成请求需要建 KV 的词元总数 (demo `[1]` 中 `233 实算 + 72 命中 == 305`); 此外随机抽取 30 组块大小、池容量与分块开关的 fuzz 压力测试共跑完 214 条请求、经历 34 次抢占重算, 全部输出与朴素贪心逐位一致且结束时引用计数归零无泄漏。',
         },
       ],
       links: [
-        { from: 'Engine.add_request', to: 'Scheduler.waiting', body: 'add_request 先把 prompt 文本编码 (encode) 成 token id, 再把这条请求放进调度器等待队列 waiting 的队尾。同时引擎给它记下自己的 SamplingParams (温度、top_k、top_p 这些控制采样随机程度的参数), 所以同一个 batch 里每条请求可以用不同的采样方式。demo [4] 就是同一个 prompt 配三套参数。' },
-        { from: 'Scheduler._admit', to: 'PrefixCache.match_prefix', body: '调度器 _admit 从等待队列接新请求时, 先调 match_prefix 查这条请求开头有多少个 token 的 KV 已经在池子里, 记为 n_hit。这些 token 不用算, 所以不占这一步的 token 预算; 记录 "KV 已就绪的 token 数" 的 seq.num_computed 直接从 n_hit 起步, 前向只从这里往后算。' },
-        { from: 'ModelRunner.run', to: 'm02.paged_attention', body: 'run 只给新 token 算 q (query, 每个 token 拿去和前文逐个比对的向量), 所以 q 只有新 token 那几行。m02 的 paged_attention 再按页表从池子里读回整段前缀的 K/V, 其中也包括别的请求算好的公共部分, 新 token 的 q 和它们一起做 attention。' },
-        { from: 'Multi-LoRA (m13)', to: '同一 batch 多个 adapter', body: 'LoRA 是一种微调方式: 不改底模权重, 只额外训练两个很瘦的小矩阵 A 和 B, 合起来叫一个 adapter。很多客户各带一个 adapter 时, m13 不把 adapter 合并进底模: 底模那次 gemm (通用矩阵乘) 全 batch 共享、只算一次, 每个 token 再按自己的 adapter id 取对应的 A/B 补算一小段。m13 demo 的小例子里, 1000 个 adapter 如果各合并出一份完整权重要 24.58 MB, 不合并 (一份底模加 1000 对 A/B) 只要 2.58 MB。' },
+        { from: 'Engine.add_request', to: 'Scheduler.waiting', body: '将输入文本编码为整数序列排入等待队尾, 同时为每条请求独立绑定各自的 `SamplingParams`, 支持同批混跑不同温度与采样策略。' },
+        { from: 'Scheduler._admit', to: 'PrefixCache.match_prefix', body: '新请求入场前先查公共前缀命中长度 `n_hit`, 将 `seq.num_computed` 直接拨到 `n_hit`, 命中的前缀块不消耗当步前向 token 预算。' },
+        { from: 'ModelRunner.run', to: 'm02.paged_attention', body: '仅构造新增 `len(ids) - start_pos` 行的 Q 向量, 配合页表读取全长 K/V 完成增量注意力。' },
+        { from: 'Multi-LoRA (m13)', to: '同一 batch 多个 adapter', body: '多租户挂载不同 LoRA 时无需合并出上千份大模型: 共享基座矩阵乘全批合算一次, 再按请求各自的 `adapter_id` 路由叠加轻量 `B(Ax)` 旁路 (1,000 个 adapter 显存从合并的 `24.58 MB` 压至 `2.58 MB`)。' },
       ],
       sourceRows: [
-        { concept: '一步 (主循环)', code: 'full_engine/engine.py:Engine.step', takeaway: '一步里依次:\n1. 调 scheduler.schedule() 拿到这一步的 batch, 它是一张 [(seq, n)] 清单: 哪条请求、算几个 token。\n2. 对每条请求调一次 runner.run 做前向。\n3. 只有 KV 已经追平整条序列的请求才调 sample 采新 token。\n4. 调 postprocess 推进进度、登记前缀、归还结束请求的 block。\n主干一共四行。' },
-        { concept: '只算新 token', code: 'full_engine/model_runner.py:ModelRunner.run', takeaway: 'run(ids, block_table, start_pos) 三个参数:\n- ids: 到本步末尾为止的全部 token。\n- block_table: 这条请求的页表。\n- start_pos: 已有 KV 的 token 数。\nQ 只有 len(ids) − start_pos 行, 正好是新 token 的个数; K/V 经页表读回, 是完整的 len(ids) 行。返回最后一个位置的 logits (模型对下一个 token 的打分)。' },
-        { concept: '中途不采样', code: 'done_prefill = num_computed + n == num_tokens', takeaway: '长 prompt 分块算时, 中间某一个 prefill chunk 的最后一个位置, 模型预测的是 prompt 里本来就有的下一个 token, 没有新 token 可采, 所以这一步给它返回 None。只有这一步算完后整条序列的 KV 都追平了 (num_computed + n 等于 num_tokens), done_prefill 才为真, 才去采样。' },
-        { concept: '抢占', code: 'm03_continuous_batching/scheduler.py:Scheduler._preempt', takeaway: '抢占是显存不够时的退路。_preempt 分两步:\n1. 把一条正在跑的请求的 block 全部还给池子。\n2. 把它放回 waiting 队首。\n已生成的 output_ids 原样保留, 回来后连同 prompt 一起重算 KV。只踢最年轻的, 所以最老的序列永远能往前走, 不会活锁。' },
-        { concept: '统计', code: 'Engine.report_stats', takeaway: '返回五项:\n- steps: 跑了几步。\n- tokens_computed: 真做前向的 token 数。\n- prefix_hit_tokens: 靠前缀命中跳过的 token 数。\n- preempt: 抢占次数。\n- pool: block 池的占用情况。\n一眼看完这一轮的资源账。' },
-        { concept: 'fuzz 随机测试', code: 'demo [5]: 30 组随机配置', takeaway: 'fuzz 是用大量随机配置去撞 bug 的测试。这里随机抽 30 组 block 大小、池子大小、token 预算、是否分块、是否开前缀缓存, 词表里还有 id ≥ 256 的 token, 每组把同一批请求跑两轮。共 214 条请求、触发 34 次抢占, 输出全部与朴素的 generate_greedy 逐 token 相同。没有活锁 (没超过 3000 步上限), 也没有 block 泄漏 (跑完后所有 block 空闲、引用计数全为 0)。' },
+        { concept: '一步 (主循环)', code: 'full_engine/engine.py:Engine.step', takeaway: '四行代码串联组批调度、增量模型前向、追平序列后的条件采样与状态回收登记。' },
+        { concept: '只算新 token', code: 'full_engine/model_runner.py:ModelRunner.run', takeaway: '仅对 `ids[start_pos:]` 执行嵌入与各层投影, 写回物理块池后返回末尾位置的词表打分。' },
+        { concept: '中途不采样', code: 'done_prefill = num_computed + n == num_tokens', takeaway: '长 prompt 处于中间分块 prefill 步时还差后续已知输入未读完, 跳过采样返回 `None`, 直至最后一块追平全长才采出首个生成词。' },
+        { concept: '抢占', code: 'm03_continuous_batching/scheduler.py:Scheduler._preempt', takeaway: '物理块吃紧时回收最年轻在途请求的块并退回队首等待重算, 保证最早入场的请求必定推进完成。' },
+        { concept: '统计对账', code: 'Engine.report_stats', takeaway: '汇总步数、实际前向词元数、前缀命中词元数、抢占次数与块池余量供自动化断言核验。' },
+        { concept: 'fuzz 随机测试', code: 'demo [5]: 30 组随机配置', takeaway: '随机组合池大小、块尺寸、预算与缓存开关运行两轮共 214 条请求, 验证零活锁、零内存块泄漏且结果逐词一致。' },
       ],
       snippetTitle: 'Engine.step 的四件事',
       snippet: `def step(self):
@@ -335,9 +335,9 @@ m = m_new
     // ---------------- 深入九章 ---------------- //
     'infer-prefix-radix': {
       title: '前缀复用 · 从 block hash 到 radix tree',
-      subtitle: '读完你能说清多轮对话、few-shot、共享 system prompt 这些公共前缀的 KV 怎么只算一次就给所有请求用, 以及 block hash 和 radix tree 两种查法能命中多少 token 差在哪。',
-      tldr: '一个 token 的 K 和 V 只取决于它前面的 token。所以两条请求只要开头一段 token 完全相同 (比如同一段 system prompt), 这一段的 KV 就可以只算一次, 第二条请求直接拿来用。本章讲两种找 "相同前缀" 的办法:\n- m04 链式 block hash: 给每个写满的 KV block 算一个 hash 当索引。只能整块整块地命中: 前缀相同 100 个 token、块大小 16 时只能复用 96 个。\n- m05 radix tree: 把见过的 token 序列存成一棵树, 沿树走到分叉处为止。能命中任意长度, 100 个全中; 代价是分叉落在边中间时要把边切开 (split)。\n容量满了, 只能从树的叶子开始、按最久没用的先删 (LRU) 驱逐。',
-      question: '驱逐时为什么只能从叶子开始, 不能直接扔掉最久没用的中间节点?',
+      subtitle: '共享系统提示词、少样本示例与多轮历史让不同请求开头存在大量相同词元。链式块哈希以整块为单位快速查表复用, 基数树 (Radix Tree) 则把匹配粒度推进到任意单个词元并按叶子 LRU 安全驱逐。',
+      tldr: '因果注意力下前缀词元的 KV 完全由该前缀自身决定, 跨请求查找最长公共前缀主要有两种索引结构:\n- 链式块哈希 (vLLM 风格, m04): 将父块哈希与当前块词元一并做哈希, 只能按填满的整块命中 (如公共前缀 100 词、块长 16 时复用前 6 块共 96 词)。\n- 基数树 RadixCache (SGLang 风格, m05): 将历史词元序列与对应 KV 槽位压缩存储在前缀树边上, 分叉落在边中段时动态切边 (`split`), 100 个相同词元可悉数命中; 容量满时仅从无在途引用的叶子节点按 LRU 向上驱逐。',
+      question: '基数树缓存空间不足需要淘汰旧条目时, 为什么只能从叶子节点删起, 而不能直接删掉最久没访问过的中间节点?',
       evolution: {
         title: '命中要准, 还要细',
         subtitle: '根问题: 很多请求共用一段前缀 (system prompt、多轮历史), 它的 KV 只取决于前缀本身, 却被每条请求各算一遍。',
@@ -351,30 +351,30 @@ m = m_new
       code: 'llm_infer/m04_prefix_cache/prefix_cache.py · llm_infer/m05_radix_cache/radix_tree.py',
       points: [
         {
-          title: '一个 hash 标识一整段前缀',
+          title: '链式块哈希必须纳入父块哈希, 唯一标识从头算起的完整前缀',
           key: true,
-          body: '$h_i = H(h_{i-1} \\,\\|\\, \\text{block}_i)$。这个式子在说: 第 $i$ 个 block 的 hash, 是把上一个 block 的 hash $h_{i-1}$ 和这个 block 自己的 token 拼在一起再做 hash。所以 $h_i$ 不只代表这一块 bs 个 token, 它代表 "从开头到第 $i$ 块为止" 的整段前缀。\n要这样链起来, 是因为 attention 让位置 $i$ 的 K 和 V 取决于它前面的全部 token。同样一段 token, 接在不同的前文后面, 算出来的 KV 是不一样的。如果只按块自身的内容做 hash, 两条前文不同的请求会查到同一个 block, 拿到错误的 KV。父 hash 参与计算之后, 前文只要差一个 token, 后面每一块的 hash 都不同, 不会误命中。\n查表的流程:\n1. 新请求从第一块开始逐块算 hash、去索引里找。\n2. 找到就把那个物理 block 直接挂进自己的页表, 找不到就停下, 后面的全部自己算。\n查表开销是 O(块数)。demo 里:\n- B 和 A 共享 8 个 token 的 system prompt, B 命中前 2 块, 页表前两页和 A 指向同一批物理 block。\n- C 只有第 1 块和 A 相同, 命中 4 个 token 之后链就断了。\n局限是只能整块命中: 一个 block 要写满了才会登记进索引, 所以公共前缀有 $n$ 个 token 时, 只能命中 $\\lfloor n/\\text{bs} \\rfloor \\cdot \\text{bs}$ 个, 不满一块的尾巴永远复用不到。',
+          body: '第 $i$ 个块的哈希值必须递推计算 $h_i = H(h_{i-1} \\,\\|\\, \\text{block}_i)$: 因为自注意力中同一句话接在不同前文后面算出的 K/V 完全不同, 若只对当前块内的几个词单独算哈希, 前文不同的两条请求就会张冠李戴拿错 KV; 把父哈希串进来后, 前面哪怕只差 1 个词, 后续所有块的哈希值都会彻底改变。\n新请求从首块起逐块查表挂载物理块, 直至首次未命中为止; 由于未写满的尾块不入表, 长度为 $n$ 的公共前缀最多只能命中 $\\lfloor n / \\text{bs} \\rfloor \\cdot \\text{bs}$ 个词元。',
         },
         {
-          title: 'radix tree 把命中粒度细到单个 token',
-          body: 'radix tree (基数树) 把所有见过的 token 序列存成一棵树: 每条边上存一段 token (不是单个 token), 旁边存一份等长的 KV 槽位列表 slots, 记着这段里每个 token 的 KV 放在池子里的哪一格。\n新请求从根出发, 先按第一个 token 挑子边, 再沿着边逐个 token 比对, 走到对不上为止。走过的那段就是它和历史请求的最长公共前缀, 这一段的 KV 直接复用, 只需要算剩下的后缀。\n分叉可能落在一条边的中间。demo [1] 里树中先有 [1..8], 再插入 [1,2,3,4,9,9], 第 5 个 token 处分开, 于是 [1..8] 这条边被切成 [1,2,3,4] + [5,6,7,8], 新分支 [9,9] 只占两个新槽位。做这件事的是 _split:\n- tokens 和 slots 要在同一个位置同步切成两半。\n- 新切出来的中间节点要继承原节点的 ref_count (有几条正在跑的请求锁着这条路径), 不然锁着下游的请求解锁时会把它减成负数, 或者它会被误驱逐。\n粒度的差别: 前 100 个 token 相同、bs=16 时, 链式 hash 只能命中 6 个整块 96 个 token, radix 命中全部 100 个。demo [3] 的随机负载上, 总 token 3189, radix 命中 1430 (44.8%), 按 block 粒度只命中 1068 (33.5%); 这两个比例只对这份合成负载成立。',
+          title: 'Radix Tree 压缩边存储与动态切边, 把复用粒度细化到单 token',
+          body: '基数树每条有向边直接挂载一串词元 `edge_tokens` 及等长的物理槽位列表 `slots`。新请求从树根沿边逐词比对到首个分叉点即为最长公共前缀; 若分叉恰好落在某条现有边的中间 (如已有 `[1..8]`, 新来 `[1,2,3,4,9,9]`), `_split` 操作会将原边在位置 4 处同步拆成 `[1..4]` 与 `[5..8]` 两段, 并让新增的中间父节点原样继承下游子节点的在途引用计数 `ref_count`。\n在块大小 16、共享前缀 100 词时, 块哈希只能复用 96 词, 基数树则能复用全部 100 词 (不过若整条 prompt 100% 命中, 实现仍会刻意留出末尾最后 1 个词送入前向以算出首步采样所需的 logits)。',
         },
         {
-          title: '只驱逐叶子',
-          body: 'cache 满了要腾地方时, 只能删树的叶子, 不能删中间节点。\n原因: 一条前缀的 KV 要能用, 必须从根开始连续走下来每一段都在。中间节点的 KV 被它所有后代共用, 先删它, 后代存的 KV 就都失去了前缀, 留着也用不了, 等于全部作废。\n所以 evict 只挑 ref_count 为 0 (没有正在跑的请求锁着它) 的叶子, 按最近一次被访问的时间 (last_access, 代码里的字段叫 last_used) 从旧到新删。一个父节点要等它的子节点都删光、自己变成叶子之后, 才会轮到它。demo [4] 里锁住 5 条路径再驱逐, 树里的 token 从 1759 降到 49, 剩下的正好是这 5 条锁定路径的并集; 解锁后全部驱逐, 回到 0。',
+          title: '驱逐只能从零引用的叶子开始逐层向上剥离',
+          body: '当缓存池满需要腾挪槽位时, 绝不能直接抠掉某个中间节点的 KV: 因为所有子孙节点的 KV 都是建立在祖先前缀完整存在的前提下使用的, 一旦中间某一段缺失, 其下整棵子树保存的后缀 KV 都会因前缀断裂而彻底报废。\n因此 `evict` 严格只挑选 `ref_count == 0` (当前无活跃请求锁定) 的叶子节点按 `last_used` 最久未使用顺序删除; 只有当某个内部节点的全部孩子都被删空、自身退化为新叶子后, 下一轮才允许回收它 (m05 锁定 5 条活跃路径后执行驱逐, 树容量从 1,759 精准收缩至这 5 条路径并集的 49 个词元)。',
         },
       ],
       links: [
-        { from: 'BlockManager.ref_count', to: 'PrefixCache', body: 'BlockManager 给每个物理 block 记一个引用计数 ref_count, 表示有几条请求在用它。PrefixCache 让多条请求共用同一个 block, 靠的就是这个计数: 命中一次加 1, 请求结束减 1, 减到 0 才算没人用、可以回收。' },
-        { from: 'RadixCache.match_prefix', to: 'Scheduler._admit', body: 'match_prefix 返回命中了多少个 token (n_hit)。调度器接新请求时, 这 n_hit 个 token 的 KV 已经有了, 不需要再算, 所以不占这一步的 token 预算; 请求的 "已算 token 数" num_computed 直接从 n_hit 起步, 只 prefill 剩下的部分。' },
-        { from: 'radix tree', to: '分层 KV offload', body: 'radix tree 的驱逐只是把前缀从 GPU 显存里挤出去。后面分层 offload 那一章不丢弃被挤出的前缀, 而是把它降级到 CPU 内存或磁盘, 再被命中时搬回来。' },
+        { from: 'BlockManager.ref_count', to: 'PrefixCache', body: '多个并发请求共享同一物理块依靠 `ref_count` 追踪在途使用者数量, 仅当计数归零时该块才允许被驱逐覆写。' },
+        { from: 'RadixCache.match_prefix', to: 'Scheduler._admit', body: '返回的命中前缀槽位直接装入新序列页表并将已计算游标拨至 `n_hit`, 只需为剩余后缀调度 prefill 算力。' },
+        { from: 'radix tree', to: '分层 KV offload', body: '内存驱逐并非只能一扔了之; 后续「分层 KV offload」将从 GPU 挤出的冷前缀逐级下沉到主机内存与本地磁盘中暂存。' },
       ],
       sourceRows: [
-        { concept: '链式 hash', code: 'm04_prefix_cache/prefix_cache.py:_block_hash', takeaway: '_block_hash 先把父 block 的 hash (parent_hash) 喂进 SHA1, 再喂本 block 的 token。第一个 block 没有父, 用固定的 "<root>" 起头。所以一个 hash 唯一标识 "从开头到第 i 块为止" 的整段前缀, 而不只是这一块。' },
-        { concept: '至少留一个', code: 'match_prefix 只匹配 (len−1)//bs 块', takeaway: 'match_prefix 故意把最后一个 token 留出来不命中。因为前缀全命中之后, 还得真算最后一个 token 才能得到 logits (模型对下一个 token 的打分), 否则第一个输出 token 无从采起。cache 里存的是 KV, 不是 logits。' },
-        { concept: '最长前缀匹配', code: 'm05_radix_cache/radix_tree.py:RadixCache.match_prefix', takeaway: '从根出发:\n1. 用查询的下一个 token 作键在 children 里找到对应的子边。\n2. 沿这条边逐个 token 比较。\n3. 比到不同就停, 走到边尾就进下一层。\ndemo 用 300 条随机请求对拍, 每次命中长度都等于和全部历史序列暴力算出的最长公共前缀。' },
-        { concept: '边分裂', code: 'RadixCache._split', takeaway: '分叉落在边中间时, _split 把这条边切成两半。切的时候:\n- edge_tokens 和 slots 是等长的两个列表, 必须在同一个位置切。\n- 新切出来的中间节点要继承原节点的 ref_count, 否则锁着这条路径的请求解锁时会减出负数。' },
-        { concept: '驱逐', code: 'RadixCache.evict', takeaway: '只在叶子里挑, 且只挑 ref_count 为 0 的, 按 last_used 最旧的先删。每次要 O(N) 扫一遍全树, 代码里注释写明了这个上限; SGLang 用按访问时间排序的小顶堆。' },
+        { concept: '链式 hash', code: 'm04_prefix_cache/prefix_cache.py:_block_hash', takeaway: '以固定根种子 `"<root>"` 起步将 `parent_hash` 与当前块词元序列一并送入 SHA1, 确保哈希绑定完整历史前缀。' },
+        { concept: '预留末词算 logits', code: 'match_prefix 只匹配 (len−1)//bs 块', takeaway: '缓存只保存 K/V 而不保存输出层 logits, 故至少保留最后 1 个输入词元做真实前向以触发首词生成。' },
+        { concept: '最长前缀匹配', code: 'm05_radix_cache/radix_tree.py:RadixCache.match_prefix', takeaway: '沿树匹配并在 300 条随机序列对拍中验证每次命中长度严格等于暴力扫描全历史的真实最长公共前缀。' },
+        { concept: '边分裂', code: 'RadixCache._split', takeaway: '在边内部分叉点同步切开词元数组与槽位数组, 新插入的中间节点严格继承原节点的 `ref_count` 以防解锁减成负数。' },
+        { concept: '叶子 LRU 驱逐', code: 'RadixCache.evict', takeaway: '仅在 `ref_count == 0` 的叶子集合中挑选 `last_used` 最早的节点回收槽位。' },
       ],
       snippetTitle: 'radix 匹配 + 分裂',
       snippet: `def match_prefix(self, ids):
@@ -393,9 +393,9 @@ m = m_new
 
     'infer-structured-output': {
       title: 'token 级语法约束 · 把 FSM 预编译成 mask 表',
-      subtitle: '读完你能解释为什么 "下一个字符合法" 和 "下一个 token 合法" 是两回事, 以及为什么合法 token 表要提前算好。',
-      tldr: '要让模型输出一定能解析的 JSON, 不靠在 prompt 里恳求, 而是在采样前把会违反语法的 token 的 logit 置成 −inf, 让它们的概率严格为 0。哪些 token 合法由一个有限状态机 (FSM) 决定: 它记着 "现在写到 JSON 的哪一步了", 每吃一个字符就换一个状态。\n难点是模型吐的不是单个字符, 而是多字符 token (比如 「":」、「true」), 一个 token 要在字符级状态机上连走好几步。\n- 离线: 对每个 (状态, token) 组合试走一遍。整段字符都走得通才算合法, 同时记下走完后落在哪个状态。\n- 在线: 每生成一个 token 只查一行表, 把非法 token 的 logit 置 −inf。\ndemo 里查表每步 0.086 µs, 在线现算 18.4 µs, 差 215 倍。',
-      question: '每生成一个 token 时, 现场对词表里全部 V 个 token 逐字符试走一遍状态机, 为什么不行?',
+      subtitle: '在提示词里反复叮嘱输出 JSON 仍无法保证百分百可解析。结构化输出在采样前通过有限状态机将破坏语法的词元 logit 直接置为 −inf; 由于子词词元常一次跨越多个字符状态, 必须将状态转移离线预编译成词元级掩码表。',
+      tldr: '约束解码将格式合规率从概率问题变成硬保证:\n- 词元级跨越: 模型输出的是像 `\":` 或 `true` 这样的多字符子词, 必须在字符级有限状态机 (FSM) 上把整个词元的全部字符连续试走通才能判定合法。\n- 离线预编译加速: 若解码每步现场在 CPU 上对十几万词表逐词试走状态机, 会严重拖慢 GPU 前向流水线; 事先离线枚举 `(状态, token)` 编译为二维查找表后, 在线每步仅需 `O(1)` 取一行掩码 (m14 实测单步从 `18.4 µs` 缩至 `0.086 µs`, 提速 215 倍, 随机模型 100 次采样 JSON 合法率从 `0%` 升至 `100%`)。',
+      question: '为什么「当前允许输入哪些字符」不等于「当前允许采样哪些 token」? 如果解码撞上 max_tokens 长度上限被截成半截 JSON 该怎么防?',
       evolution: {
         title: '从请模型守规矩到管住 logits',
         subtitle: '根问题: 下游程序要的是一定能解析的 JSON, 模型的每个 token 却是采样出来的。',
@@ -409,30 +409,30 @@ m = m_new
       code: 'llm_infer/m14_structured_output/grammar.py',
       points: [
         {
-          title: '合法性是 token 级的, 不是字符级的',
+          title: '多字符子词会连跨多个语法状态, 合法性必须整词试走判定',
           key: true,
-          body: '合法性要按整个 token 判断, 只看下一个字符不够。字符级的状态机很好写: 当前状态下允许哪些字符, 一查就知道。但模型的词表是多字符的: 真实词表里 「":」 是一个 token, 它一口气跨过 "结束 key" 和 "进入 value" 两个状态; 「true」 是一个 token, 要在状态机上连走 4 步。首字符合法但中间某个字符走不通的 token, 照样非法。\n判定只有一条标准: 这个 token 的整段字符从状态 s 出发能不能全部走通。demo 用两张表记结果:\n- next_state[s, t] 记下 token t 从状态 s 走完后落在哪个状态, 走不通就记 −1。\n- mask_table = next_state ≥ 0, 就是每个状态下哪些 token 合法的布尔表。\nEOS (结束符) 只在接受态 (JSON 已经完整) 合法。\n每一步的流程:\n1. 取 mask_table[s] 这一行。\n2. 把非法 token 的 logit 置 −inf。\n3. 采样得到 token。\n4. 用 next_state[s, tok] 更新状态。\ndemo 用一个 96 个 token 的词表 (48 个多字符), 状态机有 101 个状态, 表共 9696 项, 其中 21.0% 合法。一个随机权重的 TinyLM 采样 100 次:\n- 加上这张 mask, 100 次都是合法 JSON。\n- 同一个模型不加 mask, 100 次里 0 次合法。\nmask 保证的只是语法, 内容照样是乱码。',
+          body: '字符级 JSON 状态机很容易定义当前允许接哪些单字符, 但 BPE 词表中的词元往往包含多个字符——例如单个词元 `\":` 会一口气走完「闭合键名引号」与「输入键值冒号」两步转移, 而像 `a\"x` 这样首字符合法、第三字符违法的词元只有走完整个串才能暴露错误。\n因此判定词元 $t$ 在状态 $s$ 下是否合法, 必须将 $t$ 拆成字符流从 $s$ 出发依次查转移表: 全程走通则将终点记入 `next_state[s, t]`, 任一字符卡壳则记 `-1`, 结束符 EOS 仅在完整闭合的接受态放行。在随机权重的 TinyLM 上施加该掩码后, 100 次采样从原本 `0/100` 可解析变为 `100/100` 合法 JSON (注意语法掩码只保外壳结构合法, 语义合理性仍靠模型自身能力)。',
         },
         {
-          title: 'mask 表必须离线编译',
-          body: '每步现场试走全部 token 太慢, 合法 token 表要离线编译好。在线现算的意思是: 每生成一个 token 之前, 把词表里全部 V 个 token 从当前状态逐字符试走一遍, 开销是 O(V·len) (len 是 token 的平均字符数)。这是纯 CPU 活, 而且卡在 GPU 算完 logits 和采样之间, GPU 只能等着。词表十几万时, 这一步直接吃掉 decode 延迟。\n能离线算的原因是状态机的状态数有限 (demo 里 101 个)。每个状态各把全部 token 试走一遍, 存成 (状态数 × 词表大小) 的表, 之后每步只取一行, O(1)。demo 测得在线现算 18.4 µs/step, 查表 0.086 µs/step, 快 215 倍; 预编译一共花 7.9 ms, 几百步就摊平了。真实系统的表是状态数 × 128k 的 bitmask, 编译要几百 ms 到几秒, 所以按 schema 缓存。',
+          title: '将 O(V·len) 的逐词遍历前置到离线编译, 在线解码只做 O(1) 查表',
+          body: '如果在每步生成夹缝里让 CPU 现场对十余万词表做逐字符试走, 这笔串行开销会直接卡死 GPU 解码吞吐。鉴于确定性有限状态机的状态数有限 (demo 为 101 个状态、96 词表共 9,696 格), 完全可以在加载 Schema 时一次性遍历所有 `(状态, token)` 填好 `mask_table` 与 `next_state` 两张静态表: 在线每步只需按当前状态号取出一行布尔掩码把非法位刷成 `-inf`, 耗时从现场试走的 `18.4 µs/step` 骤降至 `0.086 µs/step` (快 215 倍)。',
         },
         {
-          title: '还要能收尾',
-          body: '只用 mask 还有一个漏洞: 输出长度到了 max_tokens 上限时会被直接截断, 得到的是 "合法的前缀" 而不是完整 JSON。demo [4] 把 max_tokens 压到 12, 只查 mask 的模式 100 次里只有 33 次是完整 JSON, 其余像 \'{ "smfmpr": true, "\' 这样半截停下。\n第三张表 need[s, t] 解决这个问题: 它记的是选了 token t 之后, 最少还要几个 token 才能以 EOS 结束 (在 token 图上算最短路)。每一步把 mask 再收紧一层: 只放行 need 不超过 "剩余 token 数减 1" 的 token, 剩余长度不够时提前屏蔽那些 "收不了尾" 的 token。这样输出一定是完整可解析的 JSON, 不会是被长度上限截断的半截: budget 模式 100/100。代价是结尾被硬掰, 内容可能不是模型想说的; vLLM、OpenAI 这类系统默认不强制收尾, 撞上 max_tokens 就返回 finish_reason="length" 让调用方重试。',
+          title: '最短收尾步数表 (need) 防止触达长度上限时留下半截残文',
+          body: '单纯保证每步转移合法还有一个边界隐患: 若 `max_tokens` 预算只剩 2 步而模型还在往外开新字段, 撞线截断就会留下一串尚未闭合引号与花括号的合法前缀 (demo 把预算压到 12 步时仅 `33/100` 能完整闭合)。\n在离线建表阶段同时用图最短路算出第三张表 `need[s, t]` (代表在状态 $s$ 选了词元 $t$ 后至少还需多少个词元才能抵达 EOS), 在线每步额外屏蔽掉 `need[s, t] > 剩余步数 - 1` 的分支, 就能引导序列在预算耗尽前优雅闭合 (`100/100` 完整 JSON; 工业 API 则常选择不强掰结尾, 直接返回 `finish_reason="length"` 交调用方决定)。',
         },
       ],
       links: [
-        { from: 'JsonFSM (字符级)', to: 'compile_char_dfa', body: 'JsonFSM 是手写的字符级状态机, 回答 "当前状态允许哪些字符" 和 "吃了这个字符后到哪个状态"。compile_char_dfa 用 BFS 把它所有可达状态枚举出来, 存成显式的转移表 trans[s] = {字符: 下一状态}, 后面试走 token 时直接查这张表。' },
-        { from: 'token_row', to: 'compile_token_table', body: 'token_row 对一个状态 s 做一次 "逐 token 逐字符试走", 得到这个状态下每个 token 的落点 (走不通是 −1)。compile_token_table 对全部 S 个状态各调用一次, 拼成 (S, V) 的 next_state 表, 再派生出 mask_table 和 need。' },
-        { from: 'mask_table[s]', to: 'm10 sample', body: '语法 mask 也只是一个把非法 token 的 logit 置 -inf 的 filter, 和 m10 采样链上的 top-k、top-p 是同一类东西, 插在同一条链上; mask 之后的温度、top-p 照常执行。' },
+        { from: 'JsonFSM (字符级)', to: 'compile_char_dfa', body: '通过广度优先搜索将手写字符规则展开为显式整数状态转移字典 `trans[s][ch]`, 供离线词元试走高速查询。' },
+        { from: 'token_row', to: 'compile_token_table', body: '对全部可达状态逐行运行词元试走, 一次生成 `next_state`、`mask_table` 与最短闭合距离表 `need`。' },
+        { from: 'mask_table[s]', to: 'm10 sample', body: '语法掩码本质上只是插在采样过滤链最前端的一道 `-inf` 过滤器, 放行后的合法候选照常经过后续温度与 `top-p` 抽样。' },
       ],
       sourceRows: [
-        { concept: '词表', code: 'm14_structured_output/grammar.py:build_vocab', takeaway: '造一个演示用的词表: 单个字符, 加上类似 BPE 的多字符片段。特意放进了跨语法边界的 \'":\' 和 \'e"\' (一个 token 跨两个状态) 和永远非法的垃圾 token, 用来检验 token 级判定。' },
-        { concept: '试走', code: 'm14_structured_output/grammar.py:token_row', takeaway: '对一个状态逐个 token 试走:\n- EOS 只在接受态合法。\n- 其它 token 按字符顺序走转移表, 中途任何一个字符走不通, 整个 token 作废 (记 −1)。' },
-        { concept: '预编译', code: 'm14_structured_output/grammar.py:compile_token_table', takeaway: '一次算出三张表:\n- next_state: 落点状态。\n- mask_table: 合法与否。\n- need: 选了之后最少还要几个 token 才能结束。\n之后每一步只查表, 反复用。' },
-        { concept: '光靠 prompt 不够', code: 'logits[~mask] = -inf', takeaway: 'prompt 里写格式要求只能提高合法输出的概率, 输出一长迟早错一次; 只有在 logits 上把非法 token 置 −inf, 它的概率才严格为 0。demo 里不加 mask 的合法率是 0/100。' },
-        { concept: '与 xgrammar 的差距', code: 'CFG / 下推自动机', takeaway: '本章的 grammar 没有嵌套, 是正则语言, 一个有限状态机就够。真实 JSON Schema 有嵌套 (对象里套对象), 要用带栈的下推自动机; 栈的内容无限多, 没法全部预编译, 所以 xgrammar 只预编译 "与栈无关" 的那部分 token, 其余运行时再查。' },
+        { concept: '多字符词表', code: 'm14_structured_output/grammar.py:build_vocab', takeaway: '构造包含跨语法边界组合词元 (`\":`, `e\"`) 与永不合法噪声词元的测试词表, 检验多步连跨判定。' },
+        { concept: '单状态试走', code: 'm14_structured_output/grammar.py:token_row', takeaway: '从状态 $s$ 出发逐字符推进词元切片, 任一字符失配即标为 `-1`, EOS 仅在接受态开放。' },
+        { concept: '三表预编译', code: 'm14_structured_output/grammar.py:compile_token_table', takeaway: '离线产出落点状态表、合法布尔掩码表与到终态最短步数表, 供在线解码 `O(1)` 索引。' },
+        { concept: '硬约束保证', code: 'logits[~mask] = -inf', takeaway: '将违规词元的未归一化分数置为负无穷使其采样概率严格归零, 消除长文本采样偶发破格。' },
+        { concept: '上下文无关文法扩展', code: 'CFG / 下推自动机', takeaway: '真实任意深度嵌套 JSON 属于上下文无关文法需配合下推栈, XGrammar 等引擎通过分离「栈无关预编译掩码」与少量「栈相关运行时检查」兼顾嵌套表达力与极低延迟。' },
       ],
       snippetTitle: '离线编译 + 在线查表',
       snippet: `# 离线: 每个状态 × 每个 token 试走一遍
@@ -454,9 +454,9 @@ state = next_state[state, tok]`,
 
     'infer-quant-awq': {
       title: 'INT4 · AWQ · KIVI · 比特越低, "怎么分组"越要紧',
-      subtitle: '读完你能说清 INT4 为什么要分组、AWQ 为什么先缩放再量化, 以及 K 和 V 为什么分组方向不同。',
-      tldr: '量化就是把浮点数吸附到少数几个等间距的格点上 (INT4 只有 16 个), 一组数共用一个刻度 (scale)。decode 每步要把权重和 KV 从显存读一遍, 字节少一半, 时间就少一半。\n- group-wise INT4: 每 $g$ 个权重共用一组 scale/zero。组里混进一个特别大的数 (离群值), 整组的刻度都被撑粗; 分组之后离群值只污染自己那一组。\n- AWQ: 模型在意的是输出误差 $= \\sum_i x_i \\cdot \\Delta W_i$, 同样的舍入误差乘上大激活, 对输出的影响才大。量化前把激活大的输入通道的权重放大 $s_i$ 倍、激活同步缩小, 数学等价; 误差从 0.0759 降到 0.0273。\n- KV 量化: K 有几个固定的离群通道 (某几维在所有 token 上都很大), 按通道分组把它们关起来; V 没有, 按 token 分组。',
-      question: '量化时要让谁的误差最小: 权重本身 ($\\|W - \\hat{W}\\|$), 还是乘上激活后的输出 ($\\|XW - X\\hat{W}\\|$)? 为什么是后者?',
+      subtitle: '解码吞吐受制于权重与 KV 缓存的访存字节数。压到 4-bit 只剩 16 个离散格点后, 细粒度分组负责隔离局部离群值, AWQ 与 GPTQ 从激活分布出发保护输出精度, KIVI 与 SmoothQuant 则分别针对 K/V 缓存和全整数矩阵乘对症处理离群通道。',
+      tldr: '推理端主流低比特量化方法按优化目标清晰分工:\n- Group-wise INT4 与 AWQ (权重量化): 每 $g$ 个相邻权重共享一套刻度以圈住离群值; AWQ 注意到「乘上大激活的权重行对输出误差影响最大」, 量化前将显著输入通道对应的权重行放大 $s$ 倍再把 $1/s$ 折入前一层, 将留出集输出相对误差从 RTN 的 `0.0759` 压至 `0.0273`。\n- KIVI (KV 缓存量化): K 存在少数跨所有位置恒定偏大的离群特征通道, 故按通道方向分组量化 (`0.18 -> 0.026`); V 无固定离群通道, 按 token 方向分组即可流式追加。\n- GPTQ / SmoothQuant: GPTQ 利用校准激活协方差逐行把已量化误差补偿给后续未量化行; SmoothQuant 则把激活离群值平滑转移部分给权重以解锁 W8A8 整数算子加速。',
+      question: '给线性层权重量化时, 为什么最小化层输出误差 $\\|XW - X\\hat{W}\\|$ 比直接最小化权重自身误差 $\\|W - \\hat{W}\\|$ 有效得多? 为什么 K 和 V 缓存要沿着互相垂直的两个方向分组?',
       evolution: {
         title: '从权重误差走到输出误差',
         subtitle: '根问题: decode 每步要把权重和 KV 从显存读一遍, 耗时跟着字节数走。',
@@ -471,49 +471,45 @@ state = next_state[state, tok]`,
       code: 'llm_infer/m08_quantization/{int8_weight.py,int4_awq.py,kv_quant.py}',
       points: [
         {
-          title: '分组把离群值关起来',
-          body: '分组越细, 离群值拖累的数越少。同样 INT4, 每 32 个权重一组时输出误差 0.0759, 整个输出通道一组时 0.1058。量化的做法是:\n1. 一组数里找出最小值和最大值。\n2. 把这段范围 (range) 等分成 $2^{\\text{bits}}-1$ 格。\n3. 每个数舍入到最近的格点, 只存格点编号。\n4. 用的时候乘回刻度 (scale) 再加偏移 (zero) 还原。\n格距 = range / 格数, 所以范围越宽, 每个数的误差越大。INT4 只有 16 个格点, 组里混进一个离群值 (比别的数大几十倍), 整组的格距都被它撑大, 其它数的误差都跟着变大。\ngroup-wise 的做法是缩小 "组": 每 $g$ 个相邻权重一组, 各自一套 scale/zero。一个离群值只撑大自己这一组的 range, 别的组不受影响。demo 里同样 INT4, per-channel (整个输出通道一组) 的输出误差 0.1058, group=32 降到 0.0759。\n$g$ 越小越准, 但 scale/zero 的额外开销越大。每组存一个 fp16 scale 和一个 fp16 zero, 共 32 bit:\n- $g=128$: $4 + 32/128 = 4.25$ bit/权重。\n- $g=32$: $4 + 32/32 = 5.00$ bit/权重。',
+          title: 'Group-wise 细粒度分组将离群值的破坏半径关进小块内',
+          body: '均匀整数格点量化的步长等于 `(max - min) / (2^bits - 1)`: 降到只剩 16 个格点的 INT4 时, 整列里只要混进一个幅值大几十倍的离群值, 整列的刻度就会被拉得极粗, 其余中小权重全挤在两三个格点上。\nGroup-wise INT4 将同一列内每 $g$ 个连续元素划为一组独立统计 `scale` 与 `zero` (每组多花两个 fp16 即 32 bit 元数据: `g=128` 折合 `4.25 bit/参数`, `g=32` 折合 `5.00 bit/参数`), 让离群值只影响本组内的 $g$ 个元素, 使直接就近舍入 (RTN) 的输出相对误差从整通道分组的 `0.1058` 降至 `0.0759`。',
         },
         {
-          title: '重要的是输出误差, 不是权重误差',
+          title: 'AWQ: 按激活幅度先放大关键权重行再量化, 保护层输出',
           key: true,
-          body: '模型在意的不是权重 $W$ 本身被改了多少, 而是这一层的输出 $X\\hat{W}$ 和原来的 $XW$ 差多少 ($X$ 是输入激活)。输出误差 $= \\sum_i x_i \\cdot \\Delta W_i$: 把第 $i$ 个输入通道的激活 $x_i$ 乘上这一行权重的舍入误差 $\\Delta W_i$, 再对所有通道求和。这个式子在说: 同样大小的舍入误差, 乘上大激活后对输出的影响就大。LLM 的激活恰好有少数固定通道在所有 token 上都很大, 这些通道对应的权重行最该保护。\nAWQ (activation-aware weight quantization) 用恒等式 $XW = (X/s) \\cdot (s \\odot W)$: 把激活大的那些权重行放大 $s$ 倍, 激活对应的通道同时缩小 $s$ 倍, 乘积不变。放大后的行在同样的格距下, 相对舍入误差缩小约 $s$ 倍。$1/s$ 可以离线折进上一层的权重, 推理时零额外开销。\n$s_i$ 取校准激活的逐通道平均幅度 $\\text{mean}|x_i|$ 的 $\\alpha$ 次方。代价是放大的行撑大了同组的 range, 同组其它行变粗, 所以 $\\alpha$ 要在校准集上网格搜。demo 里:\n- $\\alpha=0$ 就是 RTN (round-to-nearest, 不缩放直接舍入) 0.0757。\n- 最优 $\\alpha=0.4$ 到 0.0279。\n- $\\alpha=1$ 反而 0.1173, 比 RTN 还差。\n- 在没见过的 held-out 激活上, AWQ 的输出误差 0.0273, 对比 RTN group=32 的 0.0759。',
+          body: '网络下一层真正接收的是矩阵乘输出 $X\\hat W$, 其误差展开为 $\\sum_i x_i \\Delta W_i$: 同样大小的权重舍入误差 $\\Delta W_i$, 落在激活幅值 $|x_i|$ 常年偏大的显著输入通道上时对输出的破坏要严重几十倍。\nAWQ (Activation-aware Weight Quantization) 利用等价变换 $XW = (X / s)(s \\odot W)$, 按校准集逐通道平均激活幅度设置缩放向量 $s_i = (\\mathrm{mean}|x_i|)^\\alpha$: 量化前把重要权重行放大 $s_i$ 倍使其享有更精细的相对刻度, 同时将反向缩小系数 $1/s_i$ 提前离线吸收进上一层的归一化或投影权重中, 线上推理零额外计算。由于把单行放太大又会反过来撑宽同组量程, 指数 $\\alpha \\in [0, 1]$ 只需做一次一维网格搜索 (`α=0.4` 最优, 留出集输出相对误差从 RTN 的 `0.0759` 降至 `0.0273`)。',
         },
         {
-          title: 'K 和 V 的离群结构不一样',
-          body: 'KV cache 也能量化, 分组方向要看数据的离群结构。K 的少数通道 (demo 里是第 3、17、40 维) 在所有 token 上都是大值:\n- 按 token 分组 (一个 token 的整行一组): 每一行都含有这几个离群通道, 每一行的 scale 都被撑大, INT4 下 K 的相对误差 0.18。\n- 按通道分组 (每 32 个 token 内的一列一组, KIVI 的做法): 离群通道被关在自己的组里, 误差 0.026。\nV 没有这种固定的离群通道, 按 token 分组就够 (INT4 误差 0.0894, 两种分法一样)。按 token 分组还有一个好处: 每个新 token 写入时可以独立量化, 不用回头改旧的; 按通道分组要攒满 32 个 token 才有 min/max, 真实 KIVI 把最近不满一组的 token 留在 fp16 里。',
+          title: 'KIVI: 顺着 K 的通道离群特征按列切, 顺着 V 的流式写入按行切',
+          body: '长文本下 KV 缓存反超权重成为显存大头, 而 K 与 V 张量的数值分布截然不同:\n- K 张量存在少数固定的离群通道 (所有词元在同一特征维上数值都极大): 若按 token 整行分组, 每一行都会撞上这几个大值导致误差高达 `0.18`; 改为按特征通道在每 32 个时间步内纵向分组 (per-channel), 离群维被单独关进自己的小组, INT4 误差骤降至 `0.026` (未凑满一组的近期新词暂留 fp16 缓冲区)。\n- V 张量无固定通道尖峰, 直接按每个新词独立横向分组 (per-token, 误差 `0.0894`), 生成一个词即可当场量化归档。',
         },
         {
-          title: 'GPTQ 和 AWQ 分工: 一个补偿, 一个保护',
-          body: '两者都只量化权重, 存储格式和上面的 group-wise INT4 完全相同, 推理 kernel 不变。治的病不同:\n- AWQ: 少数重要输入通道的误差被大激活放大。量化前把这些行放大, 让它们分到更细的格点。这是保护。\n- GPTQ: RTN 每个权重各自舍入, 误差在输出上累加。GPTQ 一行一行量化, 量化完一行就算出它的误差, 按 $H^{-1}$ 摊给后面还没量化的行, 让它们提前往反方向偏一点, 抵消这一行的误差。$H = X^\\top X / N$ 是校准激活的协方差 (记录输入通道两两之间的相关性), 相关的通道才能互相补偿。这是补偿。\n实测 (INT4 g32, held-out 激活):\n- 相关激活: RTN 0.0776 → GPTQ 0.0369。\n- 再加 ×30 离群通道: RTN 0.0749, AWQ 0.0258, GPTQ 0.0293, 先 AWQ 再 GPTQ 0.0113。\n叠加比单用都好, 说明两者治的是不同的病。真实部署常把两者视为二选一, 叠加是教学组合。',
+          title: 'GPTQ 与 AWQ 治的是不同误差源: 逐行协方差补偿 vs 显著行保护',
+          body: 'GPTQ 与 AWQ 产出的底层 INT4 存储格式完全一致, 但入手角度正交:\n- AWQ 在量化前通过通道重缩放保护大激活对应的敏感行。\n- GPTQ 则利用校准集输入协方差 $H = X^\\top X / N$ 的逆矩阵 Cholesky 分解, 每量化完第 $i$ 行就把该行产生的舍入误差投影分摊给后面尚未量化的相关行去反向抵消。\n在同时存在通道相关性与 30 倍离群通道的留出集测试中: RTN 为 `0.0749`, 单用 AWQ 为 `0.0258`, 单用 GPTQ 为 `0.0293`, 先平滑放大再协方差补偿两者叠加更可压至 `0.0113`。',
         },
         {
-          title: 'GPTQ 的收益全靠激活相关性',
-          body: 'GPTQ 的补偿靠的是输入通道之间的相关性: 这一行多舍了一点, 和它相关的下一行就少舍一点, 输出上互相抵消。激活通道互不相关时 $H$ 是对角矩阵, 补偿项全为 0, GPTQ 退化成 RTN, 一点收益也没有。\n校准样本少时更糟, 它会把采样噪声当成相关性去补偿, 在没见过的数据上反而更差:\n- N=256 (对 256 维输入): held-out 误差是 RTN 的 1.56×。\n- N=512: 1.17×。\n- N=2048: 1.03×。\n- N=8192: 1.01×, 才打平。\n本 demo 用 "rank-32 公共成分 + 噪声" 合成相关激活, 才显出 0.0776 → 0.0369 的效果。真实 LLM 激活确实强相关, 但幅度不是这个数。',
+          title: 'GPTQ 依赖充足校准样本估计真实相关性, 样本过少反而过拟合噪声',
+          body: 'GPTQ 的跨行误差抵消完全建立在输入各维真实线性相关的前提上: 若输入各维彼此独立 ($H$ 为对角阵), 补偿项恒为零, GPTQ 原地退化回 RTN; 更需警惕的是当校准集样本数 $N$ 过小时 (如 256 维特征仅给 $N=256$ 条样本), 样本协方差矩阵接近奇异, GPTQ 会把偶然采样噪声当成真相关性大力补偿, 导致留出集误差反升至 RTN 的 `1.56` 倍 (扩充至 `N=2048~8192` 后才趋于稳定)。',
         },
         {
-          title: 'SmoothQuant 把离群值挪给权重',
-          body: 'SmoothQuant 把激活里的离群值挪到权重上, 让激活也能量化。前面几种都是 weight-only: 只量化权重, 激活仍是浮点, 省的是显存和 decode 带宽。想让矩阵乘本身走 INT8 / FP8 tensor core (prefill 也变快), 激活也得量化, 而激活有离群通道, 一个刻度被它撑得很粗。\nSmoothQuant 用和 AWQ 同一个恒等式, 目的相反: 激活除以 $s$、权重乘 $s$, 把离群值从激活挪到权重上。$s_j = \\max|X_j|^\\alpha / \\max|W_j|^{1-\\alpha}$, $\\alpha$ 控制挪多少: $\\alpha=0$ 一点不挪, $\\alpha=1$ 全挪给权重。\n- $\\alpha=0.5$: W8A8 (权重和激活都 INT8) 的误差从不平滑的 0.0278 降到 0.0070, 降 4.0×。\n- $\\alpha=1$: 离群值全压给权重, 权重那边的误差变大, 总误差反而涨到 0.0297, 比不平滑还差。',
-        },
-        {
-          title: 'FP8 换一种格点',
-          body: 'FP8 是浮点格式, 格距随数值大小伸缩, 相对误差恒定, 所以它不靠细粒度 scale, 也更扛离群值。INT8 的格点等间距, 大数小数用同一个格距, 小数的相对误差很大。E4M3 是 FP8 的一种: 4 位指数、3 位尾数, 正规区相对误差不超过 $2^{-4}$ = 6.25%。\n- 不需要 per-channel: 列幅度悬殊的权重, 从 per-tensor 换成 per-channel scale, INT8 误差改善 7.71×, E4M3 只改善 1.02×, 说明它本来就不怕。\n- 扛离群值: 激活 per-tensor、带 ×50 离群值时, E4M3 0.0360, INT8 0.0606。\n- 不是处处更好: 没有离群值时, INT8 per-channel (0.0070) 比 E4M3 (0.0251) 还准, 均匀格点在没有离群值的分布上更划算。\n这一节和上一节全是 fake quant: 量化后立刻反量化回浮点再算, 只验数值, 不说明速度。',
+          title: 'SmoothQuant 迁移激活离群值解锁 W8A8, FP8 用浮点指数天然抗尖峰',
+          body: '前几种方法只压权重而保留浮点激活 (weight-only), 加速的是带宽受限的小批量 decode; 若想让算力受限的长文本 prefill 也跑进高速整数/低精度 Tensor Core, 就必须把激活一并量化:\n- SmoothQuant (W8A8): 激活含剧烈离群通道难以直接做整张量 INT8 量化; 通过双向缩放因子 $s_j = \\max|X_j|^\\alpha / \\max|W_j|^{1-\\alpha}$ (`α=0.5`) 把一半难度平滑转嫁给更容易量化的权重, 使 W8A8 输出误差从 `0.0278` 降至 `0.0070`。\n- FP8 (E4M3): 浮点格点间距随数值自身大小按比例伸缩, 正规数区间相对误差恒不超过 $2^{-4} = 6.25\\%$, 面对 50 倍激活尖峰时无需繁琐逐通道校准即可将整张量量化误差控制在 `0.0360` (同条件 INT8 为 `0.0606`)。',
         },
       ],
       links: [
-        { from: 'quantize_int8 (per-channel)', to: 'quantize_groupwise', body: 'quantize_int8 每个输出通道一套 scale (一整列共用一个刻度)。quantize_groupwise 把组缩小到每 $g$ 个相邻权重一套 scale/zero, 离群值的影响范围从一整列缩到 $g$ 个数。' },
-        { from: 'mean|x_i|', to: 's_i = mean|x_i|^α', body: 'AWQ 的缩放因子只用校准激活的逐通道平均幅度 mean|x_i| 这一个统计量, 取 $\\alpha$ 次方。不需要反向传播, 不需要训练, 所以 AWQ 很便宜。' },
-        { from: 'KV 量化', to: 'KV 体积一章', body: '量化减的是每个元素占的字节数 (fp16 的 2 字节变成 INT4 的半字节), GQA/MLA 减的是元素个数 (存几组头)。两者相乘, 才是每 token 的 KV 字节数。' },
+        { from: 'quantize_int8 (per-channel)', to: 'quantize_groupwise', body: '从整列共享一套刻度细化为每 $g$ 个元素共享一套刻度, 以每权重额外 `32/g` 比特的元数据换取 4-bit 可用精度。' },
+        { from: 'mean|x_i|', to: 's_i = mean|x_i|^α', body: 'AWQ 仅统计前向校准集各输入维的平均绝对值即可跑完一维网格搜索, 全程无需反向传播或梯度微调, 数分钟内即可量化百亿模型。' },
+        { from: 'KV 量化', to: 'KV 体积一章', body: 'KIVI 把单元素存储从 2 字节压到 0.5 字节, 下一章 GQA / MLA 则从架构源头砍掉每 token 需要存储的元素个数, 两者可正交乘积叠加。' },
       ],
       sourceRows: [
-        { concept: '分组量化', code: 'm08_quantization/int4_awq.py:quantize_groupwise', takeaway: '把 (D_in, D_out) 的权重 reshape 成 (D_in/g, g, D_out), 在 g 那一维上统计 min/max, 得到每组一个 scale 和 zero。' },
-        { concept: '优化目标', code: 'm08_quantization/int4_awq.py:output_err', takeaway: '$\\|XW - X\\hat{W}\\|_F / \\|XW\\|_F$: 拿校准激活 X 算出量化前后输出的相对差。本章表格里的 "输出误差" 都是这个数。' },
-        { concept: 'AWQ 搜索', code: 'm08_quantization/int4_awq.py:awq_quantize', takeaway: '对 $\\alpha$ 从 0 到 1 网格搜索, 每个 $\\alpha$ 算一次 $\\hat{W} = Q(s \\odot W) / s$ 的输出误差取最小。$1/s$ 离线折进上一层的权重, 推理时零额外开销。' },
-        { concept: 'KV 三种分组', code: 'm08_quantization/kv_quant.py:quantize_kv', takeaway: 'per-tensor、per-token、per-channel 三种 scheme 的实现只差 reshape 的形状和统计 min/max 的 axis, K 的误差却差一个数量级 (INT4 下 0.18 对 0.026)。' },
-        { concept: 'GPTQ', code: 'm25_weight_quant/gptq.py:gptq_quantize', takeaway: '步骤:\n1. 先算 $U = \\mathrm{chol}(H^{-1})^\\top$ (上三角)。\n2. 第 $i$ 行量化后算误差 $\\delta = (W_i - Q_i)/U_{ii}$。\n3. 后面还没量化的行减去 $U_{i,i+1:}^\\top \\otimes \\delta$, 把误差摊出去。\n每组的 scale 用已经补偿过的权重现算。' },
-        { concept: '平滑因子', code: 'm25_weight_quant/smoothquant.py:smooth_scales', takeaway: '$s_j = \\max|X_j|^\\alpha / \\max|W_j|^{1-\\alpha}$, 每个输入通道一个。激活统计来自校准集, 部署时 $s$ 是常数, 可折进上一层。' },
-        { concept: 'W8A8', code: 'm25_weight_quant/smoothquant.py:w8a8_matmul', takeaway: '激活按 token (每行一个 scale)、权重按输出通道 (每列一个 scale) 做对称 INT8; 两个 scale 都能提到矩阵乘外面, 中间就是纯整数乘法。demo 用两个开关分别只量化 X 或只量化 W, 把误差拆成激活贡献和权重贡献。' },
-        { concept: 'FP8 舍入', code: 'm25_weight_quant/fp8.py:fp8_round', takeaway: '格距 $= 2^{\\lfloor \\log_2|x| \\rfloor - m}$ ($m$ 是尾数位数), 数越大格距越大; 指数下限钉在最小正规数, 超过 max 饱和。E4M3 正规区相对误差 $\\le 2^{-4}$, E5M2 $\\le 2^{-3}$。' },
+        { concept: '分组量化', code: 'm08_quantization/int4_awq.py:quantize_groupwise', takeaway: '将权重重排为 `(D_in / g, g, D_out)` 沿组内轴求极值, 算出每组独立的缩放与零点偏移。' },
+        { concept: '输出相对误差', code: 'm08_quantization/int4_awq.py:output_err', takeaway: '统一以矩阵乘输出相对 Frobenius 误差 $\\|XW - X\\hat W\\|_F / \\|XW\\|_F$ 作为各量化算法的公平标尺。' },
+        { concept: 'AWQ 搜索', code: 'm08_quantization/int4_awq.py:awq_quantize', takeaway: '在 `[0, 1]` 上网格搜索最优幂指数 $\\alpha$, 几何中心归一化缩放向量以保护显著输入通道。' },
+        { concept: 'KV 三种分组', code: 'm08_quantization/kv_quant.py:quantize_kv', takeaway: '仅改变张量重排与归约轴即可切换整张量、按词元与按通道三种方案, 清晰复现 K 缓存近 7 倍的误差落差。' },
+        { concept: 'GPTQ', code: 'm25_weight_quant/gptq.py:gptq_quantize', takeaway: '基于逆协方差的 Cholesky 上三角因子逐行量化并把当前行残差即时补偿到未量化后缀行。' },
+        { concept: '平滑因子', code: 'm25_weight_quant/smoothquant.py:smooth_scales', takeaway: '按激活与权重列极值幂次之比构造对角迁移因子, 部署时离线吸收进前序层。' },
+        { concept: 'W8A8', code: 'm25_weight_quant/smoothquant.py:w8a8_matmul', takeaway: '激活按行、权重按列做对称 INT8 量化, 缩放因子外提后核心乘加全走整数运算。' },
+        { concept: 'FP8 舍入', code: 'm25_weight_quant/fp8.py:fp8_round', takeaway: '模拟对数变步长的 E4M3 / E5M2 浮点格点吸附与上下界饱和行为。' },
       ],
       snippetTitle: 'AWQ: 量化前先缩放',
       snippet: `act = mean(abs(X_calib), axis=0)          # (D_in,) 每个输入通道的激活幅度
@@ -529,9 +525,9 @@ best = argmin(err)`,
 
     'infer-kv-footprint': {
       title: 'KV 体积 · MHA / MQA / GQA / MLA',
-      subtitle: '读完你能算出 MHA / GQA / MLA 每个 token 的 KV 占几个字节, 并说清这个数怎么决定一张卡能同时服务多少条序列。',
-      tldr: '每个 token 的 KV 要占多少字节, 取决于 cache 里要存几组 K/V 头:\n- LLaMA-2-7B (MHA, 每个注意力头各存一组 K/V): 512 KiB\n- LLaMA-3-8B (GQA-8, 32 个 query 头分 8 组, 每组共用一对 K/V): 128 KiB\n- DeepSeek-V3 (MLA, 不存 K/V 本身, 只存一个压缩过的 latent 向量): 68.6 KiB\n一张卡能同时服务多少条序列, 就是留给 KV 的显存除以这个数、再除以上下文长度。MLA 比同尺寸全存 K/V 的 MHA 省 56.9 倍。',
-      question: 'MLA 已经把 K/V 压成了一个 latent, 为什么位置信息 (RoPE) 不能一起压进去, 还要另外存一份解耦的 RoPE key?',
+      subtitle: '单张 GPU 能同时服务多少条长对话, 直接受限于每生成一个词要往缓存里存多少字节。从全头独立存储的 MHA, 到分组共享的 GQA, 再到低秩潜向量加矩阵吸收的 MLA, 缓存体积缩小了一个数量级以上。',
+      tldr: '对比主流注意力架构在 fp16 下每个 token 占用的 KV 缓存字节数:\n- LLaMA-2-7B (MHA, 32 个 KV 头各自独立): `512 KiB / token`。\n- LLaMA-3-8B (GQA-8, 32 个查询头分 8 组共享 KV): `128 KiB / token` (缩至 1/4, 同显存并发上限翻 4 倍)。\n- DeepSeek-V3 (MLA, 缓存 512 维共享压缩潜向量加 64 维解耦旋转位置键): `68.6 KiB / token` (相比同规模 128 头 MHA 缩减 `56.9` 倍, 并通过矩阵乘法结合律吸收上投影免除逐步还原开销)。',
+      question: 'MLA 既然已经把 K 和 V 压进了一个低维潜向量里, 为什么不能直接对潜向量施加 RoPE 旋转, 非要额外单列一份解耦的共享 RoPE key?',
       evolution: {
         title: 'cache 里存得越来越少',
         subtitle: '根问题: 一张卡能同时服务几条序列 = KV 显存 ÷ 每 token 字节 ÷ 上下文长度。',
@@ -546,29 +542,29 @@ best = argmin(err)`,
       code: 'llm_infer/m18_kv_attention_variants/attention_variants.py',
       points: [
         {
-          title: '一个参数 n_kv 分出前三种',
+          title: 'MHA / GQA / MQA 的单词缓存账统一由 KV 头数 n_kv 决定',
           key: true,
-          body: '每个 token 的 KV 占多少字节, 由公式 $2 \\cdot n_{kv} \\cdot d_{\\text{head}} \\cdot n_{\\text{layer}} \\cdot \\text{bytes}$ 算出。这个式子在说:\n- K 和 V 各一份 (开头的 2)。\n- 每份有 $n_{kv}$ 个头。\n- 每个头是 $d_{\\text{head}}$ 个数。\n- 每一层都要存一套 (乘 $n_{\\text{layer}}$)。\n- 每个数占 bytes 个字节 (fp16 是 2)。\n$n_{kv}$ 是 cache 里实际存的 K/V 头数, 它把前三种结构区分开。注意力层里有 $n_{\\text{head}}$ 个 query 头, 每个 query 头都要有一组 K/V 来对照; 区别只在这些 K/V 是各头一份, 还是几个头合用一份:\n- MHA (multi-head attention): 每个 query 头各有自己的 K/V, $n_{kv} = n_{\\text{head}}$。\n- GQA (grouped-query attention): query 头分成几组, 每组共用一对 K/V 头, $1 < n_{kv} < n_{\\text{head}}$。\n- MQA (multi-query attention): 所有 query 头共用同一对 K/V, $n_{kv} = 1$。\n- MLA: 另一条路, 不存 K/V, 改存 latent, 见下一条。\n共用 K/V 的几个 query 头在代码里靠广播 (broadcast) 读同一份数据, kernel 里不会把 K/V 复制成 $n_{\\text{head}}/n_{kv}$ 份。\ndemo 把真实模型配置代进公式:\n- LLaMA-2-7B (MHA, 32 个 KV 头) 每 token 512 KiB。\n- LLaMA-3-8B (GQA, 8 个 KV 头) 128 KiB, 正好是 1/4。\n这个数决定并发: 并发上限 = 显存预算 ÷ 每 token 字节 ÷ 上下文长度。demo 假设 40 GiB 全给 KV、每条请求 8192 个 token, LLaMA-2-7B 只能同时放 10 条, LLaMA-3-8B 能放 40 条。当年训练时为省参数做的结构选择, 在推理侧直接变成吞吐。',
+          body: '前三种结构的单词缓存体积共用一条精确公式: `2 × n_kv × d_head × n_layer × dtype_bytes` (开头的 `2` 代表 K 与 V 各存一份)。三者的唯一差别在于 $n_{\\text{head}}$ 个查询头如何分摊 $n_{kv}$ 组键值头:\n- MHA ($n_{kv} = n_{\\text{head}}$): 每头各管各的, LLaMA-2-7B (`32 头, d=128, 32 层`) 每词占 `512 KiB`。\n- GQA ($1 < n_{kv} < n_{\\text{head}}$): 同组查询头通过张量广播共享同一对 K/V, LLaMA-3-8B (`n_kv=8`) 降至 `128 KiB`; 固定 40 GiB 缓存池跑 8K 上下文时, 最大并发请求数直接从 10 条跃升至 40 条。\n- MQA ($n_{kv} = 1$): 全员共享唯一一对 K/V, 体积压至极限但大容量模型表达力稍受损。',
         },
         {
-          title: 'MLA 的 cache 里只有 latent',
-          body: 'MLA (multi-head latent attention, DeepSeek-V2/V3 用的结构) 的 cache 里不存任何一个头的 K 或 V。它存两样东西:\n- 一个每 token $d_c$ 维的压缩向量 $C$ (叫 latent, 形状 (T, d_c))。\n- 一份所有头共享、只负责位置信息的 RoPE key (形状 (T, d_rope))。\n所以每 token 的字节数是 $(d_c + d_{\\text{rope}}) \\cdot n_{\\text{layer}} \\cdot \\text{bytes}$。\n每个头的 K 和 V 要用时才现场还原: 用 $C$ 乘一个上投影矩阵 $W_{UK}$ 得到这个头的 K, 乘 $W_{UV}$ 得到 V。这两个矩阵是训练出来的模型参数, 不是事后对 cache 做的压缩。还原出的 K/V 只在 attention 这一步用, 从不进 cache。\n对比上一条的公式, 这里没有开头那个 "2·": K 和 V 共用同一个 latent, 不用分开存两份。DeepSeek-V3 每层 $d_c$ = 512、$d_{\\text{rope}}$ = 64, 61 层, 每 token 68.6 KiB; 如果它用 MHA (128 个头) 全存, 要 3904 KiB, 所以省 56.9 倍。demo 在一个小模型上断言:\n- 用 latent cache 做增量 decode 和不用 cache 全量重算的输出一致 (max|Δ| 1.88e-06)。\n- 实际 cache 字节数等于公式值 (7680)。',
+          title: 'MLA 不缓存显式 K/V, 改存联合低秩潜向量与共享位置键',
+          body: 'DeepSeek-V2/V3 的多头潜在注意力 (MLA) 跳出了「按头存 K/V」的框架, 缓存里只放两样紧凑向量: 一份 K 与 V 联合共享的低维压缩潜向量 $C \\in \\mathbb{R}^{d_c}$, 外加一份所有头共享的解耦位置键 $k_{\\text{rope}} \\in \\mathbb{R}^{d_{\\text{rope}}}$。\n单词字节公式随之省去了开头的因子 `2`, 变为 `(d_c + d_rope) × n_layer × dtype_bytes`: DeepSeek-V3 (`d_c=512, d_rope=64, 61 层`, fp16) 每词仅占 `68.6 KiB`, 比同层同头数 MHA (`3,904 KiB`) 整整缩小了 `56.9` 倍; 小模型增量解码实测缓存字节与公式逐位相等且输出误差仅 `1.88e-06`。',
         },
         {
-          title: 'absorb 形式: K 不用还原',
-          body: 'absorb (吸收) 技巧省掉了每步还原 K 的计算。不吸收时, cache 里有 T 行 latent, 每生成一个 token 都要把这 T 行各乘一次 $W_{UK}$ 变成每个头的 K, 这笔计算随上下文长度一直涨。\n注意力分数本来是 $q \\cdot (C W_{UK})^\\top$: 先把 latent 还原成 K, 再和 q 点积。矩阵乘法满足结合律, 它等于 $(q W_{UK}^\\top) \\cdot C^\\top$: 先把 $W_{UK}$ 乘到 q 上 (q 只有一行, 这一步很便宜), 再直接和 latent $C$ 点积。这样 K 就不用还原了, cache 里的 latent 直接当 K 用。\n于是 MLA 的 decode 等价于一个 $\\text{head\\_dim} = d_c + d_{\\text{rope}}$ 的 MQA: 所有 query 头共用同一份 "K" (latent 拼上 RoPE key), 只是这份 K 的维度比较大 (DeepSeek-V3 是 512 + 64 = 576)。demo 断言两种算法的注意力分数相差 2.86e-06, 整网输出相差 1.43e-06。\n同样的推导说明 latent 不能带 RoPE: RoPE 是按位置对向量做一次旋转, 如果这个旋转加在还原后的 K 上, 它就夹在 q 和 $W_{UK}$ 之间 (式子变成 $q R (C W_{UK})^\\top$), $W_{UK}$ 没法提前乘到 q 上, 吸收做不成。所以位置信息单独放进那份 RoPE key, latent 保持不旋转。',
+          title: '矩阵吸收 (absorb) 省掉逐步还原计算, 也解释了为何 RoPE 必须解耦',
+          body: '若每次解码都先把历史 $T$ 行潜向量乘上投影矩阵 $W_{UK}$ 还原出各头的显式 K, 解码计算量就会随序列变长而暴涨。利用矩阵乘法结合律改写内积: $q (C W_{UK})^\\top = (q W_{UK}^\\top) C^\\top$——由于解码时新词 $q$ 只有 1 行, 先把 $W_{UK}$ 吸收乘到单行 $q$ 上几乎不花时间, 随后即可直接拿缓存里的潜向量 $C$ 当成共享单头 MQA 的键做点积 ($W_{UV}$ 同理可吸收到输出投影后)!\n这一步推导也回答了关键结构疑问: 为什么潜向量 $C$ 不能直接带位置旋转? 一旦把随历史位置 $t$ 变化的旋转矩阵 $R_t$ 作用在还原后的键上, 式子就变成 $q R_m (R_t C_t W_{UK})^\\top = q R_{m-t} W_{UK}^\\top C_t^\\top$, 中间横插了一个随相对位置 $m-t$ 不断变化的旋转阵 $R_{m-t}$, $W_{UK}$ 便再也无法提取吸收进单行 $q$ 里了! 因此必须保持内容潜向量 $C$ 不旋转, 把位置信息单独剥离到极窄的共享 $k_{\\text{rope}}$ 分支上。',
         },
       ],
       links: [
-        { from: '阶段 2 注意力演进', to: 'KV bytes/token', body: '左边是训练阶段讲的注意力结构演进 (MHA 到 GQA 到 MLA), 当年换结构是为了省参数和训练算力。右边是推理侧的账: 同样这个结构选择, 决定了每个 token 的 KV 要占几个字节, 也就决定了显存能放几条请求。' },
-        { from: 'bytes/token', to: 'BlockManager.num_blocks', body: '每 token 字节数是分母: 留给 KV 的显存 ÷ 每 token 字节 = 池子里一共能放多少个 token 的 KV。BlockManager 启动时就按这个数决定开多少个 block (num_blocks); 这个数再除以上下文长度, 就是并发上限。' },
-        { from: 'MLA absorb', to: 'FlashMLA', body: '本章 demo 的 absorb 分支只是验证两种算法结果一样。真实的 kernel FlashMLA 全程按吸收形式算, 直接在 576 维的 latent 上做 attention, 从头到尾不把每个头的 K/V 还原出来 (不物化)。' },
+        { from: '阶段 2 注意力演进', to: 'KV bytes/token', body: '阶段 2 从模型架构与参数量视角拆解 MHA → GQA → MLA, 本章则在推理服务端将其直接换算为单卡并发槽位数。' },
+        { from: 'bytes/token', to: 'BlockManager.num_blocks', body: '引擎启动时用预留给缓存的显存预算除以 `bytes_per_token × block_size`, 即可确定全局分页池的总块数。' },
+        { from: 'MLA absorb', to: 'FlashMLA', body: '生产级算子如 FlashMLA 直接在 `512 + 64 = 576` 维吸收态潜空间上做分块流式注意力, 全程无需在显存中展开多头 K/V。' },
       ],
       sourceRows: [
-        { concept: 'GQA 公式', code: 'm18_kv_attention_variants/attention_variants.py:kv_bytes_per_token', takeaway: '就是 2 · n_kv · d_head · n_layer · bytes 这个式子。开头那个 2 是 K 和 V 两份。demo 断言 MHA (n_kv=32) 的结果等于 4 倍 GQA (n_kv=8)、32 倍 MQA (n_kv=1): 字节数正比于 n_kv。' },
-        { concept: 'MLA 公式', code: 'm18_kv_attention_variants/attention_variants.py:mla_bytes_per_token', takeaway: '是 (d_c + d_rope) · n_layer · bytes。没有 "2·", 因为 K 和 V 共用同一个 latent; d_rope 那一份是所有头共享的 RoPE key。' },
-        { concept: 'latent decode', code: 'MLALayer.forward', takeaway: 'latent c = x W_DKV 直接进 cache, 不加 RoPE; 位置信息全放在另一份 k_rope = RoPE(x W_KR) 里, 所有头共享。每个头的 K 是 [c W_UK_h ; k_rope] 拼起来的, V 是 c W_UV_h, 都在 attention 时现算, 不进 cache。' },
-        { concept: '对拍', code: 'cache_nbytes', takeaway: '把各层 cache 数组的实际字节数加起来。demo 对 MHA/GQA/MQA/MLA 四种变体各跑一遍 20 个 token 的增量 decode, 断言实际字节数等于公式值 (61440 / 15360 / 7680 / 7680), 并且输出和全量重算一致。' },
+        { concept: 'GQA 公式', code: 'm18_kv_attention_variants/attention_variants.py:kv_bytes_per_token', takeaway: '计算 `2 * n_kv * d_head * n_layer * nbytes`, 验证字节开销与 `n_kv` 严格成正比。' },
+        { concept: 'MLA 公式', code: 'm18_kv_attention_variants/attention_variants.py:mla_bytes_per_token', takeaway: '计算 `(d_c + d_rope) * n_layer * nbytes`, K 与 V 共享潜向量故消去二倍系数。' },
+        { concept: '解耦前向与吸收解码', code: 'MLALayer.forward', takeaway: '验证显式升维还原路径与矩阵吸收路径的注意力分数最大误差仅 `2.86e-06`、整网输出误差仅 `1.43e-06`。' },
+        { concept: '真实数组字节核对', code: 'cache_nbytes', takeaway: '对 MHA / GQA / MQA / MLA 四套缓存数组的真实 `.nbytes` 求和 (`61440 / 15360 / 7680 / 7680`), 断言与解析公式分毫不差。' },
       ],
       snippetTitle: '两条公式',
       snippet: `def kv_bytes_per_token(n_kv, d_head, n_layer, nbytes=2):
@@ -587,9 +583,9 @@ max_seqs = kv_budget_bytes // (bytes_per_token * context_len)`,
 
     'infer-attention-sinks': {
       title: 'Attention sinks · 流式长上下文的有界 KV',
-      subtitle: '读完你能解释滑动窗口一挤掉开头几个 token 模型为什么立刻崩, 以及 StreamingLLM 怎么把 KV cache 压到固定大小还不崩。',
-      tldr: '流式对话没有尽头, KV cache 不能无限涨。最直接的办法是只留最近一段 (滑动窗口), 但真实模型一这么做就崩, 原因在 softmax: 注意力权重加起来必须等于 1, 当前 token 没什么值得看的时候, 多出来的注意力就倒在开头几个 token 上, 它们被训练成了垃圾桶 (attention sink)。把它们挤出去, 剩下的权重会被整体放大, 输出就乱了。\nStreamingLLM 的做法:\n- 永远保留开头 n_sink 个 token, 再加最近 window 个, cache 大小恒定。\n- 位置不用绝对位置, 按 cache 里的槽位重新编号, 所以永远不会超过训练长度; 代价是 K 必须存旋转 (RoPE) 之前的版本, 每步现转。',
-      question: '普通 KV cache 存的是加过位置信息 (RoPE) 之后的 K, SinkCache 为什么反过来要存加 RoPE 之前的?',
+      subtitle: '无限持续的流式语音或长程对话不能让 KV 缓存无上限膨胀; 然而简单采用滑动窗口一旦把句首最初几个词挤出缓存, 模型输出便会瞬间崩溃。StreamingLLM 通过永久钉住句首汇聚词并按缓存槽位重编位置实现恒定内存流式生成。',
+      tldr: '- 崩溃根因 (Attention Sink): Softmax 强制注意力权重之和恒为 1; 当前位置不需要参考历史信息时, 预训练模型习惯将多余注意力倾倒在所有位置都看得见的句首前几个词上。一旦滑窗把这几个词逐出, 分母骤降会导致剩余权重整体失真放大。\n- StreamingLLM 解法: 始终保留开头 `n_sink` 个词外加最近 `window` 个词使缓存大小恒定; 同时存储未施加 RoPE 旋转的原始 K 并按当前缓存槽位 `0 .. L-1` 动态重旋转, 确保位置编码永不越过预训练长度上限。',
+      question: '常规 KV cache 存的都是已经乘过 RoPE 旋转矩阵的 K, 为什么流式 SinkCache 必须反过来存未旋转前的原始 K?',
       evolution: {
         title: '有界, 还不能崩',
         subtitle: '根问题: 流式对话没有尽头, KV 和位置编号都随 token 一直涨。',
@@ -603,29 +599,29 @@ max_seqs = kv_budget_bytes // (bytes_per_token * context_len)`,
       code: 'llm_infer/m16_attention_sinks/sink_cache.py',
       points: [
         {
-          title: 'sink 是 softmax 的排污口',
+          title: '句首词充当了 Softmax 归一化分母的「泄洪口」',
           key: true,
-          body: '开头几个 token 之所以变成 sink, 是训练的副产品。注意力给每个历史 token 一个权重, 这些权重由 softmax 算出, 加起来恒等于 1。当前 token 有时候并不需要看任何历史 (比如正在输出一个固定搭配), 但权重不能全是 0, 总得倒给谁。开头的几个 token 对所有后续位置都可见 (因果 mask 下任何位置都能看到它们), 于是模型在训练中学会了 "注意力没处放时就倒这儿"。这就是 attention sink。\n逐出它们的后果: softmax 的分母是所有 exp(分数) 的和。如果 sink 那一项占了分母的 90%, 删掉它, 其余每个权重都会被放大 10 倍。这是一种训练时从没见过的权重分布, 输出立刻漂掉。\n这和这几个 token 的语义无关, 换成别的开头 token (比如换行符) 也一样; 重要的是它们的位置和它们吸走的注意力。\ndemo [B] 人工植入了一个 sink (第 0 个 key 和所有 query 强对齐):\n- 流长 256 时开头 4 个位置吃掉 93.0% 的注意力。\n- 同样 36 个槽位的预算, 留着 sink 的输出相对误差 19.40%, 纯滑动窗口 103.06%。\ndemo [A] 用随机权重的 TinyLM 就看不到这个现象, 见下面表格最后一行。',
+          body: '自注意力中每行经过 softmax 后所有位置的权重之和必须等于 1。当模型正在输出固定搭配或标点、并不需要从上下文提取实质信息时, 多余的概率质量总得找个固定锚点安放; 在下三角因果掩码下, 只有序列最开头的三四个词对后续所有位置永远可见, 于是预训练自然把它们塑造成了吸收冗余注意力的汇聚点 (attention sink, 与开头具体是什么词义基本无关)。\n一旦纯滑动窗口把开头这几个词挤掉, 原本占分母大头的指数项突然消失, 窗口内普通词的权重瞬间被放大数倍甚至十倍, 激活分布彻底失真。在植入 sink 特性的合成流测试 (`demo [B]`, 前 4 词吸走 93.0% 注意力) 中, 同为 36 槽预算下保留 sink 的相对误差为 `19.40%`, 纯滑窗则直接崩至 `103.06%`。',
         },
         {
-          title: '有界 cache',
-          body: 'SinkCache 里的条目数永远不超过 n_sink + window。每来一个新 token 就追加到末尾; 超出预算时, 逐出槽位 n_sink 那一个, 它正好是窗口里最老的 token (槽位 0 到 n_sink−1 是 sink, 永远不动)。\ndemo [A] 用 1024 个 token 的流, 预算 64 = sink 4 + 窗口 60:\n- 断言 cache 条目峰值恰好是 64。\n- 前 64 步还没开始逐出时, 输出和完整 cache 逐位一致。\n被逐出的 token 就丢了: 这个办法保证的是流不崩, 不是记得很久以前的内容。',
+          title: '固定大小环形淘汰: 钉死前 n_sink 格, 滚动替换中间最老格',
+          body: '`SinkCache` 将容量硬性锁死在 `n_sink + window` (如 `4 + 60 = 64`): 新词追加到队尾后若总长超限, 永远精准剔除下标 `n_sink` 处的元素 (即滑动窗口里最老的那一个词), 而下标 `0 .. n_sink-1` 纹丝不动。\n需明确它的能力边界: `SinkCache` 解决的是「无限流式生成不爆显存、不崩溃乱码」, 而非「无限长程记忆」——一旦某个词滑出窗口被丢弃, 模型就再也读不到它的具体内容了 (长程精确召回需搭配外部检索或分层 KV offload)。',
         },
         {
-          title: '位置按槽位重编号',
-          body: 'RoPE 给每个 token 的 K 和 q 按位置做一次旋转, 注意力只看两个位置的差。普通 cache 用 token 在数据流里的绝对位置, 流到第 100 万个 token 时位置就是 999999, 早就超出训练长度, 模型从没见过。\nSinkCache 改用 cache 槽位当位置: 当前 cache 里有 L 条, 位置就是 $0, \\dots, L-1$, 新 token 的 query 放在最后一个槽位 L−1。这样位置永远小于 n_sink + window, RoPE 表只要 64 行就够。demo 断言: 用 64 行的 RoPE 表, 绝对位置 1023 直接 IndexError, 而槽位重编号的策略跑完 1024 步全程正常。\n代价: 每逐出一个 token, 它后面所有 token 的槽位都前移一格, 位置变了, 之前旋转过的 K 就不对了。所以 K 只能存旋转前的版本, 每步把 cache 里全部 L 行 K 按当前槽位重新旋转一遍, 开销 O(L·D)。普通 cache 存的是旋转后的 K, 位置已经烙死在里面, 改不了。',
+          title: '缓存未旋转的原始 K, 按当前槽位重编相对位置以防坐标越界',
+          body: '流式跑上百万词时除了显存限制, 还会撞上第二个硬墙: 绝对位置下标早已远远超出 RoPE 预训练表长 (例如 64 行的位置表在跑到第 1023 步时直接抛出 `IndexError`)。\n`SinkCache` 改为按当前缓存槽位实时分配位置 `0, 1, ..., L-1`, 让最新查询词永远坐在槽位 `L-1`, 相对距离始终落在预训练熟悉的短窗口内。正因为每淘汰一个旧词都会让窗口内所有词的槽位号整体左移一格, 如果缓存里存的是已经烙死旧绝对位置的旋转后 K 就无法改写了; 因此 `SinkCache` 必须保存未加 RoPE 的原始 K, 每步对有界长度 $L$ 的缓存整体现算一次旋转 (因 $L$ 很小且恒定, $O(L \\cdot D)$ 开销极轻)。',
         },
       ],
       links: [
-        { from: 'KV cache (m01)', to: 'SinkCache', body: 'm01 的 cache 每来一个 token 就多一行, 随流长 T 无限增长 (O(T))。SinkCache 只是在它上面加了一条逐出规则, 条目数固定在 n_sink + window, 流多长都不再涨。' },
-        { from: 'RoPE', to: 'positions = arange(L)', body: 'RoPE 让注意力只看两个 token 的位置差。重编号后位置就是槽位号, 所以 "距离" 看的是槽位差: 中间有 token 被逐出后, 两边的 token 在 cache 里挨得更近了, 模型眼里它们的距离就被压缩了。' },
-        { from: 'select_blocks 的 forced', to: '稀疏 decode', body: '后面稀疏 decode 那一章每步只读 cache 的一部分 block, 它的 select_blocks 有个 forced 参数, 强制永远保留第 0 块。这个第 0 块就是本章的 sink, 道理相同: 丢了它 softmax 的分母就不对了。' },
+        { from: 'KV cache (m01)', to: 'SinkCache', body: '在标准线性增长缓存上增加「保留头部汇聚槽 + 淘汰窗口首槽 + 槽位动态旋转」三项改造, 将空间复杂度从 $O(T)$ 降为常数 $O(1)$。' },
+        { from: 'RoPE', to: 'positions = arange(L)', body: '利用 RoPE 仅依赖相对位置差的性质按槽位连续重编号, 确保长流运行百万步也不会踏入未训练的外推位置区。' },
+        { from: 'select_blocks 的 forced', to: '稀疏 decode', body: '后续「稀疏注意力 decode」在按相关性挑块时同样把第 0 块列入强制必选集合 (`forced`), 背后正是同一个保护 softmax 分母的物理原因。' },
       ],
       sourceRows: [
-        { concept: '逐出规则', code: 'm16_attention_sinks/sink_cache.py:SinkCache.append', takeaway: '新 token 追加到末尾后, 条目一旦超过 n_sink + window, 就只保留 keep = [0:n_sink] + [n_sink+1:], 也就是永远去掉槽位 n_sink 那一个 (窗口里最老的), 前 n_sink 个 sink 原地不动。' },
-        { concept: '重编号', code: 'm16_attention_sinks/sink_cache.py:stream_step', takeaway: '每一步都执行 pos = arange(L): 位置就是当前槽位 0 到 L−1。cache 里存的是没旋转的 K, 每步按这组位置现场旋转一遍; 新 token 的 query 放在最后一个槽位。' },
-        { concept: '不是长上下文', code: 'window 之外的 token', takeaway: '被逐出的内容就丢了, 模型再也看不到它。sink 保证的是 "不崩", 不是 "记得"; 要记得, 就得把 KV 保留下来 (offload 到 CPU 或磁盘) 或者靠检索把内容重新塞回 prompt。' },
-        { concept: '随机权重上看不到', code: 'TinyLM 的 attention', takeaway: 'demo [A] 用没训练过的 TinyLM, 它开头 4 个 token 的注意力占比和均匀分布差不多 (T=1024 时逐层 0.0008 到 0.0062, 均匀值 0.0039), 没有 sink 现象, 所以 sink+窗口 只在 3 个权重 seed 里的 2 个赢过纯窗口, demo 不对这个做断言。这一章的效应要在 [B] 植入 sink 的合成数据上才成立; 真实 LLM 的 sink 是预训练出来的。' },
+        { concept: '定向逐出', code: 'm16_attention_sinks/sink_cache.py:SinkCache.append', takeaway: '超限时切片拼接 `[0:n_sink]` 与 `[n_sink+1:]`, 始终淘汰窗口最老槽位而不动头部汇聚词。' },
+        { concept: '槽位重旋转', code: 'm16_attention_sinks/sink_cache.py:stream_step', takeaway: '每步生成 `pos = arange(L)` 对原始未旋转 K 与当前 Q 现场施加 RoPE, 64 行位置表即可平稳跑完 1,024 步长流。' },
+        { concept: '流式稳定与长程记忆区分', code: 'window 之外的 token', takeaway: '清晰界定流式防崩与大海捞针记忆的区别: 滑出窗口的信息已被物理丢弃。' },
+        { concept: '未经训练的随机权重对照', code: 'TinyLM 的 attention', takeaway: '诚实展示未训练随机权重模型注意力近乎均匀分布 (`~1/T`) 故无自发 sink 现象, 证明 attention sink 是大规模自回归预训练涌现的结构特征。' },
       ],
       snippetTitle: 'SinkCache 一步',
       snippet: `def append(self, k_raw, v):                 # k_raw: 未旋转的 K
@@ -644,9 +640,9 @@ q = apply_rope(q, positions=pos[-1:])`,
 
     'infer-tree-speculation': {
       title: 'EAGLE 与树形投机 · 让一次 target forward 验更多',
-      subtitle: '读完你能说清链式 draft 为什么第一个猜错后面 $K-1$ 个全废, 以及 EAGLE (猜得更准) 和树形投机 (一次验更多分支) 各怎么补这个漏洞。',
-      tldr: '上一章的投机解码里, draft 连猜 $K$ 个 token 是一条链: 第一个猜错, 后面 $K-1$ 个全废。本章两个办法:\n- EAGLE: 让 draft 猜得更准。target 验证时每个位置都顺手算出了 hidden state (最后一层的特征向量), 里面已经写着 "接下来想说什么"; EAGLE 的 draft 吃这个特征, 并且共享 target 的 lm_head (把特征变成每个 token 分数的那一层), 接受率更高。\n- 树形投机: 一次验更多分支。每个位置不只押 draft 的第一候选, 留下 top-k 个候选, 长成一棵树; target 用 tree attention mask 一次 forward 验完整棵树, 接受和 target greedy 一致的最长路径。\n同样验证 16 个 token:\n- 链 $K=15$ 每次 target 调用产出 2.13 个 token。\n- 树 [3,2,1] 产出 2.58 个。\n同样只调 3 次 draft 的链 $K=3$ 只有 1.86 个。',
-      question: '树里同一深度的兄弟节点为什么共享同一个 RoPE 位置, 而不是依次加一?',
+      subtitle: '单链投机解码一旦在第一个草稿词处猜偏, 后面跟着猜的 K−1 个词便全盘作废。EAGLE 通过接入大模型顶层隐状态让草稿猜得更准, 树形投机则用祖先注意力掩码在单次大模型前向里同时验证多条候选分支。',
+      tldr: '沿着两个正交方向放大单次大模型验证的平均产出词数:\n- EAGLE (特征层自回归草稿): 草稿头不再只看离散 token id, 而是直接读取大模型验证时顺手算出的顶层特征向量 $h_t$ 并复用大模型的 `lm_head`, 显著提升单步命中率。\n- 树形投机 (Tree Speculation): 每个节点保留 `top-k` 个备选分支张成候选树, 构造只看自身祖先的二维 `tree_mask` 并让同层兄弟节点共享同一个 RoPE 深度位置, 一次大模型前向即可验完整棵树 (同样验证 16 个词元时, 单次产出从长链 `K=15` 的 `2.13` 词升至树 `[3,2,1]` 的 `2.58` 词)。',
+      question: '把一棵候选树的 16 个节点展平一次喂给大模型验证时, 为什么处于同一深度的兄弟节点必须共用同一个 RoPE 位置下标, 而不能按数组顺序依次加一?',
       evolution: {
         title: '让一次验证多收几个 token',
         subtitle: '根问题: target 一次 forward 能并行验很多槽位, 产出却取决于从头连续猜对几个。',
@@ -659,30 +655,30 @@ q = apply_rope(q, positions=pos[-1:])`,
       code: 'llm_infer/m17_eagle_speculative/eagle.py · llm_infer/m19_tree_speculation/tree_spec.py',
       points: [
         {
-          title: '特征级 draft: 看特征, 不只看 token',
-          body: 'EAGLE 的 draft 除了 token, 还吃 target 验证时算出的特征, 所以猜得更准。m07 的独立 draft 只看得到 token id。可 target 每次验证都顺手算出了每个位置的 hidden state $h$ (最后一层的特征向量), 里面已经写着 "接下来想说什么", 扔掉太浪费。\nEAGLE 让 draft 在特征空间里自回归: $\\hat{h}_{t+1} = \\mathrm{Draft}(h_t, \\mathrm{emb}(x_{t+1}))$。这个式子在说:\n1. 把上一个位置的特征 $h_t$ 和刚确定的 token $x_{t+1}$ 的 embedding 拼在一起, 预测下一个位置的特征 $\\hat{h}_{t+1}$。\n2. 再把它过 target 自己的 lm_head (把特征变成每个 token 分数的那一层), 取 argmax 就是 draft token。\n还要喂 $x_{t+1}$, 因为 $h_t$ 只决定下一个 token 的分布, 采样或纠错后实际选了哪个是额外信息, 不喂它 draft 消不掉这个不确定性。\n第 1 步用的 $h$ 是 target 验证那次 forward 白送的真特征; 第 2 步到第 $K$ 步只能用 draft 自己算出的 $\\hat{h}$, 误差逐步累积, 所以越靠后的槽位越难被接受。draft 本体很小 (demo 里是一个线性映射, 真实 EAGLE 是一层 decoder), 不用另养一个小模型。\ndemo 把同样的训练数据、同样的验证循环, 给两种 draft 各跑一遍: 32 个 prompt × 24 个新 token, $K=4$。结果:\n- 只喂 token embedding 的 draft 每轮接受 0.36/4, target 调用 588 次 (1.31×)。\n- 多喂一个特征 $h$ 的 EAGLE 式 draft 每轮接受 0.60/4, 505 次 (1.52×)。\n两种 draft 的输出都与 target 单独 greedy 逐 token 相同。数字远低于论文的约 80% 接受率, 因为这里的 draft 只是线性映射, target 也是随机权重。',
+          title: 'EAGLE: 复用大模型顶层隐状态与输出头, 在特征空间递推草稿',
+          body: '独立小模型草稿只能根据离散词元编号从头重猜, 白白丢掉了大模型上一轮验证前向已经算出的高维隐状态 $h_t$。EAGLE 用一个极轻量的单层草稿网络接收「上一位置特征 $h_t$ + 刚确认词元的嵌入 $\\mathrm{emb}(x_{t+1})$」, 直接回归下一位置特征 $\\hat h_{t+1}$ 并原样乘大模型自己的 `lm_head` 选词 (必须同时拼入已选词嵌入 $x_{t+1}$ 以消除采样分支的不确定性)。\nm17 控制其余条件完全相同对比 (`K=4`): 仅吃词嵌入的草稿每轮接受 `0.36/4` 词 (`1.31×`), 接入顶层特征 $h$ 后每轮接受升至 `0.60/4` 词 (`1.52×`), 输出与大模型贪心逐词一致。',
         },
         {
-          title: 'tree mask: 让 target 一次验完整棵树',
+          title: '树形注意力掩码与同深度共享 RoPE, 单次前向并行验完整棵候选树',
           key: true,
-          body: '树里每个节点是一个 draft token, 根是已经确定的 out[-1]; widths=[3,2,1] 的意思是根留 3 个孩子, 每个孩子再留 2 个, 再各留 1 个。从根到任一节点的路径, 就是一条候选的续写序列。\n把整棵树的 token 一次喂给 target 时, 要保证每个节点只能看到自己那条路径上的 token, 看不到别的分支。tree mask 就是干这个的: 先算祖先矩阵 anc[i, j] = "j 是 i 的祖先或就是 i", mask 里上下文列全部可见, 树内的列只有 anc 为真的才可见, 其它置 −inf。\n- 每个节点: 看到的恰好是从根到自己那一条链, 所以它那一行的 logits 和把这条路径顺序 decode 一遍完全一样。demo [1] 断言某条路径上树形与顺序 forward 的 logits 差 9.5e-07。\n- 兄弟之间: 互不可见, 因为它们是同一个位置的不同候选。所以同深度的节点共享同一个 RoPE 位置 n_ctx + depth, 不能依次加一, 否则被接受路径的位置和顺序 decode 对不上。\n一次 forward 就把整棵树验完, 得到每个节点之后 target 认为该接什么。接受时从根出发: 当前节点的 target argmax 命中哪个孩子就走进去, 走不动时那个 argmax 就是纠错或 bonus token。',
+          body: '链式草稿中哪怕第 1 候选以微弱差距猜错、第 2 候选其实是对的, 整条链也只能当场中断。树形投机在每层保留多个高分分支 (如 `widths=[3, 2, 1]` 共展开 `1 + 3 + 6 + 6 = 16` 个节点), 从根到任意节点的路径各代表一条平行宇宙续写。\n要把这 16 个节点打包进同一次大模型前向且保证每条分支的打分与单独串行解码丝毫不差, 必须同时配齐两项设置:\n- 祖先闭包掩码 (`tree_mask`): 节点 $i$ 只能看见历史前缀以及树内自己的直系祖先节点 (`anc[i, j] == True`), 同层兄弟与旁系分支全部置 `-inf` 严格隔离。\n- 同深度共享位置下标: 同一深度的兄弟节点竞争的是序列里的同一个未来槽位, 因此它们的 RoPE 位置必须统一设为 `n_ctx + depth` (若按展平数组下标递增, 被选中路径上的位置编码就会错位); 实测树路径 logits 与串行解码最大误差仅 `9.5e-07`。',
         },
         {
-          title: '算力换延迟',
-          body: '树形投机多花验证算力, 换来更少的 target 调用。树的账: widths=[3,2,1] 长出 1+3+6+6 = 16 个节点, 一轮只要 1 次 target 调用加 3 次 draft 调用 (每层一次), 但验证的 token 数是 16 个, 是链 $K=3$ 的 4 倍。\ndemo [2] 用 12 个 prompt × 32 token、draft 是 target 权重加 10% 噪声:\n- 链 $K=3$ (同样 3 次 draft 调用) 每轮接受 0.98 个, 每次 target 调用产出 1.86 个 token。\n- 链 $K=15$ (同样验证 16 个 token) 每轮接受 1.40, 产出 2.13。\n- 树每轮接受 1.80, 产出 2.58。\n同样 16 个验证 token, 花在 "宽" 上比花在 "深" 上值: 链的第 k 个 token 被接受的概率约按 $\\alpha^k$ 衰减, 后面的槽位几乎都浪费, 树把预算花在前几层的备选上。同一状态下, 树接受 1.80, 只看它自己的 top-1 那条脊只有 1.09。\n多验 12 个 token 几乎不花钱, 因为 decode 是带宽受限的, 时间花在读权重上, 多算十几个 token 的矩阵乘几乎不加延迟。但 batch 大、算力吃紧时, 这笔账就不再免费, 真实系统会按负载缩小树。',
+          title: '用带宽受限期富余的矩阵乘算力, 把预算花在「前几层的宽」而非「单链的深」上',
+          body: '单链第 $k$ 步存活概率按 $\\alpha^k$ 指数衰减, 拉长单链尾部几乎全是废算力; 将同样的 16 个验证槽位从单链 `K=15` 改为树 `[3, 2, 1]` 后, 单次大模型调用的平均产出从 `2.13` 词提升至 `2.58` 词 (同样调 3 次草稿的单链 `K=3` 仅为 `1.86` 词)。\n在小批量解码阶段, 耗时卡在搬运权重而非算力上, 一次前向验 4 个词还是验 16 个词墙钟时间几乎不变; 当线上并发升高、GPU 算力趋于饱和时, 引擎再动态收缩树宽即可。',
         },
       ],
       links: [
-        { from: 'm07 accept_greedy', to: 'accept_tree', body: 'm07 的 accept_greedy 沿一条链逐位比对 draft token 和 target 的 argmax。accept_tree 做的是同一件事, 只是从 "沿一条链比" 变成 "从根往下走, target 的 argmax 命中哪个孩子就进哪个", 走不动时停下。' },
-        { from: 'TinyLM.forward(return_hidden)', to: 'EagleDrafter.propose', body: 'forward 加上 return_hidden 就会把每个位置最后一层的特征一起返回。验证那次 forward 白送了被接受位置的真特征, EagleDrafter.propose 拿它当下一轮 draft 的起点, 不用额外跑 target。' },
-        { from: 'gather_kv', to: 'KV 回滚', body: '验证那次 forward 让 KV 多了 16 行 (整棵树)。gather_kv 只留被接受路径上那几行, 其余丢掉。K 存的是 RoPE 之后的值, 路径上的 depth 是 0、1、2 连续的, 正好等于顺序 decode 的位置, 所以挑行就行, 不用重算。' },
+        { from: 'm07 accept_greedy', to: 'accept_tree', body: '将链式从左到右比对推广为从树根向下贪心寻路: 当前节点的 `target argmax` 匹配哪个孩子就步入哪个孩子, 失配处即得纠错或奖励词。' },
+        { from: 'TinyLM.forward(return_hidden)', to: 'EagleDrafter.propose', body: '大模型验证前向顺手返回已接受路径的真实顶层隐状态, 直接作为下一轮 EAGLE 草稿递推的零成本起点。' },
+        { from: 'gather_kv', to: 'KV 回滚', body: '验证完 16 个树节点后, `gather_kv` 按最终胜出路径的下标挑出对应的几行 K/V 紧凑留存 (因其深度恰好连续对应 `0, 1, 2...`, 无需重算旋转), 其余分支槽位直接释放。' },
       ],
       sourceRows: [
-        { concept: '树形状', code: 'm19_tree_speculation/tree_spec.py:tree_shape', takeaway: '按 BFS (一层一层) 给节点编号, 父节点编号总在子节点前面, 返回每个节点的 parents 和 depth。[3,2,1] 长出 1+3+6+6 = 16 个节点。' },
-        { concept: '树 mask', code: 'm19_tree_speculation/tree_spec.py:tree_mask', takeaway: '上下文的列全可见; 树内的列只对祖先和自己可见, 兄弟和堂兄弟互相看不见。RoPE 位置 positions = n_ctx + depth, 同深度共享。' },
-        { concept: '最长路径', code: 'm19_tree_speculation/tree_spec.py:accept_tree', takeaway: '从根往下走, target 的 argmax 命中哪个孩子就进哪个。同一父节点的 top-k 候选互不相同, 所以每层至多命中一个孩子, 路径唯一。' },
-        { concept: 'EAGLE drafter', code: 'm17_eagle_speculative/eagle.py:EagleDrafter', takeaway: '只实现 drafter 协议 propose(out, K, temperature, rng, hidden) → (tokens, probs); 验证循环与接受规则完全复用 m07.speculative_decode。' },
-        { concept: '实测', code: 'm19 demo', takeaway: '同样验证 16 个 token: chain $K=15$ 每轮接受 1.40 (2.13 token/次 target 调用), tree [3,2,1] 1.80 (2.58)。同样 3 次 draft 调用: chain $K=3$ 每轮接受 0.98 (1.86)。' },
+        { concept: '树拓扑展开', code: 'm19_tree_speculation/tree_spec.py:tree_shape', takeaway: '按广度优先顺序生成各节点的父指针数组 `parents` 与深度数组 `depth` (`[3,2,1]` 对应 16 个节点)。' },
+        { concept: '祖先掩码与深度位置', code: 'm19_tree_speculation/tree_spec.py:tree_mask', takeaway: '递推计算布尔祖先闭包矩阵屏蔽旁系分支, 并令位置编码按 `n_ctx + depth` 同层共享。' },
+        { concept: '最长匹配路径', code: 'm19_tree_speculation/tree_spec.py:accept_tree', takeaway: '由于同一父节点的 `top-k` 子词互异, 每层至多命中唯一子节点, 自顶向下确定性走出最长精确匹配链。' },
+        { concept: 'EAGLE 草稿器', code: 'm17_eagle_speculative/eagle.py:EagleDrafter', takeaway: '实现统一 `propose` 接口融合顶层特征与词嵌入递推预测, 无缝接入 `m07` 验证循环。' },
+        { concept: '同槽位效率对比', code: 'm19 demo', takeaway: '固定单次验证 16 个节点: 树 `[3,2,1]` 单轮产出 `2.58` 词, 显著高于单链 `K=15` 的 `2.13` 词与同草稿步数单链 `K=3` 的 `1.86` 词。' },
       ],
       snippetTitle: '树 mask + 接受最长路径',
       snippet: `anc = eye(n, dtype=bool)
@@ -703,9 +699,9 @@ while True:
 
     'infer-kv-offload': {
       title: '分层 KV offload · GPU → CPU → 磁盘',
-      subtitle: '读完你能说清被 GPU 挤出去的历史 KV 怎么降级到 CPU 和磁盘, 以及每一层为什么要单独算一笔 "搬回来还是重算" 的账。',
-      tldr: '多轮对话每一轮的 prompt 都带着整段历史。历史的 KV 如果还在 GPU 上就能直接复用; 但用户一多 GPU 装不下, 被挤出去的 KV 以前就直接丢了, 下一轮只能从头重算。本章的办法是不丢, 降级到 CPU 内存、再到磁盘, 用到时搬回来。\n搬回来值不值, 算一笔账 (1 个 token 的 KV 按 128 KiB 算):\n- 走 PCIe 25 GB/s 从 CPU 搬回 GPU: 约 5 µs\n- 重新算一遍: 约 125 µs\n搬比算便宜 25 倍。但每次加载还有一笔固定延迟, 链路一慢, 命中反而比重算更贵。所以每一层都要单独判断 "加载还是重算"。\n以下时间全部来自代价模型, 不是实测。',
-      question: '多加一层缓存, 怎么会反而让首 token 延迟 (TTFT) 变差?',
+      subtitle: '多用户多轮对话的历史 KV 很容易撑爆有限的 GPU 显存。与其把被淘汰的冷块直接丢弃导致下一轮整段重算, 分层缓存将其逐级下沉至主机内存与本地磁盘, 并在命中时逐层权衡「搬回耗时」与「重算耗时」。',
+      tldr: '分层 KV 缓存构建了 `GPU -> CPU -> 磁盘` 三级 LRU 存储池:\n- 逐级降级复用: 单个词元的 KV (以 128 KiB 计) 从 PCIe 内存搬回约需 `5 µs`, 而重算 prefill 约需 `125 µs`; 在 8 用户 6 轮对话模拟中, 接入 CPU 与磁盘层将平均首字延迟 TTFT 从单 GPU 缓存的 `51.5 ms` 依次压低至 `34.8 ms` 与 `19.5 ms`。\n- 逐层盈亏决策: 慢速存储层带有固定寻道/网络启动延迟, 当命中块数低于盈亏平衡点 $n^*$ 或远端带宽极低时, 盲目搬回反而比重算更慢 (`68.9 ms`), 因此每层必须独立取 `min(load, recompute)`。',
+      question: '给推理服务多挂一层远端大容量 KV 缓存、缓存命中率明明涨了, 为什么首字延迟 (TTFT) 有时反而变慢了一倍?',
       evolution: {
         title: '装不下就降级, 降级还要算账',
         subtitle: '根问题: 多轮对话每一轮的 prompt 都带着整段历史, 重算它费算力, 存着它占显存。',
@@ -718,29 +714,29 @@ while True:
       code: 'llm_infer/m20_kv_offload/tiered_cache.py',
       points: [
         {
-          title: '降级, 不是丢弃',
-          body: 'TieredKVCache 把存储分成几层 (demo 里是 GPU、CPU、磁盘), 每一层都是一个 LRU 队列 (最近最少使用: 满了就先踢最久没碰过的)。\n- 降级:\n  1. GPU 层满了, 最旧的 block 不是删掉, 而是放进 CPU 层。\n  2. CPU 层满了, 最旧的放进磁盘层。\n  3. 磁盘也满了才丢弃。\n- 提升: 某个 block 在 CPU 或磁盘层被再次命中, 就把它从那一层拿走, 提升回 GPU 层的最新端。\n每层容量在 demo 里是 GPU 64 个 block、CPU 192 个、磁盘 4096 个, 一个 block 装 16 个 token。demo [1] 模拟 8 个用户各聊 6 轮, 最后所有人的历史加起来约 442 个 block, GPU 只放得下 64 个:\n- 只有 GPU 时 86.7% 的 prompt token 都 miss, 平均 TTFT (首 token 延迟) 51.5 ms。\n- 加 CPU 层后有 29.5% 落在 CPU 层命中, TTFT 34.8 ms。\n- 再加磁盘层又接住 41.4%, 降到 19.5 ms。\n剩下 15.7% 的 miss 是每轮的新消息和第一轮, 任何缓存都救不了。',
+          title: '三级 LRU 瀑布流: 挤出 GPU 不丢弃, 再次命中提回热层',
+          body: '`TieredKVCache` 按容量从小到大串联 GPU (`64` 块)、CPU (`192` 块) 与本地磁盘 (`4,096` 块) 三级队列: GPU 满时将最久未用的块下沉到 CPU, CPU 满时再下沉到磁盘; 一旦某块在低速层被后续对话重新命中, 则立即将其抽回 GPU 热端。\n在 8 名并发用户各聊 6 轮 (总历史约 442 块, 远超 GPU 的 64 块上限) 的模拟负载中, 纯 GPU 缓存因频繁互踢导致 `86.7%` 词元未命中 (平均 TTFT `51.5 ms`), 加上 CPU 与磁盘两级承接后未命中率只剩每轮新增提问的 `15.7%`, 平均 TTFT 降至 `19.5 ms`。',
         },
         {
-          title: '链断了后面就用不了',
-          body: '这一章的索引和 m04 一样是链式 block hash: 第 i 块的 hash 是把前一块的 hash 和本块的 token 一起算出来的, 所以它标识的是 "前 i 块的整段前缀", 不只是这一块。\n查找时沿着这条链逐块找:\n1. 每一块先看 GPU 层有没有, 再看 CPU 层、磁盘层。\n2. 在第一个所有层都没有的块处停下。\n后面的块即使还躺在某一层也不可用: 比如第 3 块 miss、第 4 块命中, 第 4 块的 KV 是在前 3 块的基础上算出来的, 前缀的 KV 不全, 它接不上, 只能连同后面的一起重算。\n写入时 demo 还做了一件事: 把一条链从尾到头倒序 touch, 让链尾比链头先被驱逐。否则 LRU 会先踢掉第 0 块, 整条链立刻全部失效。这是在用 LRU 近似 radix tree 的 "先驱逐叶子"。',
+          title: '前缀链连续性约束与「从尾到头逆序刷新」技巧',
+          body: '分层查找沿用链式块哈希, 从第 0 块往后逐块跨层检索并在首个全层缺失处立即停止——即便第 4 块还留在磁盘里, 一旦第 3 块丢了, 前缀缺失也会导致第 4 块及之后的缓存无法单独拼接使用。\n为避免平面 LRU 错误地先把第 0 块淘汰导致整条链雪崩失效, 写入整段历史时特意采用「从链尾向链头逆序 touch」, 确保块 0 的访问时间戳最新、淘汰总是从链尾叶子端先开始。',
         },
         {
-          title: '交叉点 n*: 命中几块以上才值得搬',
+          title: '跨过固定延迟盈亏点 n* 才值得加载, 慢速层必须走 min(load, recompute)',
           key: true,
-          body: '搬回来还是重算, 要看命中了几个 block。代价模型里两条线:\n- load = 固定延迟 latency + n × 每块搬运时间。固定延迟是发起一次传输的开销 (demo 里 CPU 层 0.2 ms, 磁盘层 2 ms), 不管搬几块都要付一次; 每块搬运时间是块的字节数除以带宽 (磁盘 3 GB/s 时每块 0.699 ms)。\n- recompute = n × 每块重算时间。重算按 prefill 速度 8000 token/s 算, 一块 16 个 token 就是 2.00 ms。\n两条线交在 $n^*$ = latency / (每块重算 − 每块加载)。这个式子在说: 固定延迟要靠每一块省下来的那点时间慢慢摊平, 命中的块数超过 $n^*$ 以后加载才划算。demo [2] 里磁盘层的 $n^* = 1.54$ 块:\n- 只命中 1 块时加载 2.70 ms、重算 2.00 ms, 重算更快。\n- 命中 2 块时加载 3.40 ms、重算 4.00 ms, 加载更快。\n如果某一层每块加载时间比每块重算还长, 比如 demo [3] 那条 0.5 GB/s、20 ms 延迟的慢远端 (每块 4.194 ms), 命中再多也该重算。所以策略必须是 "两者取小", 而不是 "命中就加载": 盲目加载让 TTFT 从 34.81 ms 涨到 68.91 ms, 取小之后回到 34.81 ms。',
+          body: '从低速层搬回 $n$ 个块耗时为 $\\text{load}(n) = \\text{latency} + n \\cdot t_{\\text{xfer}}$, 而直接在 GPU 上重算耗时为 $\\text{recompute}(n) = n \\cdot t_{\\text{comp}}$。联立可得盈亏平衡块数 $n^* = \\text{latency} / (t_{\\text{comp}} - t_{\\text{xfer}})$:\n- 固定延迟摊销门槛: demo 中磁盘层启动延迟 `2.0 ms`、每块传输 `0.699 ms`、每块重算 `2.00 ms`, 算出 $n^* = 1.54$ 块——只命中 1 块时搬回要 `2.70 ms` 反而不如直接重算 (`2.00 ms`), 命中 2 块及以上 (`3.40 ms < 4.00 ms`) 搬回才开始赚时间。\n- 慢链路自动熔断: 若挂上一层带宽仅 `0.5 GB/s` 的慢速远端存储 (单块搬回 `4.194 ms` 比单块重算还慢), 「逢命中必搬回」的朴素策略会把平均 TTFT 从 `34.81 ms` 恶化到 `68.91 ms`; 在每层独立判断 `min(load, recompute)` 后则自动放弃慢速加载改走重算, 稳稳守住 `34.81 ms`。',
         },
       ],
       links: [
-        { from: 'm04 PrefixCache', to: 'TieredKVCache', body: 'm04 的 PrefixCache 用链式 block hash 给 GPU 上的 KV block 建索引, 只有一层。TieredKVCache 用同样的链式 hash, 只是一个 hash 对应的 block 可能落在 GPU、CPU、磁盘中的任意一层, 查找时要逐层找。' },
-        { from: 'Tier.bandwidth_GBps', to: 'load_ms', body: 'load_ms 用 Tier 的带宽算搬一个 block 要多久: 字节数除以带宽。这里带宽的单位是 GB/s, 按字节算; 后面 P/D 分离那一章用的是网络带宽 Gbps, 按比特算, 两者差一个 8 倍。' },
-        { from: 'use_load', to: 'TTFT', body: 'use_load 是 serve 里每一层的那个判断: 加载时间不超过重算时间才加载。demo [3] 接一条 0.5 GB/s 的慢远端:\n- "命中就加载" 把平均 TTFT 推到 68.9 ms, 比不加这一层 (34.8 ms) 还慢。\n- 加上取小的判断后回到 34.8 ms, 其中命中慢层但选择重算的有 9456 个 token。' },
+        { from: 'm04 PrefixCache', to: 'TieredKVCache', body: '复用完全相同的链式块哈希键设计, 将单层 GPU 字典扩展为跨多级存储介质的分层检索与升降级管线。' },
+        { from: 'Tier.bandwidth_GBps', to: 'load_ms', body: '本地存储带宽通常以字节每秒 (`GB/s`) 标称, 直接用块字节数相除即可 (注意与网卡比特率 `Gbps` 区分)。' },
+        { from: 'use_load', to: 'TTFT', body: '`serve` 对每层命中的块数实时对比搬运与重算耗时, 保证挂载任意慢速外部存储都绝不会让延迟出现负优化。' },
       ],
       sourceRows: [
-        { concept: '代价模型', code: 'm20_kv_offload/tiered_cache.py:CostModel', takeaway: '只有两个公式:\n- load = latency + bytes / bandwidth (固定延迟加上传输时间)。\n- recompute = tokens / 8000 tok/s (按 prefill 速度算重算时间)。\n每 token 131072 B 按 LLaMA-3-8B fp16 取。所有时间都由这两个式子算出, 不是测出来的。' },
-        { concept: '降级', code: 'TieredKVCache._insert', takeaway: '往某一层放 block, 这一层满了就把最旧的 block 拿出来递归插入下一层, 而不是直接删掉; 只有最后一层满了才丢弃。' },
-        { concept: '逐层决策', code: 'm20_kv_offload/tiered_cache.py:TieredKVCache.serve', takeaway: '处理一条 prompt 时, 对每一层命中的那批 block 各算一次 load 和 recompute, use_load = (load ≤ recompute); 为真才搬, 否则当 miss 重算。TTFT 是 miss 部分的重算时间, 加上各层取小后的时间之和。' },
-        { concept: 'demo 结果 (模拟)', code: '8 个用户 × 6 轮', takeaway: '8 个用户各聊 6 轮, 每轮的 prompt 是整段历史加新消息。平均 TTFT:\n- 只有 GPU: 51.5 ms。\n- 加 CPU 层: 34.8 ms。\n- 再加磁盘层: 19.5 ms。\n- 完全不缓存、全量重算: 59.42 ms。\ndemo 断言每多一层 TTFT 都更低。' },
+        { concept: '代价模型', code: 'm20_kv_offload/tiered_cache.py:CostModel', takeaway: '按 LLaMA-3-8B fp16 (`128 KiB/token`) 与 `8,000 tok/s` prefill 吞吐建模各级加载耗时与重算耗时。' },
+        { concept: '瀑布式降级', code: 'TieredKVCache._insert', takeaway: '本层满载时弹出 LRU 队首旧块递归推入下一级大容量层, 直至末层满载才物理丢弃。' },
+        { concept: '逐层性价比裁剪', code: 'm20_kv_offload/tiered_cache.py:TieredKVCache.serve', takeaway: '按层汇总命中块数并执行 `min(load, recompute)`, 自动跳过得不偿失的零星命中或慢速远端读取。' },
+        { concept: '多轮会话模拟', code: '8 个用户 × 6 轮', takeaway: '验证三级缓存相比全重算 (`59.42 ms`) 与纯 GPU 缓存 (`51.5 ms`) 逐级将平均 TTFT 压低至 `19.5 ms`。' },
       ],
       snippetTitle: 'serve: 逐层"加载 vs 重算"',
       snippet: `where = self.lookup(block_hashes(prompt))     # 每个命中块在哪一层; 首个 miss 处停
@@ -756,9 +752,9 @@ self.store(prompt)                            # 命中的提升回 GPU 层, 溢�
 
     'infer-moe-serving': {
       title: 'MoE serving · 专家并行与 EPLB',
-      subtitle: '读完你能说清 MoE 模型分到多张卡上服务时, 速度为什么只取决于最忙的那张卡, 以及 EPLB 为什么必须复制热门专家, 只重新摆放不够。',
-      tldr: 'MoE (mixture of experts, 混合专家) 模型的一层里有很多个专家, 每个专家是一个小的前馈网络 (FFN), 每个 token 只挑其中 k 个来算。专家太多一张卡放不下, 就分到多张卡上, 这叫专家并行 (EP, expert parallelism)。每层要来回搬两趟 token:\n- dispatch (分发): 每个 token 被发到它选中的专家所在的 rank (一张卡算一个 rank)。所有卡同时互相发, 这种通信叫 all-to-all。\n- combine (汇总): 专家算完, 结果发回 token 原来的位置, 按 gate (路由给每个专家的权重) 加权求和。\ncombine 要等所有卡都算完, 所以一步的耗时取决于最忙的那张卡。路由一倾斜 (偏向少数热门专家), demo 里热专家所在 rank 的负载是平均的 2.95 倍, 平均每张卡只有 34% 的时间在干活。\nEPLB (expert parallelism load balancer, 专家并行负载均衡) 给热门专家多放几个冗余副本, 把发给它的 token 拆给各副本: 最忙与平均之比 (max/mean) 压到 1.02 倍, 模型输出逐位不变。',
-      question: '把专家换个摆法不就均衡了吗? 为什么非得把热门专家复制几份?',
+      subtitle: '在线推理阶段路由权重已经定型, 无法再靠加训练损失压平热门专家。当最热专家单枪匹马就超过了单卡平均负载时, 仅调换专家位置也无济于事, EPLB 通过为热门专家部署冗余副本并均分流量消除多卡木桶效应。',
+      tldr: '多卡专家并行 (EP) 每一层的 `combine` 归约都必须等最慢的那张卡算完, 单步延迟完全由 `max_rank_load` 决定:\n- 倾斜痛点: 在服从 Zipf 偏置的路由流量下 (16 专家分 4 卡, top-2), 顺号摆放导致最忙卡负载高达均值的 `2.95` 倍, 集群平均有效利用率仅剩 `34%`; 即便按历史热度贪心重排位置, 因最热的 0 号专家独自就占了单卡均值的 `1.42` 倍, `max/mean` 仍卡在 `1.48` 倍下不去。\n- EPLB (专家并行负载均衡): 预留少量冗余槽位复制最热专家的权重并轮询分流其输入词元, 仅加 4 个冗余副本即将 `max/mean` 压平至 `1.02` 倍, 且模型输出逐位不变。',
+      question: '既然可以把重负载专家和轻负载专家搭配摆放到不同 GPU 上, 为什么有时不管怎么重新排列组合都还是均衡不了, 非得把同一个热门专家复制好几份?',
       evolution: {
         title: '从摆放到复制',
         subtitle: '根问题: 专家分在多张卡上, 每层都要等所有卡算完, 一步的耗时等于最忙那张卡。',
@@ -772,30 +768,30 @@ self.store(prompt)                            # 命中的提升回 GPU 层, 溢�
       code: 'llm_infer/m21_moe_serving/moe.py',
       points: [
         {
-          title: '看最忙的卡, 不看平均',
+          title: '全卡同步归约使单层延迟完全受制于最忙 rank',
           key: true,
-          body: '衡量 MoE 多卡服务的负载, 要看最忙那张卡 (max), 不看平均 (mean)。\n原因在 combine。一个 token 选了 k 个专家, 这 k 份结果可能来自不同的 rank, 要全部到齐才能加权求和, 下一层才能开始。所以 EP 每一层都要等齐所有 rank, 一步的耗时由最忙的那张卡决定, 其它卡算完了也只能等。\ndemo 的设置: 16 个专家、4 个 rank、每个 token 选 2 个专家 (top-2)、2048 个 token。router 故意加了偏置, 让编号小的专家更热 (专家 e 被选中的先验正比于 1/(e+1), 叫 Zipf 偏置)。按编号连续摆放 (专家 0 到 3 在 rank 0, 依此类推) 时, 4 个 rank 收到的分配数是 3016、851、125、104。平均 1024, 最大 3016, max/mean 是 2.95。\nmax/mean = 2.95 意味着平均每个 rank 只有 1/2.95 ≈ 34% 的时间在干活, 其余都在等最忙的那个。\n边界: 这里的负载就是每个 rank 处理的 (token, 专家) 分配数, 是代价模型。真实 grouped GEMM 的耗时和 token 数不严格成正比; demo 用数组分组模拟 all-to-all, 没有通信开销。',
+          body: 'MoE 推理层通过 `dispatch` (all-to-all 发往目标卡) 与 `combine` (all-to-all 收回原位按门控加权) 包夹本地专家计算。由于每个词元选中的 top-2 专家往往跨在不同 GPU 上, 必须等全部 4 张卡都算完才能启动 `combine` 进入下一层。\nm21 在 2,048 个词元、16 专家分 4 卡、带 Zipf 热度倾斜的场景下实测: 顺号连续摆放时四张卡分到的 `(token, expert)` 任务数悬殊为 `[3016, 851, 125, 104]` (均值 `1,024`, `max/mean = 2.95`), 相当于其余三张卡近三分之二的时间都在干等 rank 0。',
         },
         {
-          title: 'EPLB 的两步贪心',
-          body: 'EPLB 分两步, 每一步都是贪心: 每次只做眼下最划算的那一个选择。slot 是卡上放一份专家权重的位置; 副本是把同一个专家的权重再放一份到另一个 slot 上。\n- 加副本: 每个专家的 "每副本负载" 是它的 token 数除以它现有的副本数。反复挑这个值最大的专家, 给它再加一个副本, 共加 n_redundant 次。demo 多出 4 个冗余 slot (每个 rank 多 1 个), 结果专家 0 有 4 份、专家 1 有 2 份。\n- 摆放: 把所有 slot 按每副本负载从大到小排好, 依次放到当前负载最轻、而且还有空位的 rank 上。每个 rank 的 slot 数相同。\n有副本的专家, 发给它的 token 轮流分给各副本。\n负载统计来自另一个历史 batch, 评测在新的 batch 上做。这模拟了真实系统的做法: 摆放要搬专家权重, 必须在 batch 到来之前按历史热度定好。只摆放、不加副本时 max/mean 是 1.48; 加 4 个副本后是 1.02, 4 个 rank 的负载是 1025、1033、992、1046。按最忙 rank 的负载估算, 一步的耗时比连续摆放缩短 65%。',
+          title: 'EPLB 两阶段贪心: 先按单副本负载削峰加副本, 再按轻重装箱摆放',
+          body: 'DeepSeek EPLB 基于近期历史批次统计出的各专家热度, 分两步更新物理槽位映射 (并在新到达的未见测试批上评测):\n- 贪心分配冗余副本: 每次找出当前「总负载 / 已有副本数」最高的瓶颈专家为其追加 1 个副本, 循环 `n_redundant` 次 (demo 每卡多留 1 个槽共加 4 个冗余槽后, 极热的 0 号专家扩为 4 副本、1 号扩为 2 副本)。\n- 降序装箱放置: 将所有副本槽位按各自均摊后的预期负载从重到轻排序, 依次放入当前累计负载最轻且尚有空槽的 rank 上; 线上路由命中多副本专家时直接轮询打散流量, 使四卡实际负载拉平至 `[1025, 1033, 992, 1046]` (`max/mean = 1.02`, 峰值负载削减 65%)。',
         },
         {
-          title: '一个专家就超过一张卡的量',
-          body: '只换摆法不够, 因为最热的那个专家一个就超过了一张卡该分到的量。\n算一下:\n1. 最热的专家 0 收到 1451 个分配。\n2. 平均每个 rank 该分到 2048 × 2 / 4 = 1024 个。\n3. 最热专家的负载除以平均 rank 负载是 1451 / 1024 = 1.42, 大于 1。\n单个专家不可分: 它的权重只能整个放在一个 slot 里, 不能切开放到两张卡上。所以不管怎么摆, 放专家 0 的那张卡至少有 1451 个分配, 不可能均衡。贪心无副本实际只能做到 1.48 倍。\n唯一的办法是复制它, 并拆分它的 token: 把专家 0 的权重多放几份到别的卡上, 发给它的 token 分给这些副本。副本权重完全相同, 一个 token 走哪个副本算出来都一样, 所以复制不改变模型输出。',
+          title: '单专家超过单卡均摊水位时, 不复制拆分就存在数学下界死结',
+          body: '为什么只重排位置而不加副本 (`max/mean = 1.48`) 压不到 1.0 附近? 算一笔硬账就清楚了: 本例 4 张卡总任务数为 `2048 × 2 = 4096`, 理想单卡均值为 `1,024`; 然而 0 号热门专家自己一个人就收到了 `1,451` 个任务 (`1451 / 1024 = 1.42 > 1`)!\n只要单个专家权重不拆份, 无论把它挪到哪张卡上, 那张卡保底就要独自咽下这 `1,451` 份计算; 唯有复制出多个权重一模一样的副本分驻多卡并均分其输入词元, 才能在不改变任何一行模型数学输出 (`max|Δ| == 0`) 的前提下打破单专家瓶颈。',
         },
       ],
       links: [
-        { from: '阶段 2 MoE 路由', to: 'MoELayer.route', body: '阶段 2 讲过 MoE 的 top-k 路由: router 给每个 token 对每个专家打分, 挑分最高的 k 个。MoELayer.route 是同一个路由。这一章不关心它选得好不好, 只关心它选出来的结果在多张卡上造成怎样的负载分布。' },
-        { from: '阶段 3 EP all-to-all', to: 'ep_forward', body: '阶段 3 讲过训练时专家并行的 all-to-all 通信, ep_forward 用数组分组模拟同样的 dispatch 和 combine。区别在治倾斜的手段:\n- 训练: 可以加一个辅助 loss, 让 router 学得更均匀。\n- 推理: 模型已经训完, 路由已经定死, 只能靠调整专家放在哪张卡上。' },
-        { from: 'eplb_placement', to: 'slot_of', body: 'eplb_placement 决定每个 slot 放哪个专家、放在哪个 rank。ep_forward 里的 slot_of 再决定每一条 (token, 专家) 分配具体去哪个 slot: 有副本的专家把自己的 token 轮流分给各个副本, 第 1 条给第 1 个副本, 第 2 条给第 2 个, 依此类推。' },
+        { from: '阶段 2 MoE 路由', to: 'MoELayer.route', body: '复用完全相同的 `top-k` 门控打分逻辑, 视角从模型表达力转向线上多卡流量的长尾倾斜治理。' },
+        { from: '阶段 3 EP all-to-all', to: 'ep_forward', body: '训练期可借助辅助损失或偏置微调改变路由器选人倾向; 推理期模型权重已冻结只读, 只能靠服务引擎动态重映射物理槽位。' },
+        { from: 'eplb_placement', to: 'slot_of', body: '`eplb_placement` 按历史统计周期性更新槽位排布表, `slot_of` 在每次前向时将热门专家的请求均匀轮转分发至各物理副本。' },
       ],
       sourceRows: [
-        { concept: '路由', code: 'm21_moe_serving/moe.py:MoELayer.route', takeaway: 'router 给每个 token 对每个专家算一个分数 (logit), 取最高的 k 个。gate 是这 k 个专家的权重: 只在被选中的 k 个 logit 上做 softmax, 加起来等于 1, 不是对全部专家做 softmax。README 注明各模型的做法略有不同。' },
-        { concept: 'dispatch/combine', code: 'm21_moe_serving/moe.py:ep_forward', takeaway: '每个 token 选 k 个专家, 就产生 k 条 (token, k) 分配, 2048 个 token、top-2 一共 4096 条。ep_forward 分三步:\n1. 按 slot_of 把每条分配送到对应 rank (dispatch)。\n2. 每个 rank 对自己的每个 slot 批量算一次专家 FFN。\n3. 把结果按 gate 加权加回 token 原位置 (combine)。\nrank_load[r] 就是发到 rank r 的 (token, k) 分配数, 各 rank 加起来恰好是 4096, demo 用 assert 检查。' },
-        { concept: 'EPLB 加副本', code: 'm21_moe_serving/moe.py:eplb_placement', takeaway: '核心一行是 n_rep[argmax(load / n_rep)] += 1。这一行在说: n_rep 是每个专家现有的副本数, load / n_rep 是每个副本平均分到的 token 数; 找出这个值最大的专家, 给它加一个副本。一次加一个副本, 循环 n_redundant 次。之后再按每副本负载从大到小把 slot 依次放到最轻且有空位的 rank。' },
-        { concept: '输出不变', code: 'max|Δ| = 0', takeaway: 'EPLB 只改 "逻辑专家放在哪个物理 slot" 这张映射表。路由选哪几个专家、gate 权重是多少都没动, 副本的权重又和原专家完全相同, 所以输出逐位相同。连续摆放、贪心摆放、EPLB 三种放法和逐 token 循环的基线相比, 最大差都是 0。' },
-        { concept: 'demo 结果', code: '16 专家 / 4 rank / top-2', takeaway: '16 个专家、4 个 rank、每个 token 选 2 个专家、2048 个 token。最忙 rank 与平均之比 max/mean:\n- 按编号连续摆放: 2.95×。\n- 按负载贪心摆放但不加副本: 1.48×。\n- EPLB 加 4 个副本后: 1.02×。' },
+        { concept: '路由门控', code: 'm21_moe_serving/moe.py:MoELayer.route', takeaway: '计算专家打分取 `top-k` 并在选中子集上做局部 softmax 归一化权重。' },
+        { concept: '分发与归约记账', code: 'm21_moe_serving/moe.py:ep_forward', takeaway: '模拟跨 rank 分发、按物理槽批量计算与加权归约, 精确清点各 rank 承受的计算任务数 (总和恒为 `4,096`)。' },
+        { concept: 'EPLB 削峰装箱', code: 'm21_moe_serving/moe.py:eplb_placement', takeaway: '核心迭代 `n_rep[argmax(load / n_rep)] += 1` 精准削低最高单副本负载, 随后按最长处理时间优先 (LPT) 贪心装入各卡。' },
+        { concept: '逐位等价验证', code: 'max|Δ| = 0', takeaway: '所有副本权重与原专家完全相同, 连续摆放、贪心重排与 EPLB 三种方案的输出与单卡逐词基线差值严格为 `0`。' },
+        { concept: '倾斜改善对比', code: '16 专家 / 4 rank / top-2', takeaway: '在未见测试批上将 `max/mean` 从连续摆放的 `2.95×`、无副本重排的 `1.48×` 一举压平至 `1.02×`。' },
       ],
       snippetTitle: 'EPLB 两步贪心',
       snippet: `n_rep = ones(E)
@@ -813,9 +809,9 @@ for s in argsort(-slot_load):                   # ② 从重到轻
 
     'infer-sparse-decode': {
       title: '稀疏注意力 decode · 只读 top-k 个 KV block',
-      subtitle: '读完你能说清 Quest 怎么用 block 摘要只读一小部分 KV 还不漏掉针, 以及这个办法在什么模型上不成立。',
-      tldr: '长上下文下 decode 每生成一个 token 都要把全部 KV 读一遍, 可训练好的模型注意力高度集中, 绝大部分权重落在少数 token 上, 大部分 KV 读来几乎不起作用。本章的办法: 把 KV 切成 block, 每块常驻一份很小的摘要, 不读 KV 就先猜哪些块重要:\n- Quest: 摘要是每块 key 的逐维 min/max。\n- NSA/DSA: 摘要是压缩过的 key, 或者一个训练出来的低维 indexer。\n用当前 query 给摘要打分, 选分最高的 top-k 块, 只对它们做 attention。\n- needle (大海捞针: 少数几个 key 和 query 强对齐, 其余是噪声) 负载: 读 3.1% 的 KV, 误差就降到 0.023。\n- 随机权重模型: 注意力弥散, 没有可利用的集中性, 这个前提不成立。',
-      question: 'Quest 为什么用"上界"打分, 而不是直接用 block 的均值?',
+      subtitle: '长文本解码每步全量读取几万词的 KV 带宽代价高昂, 而训练成熟的大模型在任一步往往只将绝大部分注意力集中在寥寥几个关键块上。Quest 利用常驻的块级逐维极值摘要估算内积上界, 每步只挑出高分块与首尾关键块读取。',
+      tldr: '动态稀疏解码在不丢失远距离关键信息 (区别于盲目丢弃窗口外的 SinkCache) 的前提下大幅削减单步 KV 访存量:\n- 块级极值摘要 (Quest): 为每个 KV 物理块常驻逐维最小值 `kmin` 与最大值 `kmax` 向量, 根据查询向量 $q$ 各维正负号算出块内最大可能点积的严格上界, 只挑出首块 (sink)、末块 (局部前文) 与上界最高的 `top-(k-2)` 块读入计算。\n- 成立前提明确: 在注意力高度集中的大海捞针负载上仅读 `3.1%` (`8/256` 块) 的 KV 即可捕获 `97.7%` 注意力质量、输出相对误差降至 `0.023`; 但在注意力均匀弥散的未训练随机模型上稀疏近似前提并不成立。',
+      question: '不把块里每个 token 的 K 读出来, Quest 凭什么能保证藏着关键答案「针」的那个块一定不会被漏评低分?',
       evolution: {
         title: '少读 KV, 别漏掉针',
         subtitle: '根问题: 长上下文 decode 每步要把全部 KV 读一遍, 而注意力质量集中在很少的 token 上。',
@@ -829,29 +825,29 @@ for s in argsort(-slot_load):                   # ② 从重到轻
       code: 'llm_infer/m22_sparse_attention/sparse_attention.py',
       points: [
         {
-          title: '廉价的上界打分',
-          body: 'Quest 给每个 block 存两个向量: 这一块里所有 key 的逐维最小值 kmin 和最大值 kmax。打分时看 query 的每一维 $i$:\n- 如果 $q_i$ 为正, 这一维的乘积最大是 $q_i \\cdot \\text{kmax}_i$。\n- 为负则是 $q_i \\cdot \\text{kmin}_i$。\n逐维取大再求和, 得到 $\\sum_i \\max(q_i \\cdot \\text{kmin}_i,\\ q_i \\cdot \\text{kmax}_i)$, 它一定 $\\ge$ 这个 block 内任何一个 $q \\cdot k$。\n用上界打分的好处: 含有 "针" (和 query 强对齐的 key) 的块, 分数一定不会被低估, 所以不会漏掉。代价是偏松: demo 里上界平均是真实最大值的 6.7× (在各向同性的噪声上很松), 排序信息主要来自结构化的 key。不漏比估得准重要。demo 另外试了用块内 key 的均值打分 (NSA 压缩分支的最简替身), needle 负载上两者几乎一样。',
+          title: '逐维符号匹配极值构造严格内积上界, 确保高相关「针」块零漏检',
+          body: '若为了挑重点先把全部历史 K 读一遍算点积, 那就只省了一半 V 的带宽。Quest 为每个大小为 `bs` 的物理块额外维护两个极小的包络向量 `kmin` 和 `kmax` (体积仅为原块 KV 的 `1/bs`, 如 `bs=16` 时仅占 1/16)。\n当新查询向量 $q$ 到来时, 逐维检查符号: 若 $q_i > 0$ 则乘 `kmax[i]`, 若 $q_i < 0$ 则乘 `kmin[i]`, 求和得到 $\\sum_i \\max(q_i \\cdot \\text{kmin}_i, q_i \\cdot \\text{kmax}_i)$——从代数上它必定大于等于该块内任意单个词元的真实点积 $q \\cdot k$! 尽管在随机背景噪声上该上界偏松, 但它保证了真正与 $q$ 强对齐的目标「针」块分数绝不会被低估漏选。',
         },
         {
-          title: '两块必须保留',
-          body: 'select_blocks 有一个 forced 集合: 第 0 块 (attention sink, 上一章讲过的那几个承接多余注意力的开头 token) 和最后一块 (最近的 token) 永远选中, 并且算在 k 之内, 其余按分数取 top-(k−2)。丢掉第 0 块, softmax 的分母就少了最大的一项, 其余权重整体放大, 输出就崩了。\n所以 demo 里 k=4 时召回只有 59.1%: 首尾占了 2 个名额, 只剩 2 个名额给 4 个 needle 块。',
+          title: '强制保底第 0 块 (Sink) 与末尾最近块, 守住分母基准与局部连贯',
+          body: '`select_blocks` 始终将第 0 块 (承载多余注意力的句首 sink) 与最后一块 `nb - 1` (紧挨当前词的局部上下文) 放入必选集合 `forced`, 剩余 `k - 2` 个名额再按上界得分从高到低择优录取。正因首尾固定占去 2 席, 当文本藏有 4 个「针」块而预算只给 `k=4` 时最多只能捞进 2 个针块 (注意力质量召回 `59.1%`), 扩至 `k=8` 后 4 个针块悉数入围。',
         },
         {
-          title: '前提是注意力足够尖',
+          title: '稀疏收益完全仰赖真实预训练注意力的尖峰稀疏性',
           key: true,
-          body: '稀疏 decode 的收益完全来自数据: 注意力质量要集中在少数 block 上。demo 的 needle 负载 (T=4096 切成 256 块, 4 个 needle 块各含 2 个和 q 对齐的 key):\n- k 从 4 加到 8 (读 1.6% → 3.1% 的 KV): 相对误差从 0.83 断崖掉到 0.023, 召回 (选中的块覆盖的真实注意力质量) 从 59.1% 到 97.7%。针全部进了 top-k 的那一刻, 其余 KV 就无关紧要了。\n- 同样读 3.1%, 随机选块误差 1.06; 随机读到 50% 误差仍然大于 1。\n换成随机权重的 TinyLM 就不成立: 它的注意力近乎均匀, 召回约等于读取比例, Quest 打分只比随机好几个点, 误差甚至不如随机 (k=8 时 0.62 对 0.51)。真实系统的 NSA、DSA 还把选块的 indexer 训练出来, 比 min/max 启发式准得多。',
+          body: 'm22 将 `T=4096` 切成 256 块并在 4 个远距块中植入强对齐「针」信号做对照:\n- 在尖峰集中的大海捞针分布上: 读取块数从 `k=4` (`1.6%`) 增至 `k=8` (`3.1%`) 时, 注意力质量召回率跃升至 `97.7%`, 输出相对误差从 `0.83` 断崖式跌落至 `0.023` (同预算随机抽块误差高达 `1.06`)。\n- 在未经训练的随机权重 TinyLM 上: 注意力均匀摊薄在全部 256 块上, 读 3.1% 的块就只能召回约 3% 的质量, 任何选块算法都无稀疏红利可挖——这也解释了为什么 NSA 与 DeepSeek DSA 进一步将选块索引器纳入端到端训练以学习更紧凑的语义筛选。',
         },
       ],
       links: [
-        { from: 'm02 KV block', to: 'block 摘要', body: '分页 KV 本来就按 block 组织, 摘要直接挂在 block 上。每块两个向量 (kmin、kmax), 对比每块 bs 个 K 加 bs 个 V, 摘要大约只有 KV 的 1/16 ~ 1/8。' },
-        { from: 'attention sink', to: 'select_blocks 的 forced', body: '上一章的 attention sink 说开头几个 token 承接着多余的注意力, 丢了 softmax 分母就崩。这里 select_blocks 的 forced 集合把第 0 块永远留下, 是同一个道理。' },
-        { from: '阶段 2 DSA', to: 'lightning indexer', body: 'DeepSeek-V3.2 的 DSA 用一个训练出来的低维 indexer 按 token 选 top-k (2048 个), 不是按块。这里只有免训练的 min/max 选块, 是它的最简替身。' },
+        { from: 'm02 KV block', to: 'block 摘要', body: '直接复用 PagedAttention 的定长物理块边界, 每写满一个块顺手归约一行 `min/max` 摘要即可, 无需改动底层分页池结构。' },
+        { from: 'attention sink', to: 'select_blocks 的 forced', body: '第 0 块若被稀疏筛选漏掉同样会引发上一章分析的 softmax 分母坍塌, 故无条件钉死在必读列表中。' },
+        { from: '阶段 2 DSA', to: 'lightning indexer', body: 'Quest 是无需重训模型的推理期免训练块筛选启发式; 阶段 2 介绍的 DSA 则在训练期联合学习轻量低维索引器实现更高精度的按词筛选。' },
       ],
       sourceRows: [
-        { concept: 'Quest 上界', code: 'm22_sparse_attention/sparse_attention.py:quest_upper_bound', takeaway: '对 query 的每一维, $q_i$ 为正取 kmax, 为负取 kmin, 乘起来逐维求和。demo 断言这个上界在两种数据上都 ≥ 块内真实的最大 $q \\cdot k$。' },
-        { concept: '选块', code: 'm22_sparse_attention/sparse_attention.py:select_blocks', takeaway: 'forced = {0, nb−1} (第 0 块和最后一块) 永远选中, 其余按分数取 top-(k−2), 一共 k 块。' },
-        { concept: '评测', code: 'm22_sparse_attention/sparse_attention.py:evaluate', takeaway: '两个指标一起看:\n- 稀疏输出相对全量 attention 的相对 L2 误差。\n- 召回 (recall, 选中的块覆盖了多少真实注意力概率质量)。\n误差看结果差多少, 召回看漏没漏。' },
-        { concept: 'demo 结果', code: 'T=4096, 256 blocks', takeaway: 'T=4096 切成 256 块:\n- k=4 (读 1.6%) 误差 0.83 → k=8 (读 3.1%) 误差 0.023。\n- 同样读 3.1%, 随机选块误差 1.06。' },
+        { concept: 'Quest 严格上界', code: 'm22_sparse_attention/sparse_attention.py:quest_upper_bound', takeaway: '计算 $\\sum_i \\max(q_i \\cdot \\text{kmin}_i, q_i \\cdot \\text{kmax}_i)$, 并在断言中验证其恒不小于块内真实最大点积。' },
+        { concept: '保底加排序选块', code: 'm22_sparse_attention/sparse_attention.py:select_blocks', takeaway: '固定锁定 `{0, nb - 1}` 首尾两块, 其余槽位按上界分数降序补齐至 $k$ 块。' },
+        { concept: '双指标联合评估', code: 'm22_sparse_attention/sparse_attention.py:evaluate', takeaway: '同时报告输出向量的相对 L2 误差与选中块覆盖的真实 softmax 概率质量召回率 (`recall`)。' },
+        { concept: '大海捞针实测', code: 'T=4096, 256 blocks', takeaway: '仅读取 `8 / 256 = 3.1%` 的历史 KV 即将相对误差压至 `0.023`, 显著优于同比例随机抽样的 `1.06`。' },
       ],
       snippetTitle: '打分 → 选块 → 只读选中的 KV',
       snippet: `Kb = K.reshape(nb, bs, d)
@@ -870,9 +866,9 @@ out = softmax(q @ K[idx].T / sqrt(d)) @ V[idx]`,
 
     'infer-test-time-compute': {
       title: '推理时计算 · 模型不变, 多花 token 换正确率',
-      subtitle: '读完你能说清 "多采几条再挑"、"按步搜索"、"写完再自查" 这几种花 token 的方式各靠什么挑答案, 以及哪一种错它们都消不掉。',
-      tldr: '模型不换, 推理时多花 token 也能涨正确率。办法有三类:\n- 同一道题多采几条再挑一条 (best-of-N、多数投票)。\n- 每一步多采几个候选、边走边剪 (PRM beam)。\n- 写完再自查几遍 (budget forcing)。\n效果取决于靠什么挑。错误分两种:\n- 粗心错是随机的, 换个样本就可能对, 多采样就能消掉。\n- 误解是系统性的, 模型自己最常给的答案 (众数) 就是错的, 投票和自查只会更稳定地错。\n要越过它, 得靠外部判分器: demo 的陷阱题上, 多数投票 N 越大越错 (0.254 降到 0.108), best-of-N 加判分器到 N=64 能到 0.970。',
-      question: '多采几条再投票, 为什么有的题反而越投越错?',
+      subtitle: '不重新训练更大的基座模型, 在测试阶段额外投入解码 token 预算同样能显著推高复杂推理题的准确率。并行投票、外部判分器选优 (best-of-N / PRM beam) 与串行长思考自查各自擅长消除不同性质的错误。',
+      tldr: '测试时计算扩展 (Test-Time Compute Scaling) 主要有三条路线, 能推多高取决于错误的性质:\n- 消除随机粗心错: 多数投票 (`self-consistency`) 与强制延长自查 (`budget forcing`) 无需外部判分器即可抹平偶发失误, 但在模型存在系统性误解的陷阱题上 (模型自身众数就是错的), 采样越多投票反而错得越稳 (`0.254 -> 0.108`)。\n- 跨越系统性误解: 必须引入具备独立判别力的外部验证器——终点选优 `best-of-N + ORM` (`N=64`) 将总准确率推至 `0.970`, 按步剪枝的 `PRM beam` 则在紧预算 (`28 token`) 下以 `0.865` 显著跑赢同开销的 `best-of-7` (`0.747`)。',
+      question: '对同一道数学题并行采样几十条推理链再做多数投票, 为什么在有些陷阱题上采样条数 N 越大, 最终答对率反而越低?',
       evolution: {
         title: '挑答案的人越来越懂行',
         subtitle: '根问题: 多步推理一步错整条错, 换更大的模型又很贵。',
@@ -886,43 +882,35 @@ out = softmax(q @ K[idx].T / sqrt(d)) @ V[idx]`,
       code: 'llm_infer/m23_test_time_compute/{tts.py,demo.py} (每一步的采样复用 m10 的 sample)',
       points: [
         {
-          title: '一步错, 整条错',
-          body: '一道要推 $K$ 步的题, 每步答对的概率是 $p$, 整条都对的概率只有 $p^K$。$p=0.75$、$K=4$ 时只剩 0.316。原因是一步错了, 后面每一步都在错的中间值上 "正确地" 继续算, 最后的答案一定错。\n换更大的模型很贵。另一条路是推理时多花 token: 同一个模型, 多写几条、多查几遍, 再想办法挑出对的那条。\ndemo 的玩具任务: 200 道 4 步算术题 (一个起始数, 连做 4 次加减乘), 模型每一步从 6 个候选里采样一个: 正确值、4 种粗心错 (差 ±1 或 ±10)、看错运算符。温度 T=1 时单条正确率 0.275。',
+          title: '多步推理的指数衰减困境与三条算力换准确率路径',
+          body: '一道需要连续走对 $K=4$ 步的算术题, 哪怕单步正确率有 $p=0.75$, 一次连贯全对的概率也只剩 $0.75^4 = 0.316$ (m23 温度 1 下单次采样准确率为 `0.275`)。不换模型权重时, 可以把额外 token 预算花在三个方向上:\n- 并行独立采样后聚合: 采 $N$ 条完整解答, 用无外部监督的多数投票 (`majority_vote`) 或结果判分器挑最高分 (`best-of-N + ORM`)。\n- 树状按步剪枝搜索 (`PRM beam`): 每步扩展多个候选并由过程判分器 PRM 当场裁掉错步, 把后续算力省给有希望的分支。\n- 串行反思拉长思考链 (`budget forcing`): 模型想提前停笔时追加 `"Wait"` 提示词促使其回溯检查并从出错步重写。',
         },
         {
-          title: '三条花 token 的路',
-          body: '- 并行: 同一道题采 $N$ 条完整的链, 再从里面挑一条。挑法有两种: best-of-N 让 ORM (outcome reward model, 只看最终答案打分的判分器) 给每条打分取最高; 多数投票 (self-consistency) 不要判分器, 直接取出现次数最多的最终答案。\n- 按步搜索: 每一步多采几个候选, 让 PRM (process reward model, 给每一步打分的判分器) 当场打分, 分低的错步立刻剪掉, 只留分高的继续往下走。\n- 串行: 先写完一条, 再一遍遍自查, 发现错就从那一步重写。budget forcing 控制想多久: 到预算上限就强行截断, 想停但没到上限就追加一个 "Wait" 让它再查一遍。\n这一章的判分器是程序化的 (真值加噪声), 真实系统里 ORM 和 PRM 都是训练出来的模型。',
-        },
-        {
-          title: '投票消不掉系统性的错',
+          title: '区分偶发粗心与系统性误解: 多数投票收敛于模型众数而非真值',
           key: true,
-          body: '投票消得掉粗心错, 消不掉误解。错分两种:\n- 粗心错: 随机的, 换个样本就可能对。多采几条, 众数会落在正确答案上。\n- 误解: 系统性的, 模型自己最常给的答案 (众数) 就是错的。demo 里 32.5% 的题带一个陷阱步: 在那一步, "看错运算符" 这个候选的 logit 是 3.5, 高过正确值的 3.0, 所以模型大概率看错, 而且每次都这么错。\n两种挑法的差别就在第二种错上:\n- 多数投票: 只用模型自己的分布, 采样越多, 样本的众数越接近分布的众数。\n  - 无陷阱题上它随 N 一路涨到 1.000。\n  - 整体在 0.71 饱和 (N=16 时 0.706, N=64 时 0.710)。\n  - 陷阱题上 N 越大越稳定地错, 从 N=16 的 0.254 掉到 N=64 的 0.108。\n- best-of-N: 让外部判分器 ORM 挑。它不看哪个答案最多, 只看哪条的最终答案对, 所以能从少数派里认出正确答案, N=64 到 0.970。\n有完美判分器时 best-of-N 的上限是 pass@N (N 条里至少一条对的概率), N=64 时 1.000; demo 的 ORM 带噪声, 所以 0.970 低于它。',
+          body: 'm23 在 200 道 4 步题中为 `32.5%` 的题目植入了「陷阱步」(在该步看错运算符的错误候选 logit 为 `3.5`, 高于正确答案的 `3.0`), 清晰划出两种错误的边界:\n- 无陷阱常规题 (偶发采样粗心): 正确答案本就是最高概率众数, 多数投票随 $N$ 增大顺利收敛至 `1.000`。\n- 陷阱题 (系统性认知盲区): 模型分布自身的众数落在错误答案上! 此时大数定律反而帮了倒忙——样本 $N$ 越加多, 投票结果就越笃定地锁死那个高频错解, 陷阱题准确率从 `N=16` 的 `0.254` 一路跌至 `N=64` 的 `0.108`, 拖累全局天花板死死卡在 `0.710`。\n要捅破这层天花板, 必须借助能认出少数派正确解的外部判分器: `best-of-N + ORM` 在 `N=64` 时将总准确率拉升至 `0.970`。',
         },
         {
-          title: 'PRM 在错步出现时就剪掉',
-          body: 'best-of-N 到终点才判: 一条链第 1 步就错了, 后面 $K-1$ 步的 token 照样要花。PRM beam 每一步都给候选打分, 错步当场剪掉, 省下的 token 给别的候选。\ndemo 用 width × expand 描述一次搜索: 每一步保留 width 条链, 每条链各采 expand 个下一步, 再按 PRM 累计分留下 width 条。花的 token 数是 expand + (K−1) × width × expand。\n- 28 token (width 2 × expand 4): PRM beam 0.865, 花同样 token 的 best-of-7 只有 0.747。\n- 52 token (4 × 4): PRM beam 0.830, best-of-13 是 0.849, 打平甚至略输。\nbeam 加宽后自己也从 0.865 掉到 0.830。大预算输在判分噪声: 候选一多, 总有错步被噪声抬高、混进来。把 PRM 的噪声去掉 ($\\sigma=0$), 同样 4 × 4 的配置到 0.970。真实系统里 PRM 每一步都要跑一次前向, 这笔账 demo 没算。',
+          title: '中小预算下 PRM 按步剪枝效率更高, 大预算下受判分器自身噪声制约',
+          body: '`best-of-N` 即使第 1 步就算错了也得老老实实把后面 3 步废话写完才判分; `PRM beam` 则在错步露头的第一时间将其剪除: 在 `28 token` 预算下 (`width=2, expand=4`), `PRM beam` 取得 `0.865` 准确率, 大幅领先花同样 token 的 `best-of-7` (`0.747`)。\n有趣的是将预算扩至 `52 token` (`4×4`) 时 `PRM beam` 略回落至 `0.830`, 这是因为带高斯噪声的 PRM 在候选变多时更容易把某条撞上正噪声尖峰的错步放进束内 (将判分噪声置零后立即升至 `0.970`)。',
         },
         {
-          title: 'budget forcing: 截断就崩, 延长才涨',
-          body: 'budget forcing 要给够思考预算才有用, 而且只修得了粗心错。记思考预算为 $B$ 个 token (这一章的 $B$ 是预算, 不是 batch)。模型写完一条链后会想停 (demo 里每次以 0.6 的概率想停):\n- 到了 $B$ 就强行截断, 以当前中间值作答。\n- 想停但还没到 $B$, 就追加 "Wait", 让它再自查一遍, 发现错就从那一步重写。\n不同 $B$ 下的正确率:\n- B=2: 0.055。第一遍都没写完就被截断, 只能交中间值。\n- B=4 到 8: 都是 0.240。一次重写要能把后面几步全写完才算数, 预算不够, 查出错也改不完。\n- B=16: 0.460。\n- B=64: 0.815。无陷阱题到 1.000, 陷阱题只有 0.431。\n不干预时模型平均只想 6.5 个 token 就停, 正确率 0.305。陷阱题上涨不上去, 是因为自查看不见自己的误解: demo 的自查规则里, 粗心错以 0.5 的概率被发现, 陷阱步上的误解永远被认为是对的, 预算再多也改不掉。',
-        },
-        {
-          title: '玩具和真实系统差在哪',
-          body: '- greedy 太好: 玩具里随机错只来自采样噪声, 所以不采样、每步取最大概率 (T=0) 就有 0.675, 恰好等于无陷阱题的比例。\n- 别读成 "greedy 就够了": 真实模型的 greedy 也犯随机错, 长思考和采样的收益比这里更实在。\n- 判分器是程序化的: ORM / PRM = 真值 + $\\mathcal{N}(0, 0.5^2)$ 的高斯噪声。真实系统里它们是训练出来的, 也有自己的盲区, 遇上盲区同样越不过去。\n- token 账偏乐观: 没算判分器的前向。真实 PRM beam 每步要给 width × expand 个候选各跑一次 PRM。\n- 自查规则写死: 发现粗心错的概率 0.5、想停的概率 0.6, 对误解全盲。o1 / R1 的长思考是用强化学习训出来的, 自查能力和何时停都不是常数。',
+          title: '串行预算控制 (Budget Forcing): 过早截断直接崩盘, 自查同样受限于认知盲区',
+          body: '限制串行思考长度为固定预算 $B$ 时: 若 $B=2$ 连首遍 4 步推导都写不完就被腰斩, 准确率仅 `0.055`; 放宽至 $B=16$ 和 $B=64$ 后, 反复追加 `"Wait"` 触发自查重算能把无陷阱题推至 `1.000`、总分推至 `0.815`, 显著高于任其自然停笔 (`平均 6.5 token`, 准确率 `0.305`)。但由于模型自查同样看不破自己深信不疑的运算符陷阱, 陷阱子集仍停在 `0.431` (真实推理模型如 DeepSeek-R1 则需通过大规模强化学习内化更强的自我纠错策略)。',
         },
       ],
       links: [
-        { from: 'm10 sample', to: 'sample_step', body: '这一章的 "模型" 不是神经网络: 每一步给 6 个候选各一个 logit, 用 m10 的 sample 从里面抽一个 token。T=0 就是 greedy, 取 logit 最大的那个。' },
-        { from: '奖励模型 (阶段 4)', to: 'orm / prm', body: '阶段 4 讲的奖励模型是训练出来给回答打分的。ORM 用 "最终答案对不对" 做标签训练打分头; PRM 要每一步的标签, 可以人工标 (PRM800K), 也可以 Monte-Carlo 自动标 (Math-Shepherd: 从这一步往后采 n 条, 能走到正确答案的比例就是这一步的分)。本章用 "真值加噪声" 代替它们。' },
-        { from: 'prm_beam_search', to: 'beam search (解码一章)', body: '两者骨架一样: 每步只留 top-width 条。区别在排序依据:\n- 解码那一章的 beam 按累计 log 概率排 (模型自己觉得哪条最可能)。\n- 这里按 PRM 的累计分排 (外部判分器觉得哪条走得对)。' },
+        { from: 'm10 sample', to: 'sample_step', body: '每一步从 6 个离散算术动作候选的 logits 中直接调用 `m10` 标准温度采样函数生成下一步。' },
+        { from: '奖励模型 (阶段 4)', to: 'orm / prm', body: '阶段 4 讲解如何从数据中训练出 ORM 与 PRM 标量头, 本章则在推理端对比它们引导搜索与选解的算力转化效率。' },
+        { from: 'prm_beam_search', to: 'beam search (解码一章)', body: '搜索骨架完全一致, 区别仅在于排序依据从「模型自回归对数似然」换成了「外部过程奖励模型的累计得分」。' },
       ],
       sourceRows: [
-        { concept: '模型的一步', code: 'm23_test_time_compute/tts.py:step_dist', takeaway: '每一步 6 个候选: 正确值、4 种粗心错 (±1, ±10)、看错运算符。logits 是 [3.0, 0.3×4, 0.3 或 3.5]:\n- 普通步上正确值 3.0 最高, 每步答对的概率 0.75。\n- 陷阱步上 "看错运算符" 那一项是 3.5, 比正确值还高, 模型的众数就是错的。' },
-        { concept: 'best-of-N', code: 'm23_test_time_compute/tts.py:best_of_n', takeaway: 'N 条链各让 ORM 打一次分, 取分最高那条的最终答案。ORM 是真值加噪声, 所以偶尔会挑错。' },
-        { concept: 'self-consistency', code: 'm23_test_time_compute/tts.py:majority_vote', takeaway: '最终答案取出现次数最多的, 不需要判分器, 但要求答案能比较相等 (数学题可以)。开放式回答没法直接投票。' },
-        { concept: 'PRM beam', code: 'm23_test_time_compute/tts.py:prm_beam_search', takeaway: '每条 beam 采 expand 个下一步, 全部候选按 PRM 累计分排序留 width 条。token 数 = expand + (K−1)·width·expand。' },
-        { concept: '长思考', code: 'm23_test_time_compute/tts.py:think', takeaway: '写完一条链后一遍遍自查, 发现错就从那一步重写。min_tokens = max_tokens = B 就是 budget forcing: 不到 B 不许停, 到 B 必须停。' },
-        { concept: '自查的盲区', code: 'm23_test_time_compute/tts.py:believes_ok', takeaway: '真对的一步会被认对; 陷阱步上自己的误解也会被认对 (永远发现不了); 粗心错以 0.5 的概率被发现。所以自查只能修粗心错。' },
+        { concept: '粗心与陷阱建模', code: 'm23_test_time_compute/tts.py:step_dist', takeaway: '常规步令正确项 logit 最高 (`3.0 > 0.3`), 陷阱步令误读算符项反超 (`3.5 > 3.0`), 复现偶发失误与系统性偏见两类错误。' },
+        { concept: 'Best-of-N', code: 'm23_test_time_compute/tts.py:best_of_n', takeaway: '独立采样 $N$ 条完整推理链, 交由带噪结果验证器 ORM 打分选出最高分答案。' },
+        { concept: '自洽多数投票', code: 'm23_test_time_compute/tts.py:majority_vote', takeaway: '无需外部验证器直接对 $N$ 条链的最终答案做众数表决, 适用于答案可精确判等的客观题。' },
+        { concept: 'PRM 束搜索', code: 'm23_test_time_compute/tts.py:prm_beam_search', takeaway: '每步对活跃束各采样 `expand` 个后继并按 PRM 累计分截断保留前 `width` 条, 提前止损错误分支。' },
+        { concept: '强制延长思考', code: 'm23_test_time_compute/tts.py:think', takeaway: '模拟未达最小 token 预算前拦截结束意图、注入反思标记回溯重算的串行扩展机制。' },
+        { concept: '自我校验边界', code: 'm23_test_time_compute/tts.py:believes_ok', takeaway: '刻画自我反思的固有局限: 能以一定概率揪出随机粗心错, 却对自身固有的系统性误解视而不见。' },
       ],
       snippetTitle: 'PRM beam: 错步在出现的那一步就被剪掉',
       snippet: `beams = [(0.0, [])]
@@ -946,9 +934,9 @@ answer = beams[0][1][-1]`,
 
     'infer-multi-replica-routing': {
       title: '多副本路由 · 前缀缓存与负载的拉锯',
-      subtitle: '读完你能解释: 把请求发给缓存命中最多的副本, 为什么首 token 延迟 (TTFT) 反而最差, 以及负载阈值这个旋钮怎么在命中率和负载均衡之间取舍。',
-      tldr: '一个模型扛不住流量时, 会起好几份一模一样的推理引擎, 每一份叫一个副本 (replica)。demo 起了 8 个副本, 每个副本有自己的前缀缓存: 把算过的 prompt 开头那段的 KV (模型为每个 token 算出的 K、V 向量, 生成时要反复用) 存起来, 下次遇到同样的开头直接复用, 不用重算。副本之间不共享 KV。\n- 前缀感知路由: 先问每个副本 "你缓存里有这个请求多长的开头", 把请求送到最长的那个。前缀命中率从 59.3% 升到 93.9%。\n- 新问题: 热门 system prompt 只在最先缓存它的副本上能命中, 新对话全被吸到那里。8 个副本只有 3 个在干活, 估算的平均 TTFT (从请求到达到吐出第一个 token 的时间) 从 0.469 s 涨到 105.954 s。\n- 负载阈值兜底: 最佳副本比最闲副本多积压的活超过一个阈值, 就让位给最闲的。阈值 0.5 s 时平均 TTFT 0.284 s, 本例最优。',
-      question: '起了 8 个副本, 每个都有自己的前缀缓存, 新来的请求该发给谁?',
+      subtitle: '单实例推理引擎抗不住高并发流量时需要横向部署多个独立副本, 而各副本内存中的基数树前缀缓存彼此并不共享。网关路由必须在「送去缓存最热的那台省重算」与「分流去空闲机器防排队」之间动态平衡。',
+      tldr: '在 8 个各自维护独立 `RadixCache` 的服务副本前对比三种网关分发策略:\n- 轮询 / 最少积压路由: 完全无视请求文本内容, 多轮对话下一轮大概率换机器重算整段历史 (`40.7%` 词元未命中, 平均首字延迟 TTFT `0.469 s`)。\n- 纯前缀感知路由: 永远发往匹配前缀最长的副本, 命中率虽飙升至 `93.9%`, 却因热门系统提示词产生强磁吸效应把半数流量死死吸在一台机器上排长队, 导致平均 TTFT 雪崩恶化至 `105.954 s`!\n- 前缀优先 + 积压差阈值兜底: 当命中最佳副本比全场最闲副本多积压超过阈值 (`0.5 s`) 时主动让位分流, 既消除过载排队又顺水推舟把热点前缀自然复制到多台机器上, 取得全场最低 TTFT `0.284 s`。',
+      question: '为什么把每条新请求都精准发给前缀缓存命中率最高的那台服务器, 集群整体命中率涨到了 94%, 用户的首字响应延迟却慢了两百多倍?',
       evolution: {
         title: '先看内容, 再看负载',
         subtitle: '根问题: 一个副本扛不住流量要起多个, 各副本的前缀缓存彼此不共享。',
@@ -961,37 +949,33 @@ answer = beams[0][1][-1]`,
       code: 'llm_infer/m27_multi_replica_routing/{router.py,demo.py} (每个副本复用 m05 的 RadixCache)',
       points: [
         {
-          title: '不看内容, 历史就白算',
-          body: '多轮对话的每一轮, 都要把前面的对话全部带上重新发一遍。第 $k$ 轮的 prompt 是 system prompt 加上前 $k-1$ 轮的全部历史, 再加这一轮的新消息。同一段对话越往后, prompt 越长, 而开头一大段和上一轮完全相同。\n上一轮在哪个副本上算, 这段历史的 KV 就只缓存在哪个副本上。\n- 轮询 (round_robin): 第 k 个请求发给第 k mod 8 个副本, 轮着来。\n- 最少负载 (least_load): 发给手上积压的活最少的副本。\n这两种都不看内容, 下一轮多半落到别的副本。那里只缓存了大家共用的 system prompt, 历史要整段重新 prefill (把这段 prompt 重新送进模型, 算一遍 KV)。demo 里两种策略都有 40.7% 的 prompt token 要重新 prefill。\n前缀感知路由问每个副本 "你缓存里有这个请求多长的前缀", 送给最长的。下一轮会回到上一轮的副本, 历史直接命中, miss (需要重算的比例) 降到 6.1%。',
+          title: '无状态轮询打断多轮会话亲和性, 四成历史被迫反复重算',
+          body: '多轮对话每开启新一轮都要把系统提示词与前序所有问答历史完整重传一遍, 而前几轮算好的历史 KV 只躺在上一次处理它的那个副本显存里。传统的轮询 (`round_robin`) 与纯最少积压 (`least_load`) 路由只看序号或队列长度、不看请求文本, 导致同一会话后续轮次在 8 个副本间随机漂移, 多达 `40.7%` 的输入词元每次都要从头做 prefill。',
         },
         {
-          title: '命中率最高, TTFT 最差',
-          body: '纯前缀感知的命中率最高, TTFT 却最差: 命中省下的 prefill, 抵不过排队的时间。\ndemo 的请求流: 1084 个请求共用 4 个 system prompt, 每个 512 个 token, 流行度分别是 48% / 24% / 16% / 12%, 最热的那个占将近一半。\n一段新对话到来时, 只有它的 system prompt 可能已被缓存。只有最先缓存这个 system prompt 的副本能命中 512 个 token, 别的副本命中 0, 于是前缀感知路由永远选它。后续每一轮的历史也只在那个副本上, 也永远选它。结果:\n- 8 个副本只有 3 个在干活, 分到的活占比 52% / 32% / 16%, 其余 5 个闲着。4 个 system prompt 只落到 3 个副本上, 因为有两个落到了同一个副本。\n- 负载 max/mean 4.18: 最忙副本累计的活是平均的 4.18 倍。\n- 平均 TTFT 105.954 s, 而最少负载只有 0.469 s。热点副本的活超过了它的处理能力, 队列越排越长。这是队列模型过载发散的结果, 只说明 "会爆", 数值本身没有意义。',
+          title: '纯前缀贪心引发热点磁吸雪崩: 命中率最高, 排队延迟却最惨',
+          body: 'm27 模拟了共享 4 套热门系统提示词 (最热一套占全部流量的 `48%`) 的 1,084 条多轮对话请求。纯前缀感知路由每次挑能匹配最长前缀的副本: 第一条带最热系统提示词的请求落到某台副本缓存下这 512 个词后, 后续所有使用同一提示词的新老会话探测一圈发现只有这一台能命中 512 词、其余全为 0, 于是源源不断全往这一台机器上挤!\n结果 8 台机器里 5 台彻底空转、最忙一台独自吞下 `52%` 流量 (`max/mean = 4.18`), 省下的几毫秒 prefill 在百秒级的排队积压面前杯水车薪, 平均 TTFT 飙升至 `105.954 s`。',
         },
         {
-          title: '负载阈值兜底',
+          title: '积压差值阈值兜底: 超载主动分流, 顺带完成热点前缀多副本扩散',
           key: true,
-          body: '负载阈值兜底, 是在前缀感知路由上加一条规则:\n1. 先照常找出命中最长的最佳副本。\n2. 如果它的积压比最闲副本多出一个阈值, 就放弃缓存, 改走最少负载。\n积压 (backlog) 是副本手上还没做完的活, 按秒计, 路由器把它当作负载。\n这条规则有个顺带的好处: 被分流过去的副本处理完请求, 也把热点 system prompt 存进了自己的缓存。之后新对话在两个副本上都能命中这 512 个 token, 平手时按负载选, 热点前缀就自然复制到了多个副本上。\n阈值是个旋钮: 太松等于没兜底, 太紧就几乎总在放弃缓存。demo 从松到紧扫了一遍, 每行依次是命中率 / max/mean / 平均 TTFT:\n- 4s (太松): 93.4% / 1.45 / 0.689 s。\n- 1s: 83.6% / 1.19 / 0.314 s, 比最少负载 (0.469 s) 低 33%。\n- 0.5s: 77.9% / 1.12 / 0.284 s, 本例 TTFT 最优。\n- 0.05s (太紧): 72.9% / 1.12 / 0.308 s, 比最优回升, 在往最少负载退化。\n阈值越紧, 命中率越低。TTFT 最好的点落在中间: 太松输给排队, 太紧输给重算。',
+          body: '解法只需在前缀路由后补一行负载差判断: 先找出前缀匹配最长的副本 `best` 与当前积压最少的副本 `least`, 若 `backlog[best] - backlog[least] > threshold_s`, 则果断放弃本次缓存命中改投 `least`。\n这一分流动作还产生了极佳的自愈副产物: `least` 副本接下并跑完这条请求后, 它的本地缓存里也顺手存下了那段热门系统提示词! 下次再来同类新对话时就有两台机器同时命中并按谁更空闲自动均摊, 热点前缀随流量自然扩散到多台副本。扫描阈值可见清晰的 U 形甜点: `4.0 s` 过松 (`TTFT 0.689 s`), `0.05 s` 过紧退化向最少负载 (`0.308 s`), 中间 `0.5 s` 兼顾 `77.9%` 命中率与 `1.12` 均衡度, 拿下最优平均 TTFT `0.284 s`。',
         },
         {
-          title: '探测必须只读',
-          body: '每来一个请求, 路由器都要问一遍全部 8 个副本 "你能命中多长", 这叫探测。探测只是问问, 最后只有 1 个副本处理这个请求。\n每个副本的前缀缓存是 m05 的 RadixCache, 一棵 radix tree (基数树: 每条边存一段 token, 从根往下走过的路就是一段前缀)。它查最长前缀用的 match 会顺手改树:\n- split: 匹配停在一条边的中间时, 把这条边切成两段。\n- 刷新 LRU: 把沿途节点的最近使用时间 last_used 更新成现在。缓存满了要删东西时, 按 LRU (least recently used, 最久没用的先删) 从叶子删起, 删谁就看这个时间。\n如果拿 match 去探测, 没被选中的 7 个副本也会被记成 "刚用过", 它们的 LRU 顺序就被搅乱了, 不再反映真实的使用情况。\n所以 router.py 单独写了一个只读的 prefix_len: 走法和 match 相同, 但不 split、不刷新 last_used, 不改树。选定副本之后, simulate 才对那一个副本调用 match。',
-        },
-        {
-          title: '哪些数是真跑的, 哪些是模型算的',
-          body: '这一页的数字分两类: TTFT 是代价模型算的, 命中率是真跑出来的。\n- TTFT 来自代价模型: 每个副本被简化成一条 FIFO (先进先出) 工作队列。一个请求的活是 miss 部分的 prefill 加上回复的 decode, prefill 按 1000 tok/s、decode 按 100 tok/s 的固定速度做完。TTFT 估算为到达时队列里的积压, 加上本请求 miss 部分的 prefill 时间。\n- 参数刻意调慢: 这样副本利用率在 30~40%, 排队才看得见。利用率很低时, 三种策略的 TTFT 差别只剩 prefill 本身。\n- 真实引擎: 做 continuous batching (连续批, 每一步都重新组 batch, 新请求随时插进来), decode 不会整段挡住后来请求的 prefill。过载表现为 batch 变大、TPOT (time per output token, 每出一个 token 的耗时) 变差。\n- 命中率是真跑的: 每个副本是一个容量 24k token 的真实 RadixCache, 命中长度是实际匹配出来的。轮询的 59.3% 主要来自 512 token 的 system prompt, 每个副本很快都缓存了它。\n- 路由器看得太清楚: 这里直接读副本的真实 radix tree。SGLang 的 router 自己维护一棵近似树, 只记录发出去的请求, 不知道副本的驱逐。',
+          title: '路由探测必须严格只读, 避免污染未选中副本的 LRU 淘汰序',
+          body: '每到一条请求网关都要向全部 8 个副本询价匹配长度, 但最终只有 1 个副本真正承接该请求。直接调用 `m05` 的 `RadixCache.match_prefix` 会顺手切分树边并把沿途节点的 `last_used` 时间戳刷成当前时刻——若拿它去做全员探测, 陪跑的 7 台机器缓存里的旧节点也会被误标为「刚刚活跃」, 彻底搅乱真实的 LRU 淘汰顺序! 因此 `router.py` 专门实现了零副作用的只读探测函数 `prefix_len`, 仅在最终敲定目标副本后才对那一台执行真实匹配与写入。',
         },
       ],
       links: [
-        { from: 'm05 RadixCache', to: 'Replica.cache', body: 'm05 的 RadixCache 是一棵按 token 存前缀的基数树。这里每个副本的 cache 直接复用它, 没有另写一份, 所以命中长度是真跑出来的; 容量满了也按 m05 的规则从叶子按 LRU 驱逐。' },
-        { from: 'match (会改树)', to: 'prefix_len (只读)', body: 'prefix_len 照搬 match 的走法: 从根出发按 token 往下走, 走到对不上为止。区别是去掉了 split (切边) 和 LRU 刷新, 这样探测 8 个副本时, 不会扰动那 7 个没被选中的副本。' },
-        { from: 'EPLB (MoE serving)', to: '负载阈值', body: '两边是同一个病: 热点把负载压在一处。治法不同:\n- MoE serving 那章的 EPLB 给热门专家多放几个副本, 把它的 token 拆开。\n- 这里靠负载阈值把请求分流出去, 让热点前缀在多个副本上各缓存一份。' },
+        { from: 'm05 RadixCache', to: 'Replica.cache', body: '每个服务副本内部直接实例化 `m05` 的真实基数树缓存 (容量 24K 词元), 精确复现跨请求前缀共享与叶子 LRU 淘汰行为。' },
+        { from: 'match (会改树)', to: 'prefix_len (只读)', body: '分离探测期只读遍历与执行期有状态写入, 确保路由广播询价不干扰落选副本的缓存生命周期。' },
+        { from: 'EPLB (MoE serving)', to: '负载阈值', body: '无论卡间专家并行还是实例间副本路由, 都面临 Zipf 热点吸干单点算力的共性挑战: EPLB 靠显式复制热门专家权重分流, 多副本路由则靠积压阈值把热门前缀自然复制到多个实例缓存中。' },
       ],
       sourceRows: [
-        { concept: '只读探测', code: 'm27_multi_replica_routing/router.py:prefix_len', takeaway: '从树根出发, 用下一个 token 找对应的子边, 沿边逐个 token 比较, 对不上就返回已匹配的长度。和 RadixCache.match 走法相同, 但不 split 边、不刷新 last_used (LRU 用的最近使用时间), 树一点都不改。' },
-        { concept: '三种策略', code: 'm27_multi_replica_routing/router.py:route', takeaway: '三种策略:\n- round_robin: 按请求序号轮流发。\n- least_load: 发给积压最少的。\n- prefix: 分两步。\n  1. 先算 best = argmax(prefix_len, −backlog): 先比命中长度, 一样长就选积压少的。\n  2. 再检查 backlog[best] − min backlog > threshold: 这个式子在说最佳副本比最闲副本多积压的活超过了阈值, 成立就改走最少负载。\n连积压也一样的平手, 按请求序号轮转打散, 免得空闲时全压给 0 号副本。threshold 默认是无穷大, 这时永远不会改走, 就是纯前缀感知、永不放弃缓存。' },
-        { concept: '模拟', code: 'm27_multi_replica_routing/router.py:simulate', takeaway: '逐个请求回放:\n1. 让各副本按时间流逝消化积压。\n2. 路由。\n3. 对选中的副本调 match 算命中, 记下 TTFT。\n4. 把这个请求的活加进积压。\n5. 把 prompt 加回复插进缓存, 超过容量就驱逐。\nTTFT 估算为到达时积压加上 miss 部分的 prefill。命中至少留最后 1 个 token 重算, 才有 logits (模型对下一个 token 的打分), 才能采出第一个输出 token。' },
-        { concept: '请求流', code: 'm27_multi_replica_routing/router.py:chat_stream', takeaway: '生成合成的多轮对话请求流: 200 段对话, 每段 3~8 轮, 第一轮在 400 s 内随机到达。共 4 个 system prompt, 各 512 个 token, 流行度 ∝ 1/rank: 被选中的概率和排名成反比, 第 1 名是第 4 名的 4 倍。每轮的 prompt 是 system prompt 加全部历史加新消息。两轮之间的思考时间服从均值 15 s 的指数分布 Exp(15 s)。' },
+        { concept: '无副作用探测', code: 'm27_multi_replica_routing/router.py:prefix_len', takeaway: '沿基数树只读统计最长公共前缀词元数, 不触发切边 (`_split`) 也不刷新 `last_used` 时间戳。' },
+        { concept: '带阈值前缀路由', code: 'm27_multi_replica_routing/router.py:route', takeaway: '先按 `(匹配长度, -当前积压)` 选出首选副本, 若其相对最闲副本的超额积压越过 `threshold_s` 则回退至最闲副本。' },
+        { concept: '多副本离散回放', code: 'm27_multi_replica_routing/router.py:simulate', takeaway: '推进请求到达时钟、消化各实例在途积压、执行路由与基数树真实更新并统计全局命中率与平均 TTFT。' },
+        { concept: 'Zipf 多轮会话流', code: 'm27_multi_replica_routing/router.py:chat_stream', takeaway: '合成 200 段 3~8 轮对话流, 4 套系统提示词热度按 `1/rank` 倾斜分布, 真实还原线上冷热不均场景。' },
       ],
       snippetTitle: '前缀优先, 积压超阈值就让位',
       snippet: `def route(replicas, tokens, threshold_s):
@@ -1015,22 +999,22 @@ answer = beams[0][1][-1]`,
 const supplements = {
   "infer-scheduler": [
     {
-      "title": "等待队列要有上限",
-      "body": "等待队列要设上限, 否则请求会排很久再超时, 能按时完成的反而更少。调度器每一步从等待队列里挑请求。请求来得比处理得快时, 队列就会越排越长。\nm28 用代价模型模拟一个服务:\n- 请求按固定的随机分布到达, 其中 25% 是长请求。\n- 同时最多 4 条请求在跑 (4 个活跃槽)。\n- 每条请求有 1 秒截止时间, 到点还没完成就算超时。\n到达率从每秒 8 个扫到 96 个, 比两种队列:\n- 有界队列: 最多让 8 个请求排队, 再来的直接拒绝。\n- 无界队列: 来多少排多少, 从不主动拒绝。\n到达率 48 个/秒时差别最明显。这里的 SLO (服务等级目标) 指同时满足三条: 首 token 不晚于 200 ms、相邻 token 间隔不超过 6 ms、1 秒内完成。每秒满足 SLO 的请求数也叫 goodput (好吞吐)。\n- 有界: 队列最长 8 个, 拒绝 131 个; 每秒 16.5 个请求满足 SLO。\n- 无界: 队列最长排到 52 个, 超时 93 个; 每秒满足 SLO 的只剩 1.55 个。\n无限排队并没有让服务多处理请求, 只是把「立刻被拒」变成了「排很久再超时」。\n每个请求最后只落进一种终态: 拒绝、超时、取消 (每 17 个请求里有 1 个在 100 ms 后主动取消)、完成, 四种分开统计。每种终态都会把这条请求占的 KV 页 (分页 KV 的 block) 还回去, 模拟结束时残留页为 0。\n毫秒数来自代价模型: 一步耗时 2 + 0.5×活跃请求数 ms。它只用来比较两种队列, 不能拿来配置真实 GPU 的容量。",
+      "title": "有界等待队列与准入控制: 宁可快速拒单, 也不让全队排到超时",
+      "body": "当外部请求到达速率超过服务最大处理能力时, 无限制放请求进等待队列并不会提高吞吐, 只会把「立即返回繁忙」变成「苦等良久后集体超时作废」。`m28` 在 4 活跃槽、单请求 1 秒截止期 (SLO 要求 `TTFT <= 200 ms, ITL <= 6 ms, 1s 内完成`) 下对比到达率 `48 req/s` 时的两种队列:\n- 有界队列 (最多排队 8 条, 超额立即拒绝): 拒绝 131 条, 每秒按质按时达标的 `goodput` 为 `16.5 req/s`。\n- 无界队列 (来者不拒): 队列一路堆积到 52 条, 93 条超时报废, 真正满足延迟目标的 `goodput` 暴跌十倍仅剩 `1.55 req/s`!\n同时无论请求最终落入完成、拒绝、超时还是客户端主动取消哪一种终态, 块管理器都必须确保其占用的物理 KV 页悉数归还 (模拟结束时残留泄漏页恒为 `0`)。",
       "source": "llm_infer/m28_service_capacity/demo.py:simulate"
     }
   ],
   "infer-multi-replica-routing": [
     {
-      "title": "不要只报平均吞吐",
-      "body": "看一个服务扛不扛得住, 只报平均吞吐会被骗。m28 (一个模拟排队的代价模型, 同时最多 4 条请求在跑) 在到达率 48 个/秒时给了一个反例:\n- 无界队列 (从不拒绝, 来多少排多少) 每秒完成 34.7 个请求, 看着比有界队列 (最多排 8 个, 再来就拒绝) 的 34.2 还高。\n- 可它的 TTFT p99 是 955 ms: 把完成请求的首 token 延迟从小到大排, 排在第 99% 的那个要等 955 ms。满足 SLO (服务等级目标) 的请求每秒只有 1.55 个, 有界队列是 16.5 个。\n这几个指标的读法:\n- TTFT 从请求到达算起, 排队的时间也算在里面。ITL (inter-token latency) 看的是相邻两个输出 token 之间隔了多久。\n- p95/p99 只在完成了的请求上统计。被拒绝、超时、取消的请求都不进统计。所以分位数必须和这三类未完成请求的比例一起报, 否则就是幸存者偏差: 慢的都被丢掉了, 剩下的自然显得快。\n- goodput (好吞吐): 同时满足 TTFT ≤ 200 ms、最大 ITL ≤ 6 ms、1 秒内完成这三条的请求数, 除以观测时间。观测时间包括到达停止后把队列排空的那一段, 不能只拿到达期做分母。",
+      "title": "服务端指标防坑: 脱离失败率看 p99 与脱离延迟看平均吞吐都会失真",
+      "body": "评估线上推理容量时单报一个平均吞吐或单报一个完成请求的 `p99` 极易产生误导。在 `m28` 到达率 `48 req/s` 的反例中, 无界队列每秒完成 `34.7` 条看似略高于有界队列的 `34.2` 条, 但它的首字延迟 `TTFT p99` 高达 `955 ms`, 真正达标的 `goodput` 只有 `1.55` 对 `16.5`。\n阅读延迟分位数时还必须警惕幸存者偏差: `p95 / p99` 仅在成功跑完的请求子集上统计, 被准入拒绝、半途超时或取消的请求并不在内——如果一个服务靠拒掉六成慢请求换来漂亮的 `p99`, 单看延迟分位数就会得出完全相反的结论; 正确做法是将到达流量 (`offered load`)、四种终态计数与达标好吞吐 (`goodput`) 并排呈现。",
       "source": "llm_infer/m28_service_capacity/demo.py:experiment"
     }
   ],
   "infer-engine": [
     {
-      "title": "机制对了, 还要看负载下能不能用",
-      "body": "上了负载, 还要再对一本账: 每个请求最后去了哪。上面的资源账只证明引擎在机制上是对的。这里有三个容易混的数:\n- 模型吞吐: 每秒生成多少 token。\n- 接收量: 有多少请求被收进来, 没被拒绝。\n- 好吞吐 (goodput): 每秒有多少请求在延迟目标内完成。\nm28 用代价模型模拟到达率 96 个/秒、有界队列 (最多排 8 个, 再来就拒绝) 的情形: 到达 956 个 = 完成 364 + 拒绝 568 + 超时 0 + 取消 24, 结束时 KV 页全部还回, 占页为 0。四种终态加起来等于到达数, 页也没漏, 这本账才算对上。\n同一档到达率换成无界队列 (从不拒绝): 首 token 延迟 TTFT 的 p99 (从小到大排在第 99% 的那个) 是 960 ms, 超时 693 个。有界队列的 p99 是 455 ms, 看着好得多, 但那是拒掉 568 个请求换来的。\n所以拒绝率提高、p99 变好看, 不能就此说服务变好了, 可能只是把慢请求丢掉了。要把 offered load (到达的请求量)、完成数、goodput 和全部终态放在一起看。",
+      "title": "高负载终态对账: 区分原始 token 吞吐、准入量与达标 Goodput",
+      "body": "在单机引擎内部核对完 KV token 守恒账之后, 推上高压流量还要核对第二本请求终态账。`m28` 在 `96 req/s` 过载流量下验证有界队列: 总到达 `956 = 完成 364 + 拒绝 568 + 超时 0 + 取消 24`, 四类互斥终态严格加总等于总到达数且无一页 KV 泄漏; 同流量若换用无界队列则 `TTFT p99` 冲至 `960 ms`、超时高达 `693` 条。把「每秒吐多少 token」、「收进门多少请求」和「在 SLO 延迟线内交付多少请求 (goodput)」拆开核算, 才能看清引擎在真实生产水位下的有效容量。",
       "source": "llm_infer/m28_service_capacity/demo.py:simulate"
     }
   ]
@@ -1045,17 +1029,17 @@ for (const [route, rows] of Object.entries(supplements)) {
 }
 
 // 审查后的主讲职责与前置链接。
-topic.pages["infer-compute"].points.push({"title": "FLOPs 一样, 耗时不一定一样", "body": "FLOPs (浮点运算次数) 相同, 不代表执行时间相同。本章几件事都是「数学一样, 快慢不同」, m32 把这一点实测了出来。\nm32 用两种写法算同一件事, 矩阵乘再加偏置:\n- x@w+b: 先做矩阵乘, 再单独做一次加法。\n- torch.addmm: 一次调用把乘和加都做完。\n两者的逻辑 FLOPs 都是 1,056,768。但 profiler (记录每个算子调用、内存分配和耗时的工具) 显示:\n- 两版各有 1 次矩阵乘。\n- ATen 调用 (PyTorch 底层算子库被调用的次数) 是 6 次对 7 次。\n- CPU 上分配的内存是 65,536 字节对 32,768 字节, x@w+b 多分配了一份中间结果。\n算子调用、内存分配和 host 开销, 都要测出来才知道。\n测法分三步:\n1. 先空跑 3 次 warmup (不计时)。\n2. 再独立计时 7 次。\n3. 最后单独采一次 profiler。\nprofiler 要和计时分开, 因为它本身会拖慢被测的代码。同时记下 Python/PyTorch 版本、设备、线程数 (这里是 1) 和重复次数。\n网页只展示稳定的事件计数; 毫秒数跟机器有关, 留在命令行 (CLI) 输出的 JSON 里。\n两个读数各有边界:\n- 分配字节是所有分配事件加起来的总量, 不是同一时刻占用的峰值。\n- ATen 调用数也不等于 GPU 上实际跑的 kernel 数。"})
+topic.pages["infer-compute"].points.push({"title": "算子融合实测: 逻辑 FLOPs 完全相同, 算子派发与临时内存翻倍", "body": "理论浮点运算次数相同绝不代表实际运行开销一致。`m32` 用 PyTorch 对比计算同一线性变换的两种写法——分步 `x @ w + b` 与融合算子 `torch.addmm`:\n两者的逻辑乘加次数同为 `1,056,768` FLOPs, 但开启独立 profiler 追踪底层事件可见: 分步写法触发了 7 次底层 ATen 算子调用并分配了 `65,536` 字节内存 (为未加偏置前的矩阵乘结果额外开辟了一份临时张量), 而融合写法仅触发 6 次调用、分配 `32,768` 字节内存。基准测试流程严格执行「先预热 warmup → 独立多次计时 → 最后单独采集一次 profiler」, 避免性能追踪器自身的插桩开销污染耗时读数。"})
 topic.pages["infer-scheduler"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后, 排队会发生什么", "reason": "本章只说明等待队列要设上限。请求越来越多时, 分位数和 goodput 该怎么读、为什么不能只看平均吞吐, 在多副本路由那一章。"}]
 topic.pages["infer-engine"].related = [{"route": "infer-multi-replica-routing", "label": "到达率上升后, 排队会发生什么", "reason": "本章只要求每个请求的终态对上账。指标该怎么读 (分位数为什么只算完成的请求、goodput 怎么定义), 在那一章。"}, {"route": "finetune-runs", "label": "模型交付与独立进程加载", "reason": "引擎要加载的不只是权重文件, 还有词表、模板、生成参数这些约定, 都记在交付清单 manifest 里。那一章演示新进程怎么按清单加载, 错配时怎么拒绝。"}]
 topic.pages["infer-decode-control"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "同一个温度公式: 基础页演示它怎么改变分布, 本章讲它在采样里怎么用。"}]
 topic.pages["infer-kv-memory"].related = [{"route": "attention", "label": "复习注意力掩码", "reason": "掩码 (mask) 决定每个 token 能看见哪些 token。本章只讲 K/V 怎么存; 拖滑杆看掩码怎么变的实验在注意力那一章。"}]
 export default topic
 
-topic.pages["infer-scheduler"].points.push({"title": "多租户: 总吞吐会掩盖谁在等", "body": "只看全局吞吐, 看不出共用服务的几个调用方里是谁在挨饿。同一个推理服务常常被几个调用方共用, 每个调用方叫一个租户。\nm33 用离散的服务量单位 tick 来模拟 (tick 是服务量, 不是 GPU 毫秒), 跑一条固定的到达轨迹:\n- A 租户连续发 60 个长请求, 每个要服务 5 tick。\n- B 租户每 15 tick 发 1 个短请求, 每个要服务 2 tick, 一共 4 个。\n- 请求从到达起 40 tick 内没完成就算超时。\n四种调度策略跑同一条轨迹:\n- FIFO (先到先服务): B 只完成 1 个, 其余 3 个超时。\n- 固定优先级 (A 优先): B 一个都没完成, 从来没被服务过。\n- 公平轮转: B 4 个全完成, 第一次拿到服务前的等待是 0; A 的完成数从 9 降到 8。\n- 公平 + 配额 (每个租户最多排 8 个): A 的队列峰值从 40 降到 8, 代价是拒绝了 41 个。\n只看 A 或总完成数, 前三种策略几乎一样 (A 完成 9 / 9 / 8)。要按租户分别看等待、超时和 goodput (这里指端到端延迟不超过 10 tick 的完成数, 除以观测时长), 才看得到 B 在挨饿。\n公平轮转的做法: 两个租户轮流拿一个等成本的服务量子 (每次服务 1 tick)。长请求一次没跑完, 就回到自己租户队列的最前面, 下一轮再接着跑, 不会挡住另一个租户拿到它的那一份。\n边界: 真实请求每个 token 的代价不一样, 要结合 prefill/decode、KV 占用和预算来估; 一条有限的轨迹也证明不了任意负载下都不会饥饿。"})
+topic.pages["infer-scheduler"].points.push({"title": "多租户公平调度: 全局高吞吐可能掩盖单租户饥饿", "body": "多个业务租户共用同一套推理集群时, 单看全局总完成数往往发现不了低频短请求租户正在被大户饿死。`m33` 模拟租户 A 一口气灌入 60 个长请求 (每条占 5 tick) 而租户 B 每隔 15 tick 才发 1 个短请求 (每条占 2 tick, 共 4 个, 40 tick 超时):\n- 先到先服务 (FIFO) 或 A 高优: 全局看似完成了 9 条请求, 但租户 B 的短请求被 A 的长龙死死堵在门外, 完成数仅 `1/4` 甚至 `0/4`。\n- 等成本量子公平轮转 (`Fair Round-Robin`): 两个活跃租户每次轮流获取 1 tick 服务时间片, 未跑完的长请求退回本租户队首等待下一轮, 使租户 B 的 4 条短请求实现零首发等待、`4/4` 全部按时完成 (A 完成数仅从 9 微降至 8); 再叠加上单租户排队配额即可同时防住单一大户撑爆全局内存队列。"})
 topic.pages["infer-scheduler"].source.push("llm_infer/m33_tenant_scheduling/demo.py:experiment")
 
-topic.pages["infer-prefix-radix"].points.push({"title": "相同 token 不一定能复用 KV", "body": "token 相同, KV 也不一定能复用: KV 还取决于算它的模型和输入约定。前面的复用都只比 token。但 KV 是模型算出来的, 它的身份不只是 token, 还包括解释这些 token 的模型、adapter (挂在底模上的微调小模块, 比如 LoRA) 和输入约定。缓存键 (查缓存用的键) 里少了哪一样, 都可能复用错。\nm34 先让可信身份 A 把 [1,2,3,4] 在 model-v1 / adapter-v1 下算出的 KV 写进缓存, 再换条件请求同一串 token:\n- 跨租户共用 (缓存键里不带租户的共享域 scope): B 命中了 A 写的条目。命中更快, 而这个快慢差异会泄露信息: B 能由此推断别的租户用过这个前缀。\n- 隔离命名空间 (键里带上 scope): B 未命中, 缓存条目变成 2 条。同一个域里的 A 再来, 照样命中。\n- 忽略版本 (键里不带模型和 adapter 版本): 换了 adapter 仍然命中, 返回的是旧 adapter 下算的值, 和当前模型约定对不上, 而且没有任何报错。\n- 模型或 adapter 变化 (键里带版本): 未命中, 重新算。\n- 伪造租户声明: B 拿自己的凭证, 却声称自己是 A。网关按凭证判定身份, 声明和凭证对不上, 直接拒绝。\n所以共享域要由可信的身份网关从凭证推出来 (demo 用 HMAC 这种带密钥的哈希, 从租户身份生成命名空间)。客户端自己声明的租户或 salt (加进缓存键的一段随机串) 不能覆盖鉴权结果。同域可以复用, 跨域要有明确的命名空间隔离。\n边界: salt 只隔离缓存键, 不隔离进程、网络和显存。命中代价 1、未命中代价 5 是合成的数, 不是测出来的时延, 也不是攻击成功率。"})
+topic.pages["infer-prefix-radix"].points.push({"title": "前缀缓存的隔离边界: 缓存键必须绑定可信租户域与模型/Adapter 版本", "body": "两段请求哪怕词元序列一字不差, 它们的 KV 缓存也绝不能无条件跨请求复用——KV 的真实语义同时绑定了「谁有权限访问」与「由哪一版模型及 LoRA 算子算出」。`m34` 完整验证了两类跨界错误:\n- 跨租户侧信道泄露: 若缓存键未包含由可信网关根据凭证签发的租户隔离域 (`HMAC scope`), 租户 B 发送试探前缀即可命中租户 A 留下的缓存, 并通过首字响应显著变快推断出其他租户刚刚问过什么敏感内容 (且隔离域必须由服务端鉴权生成, 绝不能采信客户端自报的租户声明)。\n- 跨 Adapter / 模型版本静默串味: 同一基座切换了不同版本的 LoRA adapter 后若缓存键漏带 adapter 版本标识, 引擎会静默返回旧 adapter 算出的错误 KV 且不报任何异常。将可信租户命名空间、模型摘要与 adapter 身份一并纳入缓存键后方可安全启用前缀复用。"})
 topic.pages["infer-prefix-radix"].source.push("llm_infer/m34_cache_identity/demo.py:experiment")
 
 canonicalizeRelated(topic)

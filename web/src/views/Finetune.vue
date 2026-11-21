@@ -3,29 +3,15 @@
     <h1 class="page-title">任务适配 · 从 SFT / LoRA 到 DPO / GRPO / 蒸馏</h1>
     <div class="page-subtitle lead-group">
       <p>
-        预训练得到的是一个只会接龙的模型。微调要解决的是:
-        <strong>用尽量少的数据和算力, 把它拨到手上这个任务上</strong>。
+        预训练基座只学会了顺着上文续写, 微调与对齐要解决的是<strong>如何用尽量少的数据、显存和训练链路, 把基座塑造成遵循指令且符合偏好的模型</strong>。
       </p>
-      <p><RepoLink path="llm_finetune/" label="llm_finetune/" tiny /> 把这条路上的 16 种方法都写成了能跑的最小实现。</p>
-      <ul class="pts">
-        <li>
-          <b>本页三根主柱:</b>
-          <ul class="pts">
-            <li>全参 SFT (用「问题 + 标准回答」做监督微调)。</li>
-            <li>LoRA (不动原模型, 只训一对很小的补丁矩阵)。</li>
-            <li>不用奖励模型 (RM) 的偏好对齐 (DPO)。</li>
-          </ul>
-        </li>
-        <li><b>各有专章:</b> QLoRA / DoRA、SimPO / ORPO、奖励模型、GRPO 及其变体 (DAPO · Dr.GRPO · GSPO)、离线与 on-policy 蒸馏。每章都带一个能拖的实验台。</li>
-      </ul>
+      <p>
+        <RepoLink path="llm_finetune/" label="llm_finetune/" tiny /> 实现了这一阶段最核心的 16 种算法。本页先立起监督微调 (SFT)、低秩适配 (LoRA) 与直接偏好优化 (DPO) 三根支柱, 后续章节再进一步展开 QLoRA / DoRA、无参考模型偏好对齐、可验证奖励强化学习 (GRPO 家族) 以及知识蒸馏。
+      </p>
     </div>
 
     <ChapterIntro
-      tldr="三根主柱:
-        1. SFT: 用「问题 + 标准回答」教模型按指令回答。
-        2. LoRA: 不动原模型, 只训一对很小的补丁矩阵, 可训参数压到百分之零点几。
-        3. DPO: 直接在「同一个问题的好回答 / 差回答」上训, 把 RLHF (先训奖励模型、再做强化学习的三阶段流程) 塌缩成一个分类 loss。
-        每一步都是上一步在「数据 / 参数 / 流程」上的减法。"
+      tldr="后训练沿着「教格式 → 省显存 → 学偏好」递进: SFT 只对回复区间计算交叉熵, 教会模型按指令作答; LoRA 冻结原模型, 仅训练旁路低秩矩阵就把可训参数压到千分之几; DPO 则利用成对好坏回答直接做对数几率分类, 省去了传统 RLHF 里单独训练奖励模型与跑强化学习的繁琐流程。"
       question="同样的偏好数据, 为什么 PPO 要同时养 4 个模型, 而 DPO 只要 2 个加一行 logsigmoid?"
       :goals="[
         '说出 SFT / LoRA / DPO 各自要什么数据、动哪些参数、每步几次前向',

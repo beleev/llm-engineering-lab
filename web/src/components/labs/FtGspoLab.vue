@@ -26,7 +26,7 @@
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
       ask: '把噪声拖到 0.3 以上, 依次看:\n1. GRPO 下有几个 token 被 clip?\n2. 此时 GSPO 的 s 离 1 有多远?\n3. 再看「不做长度归一的 Πρ_t」: 如果序列有 1000 个 token 它会怎样?',
-      answer: '答案:\n1. 噪声 0.3 以上时常有三四个 token 被 clip。\n2. GSPO 的 $s$ 仍离 1 很近。\n3. 不归一的 $\\prod\\rho_t$ 在 1000 个 token 时会指数爆炸或归零, 几乎必然被 clip。\n为什么:\n- 每个 $\\rho_t$ 都只来自「这个位置采到的这一个 token」, 是方差很大的单样本重要性权重。噪声 0.3 时常有三四根柱子越界变灰, 其余照常更新: 同一条序列、同一个 $\\hat{A}$, 有的 token 学有的不学, 而哪些被 clip 基本是随机的。\n- MoE 模型里路由一变, token 级比率抖得更厉害。这是 GSPO 论文报告的 GRPO 训练崩溃来源。\n- 序列级比率 $\\log s = \\frac{1}{T}\\sum_t \\log\\rho_t$, 这个式子在说: 把 T 个 token 的 log 比率取平均。平均后噪声按 $1/\\sqrt{T}$ 缩小, $s$ 通常离 1 很近, 所以 GSPO 的 $\\varepsilon$ 取得极小 (论文里是 3e-4 到 4e-4 量级; 本仓库 grpo.py 的 gspo 配置用 0.05), 越界时整条序列一起放弃。\n- 必须取平均 (几何平均): 不做长度归一的 $\\prod\\rho_t = \\exp(\\sum_t\\log\\rho_t)$ 会随长度指数发散或归零, 长序列几乎必然被 clip。',
+      answer: '答案:\n1. 噪声 0.3 以上时常有三四个 token 被 clip。\n2. GSPO 的 $s$ 仍离 1 很近。\n3. 不归一的 $\\prod\\rho_t$ 在 1000 个 token 时会指数爆炸或归零, 几乎必然被 clip。\n为什么:\n- 每个 $\\rho_t$ 都只来自「这个位置采到的这一个 token」, 是方差很大的单样本重要性权重。噪声 0.3 时常有三四根柱子越界变灰, 其余照常更新: 同一条序列、同一个 $\\hat{A}$, 有的 token 学有的不学, 而哪些被 clip 基本是随机的。\n- MoE 模型里路由一变, token 级比率抖得更厉害。这是 GSPO 论文报告的 GRPO 训练崩溃来源。\n- 序列级比率 $\\log s = \\frac{1}{T}\\sum_t \\log\\rho_t$ 把整条序列 $T$ 个 token 的对数比率取平均。平均后噪声按 $1/\\sqrt{T}$ 缩小, $s$ 通常离 1 很近, 所以 GSPO 的 $\\varepsilon$ 取得极小 (论文里是 3e-4 到 4e-4 量级; 本仓库 grpo.py 的 gspo 配置用 0.05), 越界时整条序列一起放弃。\n- 必须取平均 (几何平均): 不做长度归一的 $\\prod\\rho_t = \\exp(\\sum_t\\log\\rho_t)$ 会随长度指数发散或归零, 长序列几乎必然被 clip。',
     }"
   >
     <template #controls>

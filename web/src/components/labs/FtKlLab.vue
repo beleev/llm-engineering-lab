@@ -25,7 +25,7 @@
     run="python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill"
     :challenge="{
       ask: '先点「最小化 forward KL」, 再点「最小化 reverse KL」, 然后回答:\n1. 两个最优学生分别落在哪?\n2. 各自的「垃圾样本率」是多少?\n3. 哪一个更像你希望小模型在生成时的表现?',
-      answer: '答案:\n1. forward 最优的学生是一个盖住两峰的宽高斯, reverse 最优的学生缩进一个峰。\n2. forward 的垃圾样本率很高; reverse 的垃圾样本率接近 0, 但漏掉另一个峰。\n3. 生成时希望小模型像后者。\n为什么:\n- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$, 这个式子在说: 在 teacher 有质量的每个地方, 检查 student 给了多少。teacher 有质量而 student 没有的地方, $\\log(p/q)$ 会变得极大, 所以学生被迫摊开盖住两个峰。代价是把大量概率放在两峰之间的低谷里, 那里 teacher 认为几乎不可能, 垃圾样本率很高。离线蒸馏 / SFT 优化的是 forward KL: 在 teacher 写的数据上做极大似然。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$, 这个式子在说: 在 student 自己去的每个地方, 检查 teacher 认不认可。没去的地方完全不罚, 去了 teacher 不认可的地方重罚, 于是它缩进一个峰。它生成的样本都像 teacher 会写的, 但放弃了另一种答法。\n- on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的是 reverse KL: 容量小的学生因此少会一种答法, 但很少胡说。本仓库实测样本合格率从 0.059 (离线) 到 0.402 (on-policy), 代价是 teacher 的少数派答法被放弃。',
+      answer: '答案:\n1. forward 最优的学生是一个盖住两峰的宽高斯, reverse 最优的学生缩进一个峰。\n2. forward 的垃圾样本率很高; reverse 的垃圾样本率接近 0, 但漏掉另一个峰。\n3. 生成时希望小模型像后者。\n为什么:\n- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$ 在 teacher 有概率质量的每个位置检查 student 给了多少概率。只要 teacher 有质量而 student 几乎为 0, $\\log(p/q)$ 就会急剧变大, 迫使学生摊开盖住两个峰; 代价是大量概率落在两峰之间的低谷, 垃圾样本率很高。离线蒸馏和 SFT 在 teacher 数据上做极大似然, 优化的就是 forward KL。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$ 只在 student 自己采到的位置检查 teacher 是否认可。没去的地方完全不罚, 去了 teacher 不认可的地方重罚, 于是它缩进一个峰。它生成的样本都像 teacher 会写的, 但放弃了另一种答法。\n- on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的是 reverse KL: 容量小的学生因此少会一种答法, 但很少胡说。本仓库实测样本合格率从 0.059 (离线) 到 0.402 (on-policy), 代价是 teacher 的少数派答法被放弃。',
     }"
   >
     <template #controls>

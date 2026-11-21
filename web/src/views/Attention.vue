@@ -21,16 +21,13 @@
     </div>
 
     <ChapterIntro
-      tldr="- 公式没变: 八年里 attention 的公式一个字没改, 还是 $\mathrm{softmax}(QK^\top)\cdot V$。这个式子在说:
-  1. 每个 token 拿自己的 Q 和所有 token 的 K 做内积得到分数。
-  2. softmax 把分数变成和为 1 的权重。
-  3. 再按权重把各个 V 加权求和。
-- 变的只是 K/V 怎么存:
-  - MHA: 每个头各存一份。
-  - GQA: 让几个头共用一份 (砍头数)。
-  - MLA: 只存一个能还原出 K/V 的压缩件 (术语叫低秩压缩)。
-  - DSA: 在 MLA 之上只对挑出来的 top-k 个位置算 (只算一部分)。
-- 结果: 同样 d_model=4096 的一层, 一个 token 的 KV 从 MHA 的 16 KiB 降到 MLA 的 1.1 KiB。本页的柱图会把这几档摆在一起。"
+      tldr="- 核心公式不变: 八年来注意力的主干计算始终是 $\mathrm{softmax}(QK^\top / \sqrt{d_k})V$ —— 用当前位置的 Q 与历史位置的 K 做点积打分, 归一化成权重后再对 V 加权求和。
+- 演进焦点在于怎么存 K/V、怎么省计算:
+  - MHA: 每个查询头独立保留一套 K/V, 表达力最足但缓存最大。
+  - GQA: 多个查询头共享一组 K/V, 直接按组数成倍压缩缓存。
+  - MLA: 不存完整 K/V, 改存低维压缩向量 $c_{kv}$ 与共享旋转位置向量, 用时再投影还原。
+  - DSA: 在 MLA 缓存之上先用轻量打分器筛出 top-k 个候选位置, 把超长上下文的注意力计算从 $O(T^2)$ 降到 $O(T\cdot k)$。
+- 直观量级: 同样宽度 $d_{\text{model}}=4096$ 的单层里, 每新增 1 个 token 的缓存可从 MHA 的 16 KiB 一路压到 MLA 的约 1.1 KiB。"
       question="模型每生成一个 token 都要翻一遍前面所有 token 的 K 和 V。每层每个 token 存的这份 K、V 还能不能再小, 同时效果不变差?"
       :goals="[
         '说清 MHA / GQA / MLA / DSA 各自省的是哪一块',

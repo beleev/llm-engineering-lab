@@ -6,7 +6,7 @@
 <template>
   <LabFrame
     title="ratio clip — 一批样本更新多轮时, 哪些 token 这一步已经不许再推"
-    sub="- 模拟什么: PPO / GRPO 为了把一批昂贵的采样多用几轮, 从第二轮起策略已经变了, 要用重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 来修正 (新策略比旧策略给这个 token 的概率涨了几倍)。为了不让单步走太远, 目标函数写成 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$, 这个式子在说: $\rho$ 一旦超出 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 并且是往对自己有利的方向超, 就取裁剪后的那一项, 它对 $\rho$ 的导数是 0, 这个 token 本轮不再被推。$\hat{A}$ 是优势: 正表示这是个好 token 想推高, 负表示想压低。DAPO 的 clip-higher 把上界单独放宽。
+    sub="- 模拟什么: PPO / GRPO 为了把一批昂贵的采样多用几轮, 从第二轮起策略已经变了, 要用重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 来修正 (新策略比旧策略给这个 token 的概率涨了几倍)。为了不让单步走太远, 目标函数取 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$: 当 $\rho$ 朝有利方向越出 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 时直接切换为截断项, 对 $\rho$ 导数归零, 本轮停止继续推拉。$\hat{A}$ 是优势: 正表示这是个好 token 想推高, 负表示想压低。DAPO 的 clip-higher 把上界单独放宽。
       - 图上是什么: 横轴是 $\rho$。图里各部分:
         - 竖虚线: $\rho = 1$ (新旧策略一样)。
         - 两条黄竖线: 裁剪边界 $1-\varepsilon_{\text{low}}$ 和 $1+\varepsilon_{\text{high}}$。

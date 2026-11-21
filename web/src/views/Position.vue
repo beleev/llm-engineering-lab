@@ -3,12 +3,12 @@
     <h1 class="page-title">位置编码 · 从 Sinusoidal 到 RoPE 再到 M-RoPE</h1>
     <div class="page-subtitle lead-group">
       <p>
-        注意力只看内容, 不看顺序: 一个 token 的 Q 和另一个 token 的 K 做内积得到分数, 分数里没有「谁在前谁在后」。
-        所以不给位置编码, attention 就是一袋 token: 把句子里的词打乱顺序, 每个词算出来的结果一模一样 (本仓库的 attention demo 断言了这一点, 误差 8.9e-08)。
+        注意力本身只看内容、不看顺序: Q 和 K 做内积算出相关性分数, 式子里没有「谁在前谁在后」。
+        如果不注入位置信息, 把句子里的词打乱顺序, 每个词算出的注意力输出完全不变。
       </p>
       <p>
-        <strong>RoPE 把 Q 和 K 各转一个角之后, <Tex text="$Q\cdot K$" /> 内积 (也就是注意力分数) 就只剩下「隔了多远」, 绝对位置自动消失</strong>。
-        本章拖一根滑条就能看到这一点。
+        <strong>RoPE 的做法是按位置把 Q 和 K 各转一个角度: 做完 <Tex text="$Q\cdot K$" /> 内积后绝对位置自动抵消, 分数只取决于两个 token 隔了多远</strong>。
+        拖动下方滑条就能直观看到这一几何性质。
       </p>
     </div>
 
@@ -164,8 +164,8 @@
           <Prose text="$$\begin{aligned} Q_m &= R(m\theta)\cdot q \\ K_n &= R(n\theta)\cdot k \\ \langle Q_m, K_n \rangle &= \langle R(m\theta)\cdot q,\ R(n\theta)\cdot k \rangle \\ &= q^\top \cdot R(m\theta)^\top \cdot R(n\theta)\cdot k \\ &= q^\top \cdot R((n-m)\theta)\cdot k && \leftarrow \text{只依赖 } (n-m) \end{aligned}$$" />
 
           <p class="desc" style="margin-top: 12px;">
-            这个式子在说: 先把 q 转 <Tex text="$m\theta$" />, 再把 k 转 <Tex text="$n\theta$" />, 两个点之间的夹角只差 <Tex text="$(n-m)\theta$" />。内积只和两个向量的长度、夹角有关, 旋转不改长度, 所以结果等于「不转 q, 只把 k 转 <Tex text="$(n-m)\theta$" />」。
-            <strong>转过的 Q 和 K 一做内积, 相对距离就自己冒出来了</strong>, 绝对位置 <Tex text="$m$" />、<Tex text="$n$" /> 被约掉。
+            从几何上看, 先把 q 转 <Tex text="$m\theta$" />, 再把 k 转 <Tex text="$n\theta$" />, 两者的夹角只差 <Tex text="$(n-m)\theta$" />。内积只取决于向量的长度与夹角, 而旋转不改变长度, 所以结果等价于「保持 q 不动, 只把 k 转 <Tex text="$(n-m)\theta$" />」。
+            <strong>旋转后的 Q 和 K 一做内积, 绝对位置 <Tex text="$m$" />、<Tex text="$n$" /> 自动抵消, 只留下相对距离</strong>。
           </p>
           <p class="desc" style="margin-top: 6px;">
             整个过程没有一个可学参数, 位置往外推也不会遇到「没训过的参数」(会遇到的是上面说的没见过的角度), 所以现代 LLM 几乎全换成了 RoPE。

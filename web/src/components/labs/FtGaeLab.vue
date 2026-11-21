@@ -31,7 +31,7 @@
     run="python -m llm_finetune.run_finetune.ppo.train_ppo"
     :challenge="{
       ask: '按顺序做:\n1. 点「V ≡ 0」模拟冻结的 critic。\n2. 把 λ 拉到 1、γ 拉到 1。\n6 个 token 的 $A_t$ 长什么样? 这和 GRPO 给整条回复一个 $A$ 有什么区别?',
-      answer: '答案:\n1. 6 个 $A_t$ 几乎一样大, 都约等于最终的 verifier 分。\n2. 这时 PPO 和 GRPO 一样是整条回复一个优势, 区别只在 baseline 用批均值还是组均值。\n为什么:\n- $V \\equiv 0$ 时 $\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t) = r_t$, 只剩即时奖励。\n- $\\lambda = 1$、$\\gamma = 1$ 时 $A_t = \\sum_{k\\ge 0} r_{t+k}$, 这个式子在说: 每个 token 的优势就是它之后所有奖励的总和。verifier 的分只在最后一个 token 上, 所以每个位置都约等于那个分, 只差后面几步的小 KL 惩罚。\n- critic 学不会时, PPO 就退化成这样: 所有 token 分到几乎一样的 $A$, 再做批内白化 (减批均值、除批标准差), 等价于 REINFORCE 减批均值。脚本里 critic 冻结 (lr=0) 的对照 pass@1 0.389, 和正常 PPO 的 0.381 在噪声内。\n- 逐 token 的信用分配要靠一个能估准的 $V$。本仓库 60 步、64 维的 critic 没学到: $V(s_0)$ 只解释 2.5% 的回报方差。',
+      answer: '答案:\n1. 6 个 $A_t$ 几乎一样大, 都约等于最终的 verifier 分。\n2. 这时 PPO 和 GRPO 一样是整条回复一个优势, 区别只在 baseline 用批均值还是组均值。\n为什么:\n- $V \\equiv 0$ 时 $\\delta_t = r_t + \\gamma V(s_{t+1}) - V(s_t) = r_t$, 只剩即时奖励。\n- $\\lambda = 1$、$\\gamma = 1$ 时 $A_t = \\sum_{k\\ge 0} r_{t+k}$, 即每个 token 的优势等于其后续全部奖励之和。verifier 的分只在最后一个 token 上, 所以每个位置都约等于那个分, 只差后面几步的小 KL 惩罚。\n- critic 学不会时, PPO 就退化成这样: 所有 token 分到几乎一样的 $A$, 再做批内白化 (减批均值、除批标准差), 等价于 REINFORCE 减批均值。脚本里 critic 冻结 (lr=0) 的对照 pass@1 0.389, 和正常 PPO 的 0.381 在噪声内。\n- 逐 token 的信用分配要靠一个能估准的 $V$。本仓库 60 步、64 维的 critic 没学到: $V(s_0)$ 只解释 2.5% 的回报方差。',
     }"
   >
     <template #controls>
@@ -75,7 +75,7 @@
       <div class="kv"><span><Tex text="首 token 优势 $A_0$" /></span><b>{{ cols[0].A.toFixed(3) }}</b></div>
       <div class="kv"><span>逐 token 的 A 差多少 (max − min)</span><b :class="spread < 0.05 ? 'bad' : 'good'">{{ spread.toFixed(3) }}</b></div>
       <div class="lab-note">
-        <p><Tex text="$\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$, 这个式子在说: 走一步拿到的奖励加上下一步的估值, 比原来估的多了多少, 就是这一步的「惊喜」。" /></p>
+        <p><Tex text="$\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$: 衡量单步即时奖励加下一状态估值相对当前预期 $V(s_t)$ 的时序差分残差。" /></p>
         <p><Tex text="$A_t = \delta_t + \gamma\lambda A_{t+1}$, 从最后一个 token 往前递推, 末 token 之后 $V = 0$。$\lambda$ 决定后面几步的惊喜要带回来多少: 0 只看这一步, 1 全带回来。" /></p>
         <p>脚本的单测 (随机 r / V、γ=0.9):</p>
         <ul class="pts">

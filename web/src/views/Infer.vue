@@ -123,16 +123,10 @@
     <section class="section">
       <h2>5. full_engine · 把模块接成服务主循环</h2>
       <div class="lead-group">
-        <p><RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 是最值得对着源码读的一页。</p>
-        <p>它不是完整的 vLLM, 但把下面这几块串在同一条控制流上:</p>
-        <ul class="pts">
-          <li>调度 (m03)。</li>
-          <li>真分页 KV pool (m02)。</li>
-          <li>前缀复用 (m04)。</li>
-          <li>分块 prefill (m03 的开关, 原理见 m06)。</li>
-          <li>抢占和采样 (m10)。</li>
-        </ul>
-        <p>它断言 greedy 输出与朴素生成逐 token 相同。哪怕 9 个 block 的小 pool 逼出了 4 次抢占, 也一样。</p>
+        <p>
+          <RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 虽不是完整的工业级 vLLM, 但把连续批调度 (m03)、真分页 KV 池 (m02)、链式前缀复用 (m04)、分块 prefill (m06) 以及抢占与采样 (m10) 串在了同一条服务主循环上。
+        </p>
+        <p>哪怕在只有 9 个物理块的小池子里触发了 4 次抢占重算, 它的贪心输出依然与朴素单条生成逐 token 完全一致。</p>
       </div>
       <div class="grid grid-2" style="gap: 16px;">
         <div class="card">
@@ -203,21 +197,11 @@ const prevChapter = { name: prevItem.route, label: `上一章 · ${prevItem.labe
 
 // 模块数从数据里数, 不写死 (inferModules 里除了 mNN 还有一行 full)
 const moduleCount = inferModules.filter((m) => /^m\d+$/.test(m.id)).length
-const tldr = `推理分两段:
-- prefill: 把整段 prompt 一次算完。
-- decode: 之后一个 token 一个 token 往外吐。
-decode 每出 1 个 token, 都要把整份模型权重和前面所有 token 缓存下来的 K/V (KV cache) 从显存读一遍, 而计算量很小: 卡住的是显存带宽, 不是算力。
-${moduleCount} 个模块里, 主线这几组都在省 KV 的搬运和存储:
-- cache: 旧 token 的 K/V 算一次存起来, 省重算
-- 分页: 把 KV 显存切成固定大小的块按需分配, 省碎片
-- 前缀复用: 相同的开头 (比如 system prompt) 只算一次, 省重复 prefill
-- 连续批: 每一步重新凑 batch, 请求随到随进, 省 GPU 空转
-- 量化和 GQA/MLA: 把每个 token 的 KV 存小, 省字节
-其余模块做别的事:
-- 投机解码: 小模型先猜几个 token, 大模型一次前向验多个
-- 采样、语法约束、beam search、测试时计算: 管输出的分布和正确率
-- 权重量化、FlashAttention、CUDA Graph、张量并行: 省权重字节和算子开销
-- 多 LoRA、MoE、多副本路由: 一套服务接多个适配器、专家和副本`
+const tldr = `线上推理分为两段截然不同的计算负载: prefill 一次并行算完输入 prompt, 受算力上限约束; decode 则逐个生成新 token, 每步都要把模型权重与历史 KV cache 从显存完整搬运一遍, 瓶颈主要卡在显存带宽与容量。
+本阶段 ${moduleCount} 个模块围绕这条主循环层层展开:
+- 管住 KV 显存与并发调度: 用 KV cache 省掉历史重算, 用 PagedAttention 分页消除显存碎片, 用 Prefix Cache 复用公共前缀, 再配合 Continuous Batching 与 Chunked Prefill 喂饱 GPU。
+- 压低单步延迟与访存字节: 通过投机解码一次验证多个草稿 token, 借助权重量化、KV 量化、FlashAttention 与 CUDA Graph 减少读写与启动开销。
+- 控制输出质量与多租户扩展: 涵盖采样策略、JSON/CFG 语法约束、测试时搜索, 以及张量并行、多 LoRA 和多副本路由。`
 
 const inferChain = [
   {

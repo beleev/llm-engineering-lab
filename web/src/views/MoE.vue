@@ -3,33 +3,15 @@
     <h1 class="page-title">MoE 路由可视化</h1>
     <div class="page-subtitle lead-group">
       <p>
-        Transformer 的每一层里都有一个 FFN (feed-forward network, 前馈网络): 几个矩阵乘法, 每个 token 单独过一遍。
-        模型记住的「知识」大部分存在 FFN 的参数里, 所以想让模型更懂, 最直接的办法是把 FFN 做大。
+        Transformer 层里的前馈网络 (FFN) 承载了模型绝大部分参数容量。但在传统稠密结构里, 每个 token 都必须算遍全部 FFN 参数, 想靠扩参数提升容量, 单 token 的计算成本就会同比例飙升。
       </p>
       <p>
-        问题是稠密 FFN 里每个参数对每个 token 都要算一遍: FFN 参数翻倍, 每个 token 的算力也翻倍。
+        混合专家模型 (MoE) 把单个大 FFN 拆成 E 个独立的专家网络, 再用一个轻量级路由器 (router) 为每个 token 挑出得分最高的 k 个专家参与计算, 从而把「总参数容量」与「单步激活算力」解耦。本页并排对比工业界最主流的两条路由路线: <strong>Mixtral (大粒度专家 + softmax 竞争 + 辅助均衡损失)</strong> 与 <strong>DeepSeek-V3 (细粒度专家 + 共享专家 + 无辅助损失偏置均衡)</strong>。
       </p>
-      <p>MoE (Mixture of Experts, 混合专家) 的做法:</p>
-      <ol class="pts">
-        <li>把一个大 FFN 换成 E 个小 FFN, 每个小 FFN 叫一个「专家」。</li>
-        <li>再加一个叫 router 的小线性层, 给每个 token 对每个专家打一个分, 只把 token 送进分数最高的 k 个专家, 这一步叫 top-k。</li>
-      </ol>
-      <p>参数量按 E 个专家算, 每个 token 的算力只按 k 个算。容量和算力就这样拆开了。</p>
-      <p>
-        本页把两套路由设计并排放:
-        <strong>Mixtral (softmax 打分 + 外挂 aux loss)</strong> 对 <strong>DeepSeek (sigmoid 打分 + 共享专家 + aux-free bias)</strong>。其中:
-      </p>
-      <ul class="pts">
-        <li><b>aux loss:</b> 为了让各专家接到的 token 数差不多, 而额外加进总 loss 的一项。</li>
-        <li><b>aux-free:</b> 不加这一项, 改用一个不走梯度的偏置 bias 去调整「选谁」。</li>
-      </ul>
     </div>
 
     <ChapterIntro
-      tldr="MoE 把 Transformer 里的 FFN 槽位换成「E 个小 FFN (专家) + 一个 router」, router 给每个 token 挑 k 个专家。参数量按 E 算, 每个 token 的算力按 k 算。
-        - Mixtral: softmax 打分, 8 个大专家每个 token 选 2 个; 负载均衡靠额外加进总 loss 的 aux loss。
-        - DeepSeek-V3: sigmoid 打分, 64–256 个细粒度专家, 外加每个 token 都必过的共享专家; 负载均衡靠一个不走梯度的 bias。本库 demo 里这个 bias 把负载变异系数从 0.273 压到 0.124, LM loss 几乎不动 (2.979 对 2.982)。
-        两者是两套并列的路由方案, 不是新旧版本。"
+      tldr="MoE 用 E 个专家撑起总参数量, 但每个 token 只激活 top-k 个专家来省算力。为了防止少数热门专家包揽流量 (路由坍缩), Mixtral 在训练目标上外挂辅助损失 (aux loss) 强行拉平负载, 而 DeepSeek-V3 改用细粒度专家加常驻共享专家, 并通过一个不参与梯度反传的动态偏置 (aux-free bias) 调节路由选择, 在不干扰语言建模损失的前提下维持负载均衡。"
       question="专家一多, router 很容易把大部分 token 都塞给那几个「明星专家」, 怎么防? 又怎么让「把负载拉平」这件事不去干扰模型学语言本身的 loss?"
       :goals="[
         '看懂一个 FFN 是怎么被换成 router 加 E 个小 FFN 的, 以及一个 token 从 router 到专家再加回来走了哪几步',

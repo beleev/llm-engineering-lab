@@ -3,13 +3,10 @@
     <h1 class="page-title">Agent 应用层 · 把模型接成可行动系统</h1>
     <div class="page-subtitle lead-group">
       <p>
-        <RepoLink path="llm_agent/" label="llm_agent/" tiny /> 默认不接真实 API, 用
-        <code class="inline">RuleBasedLLM</code> 顶上: 一个按规则回话的假模型, 同样的输入永远给同样的输出。
-        这样每个 demo 都能用 <code class="inline">assert</code> 证明自己声称的事。
+        把大模型接成可靠运行的 Agent, 核心工程不在那十几行循环, 而在外围的控制面: 工具参数怎么校验、高危命令怎么拦截、长对话怎么压缩、中断后怎么恢复。
       </p>
-      <p>这一阶段看的是模型的输出怎么被结构化、检查、执行和记录; 模型聪不聪明不是重点。</p>
       <p>
-        设计刻意对齐 Claude Code: 权限模式名、hook 事件名、<code class="inline">mcp__server__tool</code> 命名、content block 格式。
+        为了把这些控制机制单独拆出来验证, <RepoLink path="llm_agent/" label="llm_agent/" tiny /> 默认使用确定性的 <code class="inline">RuleBasedLLM</code> 代替真实 API, 让每个模块都能用 <code class="inline">assert</code> 精确检验行为; 权限模式、hook 事件、<code class="inline">mcp__server__tool</code> 命名与消息结构均对齐 Claude Code。
       </p>
     </div>
 
@@ -36,12 +33,7 @@
     <section class="section">
       <h2>1. 应用层依赖链</h2>
       <div class="lead-group">
-        <p>从 "能生成 token" 到 "能把事做完", 中间多出来的全是控制面。</p>
-        <p>搭的顺序:</p>
-        <ol class="pts">
-          <li>先把 loop 跑通。</li>
-          <li>再一层层加工具、权限、上下文、扩展、持久化和子智能体。</li>
-        </ol>
+        <p>从「单轮生成文本」到「稳定把长任务做完」, 中间多出来的全是确定性的控制层: 先跑通最小循环, 再逐层叠上工具、权限、上下文管理、扩展接口、状态持久化与子智能体隔离。</p>
       </div>
       <EvolutionChain
         title="从 completion 到 mini Agent harness"

@@ -30,25 +30,25 @@
           <div class="onboard-num">3</div>
           <h3>怎么读</h3>
           <p class="desc">
-            <strong>不用全读。</strong>先选档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章)。每章按这个顺序读:
+            <strong>不用从头读到尾。</strong>先选阅读档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章), 每章建议按三步走:
           </p>
           <ol class="desc pts">
-            <li>拖实验台。</li>
-            <li>看要点和源码。</li>
-            <li>做自测。</li>
+            <li>动手调实验台参数, 建立直觉。</li>
+            <li>结合要点与源码对照表理清机制。</li>
+            <li>做章末自测检验理解。</li>
           </ol>
         </div>
       </div>
     </section>
 
     <ChapterIntro
-      tldr="一条主线, 把模型从公式带到能行动的系统。依次是:
-        1. numpy 手写最小闭环。
-        2. 现代架构家族。
-        3. 规模化训练。
-        4. 任务微调。
-        5. 推理优化。
-        6. Agent 应用层。"
+      tldr="全书沿一条工程主线展开, 从底层算子一路搭到上层应用:
+        1. llm_basic: 纯 NumPy 手写前向、反向与采样闭环。
+        2. llm_models: 拆解现代主流架构的注意力、位置编码、MoE 与扩散组件。
+        3. llm_train: 多卡分布式并行、显存优化与低精度训练。
+        4. llm_finetune: SFT、LoRA 家族、偏好对齐与强化学习微调。
+        5. llm_infer: KV Cache 分页、连续批处理、量化与投机解码。
+        6. llm_agent: 工具调用、权限护栏、上下文工程与评测闭环。"
       question="如果一个新人要从零开始, 先看哪一段, 跳过哪一段?"
       :goals="[
         '看清 LLM 全栈的六个工程阶段, 各自解决什么问题',

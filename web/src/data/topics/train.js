@@ -20,9 +20,9 @@ const topic = {
     // ---------------------------------------------------------------- 切 batch
     'train-batch-ddp': {
       title: 'batch 与 DDP · 同一个梯度的三种算法',
-      subtitle: '读完你能说清 DDP 为什么 "就是一个更大的 batch", 以及这句话在什么条件下会悄悄失效。',
-      tldr: '训练一步要的是一个梯度: 把 batch 里 N 个样本各自的梯度取平均。同一个平均值有三种算法:\n- 单卡: 一张卡一次算完整个 batch。\n- 梯度累积: 把 batch 切成 $K$ 小份, 在同一张卡上一份接一份算, 梯度累加后再更新一次。用 $K$ 倍的串行时间, 换 $1/K$ 的激活显存。\n- DDP (分布式数据并行): $P$ 张卡各放一份完整模型, 各算 batch 的 $1/P$, 再把梯度平均。用每步 $2(P-1)/P$ 份梯度大小的通信, 换 $1/P$ 的时间。\n三者算出的梯度相等, 前提是每一份的样本数相同。',
-      question: '梯度累积和 DDP 都在把一个 batch 切成几份算, 为什么一个不用通信、另一个每步都要把梯度在卡之间同步一次?',
+      subtitle: '单卡训练受限于激活显存与单卡算力。梯度累积在时间上分批累加, DDP 在多卡间并行求平均, 两者都在不改变全局梯度的前提下突破单卡限制。',
+      tldr: '单步更新的目标是算出全局 $N$ 个样本的平均梯度, 按硬件条件有三种等价做法:\n- 单卡整批: 一次前向与反向算完整个 batch, 受单卡显存和算力限制。\n- 梯度累积: 在单卡上拆成 $K$ 个 micro-batch 串行计算并累加梯度, 用 $K$ 倍时间换取 $1/K$ 的激活显存峰值。\n- DDP (分布式数据并行): $P$ 张卡各持一份完整模型、各算 $1/P$ 数据, 再通过 all-reduce 同步平均梯度, 用通信换取近 $P$ 倍的吞吐提升。',
+      question: '梯度累积和 DDP 都在把一个 batch 拆成多份计算, 为什么前者无需通信, 后者却每步都必须在卡间同步梯度?',
       evolution: {
         title: '怎么切 batch 都得是同一个梯度',
         subtitle: '根问题: 梯度要平均足够多的样本, 一张卡的显存和算力都撑不住',
@@ -36,35 +36,35 @@ const topic = {
       code: 'llm_train/m01_gradient_accumulation/demo.py · llm_train/m02_data_parallel/demo.py',
       points: [
         {
-          title: '三个名词: DDP、rank、all-reduce',
-          body: 'DDP 让多张卡各算一片数据, all-reduce 把各卡的梯度合成一个, micro-batch 是同一张卡上串行算的小份。\n- DDP (Distributed Data Parallel, 分布式数据并行): 有 P 张卡, 每张卡都放一份完整的模型。一个 batch 切成 P 片, 每张卡算自己那一片的梯度。代码里一张卡叫一个 rank, 编号从 0 开始。\n- all-reduce: 一种多卡之间的通信操作。每张卡交出自己的梯度, 操作结束后每张卡都拿到所有卡梯度的和。把这个和再除以卡数, 就是平均梯度。DDP 每步用它把各卡的梯度合成一个。\n- micro-batch: 同一张卡把一个 batch 拆成几小份, 一份接一份串行算, 每份算出的梯度累加起来, 累加完再更新一次参数。这就是梯度累积。',
+          title: '核心概念: DDP、rank 与 all-reduce',
+          body: '数据并行围绕三个基础概念展开:\n- DDP (Distributed Data Parallel, 分布式数据并行): $P$ 张计算卡各保存一份完整模型副本, 将全局 batch 切成 $P$ 片分别计算本地梯度; 代码中每张卡称为一个 rank, 编号从 0 开始。\n- all-reduce: 多卡集合通信原语。每张卡交出本地梯度张量, 通信完成后每张卡都拿到全体卡的梯度总和, 再除以卡数即得全局平均梯度。\n- micro-batch (微批次): 单张卡在显存受限时将一个 batch 拆成若干小份串行执行前向与反向, 梯度累加齐后再调用一次优化器更新。',
         },
         {
-          title: '切法不同, 梯度相同',
+          title: '切分方式不同, 算出的全局平均梯度严格等价',
           key: true,
-          body: '结论: 不管把 batch 怎么切, 只要最后算的是同一组 N 个样本的平均梯度, 结果就是同一个数。\n为什么: 一个 batch 的梯度, 定义上就是 N 个样本各自梯度的平均。平均这个运算不在乎加法的先后顺序。先算哪个样本、在哪张卡上算、分几批算, 都只是改变了求和的顺序, 不改变和。\ndemo 里的两组数字:\n- m01 (梯度累积): 把 8 个样本切成 4 份各 2 个, 串行累积出来的梯度, 与一次算完 8 个样本的梯度最大差 2.98e-08。\n- m02 (DDP): 4 张卡各算 4 个样本, all-reduce 取平均后各自更新一步, 更新后的参数与单卡一次算 16 个样本的结果最大差 3.73e-09。\n这两个差不是 0, 是因为 float32 做加法时顺序不同会留下最后几位的舍入零头。两个 demo 都用 assert 卡着这个差必须小于一个阈值。\n所以 "DDP 就是一个更大的 batch" 是一个可以用 assert 检查的等式。',
+          body: '无论在时间上分多轮累加还是在空间上分多卡并行, 只要最终对同一批 $N$ 个样本取等权平均, 算出的梯度在数学上完全相同。因为全批次梯度定义为各样本梯度的算术平均, 改变分组求和顺序不会改变结果, 仅在浮点末位留下微小的舍入差异:\n- m01 (梯度累积): 将 8 个样本拆成 4 份各 2 个串行累积, 与整批一次算出的梯度最大绝对误差仅 2.98e-08。\n- m02 (DDP): 4 张卡各算 4 个样本, 经 all-reduce 平均后各自更新一步, 与单卡一次训 16 个样本的参数最大差仅 3.73e-09。\n两个实验均通过 assert 校验这一数值等价性。',
         },
         {
-          title: '累积换显存, DDP 换时间',
-          body: '梯度累积省的是显存, DDP 省的是时间。\n- 梯度累积省显存: 前向时每一层的中间结果 (激活) 要留到反向用, 激活占的显存和一次送进去的样本数成正比。切成 micro-batch 后, 一次只送一小份, 激活峰值按 micro-batch 算, m01 里从 8 个样本降到 2 个。代价是 K 份要一份接一份算, 时间是 K 倍; 算力和通信一点没省。\n- DDP 省时间: P 张卡同时算, 每卡的样本数除以 P, 一步的时间也大约除以 P。代价是每步要做一次覆盖全部模型梯度的 all-reduce。用 ring (环形) 算法实现时, 每张卡每步要发出 $2(P-1)/P$ 份梯度大小的数据: 8 卡是 1.75 份, 64 卡是 1.97 份, 上限是 2 份, 几乎不随卡数涨。\nDDP 不省显存: 每张卡仍然存一整份参数、一整份梯度、一整份 Adam 优化器状态。要把这些也切开, 就是 ZeRO (把参数、梯度、优化器状态按卡切成片, 每卡只存一片的办法) 要做的事, 下一章讲。',
+          title: '梯度累积省激活显存, DDP 省训练墙钟时间',
+          body: '两种切分针对的是不同的硬件瓶颈:\n- 梯度累积降低激活显存峰值: 前向中间激活随单次送入的样本数线性增长。拆成 $K$ 个 micro-batch 后, 单次激活峰值降为 $1/K$ (m01 中从 8 个样本压到 2 个), 代价是串行执行耗时变为 $K$ 倍, 总计算量不变。\n- DDP 缩短单步耗时: $P$ 张卡同时处理各自分片, 计算耗时近似降为 $1/P$; 代价是每步需同步一次全模型梯度。采用环形 (ring) 算法时, 每张卡每步发送 $2(P-1)/P$ 份梯度字节 (8 卡为 1.75 份, 64 卡为 1.97 份), 上界恒为 2 份, 几乎不随卡数膨胀。\n需要注意 DDP 并不节省模型状态显存: 每张卡依然独立保存完整的参数、梯度和 Adam 优化器状态, 切分这部分冗余要靠后续章节的 ZeRO。',
         },
         {
-          title: '等价挂在 "按样本数加权" 上',
-          body: '上一条的等式有一个前提: 累加时的权重要按样本数来。\n一份 micro-batch 的 loss 在算的时候已经对自己的 $n_k$ 个样本取过平均, 所以它的梯度是 "$n_k$ 个样本的平均梯度"。要把 K 份合成 "全部 N 个样本的平均梯度", 每份要乘上它占的样本比例 $n_k/N$ ($n_k$ 是第 k 份的样本数, $N$ 是总样本数), 再相加。代码里就是 accumulate 函数的 scale=n / len(x)。\n每份样本数相同时, $n_k/N$ 就是 $1/K$。这时如果忘了乘, 结果只是整体放大 K 倍, 程序不会报错。\n- m01 的 "直接相加" 对照组 (weighted=False): 梯度的大小恰好是正确值的 4.00 倍, K=4。对 SGD 来说, 这等于偷偷把学习率乘了 4。\n- 换成 [3,3,2] 这种不等长切法: 按 1/K 平均和按样本数加权给出不同的梯度, 错误立刻暴露。按样本数加权时, 与整 batch 的差是 5.96e-08。\n跨卡是同一回事: all-reduce(mean) 做的是 "各卡自己那片的平均梯度" 再做一次简单平均。只有每卡的样本数相同时, 这才等于全局平均。',
+          title: '数学等价的前提是按实际样本数加权',
+          body: '每个 micro-batch 内部计算交叉熵时已经除以了自身的样本数 $n_k$。要把 $K$ 份局部平均还原成全局 $N$ 个样本的平均, 累加时每份梯度必须乘上样本占比 $n_k/N$ (对应代码 accumulate 中的 `scale=n / len(x)`)。\n各份样本数恰好相等时 $n_k/N = 1/K$; 一旦漏乘缩放系数或遇到不等长切分就会引入隐蔽偏差:\n- m01 对照组 (`weighted=False`): 直接将 4 份梯度相加, 梯度幅值恰好偏大 4.00 倍, 在 SGD 下相当于把学习率放大了 4 倍。\n- 不等长切分 `[3, 3, 2]`: 简单除以份数 $1/K$ 会高估末尾短批次的权重, 只有按 $n_k/N$ 加权才能与整批梯度对齐 (误差 5.96e-08)。\n跨卡 DDP 同理: `all_reduce_mean` 对各卡局部均值做等权平均, 前提正是每张卡分到的有效样本数相同。',
         },
       ],
       links: [
-        { from: 'llm_basic train.py', to: '梯度累积', body: '左边是最基础的单卡训练循环: 每个 batch 算一次梯度、更新一次参数。右边的梯度累积只改了一处: 参数更新从每个 batch 一次变成每 K 个 micro-batch 一次, 中间的梯度累加起来。其余代码一行没改。' },
-        { from: 'local grads', to: 'all_reduce_mean', body: '左边是每张卡用自己那片数据算出的本地梯度, 它只代表全局 batch 的一片。右边的 all_reduce_mean 把各卡的本地梯度加起来再除以卡数。只要漏掉一次同步, 各卡用不同的梯度更新, 参数从那一步起就不再相同。' },
-        { from: 'DDP', to: 'ZeRO', body: 'DDP 每张卡都存一整份参数、梯度和 Adam 状态, 显存和单卡一样紧。ZeRO 把这三样按卡切成片, 每卡只存自己那一片。DDP 存不下的时候才轮到它。' },
-        { from: '2(N−1)/N', to: 'ring all-reduce', body: '左边是 DDP 每卡每步的通信量系数: 发出 $2(N-1)/N$ 份梯度大小的数据。右边的 ring all-reduce 是产生这个系数的具体算法, 它怎么算出来的见「通信与 full_loop」一章。' },
+        { from: 'llm_basic train.py', to: '梯度累积', body: '基础单卡循环每算一个 batch 立刻更新参数; 梯度累积只把参数更新推迟到累加满 K 个 micro-batch 之后, 其余前向与反向逻辑保持不变。' },
+        { from: 'local grads', to: 'all_reduce_mean', body: '每张卡基于本地数据片算出的梯度只反映全局 batch 的一部分, 经 all_reduce_mean 求和并除以卡数后才得到一致的全局梯度; 若漏掉同步, 各卡权重将从该步起分叉。' },
+        { from: 'DDP', to: 'ZeRO', body: 'DDP 在每张卡上完整复制参数、梯度和 Adam 状态, 单卡放不下模型状态时需进一步引入 ZeRO 按卡分片存储。' },
+        { from: '2(N−1)/N', to: 'ring all-reduce', body: 'DDP 每卡每步发送 $2(N-1)/N$ 份梯度数据的系数来自环形接力算法 ring all-reduce, 具体分块传输过程见「通信与 full_loop」一章。' },
       ],
       sourceRows: [
-        { concept: 'micro 权重', code: 'm01_gradient_accumulation/demo.py:accumulate', takeaway: '每份 micro-batch 的梯度乘上 n/len(x) (它的样本数占总样本数的比例) 再累加, 累积梯度靠这一行才等于整 batch 的平均梯度。weighted=False 是故意写错的对照组, 它把权重换成 1。' },
-        { concept: '不等长 micro', code: 'sizes=[3, 3, 2]', takeaway: '8 个样本切成 3、3、2 三份, 最后一份不满。这时按样本数加权和按 1/K 平均给出不同的梯度, 只有前者等于整 batch 的梯度。' },
-        { concept: '梯度同步', code: 'core/collectives.py:all_reduce_mean', takeaway: '先 all-reduce 求和, 再除以卡数 world。做完之后每张卡手里的梯度逐位相同, 之后各自更新参数也就走同一条路。' },
-        { concept: '副本一致性', code: 'assert max_abs_diff(replicas[0], r) == 0', takeaway: '这个断言检查同步后每张卡上的参数副本与 0 号卡逐位相同 (差为 0)。如果不同, 说明训练已经分叉成几条不同的轨迹, 而框架不会为此报错。' },
-        { concept: '通信账', code: 'core/collectives.py:CommCounter', takeaway: 'CommCounter 记下每张卡每步发出的字节数。DDP 下是 $2(N-1)/N$ 乘以全模型梯度的字节数, m02 里 56 B 的梯度在 4 卡下是 84 B。上限是 2 份, 卡数再多也几乎不变。' },
+        { concept: 'micro 权重', code: 'm01_gradient_accumulation/demo.py:accumulate', takeaway: '每份 micro-batch 梯度乘上样本占比 `n / len(x)` 后再累加; `weighted=False` 对照组将权重固定为 1, 用于展示漏除引发的尺度偏差。' },
+        { concept: '不等长 micro', code: 'sizes=[3, 3, 2]', takeaway: '将 8 个样本切成 3、3、2 三份时, 简单按 `1/K` 平均与按样本数加权结果不同, 只有后者与整批训练等价。' },
+        { concept: '梯度同步', code: 'core/collectives.py:all_reduce_mean', takeaway: '先对所有卡的梯度求和再除以卡数 `world`, 确保每张卡拿到逐位一致的更新量。' },
+        { concept: '副本一致性', code: 'assert max_abs_diff(replicas[0], r) == 0', takeaway: '断言同步更新后所有 rank 的参数与 rank 0 严格逐位相等, 防止副本静默漂移。' },
+        { concept: '通信账', code: 'core/collectives.py:CommCounter', takeaway: '统计每张卡每步发出的字节数: m02 中 56 B 梯度在 4 卡 DDP 下每卡发送 84 B, 精确对应 $2(N-1)/N$ 公式。' },
       ],
       snippetTitle: '累积的一步 vs DDP 的一步',
       snippet: `# 累积: 时间上串行, 每个 micro 只占 n/N 的激活
@@ -85,9 +85,9 @@ for rep in replicas:
     // ---------------------------------------------------------------- 切模型
     'train-model-parallel': {
       title: 'TP / PP 切模型 · 层内切矩阵, 层间切流水线',
-      subtitle: '读完你能判断一个放不进单卡的模型该切矩阵还是切层, 以及各自要在哪里付通信。',
-      tldr: '模型一张卡放不下时, 有两种切法:\n- 单层太宽: 把一层的权重矩阵切给几张卡, 叫 TP (张量并行)。MLP 的切法是第一个矩阵 W1 按列切、第二个矩阵 W2 按行切, 每个 MLP 块只要前向 1 次、反向 1 次 all-reduce (每卡交出部分和、拿回总和)。\n- 层数太多: 把连续几层放一张卡, 叫 PP (流水线并行)。卡与卡之间只传层边界的激活, 但一个 batch 流过去时总有卡在空等, 叫气泡。把 batch 切成 M 个 micro-batch 依次灌进去, 气泡就变小。',
-      question: 'TP 的通信为什么在层内、PP 的只在 stage 边界? 前向已经 all-reduce 过了, 反向为什么还要再来一次?',
+      subtitle: '当模型本身超出单卡显存时, 张量并行 (TP) 在层内拆分矩阵乘法, 流水线并行 (PP) 按深度将连续网络层分配到不同设备。',
+      tldr: '模型放不进单张卡时, 有两条正交的模型并行路线:\n- 张量并行 (TP): 针对过宽的单层, 将 MLP 的第一个矩阵 $W_1$ 按列切、第二个矩阵 $W_2$ 按行切, 中间的逐元素激活本地完成, 整个块前向与反向各只需一次 all-reduce。\n- 流水线并行 (PP): 针对过深的层数, 将连续若干层作为一个 stage 放到一张卡上, 卡间只传层边界激活; 通过把一个 batch 拆成 $M$ 个 micro-batch 连续送入流水线来压缩空闲等待 (气泡)。',
+      question: '为什么 TP 每层内部都要通信, 而 PP 只在 stage 边界传一次激活? TP 前向已经做过一次 all-reduce, 为什么反向还要再做一次?',
       evolution: {
         title: '先切层, 再切矩阵',
         subtitle: '根问题: 模型本身超过一张卡的显存, 每卡存整份的 DDP 帮不上',
@@ -101,30 +101,30 @@ for rep in replicas:
       code: 'llm_train/m03_tensor_parallel/demo.py · llm_train/m04_pipeline_parallel/demo.py',
       points: [
         {
-          title: 'TP: 先列切, 后行切',
+          title: 'Megatron TP: 先列切再行切, 避开激活函数前的同步',
           key: true,
-          body: '一个 MLP 块是两次矩阵乘夹一个激活函数: 输入 X 乘 W1, 过 ReLU, 再乘 W2。TP 把 W1 和 W2 分给 N 张卡, 关键是切的方向。\n- W1 按列切: W1 的形状是 [D, H], 按列切成 N 份, 每份 [D, H/N]。每张卡拿完整的输入 X, 算出隐藏层 H 维里属于自己的那一段。中间的 ReLU 是逐元素的运算 (每个数只看自己), 各卡在自己那段上本地做, 不用通信。换成 GeLU 同理。\n- W2 按行切: W2 的形状是 [H, O], 按行切成 N 份, 每份 [H/N, O]。每张卡手里的隐藏层那一段正好乘它拿到的那几行, 得到的是最终输出的一个部分和。最后做一次 all-reduce 把 N 个部分和加起来, 每卡都拿到完整输出。\n如果顺序反过来, W1 先按行切, 那么每卡算出的是 X·W1 的部分和, 必须先把它们加起来才能过 ReLU, 激活函数前就得多同步一次。\n偏置 b2 只在 all-reduce 之后加一次。如果每张卡都在自己的部分和上加, 求和后就被加了 N 遍。\nm03 实测: TP 的输出和不切分的 MLP 差 0.00e+00。',
+          body: '两层 MLP 块的计算为 $\\mathrm{ReLU}(XW_1)W_2$。Megatron-LM 将两张权重矩阵按互补方向切给 $N$ 张卡, 把通信压到最少:\n- $W_1$ 按列切分 (`[D, H] -> N × [D, H/N]`): 每张卡读取完整输入 $X$, 独立算出隐藏层中属于自己的 $H/N$ 列。由于 ReLU 或 GeLU 都是逐元素运算, 各卡直接在本地分片上完成非线性变换, 无需跨卡通信。\n- $W_2$ 按行切分 (`[H, O] -> N × [H/N, O]`): 每张卡用刚算出的 $H/N$ 列激活乘对应的 $W_2$ 行分片, 得到输出张量的一个部分和, 最后在块尾做一次 all-reduce 求和即可拿到完整输出。\n若把顺序倒过来先对 $W_1$ 按行切, 算出部分和后必须先做一次 all-reduce 才能进激活函数, 通信次数直接翻倍。此外输出偏置 $b_2$ 必须在 all-reduce 求和之后只加一次, 否则会被重复累加 $N$ 遍。m03 实测 TP 输出与单卡完整矩阵乘误差为 0.00e+00。',
         },
         {
-          title: '反向也要 all-reduce',
-          body: '前向只在输出处同步了一次, 反向还要再同步一次, 位置在输入 X 的梯度上。\n原因: 前向时输入 X 被每张卡都用过一遍 (每卡用它乘自己那份 W1)。反向时 loss 对 X 的梯度, 是各卡各自贡献的和: 卡 r 算出的 dX 只包含它那 $H/N$ 列隐藏单元的贡献。\n不求和就直接传给上一层, 上一层拿到的梯度是错的。m03 里单张卡的 dX 和真值差 1.8e-2; all-reduce 之后差 1.86e-09。\nall-reduce 次数: 一个 MLP 块前向 1 次 + 反向 1 次。attention 块的切法是按头切 Q、K、V 的矩阵 (列切) 加输出投影 (行切), 通信模式相同, 也是两次。一层 Transformer 共 4 次。',
+          title: '前向广播输入, 反向就必须汇总输入梯度',
+          body: 'TP 的 MLP 块在前向末尾做了一次 all-reduce, 反向回传到块入口时还必须对输入梯度 $dX$ 再做一次 all-reduce。\n原因来自链式法则的分叉累加: 前向时同一个输入 $X$ 同时送给了全部 $N$ 张卡去乘各自的 $W_1$ 列分片; 反向时第 $r$ 张卡算出的局部 $dX_r$ 只包含它那 $H/N$ 列隐藏单元回传的梯度, 必须将 $N$ 张卡的局部 $dX_r$ 求和才能还原完整的上游梯度。m03 中若省去这次反向同步, 单卡局部 $dX$ 与真值偏差达 1.8e-2, 求和后误差降至 1.86e-09。\n注意力层按注意力头切分 $W_Q, W_K, W_V$ (列切) 并行切输出投影 $W_O$, 通信对称, 因此标准 Transformer 每层前向与反向合计需要 4 次 all-reduce。',
         },
         {
           title: 'PP: 气泡与在途激活',
-          body: 'PP 把模型按连续的层切成 PP 段, 每段叫一个 stage, 各放一张卡。一个 batch 从 stage 0 流到最后一个 stage 做前向, 再倒回来做反向。卡与卡之间只在 stage 边界传一份激活, 比 TP 每层两次 all-reduce 省得多。\n代价是空等: 前向时 batch 还没流到后面的 stage, 后面的卡没事干; 反向时反过来。把 batch 切成 M 个 micro-batch 依次灌进去, 各 stage 就能同时忙起来, 空等只剩首尾。\n- 气泡: 卡空等的时间占总时间的比例, 公式是 $(\\mathrm{PP}-1)/(M+\\mathrm{PP}-1)$, $M$ 是 micro-batch 数。M 越大气泡越小。GPipe 和 1F1B 两种调度的气泡完全相同。\n- 在途激活: 一个 micro-batch 做完前向、还没做反向时, 它的激活要留着给反向用。两种调度的区别在这里。GPipe 先把所有 M 个 micro-batch 的前向做完再做反向, 每个 stage 最多攥着 M 份; 1F1B 让 stage $s$ 最多攥 $\\mathrm{PP}-s$ 份, stage 0 最多。\n细节见「1F1B 与交错调度」。',
+          body: 'PP 将模型按连续层切成 PP 段, 每段作为一个 stage 独占一张卡, 卡间只在边界传递单层激活。代价是流水线首尾存在空闲气泡, 且未完成反向的在途激活需要驻留显存。',
         },
       ],
       links: [
-        { from: 'llm_models Block', to: 'TP', body: '一个 Transformer Block 里有 attention 和 MLP 两组大矩阵, TP 切的就是它们。LayerNorm、激活函数、残差相加这些逐元素的算子不切, 各卡在自己那片上本地做。' },
-        { from: 'num_layers', to: 'PP', body: '模型层数 num_layers 越多, 按连续层切成几个 stage 越自然: 每个 stage 内部和单卡一样算, 只在边界把一份激活传给下一张卡。' },
-        { from: 'micro-batch 数 M', to: '气泡占比', body: '气泡公式的分母里有 M, M 越大气泡越小。但 M 不能随便开大: 每个在途的 micro-batch 都要留一份激活, M 能开多大取决于这些激活放不放得下。' },
-        { from: 'PP', to: '1F1B 与交错调度', body: '这一章只说了 PP 的两笔成本 (气泡和在途激活)。GPipe、1F1B、交错 1F1B 三种调度各自怎么安排时间表、各省哪一笔, 在下一章摊开。' },
+        { from: 'llm_models Block', to: 'TP', body: 'TP 只切分 Transformer 块内的注意力投影与 MLP 大矩阵; LayerNorm、激活函数和残差相加均在本地独立完成。' },
+        { from: 'num_layers', to: 'PP', body: '模型层数越深越适合按连续层划分为多个 stage, 每个 stage 内部保持单卡计算逻辑, 仅在段间点对点收发激活与梯度。' },
+        { from: 'micro-batch 数 M', to: '气泡占比', body: '增大 micro-batch 数量 M 可以稀释首尾气泡占比, 但同时驻留的在途激活份数也受单卡显存容量制约。' },
+        { from: 'PP', to: '1F1B 与交错调度', body: 'GPipe、1F1B 与交错 1F1B 三种排程如何在气泡比例与在途激活峰值之间做取舍, 将在下一章展开。' },
       ],
       sourceRows: [
-        { concept: 'column parallel', code: 'W1_s = np.split(W1, world, axis=1)', takeaway: '把 [D, H] 的 W1 沿列切成 N 份, 每份 [D, H/N]。每个 rank 用完整输入乘自己那份, 算出隐藏层的一段。' },
-        { concept: 'row parallel + g 算子', code: 'tp_out = all_reduce_sum(partial)[0] + b2', takeaway: '各 rank 的部分和用 all_reduce_sum 加起来, 得到和不切分时相同的输出; 偏置 b2 在求和之后只加一次。' },
-        { concept: 'f 算子的反向', code: 'tp_dx = all_reduce_sum(dx_partial)[0]', takeaway: '输入 X 的梯度由各 rank 的部分 dX 求和得到。这个算子前向什么都不做 (每卡拿完整 X), 反向做 all-reduce。省掉它, dX 就错 1.8e-2。' },
-        { concept: '流水线排程', code: 'm04_pipeline_parallel/demo.py:simulate', takeaway: '流水线的时间表是模拟出来的: 每张卡按固定顺序执行自己的前向和反向, 每个操作在 "这张卡空闲了, 并且它依赖的上游操作做完了" 的最早时刻开始。' },
+        { concept: 'column parallel', code: 'W1_s = np.split(W1, world, axis=1)', takeaway: '将 `[D, H]` 的 $W_1$ 沿列切成 $N$ 份 `[D, H/N]`, 每张卡用完整输入算出对应的隐藏层分片。' },
+        { concept: 'row parallel + g 算子', code: 'tp_out = all_reduce_sum(partial)[0] + b2', takeaway: '将各卡行切矩阵乘得到的部分和通过 `all_reduce_sum` 相加, 偏置 `b2` 在归约后只加一次。' },
+        { concept: 'f 算子的反向', code: 'tp_dx = all_reduce_sum(dx_partial)[0]', takeaway: '前向恒等传递完整输入 $X$, 反向调用 `all_reduce_sum` 汇总各卡回传的局部输入梯度。' },
+        { concept: '流水线排程', code: 'm04_pipeline_parallel/demo.py:simulate', takeaway: '按「当前设备空闲且上游依赖就绪」的最早时刻推进离散事件模拟, 统计总时长与气泡比例。' },
       ],
       snippetTitle: 'TP MLP 的前向与反向',
       snippet: `z_s = [x @ w + b for w, b in zip(W1_s, b1_s)]     # 列切: N × [B, H/N]
@@ -141,9 +141,9 @@ tp_dx = all_reduce_sum(dx_partial)[0]             # 反向唯一一次通信`,
     // ---------------------------------------------------------------- 切状态 / 省显存 / 可恢复
     'train-memory': {
       title: '状态与显存 · ZeRO、激活重算与可恢复',
-      subtitle: '读完你能自己算: 一个 7B 模型在 N 张卡上开某一档 ZeRO 之后, 每卡的模型状态占多少显存, 还剩多少留给激活。',
-      tldr: '- 用混合精度训练时, 每个参数在显存里占 16 字节: 2 字节 fp16 参数 + 2 字节 fp16 梯度 + 12 字节 fp32 的 master 权重和 Adam 的两个状态 m、v。DDP 下每张卡都存这完整的 16 字节。\n- ZeRO 把这 16 字节按卡切开: ZeRO-1 切优化器状态, ZeRO-2 再切梯度, ZeRO-3 连参数一起切。每参数被除以卡数的部分依次是 12 / 14 / 16 字节。\n- 前向的中间结果 (激活) 不在这 16 字节里, 它随层数 $L$ 线性涨。激活重算用多算约 33% 的办法, 把激活显存从 $O(L)$ 压到 $O(\\sqrt{L})$。',
-      question: '7B 模型在 64 张卡上开 ZeRO-1, 每卡还要多少 GB? 为什么再加卡也降不下去?',
+      subtitle: '训练显存由模型状态与中间激活两部分组成。ZeRO 消除多卡间的模型状态冗余, 激活重算以额外前向换取更低的激活峰值, 完整断点保存则保证长程训练随时可无损续跑。',
+      tldr: '- 混合精度 Adam 训练中, 每个参数占用 16 字节模型状态 (2 字节 fp16 参数 + 2 字节 fp16 梯度 + 12 字节 fp32 主权重与一二阶矩)。ZeRO-1/2/3 依次将优化器状态、梯度、参数按卡数 $N$ 切片, 被摊薄的部分分别为 12 / 14 / 16 字节。\n- 前向中间激活随层数 $L$ 线性增长; 激活重算只保留分段入口并在反向前局部重算, 用约 25%~33% 的额外计算把激活峰值压到 $O(\\sqrt{L})$。\n- 断点续训要做到逐位无损恢复, 检查点必须同时保存参数、优化器状态、数据游标与随机数生成器 (RNG) 状态。',
+      question: '7B 模型在 64 张卡上开启 ZeRO-1 时, 单卡模型状态还要占约多少 GB? 为什么继续加卡也压不下去?',
       evolution: {
         title: '把 16 字节一份份切走',
         subtitle: '根问题: 一张卡的显存是定数, 参数、梯度、优化器状态和激活都在抢它',
@@ -158,35 +158,35 @@ tp_dx = all_reduce_sum(dx_partial)[0]             # 反向唯一一次通信`,
       code: 'llm_train/m05_zero_fsdp/demo.py · llm_train/m07_activation_checkpointing/demo.py · llm_train/m08_checkpoint_resume/demo.py',
       points: [
         {
-          title: '2 + 2 + 12',
+          title: '2 + 2 + 12 的显存账本与三档 ZeRO 切分',
           key: true,
-          body: '先算清一个参数占多少显存。混合精度训练里, 每个参数有三份东西: fp16 的参数副本 (2 字节, 算前向反向用)、fp16 的梯度 (2 字节)、fp32 的优化器状态 (12 字节: master 权重 4 字节, Adam 的 m 和 v 各 4 字节)。一共 16 字节, 其中 12 字节是优化器状态。\n设 $\\Psi$ 是参数个数, $N$ 是卡数。DDP 下每张卡都存一整份, N 张卡存了 N 份一模一样的东西, 纯冗余。ZeRO 把它们切成 $N$ 片, 每卡只存一片, 分三档:\n- DDP: $16\\Psi$\n- ZeRO-1: 只切 12 字节的优化器状态, 变成 $4\\Psi+12\\Psi/N$\n- ZeRO-2: 再切梯度, 变成 $2\\Psi+14\\Psi/N$\n- ZeRO-3/FSDP: 连参数一起切, 变成 $16\\Psi/N$\nm05 里 $\\Psi=192$、$N=4$, 把 rank 0 状态字典里所有数组的字节数加起来, 恰好是 3072 / 1344 / 1056 / 768, 与公式精确相等。\n为什么能切: Adam 的更新是逐元素的, 每个参数的更新只用到它自己的梯度和 m、v。所以每卡只更新自己那一片, 拼起来和整体更新逐位相同 (m05 实测三档与 DDP 的差都是 0.0e+00)。\n代入 7B 模型、64 卡、ZeRO-1: 7e9 × (4 + 12/64) 字节 ≈ 29 GB。那个 $4\\Psi$ (fp16 参数加 fp16 梯度) 是 ZeRO-1 切不到的, 加多少卡都除不掉, 是地板。',
+          body: '混合精度 Adam 训练下, 设模型参数量为 $\\Psi$、卡数为 $N$, 每个参数的静态显存由三块构成: fp16 计算权重 (2 字节)、fp16 梯度 (2 字节) 以及 fp32 优化器状态 (主权重 4 字节 + 一阶矩 $m$ 4 字节 + 二阶矩 $v$ 4 字节 = 12 字节), 合计 $16\\Psi$。由于 Adam 逐坐标独立更新, 多卡无需重复保存全部状态:\n- DDP: $16\\Psi$ (全量复制)\n- ZeRO-1 (切优化器状态): $4\\Psi + 12\\Psi/N$\n- ZeRO-2 (再切梯度): $2\\Psi + 14\\Psi/N$\n- ZeRO-3 / FSDP (连参数一起切): $16\\Psi/N$\nm05 中 $\\Psi=192, N=4$, 统计 rank 0 状态字节数依次为 3072 / 1344 / 1056 / 768 B, 与理论公式逐字节吻合, 且三档更新后的参数与 DDP 差值均为 0.0e+00。代入 7B 模型、64 卡 ZeRO-1 可得 $7\\times 10^9 \\times (4 + 12/64) \\approx 29\\text{ GB}$, 其中未分片的 $4\\Psi$ (28 GB) 是继续加卡也除不掉的下限。',
         },
         {
-          title: '通信账: ZeRO-2 不比 DDP 贵',
-          body: '切片之后用到完整张量时要临时通信, 所以要算通信账。\n- ZeRO-2: DDP 每步做一次 all-reduce 同步梯度。一次 all-reduce 等于两步: 先 reduce-scatter (求和后每卡只留自己那片), 再 all-gather (各片拼回整份)。ZeRO-2 只是在这两步中间插了一步 "各自在自己那片上更新参数", 然后 all-gather 的对象从梯度变成更新后的参数。总字节和 DDP 一样, m05 实测 1.00×。\n- ZeRO-3: 参数也切了片, 每层算前向、反向之前都要先 all-gather 一次这一层的完整参数才能算, 通信约 1.5×。用完立刻释放, 任何时刻只多出一层的完整 fp16 参数, demo 里是 +256 B。\nm05 里 ZeRO-1 也是 1.5×, 因为这个实现用 all-reduce 加 all-gather; DeepSpeed 改用 reduce-scatter 后与 DDP 持平。',
+          title: '通信代价: ZeRO-2 与 DDP 持平, ZeRO-3 约 1.5 倍',
+          body: '把状态切片后, 计算时需要靠集合通信按需拼回:\n- ZeRO-2 不增加通信量: 一次标准 all-reduce 本就可拆成 reduce-scatter (归约求和并各留 $1/N$ 分片) 与 all-gather (各片拼回整份) 两步。ZeRO-2 只是在 reduce-scatter 拿到梯度分片后原地完成 Adam 更新, 再用 all-gather 广播更新后的参数分片, 单步总通信量仍为 DDP 的 1.00×。\n- ZeRO-3 / FSDP 通信约为 1.5×: 由于参数本身也分片存储, 前向和反向每算一层前都需临时 all-gather 该层完整 fp16 参数, 算完立即释放 (demo 中瞬时峰值仅多出单层 256 B), 多出的一次前向 all-gather 使总通信升至 DDP 的 1.5 倍。(注: m05 中 ZeRO-1 简化用了 all-reduce 加 all-gather 故计为 1.5×, 工业实现改用 reduce-scatter 后同样为 1.0×。)',
         },
         {
-          title: '激活重算: 用 33% 计算换 √L 显存',
-          body: '反向传播算第 i 层的梯度时, 需要第 i 层前向时的输入。所以前向要把每一层的中间结果 (激活) 都留着, L 层就是 L 份, 随层数线性涨。\n激活重算的办法: 前向只保存每一段的入口, 每 k 层一段。反向走到哪一段, 就从那段的入口重跑一遍段内的前向, 把激活临时算出来, 用完就扔。\n峰值激活 $\\approx L/k + k$: $L/k$ 份是常驻的段边界, $k$ 份是当前段重算出来的瞬时激活。$k=\\sqrt{L}$ 时最小, 所以是 $O(\\sqrt{L})$。\nm07 里 $L=16$: $k=1$ (全存) 要 17 份, $k=4$ 只要 8 份。k 太大也不行, $k=16$ 只存输入, 段内瞬时激活又回到 17 份。重算的是同一串浮点运算, 梯度与全存逐位相同 (0.0e+00)。\n代价是多跑一次前向。前向算 1 个单位, 反向约 2 个单位, 本来一共 3 个单位, 现在接近 4 个, 上限 +33%。demo 里 $L=16$、$k=4$ 每段出口不重算, 实测 +25%。',
+          title: '激活重算: 多花约三成计算把激活峰值压到 √L',
+          body: '静态模型状态之外, 反向求导还需要前向各层的输入激活, 全存时空间复杂度为 $O(L)$。激活重算每隔 $k$ 层设一个检查点, 前向只保留段入口激活, 反向退到某一段时再从段入口重跑一次段内前向。\n任意时刻驻留的激活份数约为 $L/k + k$ ($L/k$ 个段边界加上当前段重算出的 $k$ 层瞬时激活), 取 $k = \\sqrt{L}$ 时达到极小值 $O(\\sqrt{L})$。m07 在 $L=16$ 层模型上实测: 全存 ($k=1$) 峰值占 17 份, 取 $k=4$ 降至 8 份, 算出的梯度与全存基线逐位相同 (0.0e+00); 代价是重跑了一次段内前向, 浮点计算量增加 25% (理论上界约 33%)。',
         },
         {
-          title: '可恢复 = 四样齐全',
-          body: '训练中途断掉是常态, 要能从 checkpoint 接着训。"能恢复" 的标准不是 loss 差不多, 是逐位相同: 续训出来的参数和不中断训出来的一模一样。\n要做到这点, 得把下一步计算会读到的所有状态都存下来, 共四样: 参数、优化器状态 (动量或 Adam 的 m、v)、数据游标 (数据流读到第几个 batch)、RNG 状态 (随机数生成器, dropout 和打乱顺序都从它抽数)。\nm08 从第 3 步存盘, 新进程里把所有对象换一组种子重建, 只靠 checkpoint 拉回来, 再训到第 5 步和不中断的比。然后一样样故意漏掉:\n- 完整恢复: 差 0.0e+00。\n- 漏 RNG: 差 3.1e-2。dropout 的 mask 序列变了。\n- 漏优化器: 差 5.8e-2。动量从 0 重新起步。\n- 漏数据游标: 差 1.5e-1。接下来喂的不是同一批数据。\n三种漏法全都不报错, 训练照跑, 只是轨迹悄悄变成了另一条。\n那个 checkpoint 共 3047 B, 其中 RNG 状态占 2496 B (numpy 的 MT19937 生成器内部有 624 个 32 位的字), 玩具模型的参数只有 40 B。',
+          title: '无损断点续训依赖四类状态同时落盘',
+          body: '长周期训练要求中断恢复后的参数轨迹与不中断训练逐位一致, 为此检查点必须收齐下一步计算依赖的四项状态: 模型权重、优化器动量状态、数据流读取游标 (cursor) 与随机数生成器 (RNG) 状态。\nm08 在第 3 步存盘并在新进程更换初始种子后恢复训练至第 5 步: 四项齐全时参数误差为 0.0e+00; 若单独漏存 RNG 状态 (dropout 掩码改变)、优化器动量或数据游标, 程序均不报错, 但两步后参数立刻产生 3.1e-2、5.8e-2 与 1.5e-1 的偏差。',
         },
       ],
       links: [
-        { from: 'DDP 每卡全量', to: 'ZeRO 分片', body: 'DDP 每卡存一整份, ZeRO 每卡只存一片。复制换成分片, 显存下降, 代价是用到完整张量时要临时通信: ZeRO-2 和 DDP 持平, ZeRO-3 约 1.5×。' },
-        { from: 'llm_basic 的 cache', to: '激活重算', body: '基础教程里的小模型把前向的中间量 (cache) 全部存下来给反向用。大模型存不下, 只存每段的边界, 其余的在反向之前重跑前向算出来。' },
-        { from: 'ToyDataStream.cursor', to: 'resume', body: '数据流的 cursor 记着读到了第几个 batch。它也是训练状态: 不存的话, 续训时喂进去的不是同一批数据, 就接不回同一条轨迹。' },
-        { from: 'reduce-scatter', to: '通信原语', body: '把一次 all-reduce 拆成 reduce-scatter 加 all-gather 两半看, 就明白 ZeRO-2 为什么不涨通信: 它只是在两半中间插了一步分片更新。四个原语的细节见「通信与 full_loop」。' },
+        { from: 'DDP 每卡全量', to: 'ZeRO 分片', body: '将全量复制改为分片存储换取显存空间: ZeRO-2 通信开销与 DDP 相同, ZeRO-3 则用额外一次前向 all-gather 换取参数分片。' },
+        { from: 'llm_basic 的 cache', to: '激活重算', body: '阶段 1 手写反向把全部前向 cache 留在内存中; 深层大模型通过分段只存边界并在反向前局部重跑来控制显存峰值。' },
+        { from: 'ToyDataStream.cursor', to: 'resume', body: '数据流游标记录当前消费到了第几个 batch, 漏存会导致续训重复读取旧样本或跳过样本。' },
+        { from: 'reduce-scatter', to: '通信原语', body: '将 all-reduce 拆解为 reduce-scatter 与 all-gather 两半, 正是理解 ZeRO-2 零额外通信开销的关键, 详见「通信与 full_loop」。' },
       ],
       sourceRows: [
-        { concept: '状态怎么切', code: 'm05_zero_fsdp/demo.py:init_rank_state', takeaway: '每个 rank 的状态是一个字典: p16 (fp16 参数)、g16 (fp16 梯度)、master、m、v。stage 决定其中哪些数组存整份、哪些只存第 r 片 ($1/N$)。这就是 ZeRO 的全部数据结构, 显存账直接用这些数组的字节数加出来。' },
-        { concept: '梯度同步的分水岭', code: 'reduce_scatter_sum(layer_g)', takeaway: '梯度同步这一行是三档的分水岭: stage 0 和 1 用 all-reduce, 每卡留整份梯度; stage 2 和 3 换成 reduce_scatter, 每卡只留自己那片。' },
-        { concept: 'FSDP gather → compute → free', code: 'full = all_gather([rk["p16"][i] for rk in ranks])', takeaway: 'stage 3 的前向和反向: 算到哪一层, 就 all_gather 这一层的参数片拼成完整参数, 算完 del full 立刻释放。任何时刻只多出一层的完整参数。' },
-        { concept: '激活账本', code: 'm07_activation_checkpointing/demo.py:run', takeaway: 'run 函数里有一本激活账: 每保存或释放一份激活都记一笔, 峰值取历史最大。反向时重算出来的段内激活也走这本账, 所以峰值里包含它们, 不能只数段边界。' },
-        { concept: 'resume payload', code: 'm08_checkpoint_resume/demo.py:snapshot', takeaway: 'snapshot 把五样东西收进一个字典: step、模型参数、优化器状态、数据流的 seed 和 cursor、RNG 状态。缺任何一样, 续训的轨迹就对不上。' },
+        { concept: '状态怎么切', code: 'm05_zero_fsdp/demo.py:init_rank_state', takeaway: '按所选 stage 决定 `p16`、`g16`、`master`、`m`、`v` 中哪些存整份、哪些只切本卡负责的 $1/N$ 分片。' },
+        { concept: '梯度同步的分水岭', code: 'reduce_scatter_sum(layer_g)', takeaway: 'stage 0/1 使用 `all_reduce`, stage 2/3 改用 `reduce_scatter` 让每张卡只保留自身分片的梯度。' },
+        { concept: 'FSDP gather → compute → free', code: 'full = all_gather([rk["p16"][i] for rk in ranks])', takeaway: 'ZeRO-3 逐层临时拼回完整 fp16 权重完成前向或反向, 计算结束立刻 `del full` 释放内存。' },
+        { concept: '激活账本', code: 'm07_activation_checkpointing/demo.py:run', takeaway: '同时追踪常驻段边界与反向重算期间的段内瞬时激活, 取全过程最大值作为真实激活峰值。' },
+        { concept: 'resume payload', code: 'm08_checkpoint_resume/demo.py:snapshot', takeaway: '将步数、权重、优化器状态、数据流种子与游标、NumPy RNG 状态统一打包序列化。' },
       ],
       snippetTitle: 'ZeRO 一步 (stage 2/3)',
       snippet: `# 每 rank 常驻: p16 (stage 3 只存 1/N), master/m/v (stage>=1 只存 1/N)
@@ -205,9 +205,9 @@ p16_shard = master_shard.astype(float16)            # 下一步再按需 gather`
     // ---------------------------------------------------------------- 数值格式
     'train-precision-stability': {
       title: '精度与稳定性 · FP16 / BF16 / FP8 与坏 step 防护',
-      subtitle: '读完你能解释现代训练为什么默认 BF16、本章的 fp32 master 为什么删不得, 以及一个 Inf 冒出来时框架在做什么。',
-      tldr: '低精度只负责算, 更新落在 fp32 master (一份用 fp32 存的权重主副本) 上。这是本章的训练配方, 不是所有实现的必要条件; m13 里去掉它, 200 步后的验证 loss 差 584×。\n- FP16: 能表示的范围窄, 很小的梯度会变成 0。要配动态 loss scaling: 先把 loss 放大再做反向, 梯度跟着一起放大; 一旦放大过头溢出成 Inf, 就跳过这一步, 并把放大倍数 scale 减半。\n- BF16: 指数位和 FP32 一样多, 用精度换范围, 省掉 scaling。\n- FP8: 位宽再砍一半, 张量要先除以一个 scale 缩放进格式能表示的范围再存, scale 变成必选项。',
-      question: '为什么 FP16 训练不是把所有数组 astype(np.float16) 就完事? BF16 和 FP8 又各改了什么?',
+      subtitle: '缩减浮点位宽能成倍降低带宽与算力开销, 但也压缩了可表示的数值范围与尾数精度。现代训练通过 BF16 动态范围、fp32 主权重与溢出跳步机制守住收敛稳定性。',
+      tldr: '混合精度训练的核心原则是「低精度做矩阵乘, 高精度存主权重 (fp32 master)」:\n- FP16 指数位窄, 极小梯度易下溢归零, 需配合动态 loss scaling 先放大损失再还原, 遇到 Inf 溢出则跳过该步并将缩放倍数减半。\n- BF16 保留与 FP32 相同的 8 位指数位, 以尾数精度换取动态范围, 省去了动态 loss scaling。\n- 进一步降到 FP8 / FP4 时, 格式自身范围已不足以直接容纳张量分布, 必须按张量或按小块配备缩放系数 scale, 同时保留 fp32 主权重承接细微更新 (m13 中去掉主权重会导致验证损失恶化 584 倍)。',
+      question: '为什么混合精度训练不能直接把所有权重和梯度转成 float16? BF16、FP8 和 FP4 各自靠什么补齐位宽缩减带来的损失?',
       evolution: {
         title: '位宽每砍一刀, 就补一道保险',
         subtitle: '根问题: 每个数用的位越少, 显存、带宽、算力越省, 能表示的范围和精度也越窄',
@@ -221,36 +221,36 @@ p16_shard = master_shard.astype(float16)            # 下一步再按需 gather`
       code: 'llm_train/m06_mixed_precision/demo.py · llm_train/m10_training_stability/demo.py · llm_train/m13_fp8_training/demo.py · llm_train/core/numerics.py',
       points: [
         {
-          title: '范围 vs 精度: 16 位的两种分法',
-          body: '同样是 16 位, FP16 和 BF16 把位数分给了不同的用处: FP16 偏精度, BF16 偏范围。\n先说浮点数怎么存。一个浮点数分成符号、指数、尾数三部分。指数位决定能表示多大、多小的数 (范围), 尾数位决定相邻两个能表示的数挨得多近 (精度)。16 位总共就这么多, 给指数多一位, 尾数就少一位。\n- FP16 (5 位指数 + 10 位尾数): 能表示的最大数是 65504, 最小的正数约 6e-8。所以 1e-8 的梯度直接变 0 (下溢), 70000 的激活直接变 Inf (上溢)。\n- BF16 (8 + 7): 指数位和 FP32 一样宽, 范围也和 FP32 一样。1e-8 存成 1.001e-08、70000 存成 70144, 两头都不炸。\nBF16 的代价是尾数少 3 位: 在 1.0 附近, BF16 相邻两个数差 $2^{-7}$, FP16 差 $2^{-10}$。所以 $1+2^{-9}$ 在 BF16 里会被舍回 1, FP16 能存成 1.001953125。\nBF16 精度比 FP16 低, 赢的只有范围。但范围恰好是训练最怕丢的东西: 梯度变 0 就学不到东西, 变 Inf 整步就废了。README 提到现代 LLM 预训练几乎都用 BF16, FP16 加 loss scaling 主要见于老卡。\nnumpy 没有 bfloat16, demo 用「把尾数截到 7 位」来模拟 BF16 的舍入。',
+          title: '同样 16 位: FP16 保尾数精度, BF16 保指数范围',
+          body: '浮点数由符号位、指数位 (决定动态范围) 与尾数位 (决定相邻格点间距) 组成。同样 16 位预算下, 两种格式做了不同取舍:\n- FP16 (5 位指数 + 10 位尾数): 最大可表示正数为 65504, 最小非零正数约 6e-8; 因此 1e-8 量级的梯度会直接下溢成 0, 70000 的激活会直接上溢成 Inf。\n- BF16 (8 位指数 + 7 位尾数): 指数位宽与 FP32 完全一致, 1e-8 与 70000 都能正常落入范围; 代价是在 1.0 附近最小步长只有 $2^{-7}$ (FP16 为 $2^{-10}$), 例如 $1+2^{-9}$ 在 BF16 下会被直接舍入回 1。\n对深度网络训练而言, 上下溢会导致梯度断流或整步报废, 远比尾数粗糙几位的危害大, 因此现代大模型预训练普遍默认采用 BF16。',
         },
         {
-          title: 'loss scaling + fp32 master',
+          title: 'loss scaling 防梯度下溢, fp32 master 防微小更新丢失',
           key: true,
-          body: 'FP16 训练要两样保险: loss scaling 救小梯度, fp32 master 救小更新。\nloss scaling 怎么做: 反向传播算出的梯度和 loss 成正比。所以反向前先把 loss 乘一个大数 S, 所有梯度也跟着放大 S 倍, 原本太小的梯度就挪进了 FP16 能表示的范围。更新前再在 fp32 里除回 S。例子: 1e-8 直接转 fp16 是 0; 先乘 32768 再转 fp16, 再除回来, 得到 9.997e-09。\nS 取多大不好事先定, 所以用动态的:\n- 出现 Inf: 说明 S 太大, 梯度放大后溢出了。跳过这一步, 权重一位都不动, 并把 scale 减半。\n- 连续若干个好 step: scale 再翻倍, 试探能不能更大。\nm06 故意从 $2^{20}$ 起步, 24 步里跳了 5 步, scale 在上限附近来回振荡, loss 仍从 1.6477 降到 0.0229。这些 Inf 来自 fp16 矩阵乘本身超过 65504, 不是手工塞进去的。\nfp32 master 怎么回事: 本章的更新落在 fp32 master 上。master 是一份用 fp32 存的权重, 每步计算时从它转出一份 fp16 副本来算。为什么要它: fp16 在 1.0 附近相邻两个数差约 0.001, 比这小得多的更新加上去会被舍回原值。demo 里纯 fp16 权重每步加 1e-5 的更新, 100 步后还是 1.0, 一动没动。fp32 master 记住了每一步, 100 步后是 0.998999; 它的 fp16 副本 1 步后还是 1.0, 累计够了才跟着动, 100 步后是 0.9990234375。',
+          body: 'FP16 混合精度训练需要两道保护机制协同工作:\n- 动态 loss scaling: 反向传播前先将标量损失乘上放大因子 $S$, 使整条链路的梯度同步放大 $S$ 倍从而避开 FP16 下溢区, 优化器更新前再转回 fp32 除以 $S$。由于最优 $S$ 随训练动态变化, 若某步检出 Inf/NaN 则跳过参数更新并将 $S$ 减半, 连续若干步无溢出再将 $S$ 翻倍 (m06 从 $2^{20}$ 起步, 24 步内自动跳过 5 次真实 fp16 溢出, 损失仍从 1.6477 顺利收敛至 0.0229)。\n- fp32 主权重 (master weights): 在权重约 1.0 附近, FP16 相邻可表示值相差约 0.001, 而单步 `lr * grad` 往往在 1e-5 量级。若直接在 fp16 权重上累加, 100 步后数值仍停在 1.0 原地不动; 保留一份 fp32 主权重精确累积每步微小更新, 每步前向时再转出 fp16 计算副本, 才能让微小步长持续生效。',
         },
         {
-          title: 'FP8 的两套配方',
-          body: 'FP8 只有 8 位, 公开的训练配方有两套, 差别在用哪种格式和 scale 管多大一块。\n格式名直接写位数: E4M3 = 4 位指数 + 3 位尾数, 最大 448, 更准; E5M2 = 5 位指数 + 2 位尾数, 最大 57344, 范围更大。\nscale 是什么: 量化前先把一组数除以 scale, 让这组数里绝对值最大的那个正好落在格式的最大值上, 量化完再乘回来。这组数可以是整个张量, 也可以是一小块。\n- Transformer Engine: 前向 E4M3、反向 E5M2, 整个张量共用一个 scale (per-tensor)。\n- DeepSeek-V3: 全程 E4M3, 每 128 个元素一个 scale (block)。\nE4M3 自带约 $2^{15}$ 的动态范围 (能表示的最大数和最小数之比), 所以 scale 管多大一块, 平时看不出差别。m13 量了两个指标:\n- 验证 loss (训 200 步, 除以 $\\|y\\|^2$), 每次只动一个旋钮: 反向 E5M2 换成 E4M3, 从 4.54e-4 变成 4.64e-4; per-tensor 换成 block, 从 4.64e-4 变成 4.61e-4, 都打平。\n- 其余 token 的输出相对误差: demo 在 3 个 token 里各放一个 outlier (远大于其它元素的值), 看另外 29 个 token 的矩阵乘输出被连累多少。outlier 超过约 1e5 倍才拉开, per-tensor 0.126, block 0.026。原因是 per-tensor 下这个 outlier 决定了整个张量的 scale, 其余正常的数被除得太小, 掉进格式表示不了的区间, 1e5 倍时有 17.8% 直接变成 0。block 下 outlier 只影响它自己那 128 个元素。\ndemo 是假量化: 量化后马上还原成 FP32 再做矩阵乘, 只模拟舍入误差, 不模拟 FP8 的速度。',
+          title: 'FP8 的格式分工与缩放粒度',
+          body: '位宽继续减半到 8 位时, 常见 E4M3 (4 位指数 + 3 位尾数, 上限 448, 格点更密) 与 E5M2 (5 位指数 + 2 位尾数, 上限 57344, 范围更宽) 两种格式。量化前需将一组元素除以缩放因子 `scale = amax / max_val` 映射进格点区间, 业界主流有两套配方:\n- Transformer Engine 方案: 前向用更准的 E4M3, 反向梯度用范围更宽的 E5M2, 整张量共用一个缩放因子 (per-tensor)。\n- DeepSeek-V3 方案: 前反向统一用 E4M3, 缩放到每 128 个元素独立算一个缩放因子 (block scaling)。\n在 m13 的无离群值回归上两者验证损失打平 (约 4.6e-4); 当在 3 个 token 中注入达到正常值 1e5 倍的极端离群值 (outlier) 时, per-tensor 因整张量共享过大 scale 导致 17.8% 的正常元素下溢归零, 其余 token 输出相对误差升至 0.126, 而分块缩放将影响限制在局部块内, 误差保持在 0.026。',
         },
         {
-          title: '去掉 master 比去掉 scaling 更伤',
-          body: '在本章的 FP8 消融里, 去掉 fp32 master 的伤害比去掉 scaling 大一个数量级以上。\nm13 的训练是一个线性回归, 量级刻意取真实 LLM 的水平: 权重的标准差 0.004, 每个元素的梯度约 1e-5。同一个消融, 比的都是 200 步后的验证 loss:\n- 去掉 scaling: 差 29×。权重和梯度都掉进 FP8 表示不了的小数区。0.004 左右的权重在 E4M3 里相邻格点差约 0.002, 一个标准差只跨两个格点; 1e-5 的梯度比 E5M2 最小的步长 (约 1.5e-5) 还小, 只能舍成 0 或一个步长。\n- 去掉 fp32 master: 差 584×。权重只以 FP8 的形式存在, 每步更新后马上舍回 FP8 的格点。小于 FP8 步长的更新全部丢失, 权重几乎学不动。\nFP8 最好的那几臂停在约 4.6e-4, FP32 基线是 1.02e-08。README 解释这是因为玩具问题没有噪声, 量化误差直接露了出来; 真实 LLM 的 loss 噪声远大于它。',
+          title: 'FP8 消融中保留 fp32 主权重最为关键',
+          body: 'm13 在贴近真实大模型尺度 (权重标准差 0.004, 梯度量级 1e-5) 的任务上做了逐项消融, 对比 200 步后的验证损失:\n- 去掉张量缩放 (scaling): 损失恶化 29 倍, 小梯度成片落入欠表示区间。\n- 去掉 fp32 主权重 (直接在 FP8 格点上更新权重): 损失恶化高达 584 倍, 因为小于 FP8 格点间距的更新在每步舍入中被直接抹除。',
         },
       ],
       links: [
-        { from: 'Adam state', to: 'fp32 master', body: '参数更新需要保留足够精度, FP16 / FP8 都一样: 每步的小更新太细, 低精度存不下。本章用 fp32 master 来保证, Adam 的状态 m、v 也一直留在高精度; README 提到也可以用 Kahan 补偿或随机舍入。' },
-        { from: 'global grad norm', to: 'DDP/FSDP', body: '梯度裁剪看的是全局范数: 所有参数的梯度拼在一起算一个长度。所以裁剪要排在全局同步之后 (同步前每张卡手上的梯度都不完整), 也要排在 unscale (除掉 loss scale) 之后, 否则量到的是放大过的长度。' },
-        { from: 'LossScaler.scale', to: 'checkpoint', body: 'LossScaler 除了当前的 scale, 还记着 good_steps (已经连续多少个好 step)。两者都是训练状态, 要和权重一起写进 checkpoint。' },
-        { from: 'FP8 block scaling', to: 'FP4 微缩放', body: 'FP8 每 128 个元素共用一个 scale。位宽再砍一半到 FP4, 每个数只能取 ±{0, 0.5, 1, 1.5, 2, 3, 4, 6} 这几个值, block 必须缩到 16~32 个元素一组, 见「FP8 与 FP4 微缩放」。' },
+        { from: 'Adam state', to: 'fp32 master', body: '无论计算层采用 FP16、BF16 还是 FP8, 单步微小更新都需要高精度容器累加; 本库采用 fp32 主权重与高精度 Adam 一二阶矩 (工业界也有结合随机舍入或 Kahan 补偿的省显存变体)。' },
+        { from: 'global grad norm', to: 'DDP/FSDP', body: '全局梯度范数裁剪必须排在跨卡梯度同步与除以 loss scale (unscale) 之后, 否则测到的是残缺分片或被放大后的伪范数。' },
+        { from: 'LossScaler.scale', to: 'checkpoint', body: '动态缩放器的当前 `scale` 与连续正常步数 `good_steps` 均属于训练状态, 断点存盘时需一并写入。' },
+        { from: 'FP8 block scaling', to: 'FP4 微缩放', body: 'FP8 可按 128 个元素分块共享 scale; 当位宽再降到动态范围仅 12 倍的 FP4 时, 分块粒度必须进一步缩至 16~32 个元素, 详见下方进阶小节。' },
       ],
       sourceRows: [
-        { concept: '动态 loss scale', code: 'm06_mixed_precision/demo.py:LossScaler', takeaway: '溢出就把 scale 减半 (最小减到 1) 并跳过这一步; 连续 growth_interval 个好 step 就翻倍, 试探上限。真实默认 growth_interval 是 2000, demo 用 5 是为了在 24 步里看到完整的涨跌循环。' },
-        { concept: '浮点格式三要素', code: 'core/numerics.py:fake_quant_float', takeaway: '一个浮点格式由三个数决定: 尾数位数、最大值、最小 normal 指数 (比它更小的数有效位越来越少, 再小就变 0)。函数按这三个数把每个元素舍入到格式的格点上, 超过最大值就截到最大值。BF16 / FP8 / FP4 共用这一个函数。' },
-        { concept: 'NaN guard + clip', code: 'm10_training_stability/demo.py:guarded_step', takeaway: '先查梯度里有没有 Inf / NaN。有就是坏 step, 返回 False, 一个参数都不碰。没有才是好 step, 先按全局范数裁剪再更新。检查必须排在裁剪之前, 因为 NaN 的范数还是 NaN, 裁剪救不了它。' },
-        { concept: '裁剪不改方向', code: 'g * min(1, max_norm / ‖g‖)', takeaway: '梯度太长就整体等比缩短到 max_norm, 方向不变。m10 里 $\\|g\\|$ 从 111.83 缩到 5.00, 裁剪前后的方向余弦是 1.000000。' },
-        { concept: 'FP8 消融的旋钮', code: 'm13_fp8_training/demo.py:make_quantizer', takeaway: 'make_quantizer 管 scaling (none / tensor / block) 和量化格式, train 再管是否保留 master。五个臂 A 到 E 相邻两个只差一个旋钮: A 到 B 加 scaling, B 到 C 把反向格式从 E5M2 换成 E4M3, C 到 D 把粒度从 per-tensor 换成 block, D 到 E 去掉 master。demo 用断言钉住了这一点。' },
-        { concept: 'E4M3 max = 448', code: 'FLOAT_FORMATS["e4m3"]', takeaway: 'E4M3 能表示的最大数是 448, 不是 480: 最高的那个尾数编码留给了 NaN。超过 448 的数会被截成 448, demo 里 3e4 的尖峰就变成了 448。' },
+        { concept: '动态 loss scale', code: 'm06_mixed_precision/demo.py:LossScaler', takeaway: '检出溢出时将 `scale` 减半并跳过本步更新, 连续 `growth_interval` 步正常后翻倍试探更高精度。' },
+        { concept: '浮点格式三要素', code: 'core/numerics.py:fake_quant_float', takeaway: '统一根据尾数位数、最大值与最小正规数指数模拟 BF16 / FP8 / FP4 的格点舍入与饱和截断。' },
+        { concept: 'NaN guard + clip', code: 'm10_training_stability/demo.py:guarded_step', takeaway: '先拦截 Inf/NaN 坏步直接返回 False, 通过后再做全局范数裁剪与参数更新 (若顺序反过来, NaN 会污染整个范数)。' },
+        { concept: '裁剪不改方向', code: 'g * min(1, max_norm / ‖g‖)', takeaway: '对全体梯度统一乘缩放比例, 将总范数从 111.83 压至 5.00 的同时保持更新方向余弦恒为 1.000000。' },
+        { concept: 'FP8 消融的旋钮', code: 'm13_fp8_training/demo.py:make_quantizer', takeaway: 'A~E 五组对照每次只改动一个变量 (开关缩放、切换反向格式、per-tensor 改 block、移除 fp32 master), 隔离每项设计的独立贡献。' },
+        { concept: 'E4M3 max = 448', code: 'FLOAT_FORMATS["e4m3"]', takeaway: 'E4M3 保留最高尾数编码表示 NaN, 最大有限值为 448 而非 480, 超界尖峰会被饱和截断至 448。' },
       ],
       snippetTitle: 'AMP 的一步 (含跳步)',
       snippet: `half = model.astype(float16)                     # fp16 计算副本
@@ -271,9 +271,9 @@ scaler.update(overflow)                          # 溢出减半, 连续好 step 
     'train-moe-seq': {
       widgets: ['MoeRouteLab', 'RingAttnLab'],
       title: 'EP 与序列并行 · 切专家, 切序列',
-      subtitle: '读完你能说清 MoE (混合专家) 模型分到多卡以后, 卡之间要传的数据量为什么每一步都不一样。也能说清一条长到单卡放不下的序列, 怎么切给多张卡还能算出和单卡完全一样的注意力。',
-      tldr: '- EP (专家并行): MoE 模型里有很多个「专家」小网络, 每个 token 由路由器挑一个 (或几个) 去算。专家太多一张卡放不下, 就分到多张卡上。token 要先发到它的专家所在的卡, 算完再发回来, 一去一回各是一次 all-to-all (每张卡给每张卡各发一份不同的数据)。发多少由 gating (路由器这一步怎么分 token) 决定, 模型结构定不了它。demo 里路由一偏, 最忙的卡收到 24 个 token, 均匀的话只该收 16 个。\n- Ring Attention: 一条长序列切给 D 张卡, 每卡留着自己那段的 query, K 和 V 按块在卡之间转圈传。每卡收到一块就把它并进结果, 最后和完整注意力只差 4.4e-16。它的通信量是固定的, 和怎么切无关。但在因果 mask (每个 token 只看前面) 下必须用 zigzag 切法 (每卡拿一头一尾两段), 否则计算量省了一半, 墙钟几乎没省。demo 里墙钟从连续切分的 228 降到 132。',
-      question: 'MoE 的 all-to-all 每一步要传多少数据, 为什么由数据决定、不由模型结构决定? Ring Attention 把注意力拆到几张卡上一块一块算, 凭什么和完整注意力精确相等?',
+      subtitle: '混合专家模型 (MoE) 需要把不同专家分布到多张卡上动态路由 token, 超长上下文则需要把单条序列拆到多张卡上协同计算注意力。',
+      tldr: '- 专家并行 (EP): 将多个专家子网络分布到不同设备上, 每步通过两次 all-to-all 把 token 发往目标专家所在卡并在算完后寄回。与通信量恒定的 DDP 不同, EP 每卡收发多少数据取决于当步路由结果, 负载失衡会导致慢卡拖尾或溢出丢 token。\n- Ring Attention (环状序列并行): 将长序列切成 $D$ 段分给各卡, Q 留在本地, K/V 分块沿环传递并用 online softmax 增量合并, 计算结果与单卡全量注意力精确一致; 在因果掩码下配合首尾配对的 zigzag 切分才能让各卡计算负载均衡。',
+      question: '为什么 MoE 跨卡通信的流量由当步输入数据动态决定? Ring Attention 分块流式计算注意力, 为什么能与单卡一次性 softmax 精确相等?',
       evolution: {
         title: '参数和算力脱钩之后',
         subtitle: '根问题: 参数越多模型越强, 可稠密模型每加一份参数, 每个 token 就多一份计算',
@@ -288,40 +288,40 @@ scaler.update(overflow)                          # 溢出减半, 连续好 step 
       code: 'llm_train/m11_expert_parallel/demo.py · llm_train/m12_sequence_parallel/demo.py',
       points: [
         {
-          title: '路由决定通信量',
+          title: 'EP 的跨卡流量由当步门控路由动态决定',
           key: true,
-          body: 'MoE 的通信量不是模型定的, 是这一步的路由结果定的。\nMoE (mixture of experts, 混合专家) 把 Transformer 里的 FFN 换成 E 个并排的小 FFN, 每个叫一个专家。每个 token 进来时, 一个叫路由器 (router) 的小线性层给它在 E 个专家上打分, 再过 softmax 变成概率。这一步叫 gating。demo 用 top-1 路由: 每个 token 只送去概率最高的那一个专家。\n专家多了一张卡放不下, EP (expert parallel, 专家并行) 就把 E 个专家分给 D 张卡。demo 里是 4 张卡、8 个专家, 每卡放 2 个。麻烦在于 token 所在的卡, 常常不是它选中的专家所在的卡。所以要来回两趟 all-to-all。all-to-all 是一种集合通信, 每张卡给每张卡各发一份不同的数据。\n- dispatch: 每张卡把手上的 token 按目标卡分成 D 堆, 发往专家所在的卡。\n- combine: 专家算完, 结果原路寄回。源卡发货时在本地记下了每个 token 原来的行号 (代码里的 send_idx), 收到结果后按行号放回原位, 再乘上 gate 权重 (路由器给选中专家的那个概率)。\ndemo 的 dispatch 把 token 和专家 id 分两次发, 所以计数器记的是 3 次 all-to-all 调用, 逻辑上还是一去一回两趟。\n通信量由谁定:\n- DDP (数据并行, 每卡存整份模型、每步把各卡梯度加总): 每步搬多少字节由模型大小定死, 每一步都一样。\n- EP: all-to-all 发多少、发给谁, 全看 gating 这一次把 token 路由到了哪。换一批数据, 发送量就变了。\ndemo 只做前向、只用 top-1; 真实模型每个 token 选 2 到 8 个专家, 反向也要同样来回两趟。',
+          body: 'MoE 将一层内的 FFN 替换为 $E$ 个并行的专家子网络, 每个 token 先由轻量路由器 (router) 打分并选出 top-k 个专家 (m11 采用 top-1)。当专家总数超出单卡容量时, 专家并行 (EP) 把 $E$ 个专家均分到 $D$ 张卡上 (demo 为 4 卡共 8 个专家, 每卡 2 个)。由于 token 所在卡往往不是目标专家所在卡, 前向需经历两趟 all-to-all 通信:\n- dispatch (分发): 各卡按每个 token 选中的专家整理目标设备, 将 token 发往对应卡。\n- combine (回收): 专家计算完成后将输出原路寄回源卡, 源卡按最初记录的本地行号 (`send_idx`) 归位并乘上门控概率。\n(demo 中 dispatch 将隐状态与专家编号分两次调用通信接口, 计数显示 3 次 all-to-all, 逻辑上仍是一去一回。) 与每步搬运固定字节数的 DDP 不同, EP 每张卡每步收发多少 token 完全取决于路由器对该批数据的分配结果。',
         },
         {
-          title: '不均衡会丢 token, 拖慢整步',
-          body: '路由一不均衡, 就有两个后果: 最忙的卡拖慢整步, 超出容量的 token 被丢掉。\n- 负载不均: m11 里 64 个 token 分到 4 张卡, 按路由结果每卡实际收到 [11, 18, 11, 24] 个, 均匀的话应该各 16 个。所有卡要等最慢的那张做完才能进下一步。最热那张卡收了 24 个, 比 16 个多干 50% 的活, 其余三张卡就在等它。\n- 装不下: 每个专家有一个容量 capacity, 是它一步最多收的 token 数。公式是 capacity = ⌈cf · N_tok / E⌉, 这个式子在说: 先算每个专家平均该收几个 token, 再乘一个余量倍数 cf (capacity factor)。demo 里 64 个 token、8 个专家、cf=1.25, 容量就是 10。超过容量的 token 先到先得, 后来的被丢弃: 专家不算它, 它只靠残差连接把原输入原样带到下一层。demo 故意给 router 加了倾斜, 8 个专家收到 [1, 10, 11, 7, 4, 7, 11, 13] 个 token, 超过 10 的部分加起来, 直接有 5 个 token 装不下。\n把 cf 调大也不是免费的: README 指出显存和计算要按容量预留, cf=2 就是两倍开销。\n所以均衡不能碰运气, 要写进训练流程。',
+          title: '路由倾斜会引发木桶等待与容量溢出丢弃',
+          body: '门控路由一旦向少数热门专家扎堆, 会同时带来两方面损耗:\n- 慢卡拖慢全局同步: m11 中 64 个 token 分往 4 张卡, 倾斜路由下各卡实际收到 `[11, 18, 11, 24]` 个 token (理想均分为 16 个), 最忙的卡比均值多算 50%, 其余三张卡只能空等。\n- 超出容量上限直接丢弃: 为固定显存与算力上界, 静态实现常设置单专家容量上限 $\\text{capacity} = \\lceil \\text{cf} \\cdot N_{\\text{tok}} / E \\rceil$, 即平均负载乘上余量系数 `cf` (capacity factor)。m11 中 64 个 token、8 个专家、`cf=1.25` 对应单专家容量 10, 倾斜路由下各专家分到 `[1, 10, 11, 7, 4, 7, 11, 13]` 个 token, 超出 10 的 5 个 token 直接跳过专家层仅走残差连接。盲目调大 `cf` 又会成倍浪费预留显存与算力, 因此必须在训练中主动约束路由均衡。',
         },
         {
-          title: '两种压平路由的手段',
-          body: '衡量均衡的指标是 max/mean: 收到 token 最多的那个专家, 它的 token 数除以各专家的平均数。1.00× 是完全均衡。上一条的倾斜 router 是 1.62× (最多 13 个, 平均 8 个)。\n- Switch / Mixtral 的做法: 在 loss 里加一项辅助损失 (aux loss) $L = E\\cdot\\sum f_e\\cdot P_e$。$f_e$ 是专家 e 实际收到的 token 占比, $P_e$ 是路由器给它的平均概率。这个式子在说: 一个专家实际收的 token 越多, 它的路由概率就被罚得越重。$f$ 来自 argmax (挑概率最大的那个), argmax 没法求导, 所以把 $f$ 当常数, 只对 $P$ 求导。对 $P_e$ 的梯度和 $f_e$ 成正比, 越热的专家, 概率被往下压得越狠, 梯度就在推平路由概率。m11 只用 aux loss 训路由器 60 步: max/mean 从 1.62× 降到 1.12×, 丢弃的 token 从 5 个降到 0。\n- DeepSeek-V3 的做法 (aux-loss-free, 不加辅助损失): 给每个专家一个可调的 bias, 挑专家时用「概率 + bias」比大小。每步看一遍负载, 热门的 (收得比平均多) 把 bias 减一点, 冷门的加一点, demo 每步调 γ=0.01, 调 200 步。gate 权重仍用原始概率, bias 只改「选谁」, 不往 loss 里掺东西。m11: max/mean 降到 1.00×, 8 个专家各收 8 个 token。\n区别在副作用。aux loss 的梯度会流进路由器, 和语言建模的 loss 抢方向。bias 不进计算图, 反向传播不经过它, 不产生任何梯度。\ndemo 的路由器只用 aux loss 训练, 好单独看它的效果。真实训练里 aux loss 乘一个小系数 (α≈0.01) 加到任务 loss 上, 两者互相拉扯, 这正是 aux-loss-free 的动机。',
+          title: '负载均衡的两代方案: 辅助损失 vs 无梯度偏置调节',
+          body: '用最忙专家负载与平均负载之比 (`max/mean`, 理想值 1.00×) 衡量均衡度, 上述倾斜路由初始高达 1.62×:\n- 辅助损失 (Switch / Mixtral): 在总损失中加入 $L_{\\text{aux}} = E \\cdot \\sum_e f_e P_e$, 其中 $f_e$ 为专家 $e$ 实际接收的 token 比例 (由不可导的 argmax 统计, 视作常数), $P_e$ 为路由器给出的平均概率。越拥挤的专家 $f_e$ 越大, 其路由概率 $P_e$ 受到的下压梯度越强。训练 60 步后 `max/mean` 降至 1.12×, 溢出丢弃清零; 但辅助损失梯度会与主语言建模损失相互干扰。\n- 无辅助损失偏置 (DeepSeek-V3 aux-loss-free): 为每个专家维护一个不参与反向传播的标量 `bias`, 仅在选择 top-k 时按 `概率 + bias` 排序, 前向加权仍乘原始概率; 每步结束后将过载专家的 `bias` 下调 $\\gamma$、空闲专家上调 $\\gamma$。m11 迭代 200 步后 `max/mean` 精准降至 1.00× (8 个专家各收 8 个 token), 且全程不向计算图注入额外梯度。',
         },
         {
-          title: '分块算注意力, 结果精确相等',
-          body: '注意力可以一块一块地算, 再增量合并, 结果和一次算完完全一样。这个技巧叫 online softmax。\n序列很长时, 一张卡放不下全部的 K 和 V。上下文并行 (context parallel) 就把序列切成 D 段, 每张卡留着自己那段的 Q, K 和 V 则按块在卡之间传。注意力要对一个 query 和所有 key 的分数做 softmax: 每个分数取指数, 再除以所有指数之和。难点是 softmax 的分母要等所有分数都到齐才知道。online softmax 给每一行 query 维护三个累计量: 目前见过的最大分数 m、分母 den、加权和 acc (每个 v 乘上自己的指数权重后加起来)。取指数前先减去最大值, 是为了不让指数溢出。每收到一块新的 K/V:\n- 算这一块的分数, 和旧的 m 比, 得到新的最大值 m\'。\n- 旧的 den 和 acc 是按旧最大值 m 算的指数, 统一乘上 $e^{m-m\'}$。这个系数在说: 新最大值比旧的大多少, 旧的累计量就按比例缩小多少, 这样新旧两部分站在同一个基准上。\n- 把这一块的贡献加进 den 和 acc。\n全部块到齐后, 输出 acc/den。这是恒等变形, 不是近似: m12 实测与完整注意力差 4.4e-16, 只是浮点舍入。\n- 在单卡内这样做: FlashAttention, 块来自同一张卡的显存。\n- 跨卡传块这样做: Ring Attention。D 张卡连成一个环, 每轮每卡把手里的 KV 块传给右边邻居, 传 D−1 轮后每卡都见过所有块。任何时刻每卡只持有 $1/D$ 的 KV ($D$ 是环上的卡数)。demo 里 D=4、T=32 个 token, 每卡常驻 256 个数, 整份是 1024 个。\n通信量是固定的: 每卡传 D−1 轮, 每轮一个 KV 块, demo 里每卡共 6144 字节, 和下一条讲的切法无关。',
+          title: 'Ring Attention 靠 online softmax 流式合并分块注意力',
+          body: '超长序列单卡装不下完整 K/V 时, Ring Attention 将序列切成 $D$ 段分放各卡, 本地固定持有本段 Q, 而 K/V 分块沿环依次右移传递 $D-1$ 轮。为了在未见完全部 K 之前就开始算 softmax, 每行 query 维护三个流式统计量: 历史最大分数 $m$、指数和分母 $\\text{den}$ 与加权输出累加器 $\\text{acc}$。每收到一块新 K/V:\n- 更新全局最大值 $m^\\prime = \\max(m, m_{\\text{block}})$。\n- 将旧统计量统一乘重缩放因子 $e^{m - m^\\prime}$ 对齐到新基准, 再累入当前块的指数和与加权值。\n走完一圈输出 $\\text{acc} / \\text{den}$, 这是代数恒等变形而非近似: m12 实测与单卡全量注意力最大差仅 4.4e-16, 且任意时刻单卡只需常驻 $1/D$ 的 K/V。',
         },
         {
-          title: '因果 mask 下要 zigzag 切',
-          body: '因果 mask 下, 按顺序连续切会让最后一张卡最忙, 省下的计算变不成时间。zigzag 切法把活分平。\n因果 mask 的意思是每个 token 只能看它自己和前面的 token。所以一张卡收到的 KV 块如果整块都在它的 query 后面 (整块落在未来), 就直接跳过不算。总计算量因此省了约一半: demo 里 T=32, 要算的 q·k 对数是 528, 不加 mask 是 1024。\n省下的计算能不能变成时间, 要看怎么切。环上每一轮, 所有卡都要等最慢的那张算完才能一起传下一块。所以 demo 这样估墙钟时间: 每轮取最慢那张卡的 q·k 对数, 再把各轮加起来。\n- 不利用因果性: 4 轮每轮都算满块 (8×8=64 对), 墙钟 256。\n- 连续切分: 卡 r 拿第 r 段, 卡 0 拿最前面 8 个 token, 卡 3 拿最后 8 个。卡 r 有 r+1 个块要算 (它前面的块和它自己那块), 卡 0 只算 1 块。最后一张卡第一轮算自己那块的对角一半 (36 对), 之后每轮都满载 64 对。其余人等它, 墙钟 228, 只省约 10%。\n- zigzag: 序列切 $2D$ 段, 卡 r 拿第 r 段和第 2D−1−r 段, 一头一尾配对。D=4 时切 8 段, 卡 0 拿第 0 和第 7 段, 卡 1 拿第 1 和第 6 段。每张卡都是一段靠前、一段靠后。demo 里除了第一轮 (各算 36 对), 之后每轮每卡都正好算 32 对。每卡每轮工作量相同, 墙钟降到 132, 比连续切分快 1.73×。\ndemo 的墙钟是按 q·k 对数估的代理指标, 没有模拟传输和计算的重叠 (真实系统靠重叠把传输时间藏起来), 也只做了前向。',
+          title: '因果掩码下需用首尾配对的 zigzag 切分消除负载倾斜',
+          body: '引入因果掩码后, 整块落在当前 query 未来的 K/V 块可以直接跳过, 总计算量省去约一半 (m12 中 $T=32$ 的有效点积对数从 1024 降至 528)。但若按自然顺序连续切分, 排在序列末尾的最后一张卡需要看全部前文, 每轮都满载计算, 其余卡省下的算力全花在等它上 (模拟墙钟从无掩码的 256 仅微降至 228)。\nZigzag 切分将序列切成 $2D$ 小段, 让第 $r$ 张卡同时持有靠前的第 $r$ 段和靠后的第 $2D-1-r$ 段 (首尾对称配对)。这样除首轮外每张卡每轮的有效计算量完全相等 (均为 32 对), 模拟墙钟直接降至 132, 相比连续切分提速 1.73 倍。',
         },
       ],
       links: [
-        { from: 'gating top-k', to: 'all-to-all dispatch', body: 'gating 给每个 token 选出得分最高的 k 个专家 (demo 里 k=1)。token 所在的卡和它的专家所在的卡往往不是同一张, 所以要用 all-to-all 重排一次发过去, 算完再排回来。' },
-        { from: 'capacity factor', to: 'token dropping', body: 'capacity factor 决定每个专家一步最多收多少 token。64 个 token、8 个专家、cf=1.25 时每专家容量是 10, 溢出的 token 被丢掉, 不经过专家, 直接走残差连接。' },
-        { from: 'KV 环传递', to: 'online softmax (m, l, acc)', body: 'KV 块沿环一块一块传来, 每卡收到一块, 就用 online softmax 的三个累计量 (最大值 m、分母 l、加权和 acc) 把它增量合并。所以任何时刻每卡只需持有 $1/D$ 的 KV。' },
-        { from: '因果 mask', to: 'zigzag 切分', body: '因果 mask 让靠后的卡要算的块更多。连续切分时最后一张卡每轮满载, 大家等它; zigzag 一头一尾配对后每卡每轮工作量相同, 墙钟快 1.73×。' },
+        { from: 'gating top-k', to: 'all-to-all dispatch', body: '门控网络为每个 token 挑出目标专家后, 由 all-to-all 将跨卡 token 重排发往目标设备, 计算完毕后再逆向排回原位。' },
+        { from: 'capacity factor', to: 'token dropping', body: '容量系数 `cf` 设定单专家每步可接纳的最大 token 数, 超额到达的 token 跳过专家计算直接走残差支路。' },
+        { from: 'KV 环传递', to: 'online softmax (m, l, acc)', body: '环状传递每送来一块 K/V, 本地就用指数重缩放将它并入 `(m, l, acc)` 三个统计量, 单卡无需拼出完整序列的 K/V。' },
+        { from: '因果 mask', to: 'zigzag 切分', body: '因果注意力越靠后的位置计算越重; 首尾配对的 zigzag 分片把前后计算量均匀摊给每张卡, 避免末卡成为同步瓶颈。' },
       ],
       sourceRows: [
-        { concept: 'dispatch 发送矩阵', code: 'm11_expert_parallel/demo.py:moe_forward_ep', takeaway: '一张 [D, D] 的表: 行是源卡, 列是目标卡, 第 s 行第 d 列是卡 s 要发给卡 d 几个 token。这张表就是 all-to-all 的发货单, 按列加起来就是每卡收到的 token 数 [11, 18, 11, 24]。' },
-        { concept: 'aux loss 的梯度', code: 'm11_expert_parallel/demo.py:train_router_aux', takeaway: '按 $L = E\\cdot\\sum f_e\\cdot P_e$ 手写梯度。$f$ 来自 argmax 不可导, 视为常数; 对 $P$ 求导, 越热的专家梯度越大, 概率被压得越多, 这就在推平路由。' },
-        { concept: 'aux-loss-free bias', code: 'm11_expert_parallel/demo.py:balance_bias', takeaway: '每步数一遍各专家的负载, 热门专家的 bias 往下调 γ、冷门的往上调 γ。bias 只影响挑谁, gate 概率不变 (demo 有断言), 也不往 loss 里掺东西。' },
-        { concept: '环上的一步', code: 'm12_sequence_parallel/demo.py:ring_attention', takeaway: '卡 r 在第 s 轮处理来自卡 (r−s)%D 的 KV 块: 按因果 mask 算这一块的分数 (整块在未来就跳过), 并进累计量, 再把块传给右邻居。' },
-        { concept: '增量合并', code: 'm_new / scale', takeaway: '用新的最大值 m_new 算出修正系数, 把旧的分母和加权和换到新的指数基准上, 再加上这一块的贡献。结果与一次性 softmax 差 4.4e-16。' },
-        { concept: 'zigzag 切分', code: 'm12_sequence_parallel/demo.py:shard_positions', takeaway: '序列切 $2D$ 段, 卡 $r$ 拿第 $r$ 段和第 $(2D-1-r)$ 段, 一头一尾配对。D=4 时 4 张卡的总工作量都是 132 对, 连续切分是 [36, 100, 164, 228]。' },
+        { concept: 'dispatch 发送矩阵', code: 'm11_expert_parallel/demo.py:moe_forward_ep', takeaway: '构造 `[D, D]` 计数表记录源卡到目标卡的发送数量, 按列求和即得各卡实际负载 `[11, 18, 11, 24]`。' },
+        { concept: 'aux loss 的梯度', code: 'm11_expert_parallel/demo.py:train_router_aux', takeaway: '对 $L = E\\sum f_e P_e$ 手写路由梯度: 将实际占比 $f_e$ 视为常数向预测概率 $P_e$ 施压, 抑制热门专家扎堆。' },
+        { concept: 'aux-loss-free bias', code: 'm11_expert_parallel/demo.py:balance_bias', takeaway: '根据每步实际负载上下微调选人偏置 `bias`, 不污染主损失梯度且保持门控加权值不变。' },
+        { concept: '环上的一步', code: 'm12_sequence_parallel/demo.py:ring_attention', takeaway: '第 $s$ 轮处理来自 `(r - s) % D` 的 K/V 分块, 跳过纯未来块后更新本地累加器并向下一邻居传递。' },
+        { concept: '增量合并', code: 'm_new / scale', takeaway: '利用 $e^{m - m_{\\text{new}}}$ 将历史分子分母重缩放到最新最大值基准, 与单卡全量 softmax 误差仅 4.4e-16。' },
+        { concept: 'zigzag 切分', code: 'm12_sequence_parallel/demo.py:shard_positions', takeaway: '将序列均分为 $2D$ 段后首尾配对分配, 使 4 张卡总点积工作量全部拉齐为 132 对 (连续切分为 `[36, 100, 164, 228]`)。' },
       ],
       snippetTitle: 'EP 与 Ring Attention 的控制流',
       snippet: `# EP: 两次 all-to-all 夹一段本地专家计算
@@ -341,9 +341,9 @@ for step in range(D):
     // ---------------------------------------------------------------- 通信原语与主循环
     'train-collectives-loop': {
       title: '通信与 full_loop · 从四个原语到完整主循环',
-      subtitle: '读完你拿到任何一个训练框架, 都能先把它的通信路径还原成四种基本操作, 再去看它的封装。',
-      tldr: '- 多卡训练里所有的并行策略, 最后都落到四种卡与卡之间的基本通信操作 (叫通信原语): all-reduce、reduce-scatter、all-gather、all-to-all。它们的区别只有两点: 要不要把各卡的数据加起来, 以及每卡最后拿回整份还是一片。\n- 用 ring (环形) 算法实现 all-reduce 时, 每张卡每步只发 $2(N-1)/N\\cdot S$ 字节 ($S$ 是张量大小, $N$ 是卡数), 卡数再多也不超过 $2S$。\n- full_loop 把前面各章的模块拼成一个完整的训练主循环: 40 步里跳过了 4 个坏 step, 中途存盘续训后参数逐位相同。',
-      question: '拿到一个陌生的训练框架, 从哪里开始读才最快看懂它的并行方式?',
+      subtitle: '各类分布式并行策略底层的跨卡交换都归结为四个集合通信原语。理清它们的字节账本后, 即可将混合精度、分片优化器与断点恢复组装成完整的训练主循环。',
+      tldr: '- 多卡训练的所有跨卡同步都建立在四个集合通信原语之上: all-reduce、reduce-scatter、all-gather 与 all-to-all, 核心区别只在于「是否对数据做归约求和」以及「结束时每卡拿整份还是分片」。\n- 采用环形算法 (ring all-reduce) 时, 每张卡每步发送字节数为 $2(N-1)/N \\cdot S$, 无论集群扩到多少张卡都不会超过张量大小的两倍 $2S$。\n- `full_loop` 将数据切分、micro-batch 累积、AMP 动态缩放跳步、跨分片全局范数裁剪、ZeRO 分片 Adam 与断点续训整合进同一个训练步中验证端到端闭环。',
+      question: '面对一个陌生的分布式训练框架, 顺着哪几条通信与状态线索拆解最快能看清它的并行全貌?',
       evolution: {
         title: '从一个中心到一个环',
         subtitle: '根问题: 每张卡的网口带宽是定数, 多卡训练每一步都要把梯度汇总一遍',
@@ -357,35 +357,35 @@ for step in range(D):
       code: 'llm_train/core/collectives.py · llm_train/m09_collectives/demo.py · llm_train/full_loop/demo.py',
       points: [
         {
-          title: '四个原语各做什么, 谁在用',
-          body: '四个原语只在两件事上不同: 要不要把各卡的数据加起来; 每张卡最后拿回整份还是只拿一片。把 N 张卡想成 N 个人, 每人手里一块数据。\n- all-reduce: 加。每张卡交出自己的一份, 拿回所有卡的和, 整份。DDP 用它同步梯度。\n- reduce-scatter: 加。同样求和, 但每张卡只拿回和的 $1/N$: 自己负责的那一片。\n- all-gather: 不加。每张卡交出自己那一片, 拿回把所有片拼好的完整张量。ZeRO/FSDP (把参数和优化器状态按卡切片存的数据并行) 用 reduce-scatter 和 all-gather 这一对: 梯度求和后各留一片, 参数更新后再拼回整份。\n- all-to-all: 不加, 互换。每张卡给每张卡各准备一块不同的数据, 卡 src 给卡 dst 准备的那块最后到了卡 dst 手里。写成代码是 out[dst][src] = in[src][dst]。MoE (混合专家模型) 和 Ulysses (一种序列并行) 用它。\n先做 reduce-scatter 再做 all-gather, 结果和一次 all-reduce 完全相同。这一点后面反复用到。',
+          title: '四个集合通信原语的语义与对应并行策略',
+          body: '四个原语可以按「是否归约求和」与「输出形态是整份还是分片」直接区分:\n- all-reduce (求和 + 拿整份): 每卡输入一份同形张量, 结束后每卡都持有全体之和; DDP 用它同步全模型梯度, TP 用它归约部分和。\n- reduce-scatter (求和 + 拿分片): 同样对全体输入求和, 但每张卡只拿回自己负责的那 $1/N$ 分片; ZeRO-2/3 用它归约并切分梯度。\n- all-gather (不求和 + 拼整份): 每卡交出 $1/N$ 分片, 结束后每卡拿到拼接完整的张量; ZeRO/FSDP 用它按需收集完整参数。\n- all-to-all (不求和 + 个性化互换): 卡 `src` 发往卡 `dst` 的专属数据块落到 `out[dst][src]`; MoE 专家并行分发 token 与 Ulysses 切换序列/注意力头均依赖它。\n先执行一次 reduce-scatter 再紧接一次 all-gather, 在结果与通信字节数上都等价于一次完整的 all-reduce。',
         },
         {
-          title: '通信原语是成本中心',
+          title: '环形接力消除了单点带宽瓶颈, 单卡流量恒有 2S 上界',
           key: true,
-          body: '不同的并行策略算的是同一个数学公式, 结果也一样。它们的差别在每一步要在卡之间搬什么数据、搬多少、什么时候搬。所以看一个策略贵不贵, 先看它的通信。\n以 all-reduce 为例, 设张量大小 $S$ 字节、卡数 $N$:\n- 朴素做法: 所有卡把数据发给 0 号卡, 0 号卡加完再广播给大家。0 号卡要收 $N-1$ 份、再发 $N-1$ 份, 一共收发 $2(N-1)\\cdot S$ 字节, 其他卡的网口却闲着。$N=4$ 时 0 号卡的流量已经是 ring 的 4 倍 (m09 里 192 B 对 48 B), 而且随 $N$ 线性涨。\n- ring 实现: 把张量切成 N 块, N 张卡连成一个环, 每一步每张卡只给右邻居发一块。先绕一圈边传边加 (reduce-scatter 阶段, N−1 步), 结束时每张卡手里有了某一块的全局和; 再绕一圈把加好的块传给大家 (all-gather 阶段, 又 N−1 步)。每张卡一共发 $2(N-1)$ 块, 合计 $2(N-1)/N\\cdot S$ 字节, 上限是 $2S$, 卡数再多也不超过。\nm09 里 N=4、S=32 B: ring 实测每卡发 48 B, 和公式一样; reduce-scatter 24 B 加 all-gather 24 B, 正好是它的两半。',
+          body: '不同并行策略算出相同的数学结果, 工程性能差异主要落在跨卡通信账上。设待同步梯度大小为 $S$ 字节、总卡数为 $N$:\n- 中心化汇总: 所有卡发往 0 号卡求和后再广播回来, 0 号卡独自收发 $2(N-1)S$ 字节而其余网口闲置, 通信耗时随卡数线性恶化。\n- Ring all-reduce: 将张量均分为 $N$ 块, $N$ 张卡组成逻辑环。第一阶段走 $N-1$ 步边右移边累加 (即 reduce-scatter, 结束时每卡持有一块的全局和); 第二阶段再走 $N-1$ 步将完整和块传遍全环 (即 all-gather)。每张卡全程均匀发出 $2(N-1)/N \\cdot S$ 字节, 上限封顶在 $2S$。m09 中 $N=4, S=32\\text{ B}$ 时单卡实测发出 48 B, 恰好由 reduce-scatter 的 24 B 与 all-gather 的 24 B 两半拼成。',
         },
         {
-          title: 'full_loop 是合成章',
-          body: 'full_loop 把前面各章单独成立的模块叠进同一个 train_step 函数, 验证叠在一起仍然成立。一步里依次发生:\n- rank 切分: 全局 batch 切给 world 张卡, 每卡算自己那片 (DDP)。\n- micro 累积: 每卡再把自己的数据切成 micro 份串行算, 梯度累加 (梯度累积)。\n- AMP (自动混合精度) 放大与跳步: 用 fp16 算前向反向, loss 先乘一个 scale 放大, 防止小梯度在 fp16 里变成 0。任何一张卡的梯度里出现 Inf 或 NaN, 所有卡一起跳过这一步, scale 减半。\n- 全局裁剪: 梯度已经切成片分在各卡, 全局范数要靠每卡算自己那片的平方和, all-reduce 加起来再开方。超过阈值就按比例缩小。\n- ZeRO 分片 Adam: 每卡只在自己那片 master 权重和 Adam 状态上做更新。\n- 分片 checkpoint: 每卡存自己的分片, 外加一个全局 meta 文件。\ndemo 的数字:\n- 40 步跳了 4 步: 3 次是 fp16 计算真的溢出, 1 次是故意往第 12 步的数据里塞的一个 NaN。最终 scale 稳在 $2^{18}$。\n- 第 20 步存盘、新进程读回来接着训: 训完的 master 权重与不中断的那次差 0.0e+00, 逐位相同。\n同一个函数传 world=1、micro=1、amp=False, 就退化成单卡基线。所以 "分布式结果等于单卡结果" 这个断言, 比较的是同一份代码在两组参数下的输出。',
+          title: 'full_loop: 把分布式、混合精度与容错组件拼进同一步',
+          body: '`full_loop` 将前面各章独立验证的组件组合成完整的 `train_step` 闭环, 单步依次串联六件事:\n- 数据切分与累积: 全局 batch 分给 `world` 张卡, 每卡再拆成 `micro` 份串行累积 fp16 梯度。\n- 全局一致性跳步: 只要任意一个 rank 的本地梯度检出 Inf/NaN, 所有 rank 必须协同跳过本步更新并同步下调 `loss_scale`, 避免副本状态分叉。\n- 跨分片全局裁剪: 梯度经 reduce-scatter 分片后单卡看不到全貌, 需各卡先算本片平方和, 再做一次标量 all-reduce 开方得到全局范数。\n- 分片优化与存盘: 每张卡仅更新本片 fp32 主权重与 Adam 动量, 存盘时各自写入本地分片并附一份全局元数据。\ndemo 实测 40 步内自动拦截 4 次坏步 (3 次真实 fp16 溢出 + 1 次注入 NaN), 第 20 步存盘重启续训后的主权重与连续训练误差为 0.0e+00。',
         },
         {
-          title: '读真实框架的入口',
-          body: '拿到一个真实的训练框架, 别从类名开始读。先对着代码回答七个问题, 每个问题都对应本站的一章:\n- batch 怎么切: 哪些卡拿同一份模型、各算不同数据 (DDP, 梯度累积)。\n- 层怎么切: 一层的矩阵切给几张卡 (TP), 连续几层放一张卡 (PP)。\n- 状态怎么切: 参数、梯度、优化器状态哪些整份存、哪些按卡分片 (ZeRO)。\n- 序列怎么切: 一条长序列怎么分给多卡算注意力 (Ring Attention, Ulysses)。\n- 数用几位存: 哪些算子用 fp16 / bf16 / fp8, master 权重放哪 (混合精度)。\n- 通信怎么走: 每一步在哪里做 all-reduce、reduce-scatter、all-gather、all-to-all。\n- 坏 step 怎么恢复: 溢出跳步、NaN guard、checkpoint 存什么。\n答完这七条, 再去对框架里的类名, 每个类都能归到上面某一条。',
+          title: '拆解工业级分布式框架的七个抓手',
+          body: '阅读 Megatron-LM、DeepSpeed 或 TorchTitan 等大型框架时, 不必一头扎进类继承树, 先顺着七个问题定位主干即可:\n- 批次怎么切: 哪些进程组共享模型、分担数据 (DDP 与梯度累积)。\n- 网络层怎么切: 层内矩阵走 TP 列行切分, 还是层间走 PP 流水线。\n- 模型状态怎么放: 参数、梯度与优化器状态哪些复制、哪些分片 (ZeRO/FSDP)。\n- 长序列怎么拆: 注意力走环状传递 K/V (Ring) 还是重排注意力头 (Ulysses)。\n- 数值用什么精度: 前反向矩阵乘用 BF16/FP8, 主权重如何驻留更新。\n- 集合通信落在哪: 每步在何处触发上述四种通信原语。\n- 异常与中断怎么兜底: 溢出跳步如何对齐全局状态, 分片检查点保存了哪些游标与种子。',
         },
       ],
       links: [
-        { from: 'all-reduce', to: 'DDP', body: 'DDP 每步用一次 all-reduce 让每张卡拿到完整的平均梯度。把这次 all-reduce 拆成两半看, 就是先 reduce-scatter 再 all-gather。' },
-        { from: 'reduce-scatter + all-gather', to: 'ZeRO / FSDP', body: 'ZeRO / FSDP 的每一步就是在这两个原语之间来回: reduce-scatter 让每卡只留自己那片梯度, 在那片上更新参数; all-gather 再把各卡更新后的参数片拼回完整视图供下一步计算。' },
-        { from: 'all-to-all', to: 'MoE / Ulysses', body: 'MoE 把 token 寄去专家所在的卡, Ulysses 把注意力头换到别的卡, 用的是同一个原语。把每张卡要发给每张卡的数据排成一张发货单 in[src][dst], all-to-all 做的就是把它转置: out[dst][src] = in[src][dst]。' },
-        { from: 'full_loop', to: 'llm_finetune', body: 'full_loop 的主循环骨架 (切数据、算梯度、同步、更新、存盘) 到这里定型。后面微调阶段换的只是喂进去的数据和算 loss 的方式, 骨架不再变。' },
+        { from: 'all-reduce', to: 'DDP', body: 'DDP 每步通过一次 all-reduce 同步全模型平均梯度, 底层即由 reduce-scatter 与 all-gather 两阶段组成。' },
+        { from: 'reduce-scatter + all-gather', to: 'ZeRO / FSDP', body: 'ZeRO/FSDP 在 reduce-scatter 得到分片梯度后直接完成本地参数更新, 下一步计算前再由 all-gather 拼回完整权重。' },
+        { from: 'all-to-all', to: 'MoE / Ulysses', body: '无论是 MoE 把 token 发往专家卡, 还是 Ulysses 在按序列切与按头切之间翻转布局, 调用的都是同一个矩阵转置式通信原语 `out[dst][src] = in[src][dst]`。' },
+        { from: 'full_loop', to: 'llm_finetune', body: '训练主循环的分布式同步、精度防护与状态管理到此定型; 下一阶段微调对齐主要替换数据构造与损失函数形态。' },
       ],
       sourceRows: [
-        { concept: 'ring all-reduce', code: 'core/collectives.py:ring_all_reduce_sum', takeaway: '按块沿环实际传数据的实现。第 t 步 rank r 把第 (r−t)%N 块发给右邻居。两个阶段各 N−1 步, $N=8$ 时共 14 步; 断言实测发出的字节数等于公式 $2(N-1)/N\\cdot S$。' },
-        { concept: '通信计数器', code: 'core/collectives.py:CommCounter', takeaway: '每个原语被调用时, 都把每 rank 平均发送的字节数记到这个计数器上。各章 demo 打印的 "通信量 B/rank" 都来自它。' },
-        { concept: '完整一步', code: 'full_loop/demo.py:train_step', takeaway: '一步训练的全部流程写在这一个函数里: 切 batch 给各卡、micro-batch 累积、AMP 溢出跳步、全局范数裁剪、ZeRO 分片 Adam 更新。传 world=1、micro=1、amp=False 就是单卡基线。' },
-        { concept: '跨分片求范数', code: 'all_reduce_sum([sum(s ** 2) for s in shards])', takeaway: '梯度已经按卡切成片, 没有哪张卡手里有完整梯度。全局范数的算法: 每 rank 算自己那片的平方和, all-reduce 加成一个数, 开方就是整个梯度的范数。' },
-        { concept: '分片 checkpoint', code: 'full_loop/demo.py:save_sharded', takeaway: '每 rank 把自己那片 master 权重和 Adam 状态写进一个文件, 再写一个全局 meta 文件 (step 数、loss scale、数据游标)。恢复后继续训练, 结果与不中断的那次逐位一致。' },
+        { concept: 'ring all-reduce', code: 'core/collectives.py:ring_all_reduce_sum', takeaway: '按环形拓扑分两阶段各走 $N-1$ 步传递数据块, 断言实测字节数严格等于 $2(N-1)/N \\cdot S$。' },
+        { concept: '通信计数器', code: 'core/collectives.py:CommCounter', takeaway: '在每次原语调用时累加单卡平均发送字节数, 为各章并行实验提供统一的通信开销度量。' },
+        { concept: '完整一步', code: 'full_loop/demo.py:train_step', takeaway: '串联分片前向、micro-batch 累积、全局溢出跳步、跨分片范数裁剪与分片 Adam 更新; 传入 `world=1, micro=1, amp=False` 即退化为单卡基准。' },
+        { concept: '跨分片求范数', code: 'all_reduce_sum([sum(s ** 2) for s in shards])', takeaway: '各卡先求本地梯度分片的平方和, 经一次标量归约相加后再开方, 还原出与未分片完全一致的全局二范数。' },
+        { concept: '分片 checkpoint', code: 'full_loop/demo.py:save_sharded', takeaway: '各 rank 独立落盘本地主权重与动量分片, 配合一份全局元数据记录步数、缩放因子与数据游标, 实现逐位一致的断点续训。' },
       ],
       snippetTitle: 'full_loop 的一步',
       snippet: `flat_lp = all_gather([rk["master"].astype(float16) for rk in ranks])  # ① 算副本, 通信的是 fp16
@@ -408,9 +408,9 @@ for rk, g in zip(ranks, shards):                       # ⑥ 分片 Adam, 只碰
     // ---------------------------------------------------------------- 新章节
     'train-pipeline-schedules': {
       title: '1F1B 与交错调度 · 气泡和在途激活的账',
-      subtitle: '读完你能分清流水线的两笔成本: 卡在空等, 和已前向未反向的激活。也能说出三种调度各自动了哪一笔。',
-      tldr: '流水线并行把模型按层切给几张卡, 每段叫一个 stage。它有两笔成本:\n- 气泡: 卡空等的时间占总时间的比例。GPipe 和 1F1B 两种调度完全一样, 都是 $(\\mathrm{PP}-1)/(M+\\mathrm{PP}-1)$, PP 是 stage 数, M 是 micro-batch 数。PP=4、M=8 时是 27.3%。\n- 在途激活: 已经做完前向、还没做反向的 micro-batch, 它的激活必须留在显存里等反向用。1F1B 省的是这一笔, PP=4、M=8 时每卡峰值从 [8,8,8,8] 份降到 [4,3,2,1] 份。\n要真的减气泡只有两条路: 把 M 开大, 或者交错 (每卡放几个不相邻的小 stage)。',
-      question: '1F1B 明明不减少气泡, 为什么大家都说它「更快」?',
+      subtitle: '流水线并行同时面临设备空等 (气泡) 与未释放的在途激活两笔开销。对比 GPipe、1F1B 与交错 1F1B 的时间表, 看清不同排程如何压低显存峰值与空闲比例。',
+      tldr: '流水线并行将模型按层切成 $\\mathrm{PP}$ 个 stage, 核心开销有两项:\n- 气泡占比: 设备等待上下游依赖的空闲时间比例, GPipe 与标准 1F1B 均为 $(\\mathrm{PP}-1)/(M+\\mathrm{PP}-1)$ (`PP=4, M=8` 时为 27.3%)。\n- 在途激活峰值: 已完成前向但尚未执行反向的 micro-batch 必须驻留显存。1F1B 通过尽早穿插反向将各卡峰值从 `[8,8,8,8]` 压到 `[4,3,2,1]`, 腾出显存开大 $M$ 来间接压气泡; 交错 1F1B 则通过每卡托管 $v$ 个不相邻小段直接把气泡压低到 $(\\mathrm{PP}-1)/(vM+\\mathrm{PP}-1)$。',
+      question: '标准 1F1B 的理论气泡公式和 GPipe 完全一样, 为什么实际训练里大家普遍用 1F1B 替代 GPipe?',
       evolution: {
         title: '气泡和在途激活的拉锯',
         subtitle: '根问题: 按层切开后, 每个 stage 都要等上游的激活和下游的梯度',
@@ -424,33 +424,33 @@ for rk, g in zip(ranks, shards):                       # ⑥ 分片 Adam, 只碰
       code: 'llm_train/m04_pipeline_parallel/demo.py',
       points: [
         {
-          title: '两种调度只差执行顺序',
-          body: 'GPipe 和 1F1B 做的计算完全一样, 区别只在每张卡先做哪个、后做哪个。\n先说几个词。流水线并行 (PP) 把模型按连续的层切成 PP 段, 每段叫一个 stage, 一个 stage 放一张卡。一个 batch 再切成 M 个 micro-batch (小批次), 一个接一个流过各个 stage。每个 micro-batch 在每个 stage 上都要做一次前向 (F) 和一次反向 (B)。\n- GPipe: 所有 micro-batch 的前向全做完, 再开始做反向。\n- 1F1B (one forward, one backward): 每张卡先连做几个前向热身 (warmup), 之后严格一个前向、一个反向交替。stage s 的热身个数是 PP−1−s, 正好是它后面还有几个 stage。\ndemo 不真的算梯度, 只排时间表。规则是: 每张卡按固定顺序执行自己的操作, 每个操作在「这张卡空闲了, 并且它依赖的上游操作做完了」的最早时刻开始。反向大约是前向的 2 倍, 所以一个 B 占 2 个时间格, 一个 F 占 1 格。',
+          title: 'GPipe 与 1F1B 计算完全相同, 只调整了前反向穿插顺序',
+          body: '设模型按连续层切成 $\\mathrm{PP}$ 个 stage, 全局 batch 拆成 $M$ 个 micro-batch, 每个 micro-batch 在每个 stage 上都要跑一次前向 (F, 耗时 1 格) 和一次反向 (B, 耗时约 2 格):\n- GPipe: 每张卡先把全部 $M$ 个 micro-batch 的前向一口气算完, 再统一执行全部 $M$ 个反向。\n- 1F1B (One-Forward-One-Backward): 第 $s$ 张卡开头只做 $\\mathrm{PP}-1-s$ 个前向热身, 一旦首个 micro-batch 的反向梯度从下游传回, 立刻进入「做一个 F 紧跟一个 B」的稳态交替, 及时把算完反向的激活释放掉。',
         },
         {
-          title: '1F1B 省显存, 不省时间',
+          title: '1F1B 直接省的是在途激活显存, 再借更大的 M 间接压低气泡',
           key: true,
-          body: '1F1B 不减少空等的时间, 它减少的是要留在显存里的激活。\n为什么要留激活: 一个 micro-batch 做完前向后, 反向时还要用到前向算出来的中间结果 (激活)。所以在它的反向做完之前, 这份激活一直占着显存。已前向、未反向的 micro-batch 叫在途的, 它们的激活叫在途激活。\nPP=4、M=8 时, 两种调度的气泡都是 27.3%, 但各 stage 的在途激活峰值不同:\n- GPipe: [8,8,8,8]。前向全做完才开始反向, 每个 stage 最多同时攥着全部 8 份。\n- 1F1B: [4,3,2,1]。stage 0 最多, 越靠后越少。\n规则只有一行: 卡 s 上「已前向未反向」的 micro-batch 不许超过 $\\mathrm{PP}-s$ 份。热身做 PP−1−s 个前向, 再做一个前向就必须等着做一个反向, 所以最多攥 PP−s 份。\n1F1B 对时间的帮助是间接的: 显存省下来, M 就可以开大; 气泡公式的分母里有 M, M 越大气泡越小。PP=8、M=64 时气泡只剩 9.9% (7/71)。',
+          body: '固定相同的 $\\mathrm{PP}=4, M=8$ 时, GPipe 与 1F1B 的空闲气泡占比完全相等, 都是 27.3%; 真正的差别落在每张卡同时驻留的在途激活份数上:\n- GPipe: 前向全跑完才开始释放, 四张卡峰值全为 `[8, 8, 8, 8]`, 随 $M$ 线性膨胀。\n- 1F1B: 第 $s$ 张卡在途份数上界锁死在 $\\mathrm{PP}-s$ (即 `[4, 3, 2, 1]`), 与 $M$ 开多大脱钩!\n正因为激活显存不再随 $M$ 上涨, 训练时才能放心把 $M$ 开大 (例如 $\\mathrm{PP}=8, M=64$), 让气泡 $(\\mathrm{PP}-1)/(M+\\mathrm{PP}-1)$ 顺势压低到 9.9%。',
         },
         {
-          title: '交错: 气泡再除以 v',
-          body: '交错调度 (interleaved 1F1B) 让每张卡不再拿一段连续的层, 而是拿 v 个不相邻的小 stage。\n举例: PP=4、v=2 时, 模型切成 8 个小 stage (叫虚拟 stage), 编号 0 到 7。卡 0 拿第 0 和第 4 个, 卡 1 拿第 1 和第 5 个, 依此类推。一个 micro-batch 从卡 0 走到卡 3, 再从卡 0 走到卡 3, 绕着卡转 v 圈。\n效果: PP=4、M=8、v=2 时, 气泡从 27.3% 降到 15.8%。公式变成 $(\\mathrm{PP}-1)/(v\\cdot M+\\mathrm{PP}-1)$。\n直觉: 气泡的绝对长度正比于「单个 stage 的计算量」。demo 打印的时间表里, 开头第 s 张卡要空等 s 格, 等前面的 stage 把第一个 micro-batch 的前向一个个做完; 结尾反过来。交错把单个 stage 切小了 $v$ 倍, 总有效工作量没变, 所以公式里的 $M$ 变成 $v\\cdot M$。demo 用事件模拟实测, 气泡和这个公式完全对上。',
+          title: '交错 1F1B: 每卡托管多个虚拟小段, 把气泡分母放大 v 倍',
+          body: '当全局批大小受限、无法继续增大 $M$ 时, 交错调度 (interleaved 1F1B) 将模型切得更细: 拆成 $\\mathrm{PP}\\cdot v$ 个虚拟 stage, 让卡 $s$ 负责不相邻的第 $s, s+\\mathrm{PP}, \\dots$ 段。例如 $\\mathrm{PP}=4, v=2$ 时共 8 段, 卡 0 拿第 0 段和第 4 段, 数据沿 4 张卡绕两圈流完前向。\n由于单段计算耗时缩为原来的 $1/v$, 首尾流水线填充与排空的等待时间也同步缩减为 $1/v$, 气泡公式变为 $(\\mathrm{PP}-1)/(vM+\\mathrm{PP}-1)$。m04 事件模拟实测 `PP=4, M=8, v=2` 时气泡从 27.3% 直接降到 15.8%。',
         },
         {
-          title: '交错的代价',
-          body: '交错少等了, 但要付三个代价 (PP=4、M=8、v=2):\n- 在途激活更多: 交错的热身段更长 (见下面「去代码里找什么」), 所以攥着的激活更多。各卡峰值是 [11,9,7,5] 份, 但每份只是半个 stage 的激活。卡 0 最多, 11 × 1/2 = 5.5 个 stage 的激活。普通 1F1B 的卡 0 是 4 个 stage。\n- 跨卡传输更多: 每个 micro-batch 前向加反向要跨卡传的次数, 从 $2(\\mathrm{PP}-1)$ 次变成 $2(\\mathrm{PP}\\cdot v-1)$ 次。因为虚拟 stage 多了, 相邻虚拟 stage 又都在不同卡上。\n- 约束: M 必须是 PP 的整数倍 (demo 有断言)。\n所以它适合 M 已经被显存卡住、加不上去的时候。\ndemo 把跨卡传输的时间记为 0, 真实收益还要扣掉多出来的传输。demo 也没有覆盖 zero-bubble 这类调度: README 提到它们把反向拆成算输入梯度和算权重梯度两部分, 拿来填气泡。',
+          title: '交错调度的工程代价: 跨卡通信翻 v 倍且热身缓冲略增',
+          body: '交错 1F1B 压缩气泡并非免费 (`PP=4, M=8, v=2` 实测):\n- 跨卡点对点传输增加 $v$ 倍: 单个 micro-batch 前反向跨越卡边界的次数从 $2(\\mathrm{PP}-1)$ 增至 $2(\\mathrm{PP}\\cdot v - 1)$。\n- 在途激活略高于标准 1F1B: 交错排程需要更长的热身步数, 卡 0 同时持有的半段激活峰值为 11 份, 折合 $11 \\times 0.5 = 5.5$ 个完整 stage (高于标准 1F1B 的 4 个, 仍远低于 GPipe 的 8 个)。\n- 整除约束: 要求 $M$ 必须是 $\\mathrm{PP}$ 的整数倍。',
         },
       ],
       links: [
-        { from: 'train-model-parallel', to: 'device_order', body: '上一章只看了时间表长什么样。这一章看时间表是怎么生成的: device_order 给出每张卡的执行顺序, 模拟器按这个顺序和依赖关系排出时间表。' },
-        { from: 'warmup 个 F', to: '在途激活上限', body: '一张卡热身时连做 warmup 个前向, 接着再做一个前向才开始第一个反向。所以 warmup+1 就是这张卡上「已 F 未 B」的 micro-batch 数上限。' },
-        { from: '在途激活', to: '激活重算', body: '交错多出来的那部分在途激活, 通常用 activation checkpointing (激活重算: 前向时不存中间激活, 反向时再算一遍) 换回显存。' },
+        { from: 'train-model-parallel', to: 'device_order', body: '上一章介绍了按层切分的流水线概念, 本章由 `device_order` 排出各卡具体的 F/B 执行序列并交由离散事件模拟器核算开销。' },
+        { from: 'warmup 个 F', to: '在途激活上限', body: '热身阶段连做 `warmup` 个前向后再接 1 个前向才迎来首个反向释放, 因此 `warmup + 1` 直接决定了该卡在途激活的峰值份数。' },
+        { from: '在途激活', to: '激活重算', body: '流水线并行常与激活重算叠加使用: 每个在途 micro-batch 只保留 stage 入口张量, 进一步把首卡显存压力打下来。' },
       ],
       sourceRows: [
-        { concept: '每卡的执行顺序', code: 'm04_pipeline_parallel/demo.py:device_order', takeaway: '生成一张卡的操作清单。GPipe 是全部 F 再全部 B; 1F1B 是先做 warmup 个 F, 之后严格一个 F、一个 B 交替。' },
-        { concept: '交错的 warmup', code: '(PP - 1 - s) * 2 + (v - 1) * PP', takeaway: '交错调度下 stage s 的热身前向个数 (Megatron-LM 的公式)。它比普通 1F1B 的 $\\mathrm{PP}-1-s$ 长得多, 交错的在途激活变多就来自这里。' },
-        { concept: '虚拟 stage', code: 'k = c * PP + s', takeaway: '卡 s 上的第 c 个小 stage, 在整条流水线里是第 k 个。共 $\\mathrm{PP}\\cdot v$ 个虚拟 stage, 第 k 个住在卡 k % PP 上。' },
-        { concept: '事件模拟', code: 'm04_pipeline_parallel/demo.py:simulate', takeaway: '每个操作的开始时刻取「卡空闲的时刻」和「依赖完成的时刻」中晚的那个。跑完后, 气泡 $= 1 - \\text{有效工作量}/\\text{总时长}$, 这个式子在说: 总时长里没在干活的那部分比例。' },
+        { concept: '每卡的执行顺序', code: 'm04_pipeline_parallel/demo.py:device_order', takeaway: '生成单卡的操作序列: GPipe 为全 F 后全 B, 1F1B 为 `warmup` 个 F 后严格一前一反交替。' },
+        { concept: '交错的 warmup', code: '(PP - 1 - s) * 2 + (v - 1) * PP', takeaway: 'Megatron-LM 交错调度的热身前向数公式, 比标准 1F1B 更长, 解释了交错模式下在途激活份数的增加。' },
+        { concept: '虚拟 stage', code: 'k = c * PP + s', takeaway: '卡 $s$ 上的第 $c$ 个虚拟段对应全局流水线的第 $k$ 段, 满足 `k % PP == s` 轮转映射。' },
+        { concept: '事件模拟', code: 'm04_pipeline_parallel/demo.py:simulate', takeaway: '按设备空闲与上游完成时刻推进时间线, 最终由 `1 - 有效计算时长 / 总墙钟时长` 算出真实空闲气泡占比。' },
       ],
       snippetTitle: '三种调度只差一个 warmup',
       snippet: `def device_order(kind, s, PP, M, v=1):
@@ -471,9 +471,9 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
 
     'train-lr-schedule': {
       title: 'WSD 学习率调度 · 不用提前承诺总步数',
-      subtitle: '读完你能解释为什么用 WSD 调度训的主干可以在任何时候分叉出一个成品模型, 而 cosine 调度做不到。',
-      tldr: '学习率 (lr) 不是一个常数, 训练过程中按一条曲线变化, 这条曲线叫调度。\n- cosine 调度: 每一步的 lr 都写成 $f(\\text{step}/\\text{total})$, 公式里有总步数 total。总步数一改, 整条曲线都变, m10 里前 90 步的 lr 最多变了 5.96e-4。\n- WSD 调度 (warmup 爬升、stable 恒定、decay 退火三段): 稳定段的 lr 就是一个常数, 公式里没有 total。所以稳定段的任何一个 checkpoint 都能接着往下训, 或者分叉出一段短退火做成成品。',
-      question: '训到 100% 发现 loss 还在降, 想加训: cosine 和 WSD 各要付出什么?',
+      subtitle: '余弦退火需要事先定死总训练步数, 中途追加语料十分被动。WSD (预热-恒定-退火) 将主干保持在恒定学习率, 允许在任意节点分叉退火产出模型。',
+      tldr: '学习率调度曲线决定了训练能不能灵活续跑:\n- 余弦调度 (cosine): 每一步学习率都依赖进度比 `step / total`, 总步数 `total` 一改整条历史曲线都会变形 (m10 中 `total` 从 100 改 200 时前 90 步最大相差 5.96e-4)。\n- WSD 调度 (Warmup-Stable-Decay): 预热后一直保持恒定峰值学习率推进主干, 不含 `total` 参数; 需要评估或发版时, 从任一稳定段 checkpoint 分叉跑一小段快速退火 (如末 10% 步数) 即可收敛。',
+      question: '模型训完预定步数发现 loss 还在稳步下降, 想追加一倍语料继续训: 余弦调度和 WSD 各自会遇到什么局面?',
       evolution: {
         title: '从一个常数到三段式',
         subtitle: '根问题: 步子大走得快却落不进谷底, 步子小稳却慢, 一个 lr 管不了全程',
@@ -487,29 +487,29 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
       code: 'llm_train/m10_training_stability/demo.py',
       points: [
         {
-          title: 'warmup 在防什么',
-          body: 'warmup 是训练开头的几百步, 把 lr 从一个很小的值线性爬到峰值。\n它防的是 Adam 的一个弱点。Adam 给每个参数维护两个滑动平均: 梯度的均值 m 和梯度平方的均值 v, 更新量大致是 m 除以 $\\sqrt{v}$。v 的作用是把步长按每个参数自己的梯度大小归一化。最初几百步 v 还没 "热" 起来, 只平均了很少几步, 估得很不准, 归一化后的步长方差很大。这时配上大 lr, 很容易一步走飞。\n线性 warmup 就是用小步子把这段最危险的路走完, 等 v 估准了再用峰值 lr。',
+          title: '初期线性预热 (warmup) 用于平稳度过二阶矩冷启动',
+          body: '大模型训练开头的几百到几千步通常会把学习率从接近 0 线性拉升到峰值。这主要是为了配合 Adam 优化器: 训练刚起步时二阶矩滑动平均 $v$ 只见过极少数样本, 方差估计很不稳定, 自适应步长容易剧烈跳变; 先用极小学习率热身能让 $v$ 积累可靠统计量后再放开步伐。',
         },
         {
-          title: 'cosine 把总步数写进了每一步',
+          title: '余弦退火把总步数耦合进了中间每一步',
           key: true,
-          body: 'cosine 调度的公式是 $\\text{lr} = f((\\text{step} - \\text{warmup})/(\\text{total} - \\text{warmup}))$。这个式子在说: 先算当前走到了全程的几分之几 (progress), 再把 progress 代进半个余弦, lr 从峰值平滑降到 0。总步数 total 出现在 progress 的分母里, 所以每一步的 lr 都依赖它。total 一变, 整条曲线都跟着变。\nm10 里把 total 从 100 改成 200, 看前 90 步的 lr 变了多少:\n- cosine: 最大差 5.96e-4 (峰值 lr 是 1e-3, 差了一半以上)。\n- WSD: 差 0.00e+00, 一步都没变。\n所以训完想给 cosine 加训, 只剩两条路: 从 lr 已经降到 0 的状态重新 warmup (re-warmup), loss 会先反弹; 或者按新的 total 从头再训一遍。',
+          body: '余弦调度的进度比例写作 $(\\text{step} - \\text{warmup}) / (\\text{total} - \\text{warmup})$, 分母直接绑定了总训练步数 `total`。一旦预算调整改变 `total`, 前面每一步本该使用的学习率就全变了。m10 对比了将总步数从 100 扩到 200 时前 90 步的学习率差异:\n- 余弦调度: 最大偏移达 5.96e-4 (超过峰值学习率 1e-3 的一半)。\n- WSD 调度: 稳定段偏差为 0.00e+00。\n因此在余弦调度下若训到终点想追加数据, 要么从接近 0 的学习率重新拉高 (引发 loss 剧烈反弹), 要么只能按新预算从头重训。',
         },
         {
-          title: 'WSD 的工程价值',
-          body: 'WSD 的稳定段 lr 恒定, 不依赖总步数。MiniCPM / DeepSeek-V3 / Kimi 用的都是这一类调度, 工程上这样用:\n- 主干: 一直用峰值 lr 往前训, 不设终点。\n- 要 "成品": 从稳定段的任意一个 checkpoint 分叉出来, 接一段短退火 (lr 快速降到接近 0), 退火完就是一个可以评测、可以发布的模型。m10 里退火段占总步数的最后 10%。\n数据追加、scaling law 实验 (比较不同规模的模型) 都不用重训主干。退火起点前的那个 checkpoint, 是所有分支的公共祖先。\n代价: 要成品或要评测, 都得从稳定段 checkpoint 另跑一段退火, m10 里是总步数的 10%。\n边界: 真实 WSD 的退火形状常用 1−sqrt 或指数, m10 用的是线性。',
+          title: 'WSD 支持主干持续续训与按需分叉发版',
+          body: 'MiniCPM、DeepSeek-V3 与 Kimi 等模型广泛采用 WSD 类三段式调度, 把持续预训练与阶段性交付解耦:\n- 持续主干: 预热结束后长期维持峰值学习率稳定训练, 随时可以无缝接上新一批语料。\n- 按需分叉退火: 每当需要对比不同 token 预算的 scaling 点或导出正式发布版时, 直接从稳定段最新 checkpoint 拉出一条分支, 用约 10% 的步数把学习率快速退火至接近 0 即可落入损失谷底 (工业实践常配合 `1 - sqrt` 或指数衰减曲线)。',
         },
       ],
       links: [
-        { from: 'train-precision-stability', to: 'warmup', body: '上一章的梯度裁剪 (clip) 和 NaN guard, 和这一章的 warmup 是同一类工具: 都是为了别让某一个坏 step 毁掉整条训练。warmup 防开头, 另两个防中途。' },
-        { from: 'decay_start', to: 'checkpoint', body: 'decay_start 是退火开始的那一步。它前面的最后一个稳定段 checkpoint 最值钱: 续训从它出发, 每一个退火分支也从它出发, 它是所有分支的公共祖先。' },
-        { from: 'WSD 退火', to: 'Muon / AdamW', body: '调度管 lr 怎么随时间变, 优化器管拿到 lr 之后怎么更新参数, 两者互不干涉, 可以任意搭配。Kimi K2 用的就是 Muon 优化器加 WSD 调度。' },
+        { from: 'train-precision-stability', to: 'warmup', body: '预热防护训练初期的动量未校准风险, 梯度裁剪与 NaN 拦截防护训练中途的异常尖峰, 三者共同构成稳定性防线。' },
+        { from: 'decay_start', to: 'checkpoint', body: '退火起点前夕保存的稳定段 checkpoint 是最宝贵的公共基座: 后续追加预训练与各版本退火分支都从它接续。' },
+        { from: 'WSD 退火', to: 'Muon / AdamW', body: '学习率调度只输出当前步的标量步长, 与底层选用 AdamW 还是 Muon 正交, 实际训练如 Kimi K2 常将 Muon 与 WSD 搭配使用。' },
       ],
       sourceRows: [
-        { concept: 'warmup + cosine', code: 'm10_training_stability/demo.py:warmup_cosine_lr', takeaway: '先算 $\\text{progress} = (\\text{step} - \\text{warmup})/(\\text{total} - \\text{warmup})$, 再代进余弦。total 在分母里, 每一步的 lr 都依赖它。' },
-        { concept: 'WSD', code: 'm10_training_stability/demo.py:wsd_lr', takeaway: '稳定段的代码只有一行: 直接 return base_lr。这一行里没有 total_steps, 所以稳定段的 lr 和总步数无关。' },
-        { concept: '退火起点', code: 'decay_start = total_steps - int(total_steps * decay_frac)', takeaway: '退火起点等于总步数减去退火段长度 (总步数的 decay_frac, 默认 0.1)。整个 WSD 里只有这一个量依赖总步数, 而且只影响最后约 10% 的步。' },
-        { concept: '两种调度的实测差', code: 'total=100 → 200, 前 90 步 lr 最大变化', takeaway: '总步数从 100 改到 200, 前 90 步的 lr 最大变化: cosine 5.96e-04, WSD 0.00e+00。' },
+        { concept: 'warmup + cosine', code: 'm10_training_stability/demo.py:warmup_cosine_lr', takeaway: '通过 `(step - warmup) / (total - warmup)` 计算余弦相位, 总步数 `total` 从第一步起就影响全局轨迹。' },
+        { concept: 'WSD', code: 'm10_training_stability/demo.py:wsd_lr', takeaway: '稳定段直接返回 `base_lr`, 完全不读取 `total_steps`, 确保主干轨迹与总预算无关。' },
+        { concept: '退火起点', code: 'decay_start = total_steps - int(total_steps * decay_frac)', takeaway: '仅在末尾 `decay_frac` (默认 10%) 步进入线性退火段, 将总步数的影响收束在收尾阶段。' },
+        { concept: '两种调度的实测差', code: 'total=100 → 200, 前 90 步 lr 最大变化', takeaway: '扩容总步数时前 90 步学习率最大漂移: 余弦调度为 5.96e-04, WSD 严格保持 0.00e+00。' },
       ],
       snippetTitle: 'WSD 三段式',
       snippet: `def wsd_lr(step, total_steps, base_lr, warmup_steps, decay_frac=0.1, min_ratio=0.0):
@@ -526,9 +526,9 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
 
     'train-low-precision': {
       title: 'FP8 与 FP4 微缩放 · scale 的粒度决定能砍到几位',
-      subtitle: '读完你能解释一个数只用 4 bit 存时, 为什么必须一小块元素共用一个缩放系数, 以及 MXFP4 和 NVFP4 两种格式的差距全部来自哪一处。',
-      tldr: '- 一个数只用 4 bit 存 (FP4) 时, 能表示的最小非零值是 0.5、最大是 6, 动态范围只剩 12 倍。单靠它什么都存不了。\n- 办法是每 16~32 个元素共享一个缩放系数 (scale): 先把这一小块按它的最大值缩放到网格里, 再舍入。块越小, 一个异常大的值连累的邻居越少。\n- MXFP4 和 NVFP4 都是这么做的, 两者的差距来自 scale 自己的精度: MXFP4 的 scale 只能取 2 的幂, NVFP4 的 scale 带 3 位尾数。',
-      question: '同样是 4 bit + block scale, 为什么 NVFP4 的误差明显低于 MXFP4? INT4 什么时候反而更好?',
+      subtitle: '4-bit 浮点单元素的非零动态范围只有 12 倍, 必须把缩放因子细化到 16~32 个元素一小块; MXFP4 与 NVFP4 的精度差距则直接取决于缩放因子自身的位宽格式。',
+      tldr: '- FP4 (E2M1) 单个元素的非零正数仅覆盖 0.5 到 6, 必须采用微缩放 (microscaling): 每 16~32 个相邻元素共享一个局部缩放系数 scale, 把离群值的影响锁死在极小块内。\n- MXFP4 与 NVFP4 都使用 E2M1 存元素, 核心差异在于 scale 本身的编码精度: MXFP4 用无尾数的 E8M0 (只能取 2 的整数次幂), NVFP4 改用带 3 位尾数的 E4M3 搭配整张量二级缩放, 显著减少了块最大值截断误差。',
+      question: '同样采用 4-bit E2M1 元素加分块缩放, 为什么 NVFP4 的量化误差明显低于 MXFP4? 什么分布下均匀网格的 INT4 反而比 FP4 更准?',
       evolution: {
         title: 'scale 越切越细, 位宽越砍越少',
         subtitle: '根问题: 位宽越少, 一张网格能覆盖的范围越窄, 张量里大小悬殊的数挤不进去',
@@ -542,29 +542,29 @@ bubble = (PP - 1) / (v * M + PP - 1)`,
       code: 'llm_train/m13_fp8_training/demo.py · llm_train/m15_fp4_microscaling/demo.py · llm_train/core/numerics.py',
       points: [
         {
-          title: 'scale 由 block 里最大的那个元素定',
+          title: '分块越小, 离群值连累的邻居越少',
           key: true,
-          body: '低精度格式能表示的数值范围很窄, 张量里的数要先缩放进这个范围再存。缩放系数叫 scale, 由一组元素里绝对值最大的那个 (amax) 决定: scale = amax / 格式的最大值。这样最大的那个元素正好落在网格顶端, 其余元素除以 scale 后再舍入到网格上。\n共享 scale 的那一组元素叫一个 block。整个张量共用一个 scale 叫 per-tensor; 每 128 个元素一个叫 block scaling。\n问题出在 outlier (个别异常大的值): 它一个人把 amax 顶得很高, 同 block 的其他元素除以 scale 后都变得很小, 挤在网格靠近 0 的几个格点上, 甚至直接变成 0。block 越小, 被它连累的邻居越少。\n- FP8: m13 往 32 个 token 的激活里放 3 个孤立的 outlier, 看其余 29 个 token 的矩阵乘输出误差。outlier 要大到约 1e5 倍才显形: 这时 per-tensor 的相对误差是 0.126, 每 128 个元素一个 scale 的是 0.026。1e4 倍以内两者打平, 因为 E4M3 自带约 $2^{15}$ 的动态范围。\n- FP4: 元素格式 E2M1 的网格只有 $\\pm\\{0.5,1,1.5,2,3,4,6\\}$ 和 0, 动态范围 12 倍。不切成小 block, 一个张量里稍微悬殊一点的数就装不下, 根本用不了。',
+          body: '分块量化按组内最大绝对值 `amax` 计算缩放系数 `scale = amax / max_val`。当张量出现个别幅值极高的离群值 (outlier) 时, 共用同一个 scale 的同块正常元素会被迫除以一个大数而挤向 0 附近。缩小分块尺寸能直接限制离群值的波及半径; 尤其降到 FP4 (E2M1) 后, 非零格点只剩 $\\pm\\{0.5, 1, 1.5, 2, 3, 4, 6\\}$, 动态范围仅 12 倍, 必须把块缩至 16~32 个元素才能正常表示张量。',
         },
         {
-          title: 'scale 自己也有精度',
-          body: '格式名直接写位数: E8M0 是 8 位指数、0 位尾数; E4M3 是 4 位指数、3 位尾数; FP4 的元素本身是 E2M1, 2 位指数、1 位尾数。\n两种 FP4 格式的元素都是 E2M1, 区别只在 scale 怎么存:\n- MXFP4: 每 32 个元素一个 E8M0 的 scale。没有尾数, scale 只能取 2 的幂。于是 amax 除以 scale 落在 [4, 8) 的哪个位置全凭运气, 大于 6 的直接饱和截断到 6。m15 里 42% 的 block 的最大值被截断了。\n- NVFP4: 每 16 个元素一个 E4M3 的 scale, 带 3 位尾数, 能把 amax 几乎精确地贴到网格顶端的 6。E4M3 的范围只到 448, 所以还要再乘一个整张量的 FP32 scale 把它搬进这个范围。\nm15 在高斯分布的权重上量相对量化误差 $\\|Q(x)-x\\|/\\|x\\|$ (量化再还原后的值与原值之差的范数, 除以原值的范数):\n- 各用默认 block: MXFP4 (block 32) 0.113, NVFP4 (block 16) 0.095。\n- 同为 block 16, 只换 scale 格式: E8M0 scale 0.1138, E4M3 scale 0.0947。block 一样大时差距还在, 所以差距全部来自 scale 的精度。',
+          title: 'MXFP4 与 NVFP4 的精度差距全部来自 scale 自身的尾数位',
+          body: '两种微缩放标准的元素都是 E2M1, 区别在于如何编码每块的缩放因子:\n- MXFP4 (每 32 个元素一块): 块 scale 采用 8 位纯指数格式 E8M0 (0 位尾数), 只能取 $2^k$。因此 `amax / scale` 落在 $[4, 8)$ 区间内全看运气, 超过 6 的部分直接被饱和截断回 6 (m15 中多达 42% 的块最大值遭截断)。\n- NVFP4 (每 16 个元素一块): 块 scale 改用带 3 位尾数的 E4M3 (辅以整张量 1 个 FP32 二级缩放补齐动态范围), 能把块内 `amax` 紧贴映射到网格顶端 6。\nm15 在高斯分布权重上测量相对量化误差 $\\|Q(x)-x\\|/\\|x\\|$: 默认配置下 MXFP4 为 0.113, NVFP4 降至 0.095; 若将两者分块大小统一固定为 16、仅对比 E8M0 与 E4M3 缩放格式, 误差依然是 0.1138 对 0.0947, 证实收益主要来自 scale 的尾数精度。',
         },
         {
-          title: '格式要对着数据分布选',
-          body: '同样是 4 bit, 还有整数格式 INT4 可选: 每个 block 一个 scale, 元素量化到 −7 到 7 的整数, 格点是均匀间距的。FP4 的格点 $\\{0.5,1,1.5,2,3,4,6\\}$ 越大越稀, 近似对数间距。哪个更准, 看数据长什么样。比的仍是相对量化误差:\n- 高斯分布的权重 (数值集中在 0 附近, 很少有大值): INT4 0.096, MXFP4 0.113, INT4 低 15%。数据集中时, 均匀网格更划算。\n- 重尾数据 (激活、梯度, 偶尔出现很大的值): MXFP4 0.142, INT4 0.147, 对数间距的浮点网格低约 4%。浮点网格更擅长这种偶尔冒出大值的数据。\n两者的位数也不同: 把 scale 摊到每个元素上, MXFP4 是 4 + 8/32 = 4.25 bit, INT4 是 4.50 bit。',
+          title: '均匀网格 INT4 与对数网格 FP4 各擅胜场',
+          body: '同为 4-bit 分块量化, INT4 使用 $-7 \\dots 7$ 的等间距格点, 而 FP4 (E2M1) 格点越往外越稀疏。谁误差更低取决于张量分布形态:\n- 集中型高斯分布 (如常规权重): 数值密集分布在中小幅值区, 等间距的 INT4 相对误差为 0.096, 优于 MXFP4 的 0.113。\n- 重尾分布 (如含尖峰的激活或梯度): 偶发大值拉宽量程后, 近似对数分布的 MXFP4 误差为 0.142, 优于 INT4 的 0.147。(计入 scale 开销后, MXFP4 平均每元素占 4.25 bit, INT4 占 4.50 bit。)',
         },
       ],
       links: [
-        { from: 'train-precision-stability', to: 'FP8 block scaling', body: '上一章的 BF16、FP8 模拟和这一章的 FP4 用的是同一个函数 fake_quant_float。一个浮点格式只由三个数决定: 尾数位数、最大值、最小指数。换格式就是换这三个数。' },
-        { from: 'quant_blockwise', to: 'mxfp4 / nvfp4', body: 'core 里的 quant_blockwise 是通用的 block 量化: 每块按 amax 算 scale, 缩放、舍入、还原。m15 的 mxfp4 和 nvfp4 两个函数做的是同样的事, 只有算 scale 的那一行不一样。' },
-        { from: 'FP4 权重', to: 'llm_infer 量化', body: '本章只量了一次性量化的误差。FP4 目前主要用在推理时的权重和 QAT (量化感知训练)。全程用 FP4 做预训练还要加随机舍入、Hadamard 旋转打散 outlier 等技巧, 本章没做。' },
+        { from: 'train-precision-stability', to: 'FP8 block scaling', body: 'BF16、FP8 与 FP4 均复用同一个格点模拟函数 `fake_quant_float`, 切换数据格式只需替换尾数位宽、最大值与最小正规指数三项参数。' },
+        { from: 'quant_blockwise', to: 'mxfp4 / nvfp4', body: '`quant_blockwise` 实现理想浮点 scale 下的分块量化, `mxfp4` 与 `nvfp4` 在此基础上进一步对 scale 本身做 E8M0 或 E4M3 量化。' },
+        { from: 'FP4 权重', to: 'llm_infer 量化', body: '本节评估单次张量量化误差; 全流程 FP4 预训练往往还需搭配随机舍入与 Hadamard 正交旋转打散离群值。' },
       ],
       sourceRows: [
-        { concept: 'block scaling', code: 'core/numerics.py:quant_blockwise', takeaway: '把张量拍平后每 block 个元素切成一行, 每行算 scale = amax / max_val (这一块的最大绝对值除以格式的最大值), 除以 scale 后舍入, 再乘回来。block 大于等于张量大小时, 整个张量一个 scale, 就是 per-tensor。' },
-        { concept: 'MXFP4 的 scale', code: 'scale = 2.0 ** (np.floor(np.log2(amax)) - 2)', takeaway: 'scale 取 amax 的对数向下取整再减 2, 再做 2 的幂, 所以只能是 2 的幂 (E8M0)。减 2 是因为 E2M1 的最大值 6 写成 $1.5\\cdot 2^2$, 最大指数是 2; 这样 amax 除以 scale 落在 [4, 8)。' },
-        { concept: 'NVFP4 的 scale', code: 'm15_fp4_microscaling/demo.py:nvfp4', takeaway: '每块的 scale 是 amax / 6, 但它要存成 E4M3, 范围只到 448。所以先用一个整张量的 FP32 scale 把它搬进这个范围, 量化成 E4M3, 再乘回去。' },
-        { concept: 'FP8 消融', code: 'm13_fp8_training/demo.py:train', takeaway: 'FP8 的训练消融, 比 200 步后的验证 loss, 相邻两个实验只动一个旋钮。全程 E4M3 时 per-tensor 4.64e-4, block 4.61e-4, 干净数据上打平。去掉 fp32 master 权重后 loss 差 584 倍。' },
+        { concept: 'block scaling', code: 'core/numerics.py:quant_blockwise', takeaway: '将张量重排为每行 `block` 个元素, 按行求 `amax / max_val` 完成缩放、舍入与反量化还原。' },
+        { concept: 'MXFP4 的 scale', code: 'scale = 2.0 ** (np.floor(np.log2(amax)) - 2)', takeaway: '将块缩放限制为 2 的整数次幂 (E8M0), 使 `amax / scale` 落入 `[4, 8)`, 超过 E2M1 上限 6 的部分发生截断。' },
+        { concept: 'NVFP4 的 scale', code: 'm15_fp4_microscaling/demo.py:nvfp4', takeaway: '先借整张量 FP32 系数将各块 `amax / 6` 纳入 E4M3 量程 (上限 448), 量化为带 3 位尾数的 E4M3 scale。' },
+        { concept: 'FP8 消融', code: 'm13_fp8_training/demo.py:train', takeaway: '逐项对比 200 步训练损失: 干净数据上 per-tensor 与 block 打平 (约 4.6e-4), 移除 fp32 主权重则恶化 584 倍。' },
       ],
       snippetTitle: 'MXFP4 与 NVFP4 只差 scale 一行',
       snippet: `def mxfp4(x, block=32):
@@ -585,9 +585,9 @@ def nvfp4(x, block=16):
 
     'train-muon': {
       title: 'Muon 优化器 · 把更新矩阵正交化',
-      subtitle: '读完你能说清 Muon 优化器在什么问题上赢 Adam、在什么问题上输, 以及为什么它只用在 2-D 权重矩阵上。',
-      tldr: '- Adam: 逐个元素看梯度, 给每个参数单独定步长。\n- Muon: 只管 2-D 权重矩阵。它把动量矩阵的奇异值 (矩阵在各个方向上的放大倍数) 全部拉成 1 再拿去更新, 这一步叫正交化。结果是每个奇异方向迈同样大的步子。正交化不做 SVD, 用 5 步只含矩阵乘的 Newton–Schulz 迭代近似。\n损失面的病态方向 (特别陡或特别平的方向) 不与坐标轴对齐时 Muon 赢, demo 里 loss 低 9.2 倍; 对齐时 Adam 赢, 好 1.9 倍。',
-      question: 'Adam 已经给每个参数单独调步长了, 为什么还会被「病态方向」拖住? Muon 什么时候反而不如 Adam?',
+      subtitle: 'Adam 逐个参数缩放步长, 遇到斜向耦合的病态曲率依然受限。Muon 用 5 步矩阵乘迭代将二维动量矩阵近似正交化, 让各个奇异方向以均等幅度推进。',
+      tldr: '- Adam 按坐标轴独立维护二阶矩来调整步长; Muon 专门针对二维权重矩阵, 将动量矩阵的所有奇异值推平到 1 附近 (正交化), 使小奇异值方向不再被大奇异值方向淹没。\n- 正交化无需运行昂贵的 SVD, 改用 5 步纯矩阵乘法的 Newton–Schulz 多项式迭代即可在 GPU 上高效近似。\n- 当损失曲面的病态方向不与坐标轴对齐时 Muon 优势明显 (m14 中损失比 Adam 低 9.2 倍); 若病态恰好沿单个坐标轴分布, 逐元素缩放的 Adam 反而低 1.9 倍。',
+      question: 'Adam 已经给每个参数单独自适应步长了, 为什么遇到旋转后的病态输入仍会变慢? 为什么嵌入层与一维参数不能直接套用 Muon?',
       evolution: {
         title: '从逐元素缩放到逐奇异方向缩放',
         subtitle: '根问题: 损失面在不同方向上弯曲程度差几个数量级, 同一个步长管不住所有方向',
@@ -601,33 +601,33 @@ def nvfp4(x, block=16):
       code: 'llm_train/m14_muon_optimizer/demo.py',
       points: [
         {
-          title: '梯度的奇异值差几个数量级',
-          body: 'Muon 的出发点: 一个权重矩阵的梯度, 在不同方向上的大小差得很远, 更新被少数几个大方向主导。\n怎么看「方向」: 任何矩阵都能做 SVD (奇异值分解), 写成 $G = U\\Sigma V^\\top$。这个式子在说: 矩阵 G 的作用可以拆成一组互相垂直的方向 (U 和 V 的列), 每个方向上放大多少倍, 由对角矩阵 $\\Sigma$ 里的一个数给出, 这个数叫奇异值。\n梯度矩阵的奇异值常常差几个数量级。直接拿梯度 (或它的动量) 去更新, 大奇异值的那几个方向步子很大, 小奇异值的方向几乎不动。更新被头几个大方向吃掉了。\nMuon 的做法是把 $\\Sigma$ 里的数全换成 1, 更新量变成 $UV^\\top$。方向还是梯度给出的那些方向, 但每个奇异方向迈的步子一样大。奇异值全是 1 的矩阵叫正交矩阵 (它的行或列两两垂直、长度都是 1), 所以这一步叫正交化。用数学的说法, 这相当于在谱范数 (矩阵最大的那个奇异值) 下做最陡下降。\n实际被正交化的是动量矩阵, 不是单步的梯度, 见下面「去代码里找什么」的「一步更新」。',
+          title: '把动量矩阵的奇异值拉平, 消除弱方向饥饿',
+          body: '对任意二维梯度或动量矩阵做奇异值分解 $G = U\\Sigma V^\\top$, 可以将其看作在一组正交方向 ($U, V$ 的列向量) 上按奇异值 $\\Sigma$ 各自缩放。神经网络训练中梯度矩阵的奇异值往往相差数个数量级, 直接更新时少数主方向占据绝大部分步长, 其余微弱奇异方向几乎停滞。\nMuon 将对角阵 $\\Sigma$ 替换为单位阵, 取正交极因子 $UV^\\top$ 作为更新方向 (等价于谱范数下的最陡下降), 让所有奇异方向在单步更新中获得同等大小的推力, 且优化器只需存一份一阶动量缓冲区, 状态显存比存 m、v 两份的 Adam 更省。',
         },
         {
-          title: '不做 SVD 也能正交化',
-          body: '精确的 SVD 在 GPU 上很慢。Muon 改用 Newton–Schulz 迭代, 只用矩阵乘法, 就把奇异值推到 1 附近。\n- 先归一: 把矩阵除以它的 Frobenius 范数 (所有元素平方和再开根号)。这样所有奇异值都 ≤ 1, 后面的多项式迭代才不会发散。\n- 再迭代 5 次: $X \\leftarrow aX + (bA + cA^2)X$, 其中 $A = XX^\\top$, 系数 $(a,b,c) = (3.4445, -4.7750, 2.0315)$。这个式子在说: 每迭代一次, 奇异方向 U、V 不动, 每个奇异值 σ 被换成 $a\\sigma + b\\sigma^3 + c\\sigma^5$。σ 很小时 $a\\sigma$ 那一项占主导, 每步约放大 3.4 倍; 大的 σ 被压在 1 附近。\n这组系数是为「快速把奇异值推进 [0.7, 1.2]」调的, 不追求精确收敛到 1。\nm14 对一个 16×32、条件数 1e4 (最大奇异值是最小的 1 万倍) 的矩阵迭代 5 步:\n- 最小奇异值: 从 1e-4 抬到 0.041 (1 步、3 步后分别是 0.000、0.003)。这么小的方向 5 步来不及到 1, 但也被放大了两个数量级以上。\n- 最大奇异值: 一直压在 1.16 附近。\n- 方向: 与精确 $UV^\\top$ 的方向余弦 0.880 (1 表示完全同向)。',
+          title: '5 步 Newton–Schulz 多项式迭代替代精确 SVD',
+          body: '直接调库求 SVD 在 GPU 上并行度差、耗时长。Muon 先将动量矩阵除以自身的 Frobenius 范数确保全部奇异值落在 $[0, 1]$ 内, 随后重复 5 步纯矩阵乘迭代 $X \\leftarrow aX + (bA + cA^2)X$ (其中 $A = XX^\\top$, 系数取 $(3.4445, -4.7750, 2.0315)$)。\n每次迭代保持左右奇异向量不变, 仅把每个奇异值 $\\sigma$ 映射为奇数次多项式 $a\\sigma + b\\sigma^3 + c\\sigma^5$: 接近 0 的小奇异值每步被放大约 3.44 倍快速抬升, 较大的奇异值则稳定收敛在 $[0.7, 1.2]$ 区间附近。m14 对条件数高达 $10^4$ 的 $16\\times 32$ 矩阵迭代 5 步后, 最小奇异值从 1e-4 抬升至 0.041, 与精确 $UV^\\top$ 的余弦相似度达 0.880。',
         },
         {
-          title: '病态落在谁的轴上, 谁赢',
+          title: '轴对齐病态归 Adam, 旋转耦合病态归 Muon',
           key: true,
-          body: 'Adam 和 Muon 谁赢, 要看损失面的病态方向是不是正好沿着坐标轴。\n病态的意思是: 损失面在某些方向特别陡, 在另一些方向特别平, 一个学习率很难同时照顾好。\n- Adam 的缩放是逐元素的: 它给每个参数记一个梯度平方的滑动平均 v, 步长除以 $\\sqrt{v}$。这只能修「对角」的病态, 意思是陡的方向和平的方向恰好各自对应单个参数 (单个坐标轴)。病态方向一旦是多个坐标的线性组合 (斜着的方向), 逐元素缩放就无能为力。\n- Muon 的正交化只看奇异方向, 和坐标轴怎么摆无关, 这叫与基无关。\nm14 的实验是一个 32 维输入的矩阵回归。输入各主轴上的标准差从 1 降到 0.01, 协方差的条件数是 1e4。「非轴对齐」版本再给输入乘一个随机旋转矩阵, 让病态方向不再是单个坐标。两个优化器各跑 150 步, 各扫 5 个 lr (0.03 到 3.0) 取最好, 比最后的 loss:\n- 非轴对齐: Muon 4.93e-04, Adam 4.52e-03, Muon 好 9.2×。\n- 轴对齐: Adam 5.54e-04, Muon 1.08e-03, Adam 好 1.9×。\nAdam 按坐标轴缩放, Muon 按奇异方向缩放。病态落在谁的轴上, 谁就赢。\n两边 weight decay 都是 0, 只比缩放方式这一处差别; 1-D 的偏置两边都用 Adam。这是线性回归玩具问题, 「真实网络上 Muon 省约一半 FLOPs」是 Moonlight / Kimi 的报告结论, 这个 demo 证明不了。',
+          body: 'Adam 与 Muon 的长板正好互补:\n- Adam 的逐元素除法等价于对角预处理, 只能校正严格沿着单个参数坐标轴的曲率悬殊; 一旦高曲率与低曲率方向混成多个坐标的斜向线性组合, 逐元素缩放便无法解耦。\n- Muon 的正交化具备旋转不变性, 直接在奇异向量张成的子空间上拉平步长。\nm14 在条件数为 $10^4$ 的 32 维矩阵回归上各扫 5 档最优学习率训练 150 步: 加入随机正交旋转 (非轴对齐) 时 Muon 最终损失为 4.93e-04, 比 Adam (4.52e-03) 低 9.2 倍; 不加旋转 (严格轴对齐) 时 Adam 为 5.54e-04, 反而比 Muon (1.08e-03) 低 1.9 倍。',
         },
         {
-          title: '大规模要配 QK-clip',
-          body: 'Muon 用在大模型上, 还要配一个叫 QK-clip 的保护, 防止注意力分数爆掉。\nattention logit 是 softmax 之前的分数, 由 query 和 key 点乘得到 (q·k)。Muon 的更新是满秩的: 正交化之后所有奇异方向都迈同样大的步子, 没有哪个方向被压着不动。README 指出, 大规模训练时 attention logit 容易因此越涨越大。logit 太大, softmax 就成了 one-hot (几乎全部概率压在一个位置上), 梯度消失, 注意力学不动了。\nm14 只演示裁剪本身, 不演示 logit 怎么涨上去: 手工造一组偏大的 $W_q$、$W_k$ (随机矩阵乘 3), max logit 是 752.1, softmax 最大概率的均值是 1.000。已经是 one-hot, 梯度全没了。\n- Kimi K2 的 MuonClip: 每步更新后算出这个 batch 上最大的 logit $S_{\\max}$。若它超过阈值 $\\tau$, 就把 $W_q$、$W_k$ 各乘 $\\sqrt{\\tau/S_{\\max}}$。为什么各乘一个平方根: logit 里 $W_q$ 和 $W_k$ 各出现一次, 两边各乘一个平方根, 乘起来正好缩小 $\\tau/S_{\\max}$ 倍。demo 取 $\\tau$=100, 裁剪后正好 100.0。真实的 MuonClip 按 head 分别做。\n- embedding、输出头、norm、bias: 仍然用 AdamW。norm 和 bias 是向量, 正交化是矩阵概念, 对向量参数没有意义; embedding 和输出头虽然是矩阵, README 指出用 Muon 反而更差。',
+          title: '大规模训练的分层边界与 MuonClip 防护',
+          body: '将 Muon 用于大规模 Transformer 时有两项关键工程配套:\n- 参数适用范围: Muon 只更新隐藏层内部的二维线性投影矩阵; 一维的归一化增益/偏置以及稀疏查表性质的词嵌入层、语言模型输出头仍交由 AdamW 更新。\n- QK-clip 抑制注意力分数爆炸: 满秩正交更新容易让 $W_Q, W_K$ 的谱范数在超大规模训练中持续爬升, 导致注意力内积冲高、softmax 饱和成独热分布 (m14 构造偏大权重时最大 logit 达 752.1, 最大概率均值 1.000)。Kimi K2 提出的 MuonClip 在监测到最大 logit $S_{\\max} > \\tau$ 时, 将 $W_Q$ 和 $W_K$ 各乘 $\\sqrt{\\tau / S_{\\max}}$, 把内积峰值精确压回阈值 $\\tau=100.0$。',
         },
       ],
       links: [
-        { from: 'llm_basic optim.py', to: 'Muon', body: 'llm_basic 的 optim.py 里是 Adam, 它给每个参数存 m (梯度的滑动平均) 和 v (梯度平方的滑动平均) 两份状态。Muon 只存动量一份, 优化器显存反而更省。' },
-        { from: 'newton_schulz', to: 'GPU 友好', body: '精确的 $UV^\\top$ 要做 SVD, GPU 上很慢。newton_schulz 只用矩阵乘, 正好是 GPU 最擅长的运算, 5 步的开销相对一次前向加反向不到 1%。' },
-        { from: '0.2·√max(n,m)', to: 'AdamW 学习率', body: '这是 Moonlight 的缩放: 正交化后的更新再乘 $0.2\\cdot\\sqrt{\\max(n,m)}$ ($n$、$m$ 是权重矩阵的形状), 让 Muon 更新的 RMS (每个元素的典型大小) 接近 AdamW 的约 0.2。这样学习率和 weight decay 可以直接沿用 AdamW 的。' },
+        { from: 'llm_basic optim.py', to: 'Muon', body: 'Adam 为每个参数维护一阶矩 m 与二阶矩 v 两份状态; Muon 只保留单份动量缓冲, 靠矩阵正交化替代逐坐标方差归一化。' },
+        { from: 'newton_schulz', to: 'GPU 友好', body: 'Newton–Schulz 全程由稠密矩阵乘法组成, 能直接跑满 GPU Tensor Core, 5 步迭代相对整网前反向的额外耗时通常不足 1%。' },
+        { from: '0.2·√max(n,m)', to: 'AdamW 学习率', body: 'Moonlight 经验缩放系数 $0.2\\sqrt{\\max(n,m)}$ 将正交矩阵元素的均方根对齐到 AdamW 更新量的典型幅度 (~0.2), 方便直接复用成熟的 AdamW 学习率与权重衰减超参。' },
       ],
       sourceRows: [
-        { concept: 'Newton–Schulz', code: 'm14_muon_optimizer/demo.py:newton_schulz', takeaway: '先除以 Frobenius 范数, 保证所有奇异值 $\\sigma \\le 1$。再迭代 5 次, 每次对每个奇异值作用多项式 $a\\sigma + b\\sigma^3 + c\\sigma^5$, 奇异方向不变。全程只有矩阵乘, 不做 SVD。' },
-        { concept: '一步更新', code: 'm14_muon_optimizer/demo.py:Muon', takeaway: '先把梯度累进动量 buf (动量系数 0.95), 再对「当前梯度 + 0.95 × buf」(Nesterov 式动量) 做正交化, 乘 $0.2\\cdot\\sqrt{\\max(n,m)}$, 最后减到权重上。优化器状态只有 buf 一份。' },
-        { concept: 'QK-clip', code: 'm14_muon_optimizer/demo.py:qk_clip', takeaway: '$\\eta = \\min(1, \\tau/S_{\\max})$: 最大 logit 没超过阈值时 η=1, 什么都不动。超过时 $W_q$、$W_k$ 各乘 $\\sqrt{\\eta}$, logit 正好缩小 η 倍。' },
-        { concept: '对照实验', code: 'm14_muon_optimizer/demo.py:run', takeaway: 'rotate=True/False 对应非轴对齐、轴对齐两种病态。两个优化器各自扫 5 个 lr 取最好的再比, 否则比的是谁的 lr 碰巧调得好。' },
+        { concept: 'Newton–Schulz', code: 'm14_muon_optimizer/demo.py:newton_schulz', takeaway: '先除以 Frobenius 范数保证奇异值不超过 1, 再做 5 步五次奇多项式矩阵迭代将奇异值推向 1 附近。' },
+        { concept: '一步更新', code: 'm14_muon_optimizer/demo.py:Muon', takeaway: '维护系数 0.95 的动量 `buf`, 对 Nesterov 组合 `G + 0.95 * buf` 正交化后乘维度缩放因子更新二维权重。' },
+        { concept: 'QK-clip', code: 'm14_muon_optimizer/demo.py:qk_clip', takeaway: '当最大注意力分数超出阈值 $\\tau$ 时计算 $\\eta = \\tau / S_{\\max}$, 对 $W_Q$ 与 $W_K$ 各乘 $\\sqrt{\\eta}$ 使点积恰好缩回上限。' },
+        { concept: '对照实验', code: 'm14_muon_optimizer/demo.py:run', takeaway: '通过 `rotate=True/False` 切换耦合病态与轴对齐病态, 并为两种优化器各自独立网格搜索最优学习率以保证公平比较。' },
       ],
       snippetTitle: 'Muon 的核心',
       snippet: `def newton_schulz(G, steps=5):
@@ -647,9 +647,9 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
 
     'train-ulysses': {
       title: 'Ulysses 序列并行 · 用 all-to-all 把切序列换成切头',
-      subtitle: '读完你能算出 Ulysses 和 Ring 各自的每卡通信量, 并说清为什么实战里两者要叠着用。',
-      tldr: 'Ulysses 是另一种把长序列切给多张卡的办法。它在注意力前后做 all-to-all (每张卡给每张卡各发一份不同的数据), 换一种切法:\n- 换之前: 每卡一段序列、全部头。\n- 换之后: 每卡完整序列、一部分头。\n多头注意力里各个头本来互不相干, 所以每卡对完整序列算自己那几个头就行, 注意力核一行都不用改。它的每卡通信量随卡数 P 增大反而下降: demo 里 P=8 时每卡 7168 字节, Ring Attention 是它的 4 倍。代价是 P 必须整除头数, 跨机器时也不如 Ring 友好。',
-      question: 'Ulysses 的每卡通信量随卡数 P 增大反而下降, 为什么大家没有全部换成它?',
+      subtitle: 'Ring Attention 固定切序列并沿环传 K/V, Ulysses 则在进入注意力层前用 all-to-all 把「分段序列 + 全部头」翻转为「完整序列 + 部分头」, 直接复用标准注意力核。',
+      tldr: 'DeepSpeed-Ulysses 利用多头注意力各头相互独立的性质, 在注意力前后做 4 次 all-to-all 重排张量切分维度:\n- 注意力层外按序列切分 `[T/P, H, d]`, 逐位置计算的 Norm 与 MLP 零通信完成。\n- 进入注意力前重排为 `[T, H/P, d]`, 每张卡在完整序列上直接跑本地的 $H/P$ 个头, 算完再换回 `[T/P, H, d]`。\n其单卡通信量随卡数 $P$ 增大反而按 $1/P$ 下降 (m16 中 $P=8$ 时仅为 Ring Attention 的 1/4), 但受限于头数整除约束与全互联带宽, 实际集群常采用「机内 Ulysses + 机间 Ring」混合部署。',
+      question: 'Ulysses 的单卡通信字节数随并行度 P 增大反而减少, 为什么超大规模长上下文训练没有全部只用 Ulysses?',
       evolution: {
         title: '长序列从切段到切头',
         subtitle: '根问题: 激活随序列长度涨, 长上下文的一条序列一张卡就放不下',
@@ -663,29 +663,29 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
       code: 'llm_train/m16_ulysses_sequence_parallel/demo.py · llm_train/m12_sequence_parallel/demo.py',
       points: [
         {
-          title: '换切法, 不换数学',
+          title: '只翻转分片维度, 原封不动复用标准注意力核',
           key: true,
-          body: 'Ulysses 只换了数据在卡之间的切法, 注意力的计算本身一点没变。\n先定符号: $P$ 张卡, $T$ 个 token, $H$ 个注意力头, 每头 $d$ 维。多头注意力里每个头各算各的, 头与头之间不交换信息。\n- 注意力之外: 每卡持有 [T/P, H, d], 一段序列、全部头。MLP、norm 这些层对每个 token 单独算, 按序列切不需要任何通信。\n- 进注意力前: 注意力要让每个 token 看到前面整段序列, 按序列切就不够了。于是对 Q、K、V 各做一次 all-to-all, 每卡变成 [T, H/P, d]: 完整序列, 但只有 $H/P$ 个头。每卡直接跑一次普通的因果 FlashAttention, 算完再用一次 all-to-all 换回 [T/P, H, d]。\n举例: P=2、H=8 时, 卡 0 原来拿前一半 token 的全部 8 个头。all-to-all 之后, 卡 0 拿全部 token 的第 0 到 3 个头, 卡 1 拿第 4 到 7 个头。\n头与头之间本来互不相干, 所以结果和完整注意力对得上 (m16: P=2/4 差 0.0e+00, P=8 差 4.4e-16)。\n因果 mask 下每卡都算完整序列, 活天然一样多, 不需要 zigzag (把序列一头一尾配对来平衡负载的切法)。\ndemo 只有前向; 反向是方向相反的同样 4 次 all-to-all。',
+          body: '设序列长 $T$、注意力头数 $H$、头维 $d$、并行卡数 $P$。Transformer 中除注意力外的所有算子 (RMSNorm、MLP、残差) 都按位置独立运算, 按序列维切成 `[T/P, H, d]` 即可无通信并行; 唯独注意力需要跨全序列交互, 但各头之间互不耦合。\nUlysses 在算出本地 Q、K、V 后各做一次 all-to-all, 将数据重排为 `[T, H/P, d]`: 每张卡拥有完整的 $T$ 个位置、只负责其中 $H/P$ 个注意力头, 直接调用现成的因果 FlashAttention 核即可 (且每卡都是全序列因果三角形, 负载天然均衡, 无需 zigzag 配对), 算完再经第 4 次 all-to-all 换回 `[T/P, H, d]`。m16 实测 $P=2, 4, 8$ 下输出与单卡全量注意力最大差不超过 4.4e-16。',
         },
         {
-          title: '通信量随 P 下降',
-          body: 'Ulysses 的每卡通信量随卡数 P 增加而下降, Ring 的则上升。\nUlysses 每卡发 $4(P-1)/P^2$ 份完整张量 (一份完整张量指整个 [T, H, d] 的 Q、K、V 或输出)。这个式子这样来:\n- 一共 4 次 all-to-all: Q、K、V 各一次, 输出换回来一次。\n- 每次, 每卡手上只有完整张量的 $1/P$。其中属于自己那几个头的部分留下, 其余 $(P-1)/P$ 发给别的卡。\n- 乘起来是 $4 \\times (1/P) \\times (P-1)/P$。P 越大, 每卡手上那片越小, 要发的也越少。\nRing 每卡要传 P−1 轮, 每轮把一块 KV (完整 K、V 的 1/P) 交给邻居, 合计是完整 KV 的 $(P-1)/P$。P 越大越接近整份 KV, 只升不降。\nm16 里 T=32、H=8、d=8 (float64, 每个数 8 字节), P=2/4/8 时每 rank (每张卡) 发的字节数:\n- Ulysses: 16384 / 12288 / 7168\n- Ring: 16384 / 24576 / 28672。P=8 时是 Ulysses 的 4.0 倍。\n两列都是 demo 用通信计数器实测的, 和公式逐字节相等; Ring 那一列是逐头调用上一章 m12 的 ring_attention 得到的。真实实现常把 Q、K、V 拼起来一次发完, demo 分成 3 次发。',
+          title: '单卡通信量随并行卡数 P 增加反而递减',
+          body: '对比单趟前向中每张卡发出的字节数 (以完整 `[T, H, d]` 张量大小记作 1 份):\n- Ulysses: 共 4 次 all-to-all (Q、K、V 与输出各一次), 每次单卡手头本就只占 $1/P$ 份数据, 其中属于自身负责头的那 $1/P$ 留在本地, 实际发往外卡的只有 $4 \\times (1/P) \\times (P-1)/P = 4(P-1)/P^2$ 份, 随 $P$ 增大按反比下降。\n- Ring Attention: 每卡需把 K 和 V 各分块传满 $P-1$ 轮, 发出总量为 $2(P-1)/P$ 份 (K、V 各一份 $(P-1)/P$), 随 $P$ 增大单调趋近常数。\nm16 在 `T=32, H=8, d=8` (float64) 下实测 $P=2 / 4 / 8$ 的单卡发送字节数: Ulysses 为 `16384 / 12288 / 7168 B`, Ring 则为 `16384 / 24576 / 28672 B` ($P=8$ 时 Ring 通信量是 Ulysses 的 4 倍)。',
         },
         {
-          title: '两个硬约束',
-          body: 'Ulysses 有两个硬约束, 所以实战里它通常和 Ring 叠着用。\n- P 必须整除头数: 每卡要分到整数个头。m16 里 P=16、H=8, 8 个头切不成 16 份, 直接 AssertionError。GQA/MQA 下限制更紧。GQA (grouped-query attention) 让几个 Q 头共用一组 K 和 V, MQA 是所有 Q 头共用一组, 所以 KV 头比 Q 头少得多。README 举的例子是 64 个 Q 头只有 8 个 KV 头, 这时 KV 要么复制, 要么 P 只能开到 8。\n- 跨机不友好: all-to-all 要每张卡和其它所有卡交换数据, 吃的是对分带宽 (把集群切成两半, 两半之间的总带宽)。Ring 只和环上的邻居点对点传, 不需要所有人互相发。\n所以实战常见的是机内 8 路 Ulysses × 机间 4 路 Ring: 机器内部用 Ulysses, 跨机器那一层交给 Ring, 两者的并行度相乘, 一共切 32 路。',
+          title: '头数整除上限与全互联拓扑促成「机内 Ulysses + 机间 Ring」',
+          body: 'Ulysses 有两道硬边界阻止它无限扩卡:\n- 并行度受头数卡死: 每张卡必须分到整数个头 (`H % P == 0`, m16 传入 `P=16, H=8` 直接触发断言报错); 在 GQA 模型中 KV 头数往往只有 8 个, 不额外复制 KV 时 $P$ 最多只能开到 8。\n- 依赖高对分带宽: all-to-all 要求组内任意两卡同时互发小块数据, 适合单机内高速 NVLink 全互联; 跨机器网卡更容易被全员并发打满, 反而是只跟左右相邻节点点对点通信的 Ring 更易与计算重叠。\n因此工业界超长上下文训练常将两者正交组合: 机内 8 卡走 Ulysses 压低通信量, 跨机 4 节点走 Ring 突破头数上限, 合起来支撑 32 路序列并行。',
         },
       ],
       links: [
-        { from: 'train-moe-seq', to: 'Ring Attention', body: '上一章的 Ring Attention 让每卡的 Q 留在原地, KV 块沿环一块块流过去。Ulysses 不这样传, 它用 all-to-all 让所有卡一次性交换数据换位。' },
-        { from: 'core/collectives.py:all_to_all', to: 'seq_to_head', body: 'seq_to_head 用的 all_to_all 和 MoE 的 dispatch 是同一个通信原语。代码里写成 out[dst][src] = in[src][dst]: 卡 src 准备发给卡 dst 的那份数据, 到了卡 dst 手上的第 src 格。' },
-        { from: '[T/P, H, d]', to: '[T, H/P, d]', body: '左边是每卡一段序列、全部头, 右边是每卡完整序列、一部分头。盯住这个 shape 变化, 整个算法就看懂了。' },
+        { from: 'train-moe-seq', to: 'Ring Attention', body: 'Ring Attention 固定切序列、沿环流式传 K/V 并重写分块合并核; Ulysses 则靠一次性重排换回标准全序列注意力调用。' },
+        { from: 'core/collectives.py:all_to_all', to: 'seq_to_head', body: '`seq_to_head` 与 MoE 的专家分发复用同一个 `all_to_all` 原语, 将各卡本地序列段的头分组转置发往对应目标卡。' },
+        { from: '[T/P, H, d]', to: '[T, H/P, d]', body: '从「分段序列、全部头」切换到「完整序列、部分头」再切回原形状, 这一次维度对调就是 Ulysses 的全部核心逻辑。' },
       ],
       sourceRows: [
-        { concept: '序列 → 头', code: 'm16_ulysses_sequence_parallel/demo.py:seq_to_head', takeaway: '每张卡 (rank s) 把手上的 H 个头分成 P 组, 第 j 组发给 rank j。每卡收齐 P 段序列后, 按顺序沿序列维拼起来, 得到 [T, H/P, d]。' },
-        { concept: '头 → 序列', code: 'm16_ulysses_sequence_parallel/demo.py:head_to_seq', takeaway: '完全对称的逆变换: 每卡把完整序列切回 P 段, 第 s 段发给 rank s, 收到后沿头维拼回 [T/P, H, d]。' },
-        { concept: '整除约束', code: 'assert H % P == 0', takeaway: '每卡要分到整数个头。8 个头切不成 16 份, demo 里故意用 P=16 触发这个 AssertionError。' },
-        { concept: '通信账', code: '4 * (P - 1) / P * shard_bytes', takeaway: 'shard_bytes 是一张卡手上一份 Q (或 K、V) 的字节数。4 次 all-to-all, 每次只发其中不属于自己的 $(P-1)/P$。' },
+        { concept: '序列 → 头', code: 'm16_ulysses_sequence_parallel/demo.py:seq_to_head', takeaway: '每卡将本地 `[T/P, H, d]` 按头维切成 $P$ 组经 `all_to_all` 互换, 收齐后沿序列维拼接成 `[T, H/P, d]`。' },
+        { concept: '头 → 序列', code: 'm16_ulysses_sequence_parallel/demo.py:head_to_seq', takeaway: '注意力算完后做对称逆变换: 将完整序列切回 $P$ 段互换, 再沿头维拼回 `[T/P, H, d]`。' },
+        { concept: '整除约束', code: 'assert H % P == 0', takeaway: '校验注意力头数可被并行度整除, `P=16, H=8` 的反例在此处直接抛出 AssertionError。' },
+        { concept: '通信账', code: '4 * (P - 1) / P * shard_bytes', takeaway: '单卡本地分片大小为 `shard_bytes` (整张量的 $1/P$), 4 次重排每次发出其中的 $(P-1)/P$。' },
       ],
       snippetTitle: 'Ulysses 注意力',
       snippet: `def ulysses_attention(q, k, v, P):
@@ -703,9 +703,9 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
     // ---------------------------------------------------------------- 数据: 去重 / 配比 / packing
     'train-data-packing': {
       title: '数据流水线与 packing · 去重、配比、拼行不串文档',
-      subtitle: '读完你能说清改过几个字的转载为什么要靠 MinHash-LSH 才抓得到, 以及把多篇文档拼进一行之后要补哪三样才和逐篇训练一样。',
-      tldr: '- 去重: 精确哈希只认逐字相同的副本, 改一个词就漏掉。MinHash-LSH 比的是两篇文档有多像, 改过几个字的转载也抓得到: m17 里召回从 0.258 升到 0.967。\n- 配比: 按原始比例采样, 小语料几乎见不到。数据源温度配比 $p_i \\propto n_i^{1/T}$ 把小语料的占比抬上来, 代价是它被重复很多遍。这里的温度管各来源的占比, 和解码时的采样温度不是一回事。\n- packing: 把多篇文档拼进同一行训练, 省掉补位用的 padding, 有效 token 从 0.285 提到 0.990。必须加文档 mask, 否则同一行的文档会互相看见。',
-      question: '转载时改了几个字, 去重还抓得到吗? 把几篇文档拼进同一行训练, 它们会互相看见吗?',
+      subtitle: '训练算力最终转化成什么能力取决于喂进去的语料: MinHash-LSH 筛除改写转载, 温度配比平衡大小语料源, 带文档掩码的序列装箱 (packing) 则挤干无效 padding。',
+      tldr: '- 近似去重: 整篇精确哈希漏掉了改过几个词的转载; MinHash-LSH 通过短签名估计 5-gram 集合重合度并用分桶筛选候选对, 将去重召回率从 0.258 提升至 0.967。\n- 数据源配比: 按库存幂次 $p_i \\propto n_i^{1/T}$ 上采样稀缺高质量领域 (如数学/代码), 同时权衡重复轮数带来的背诵风险。\n- 序列装箱 (packing): 用 FFD 把多篇短文档塞进同一条定长序列, 将有效 token 占比从 0.285 拉高到 0.990; 同时补齐分块对角文档 mask、位置重置与跨篇边界 label 屏蔽, 使计算结果与逐篇独立训练严格一致。',
+      question: '改了几个词的网页转载怎么高效检出而不用两两全比? 把多篇互不相干的短文拼进同一行训练时, 漏掉哪几项处理会让文档互相串味?',
       evolution: {
         title: '把 pad 一点点挤出去',
         subtitle: '根问题: GPU 吃定长矩阵, 文档却长短不一, 补进去的 pad 照样花算力',
@@ -719,48 +719,44 @@ W -= lr * 0.2 * sqrt(max(W.shape)) * O`,
       code: 'llm_train/m17_data_pipeline/demo.py · llm_train/m18_sequence_packing/demo.py',
       points: [
         {
-          title: '精确哈希只抓逐字副本',
-          body: '去重要抓的是转载: 同一篇文章被转了几十次, 每次改几个字。m17 造了一个有答案的语料: 300 篇原件, 外加 120 篇应该删掉的重复, 其中 30 份是逐字副本, 90 份是轻改转载 (每个词约有 4% 的概率被替换、删除或在后面插入一个词)。\n两篇文档像不像, 用 Jaccard 相似度衡量: 把每篇切成所有连续 5 个词的片段 (5-gram), 两篇的 5-gram 集合取交集大小除以并集大小。轻改转载与原件的 Jaccard 均值 0.69。\n召回是这 120 篇里被抓到的比例:\n- 精确哈希 (整篇算一个 crc32, 和见过的相同就删): 召回 0.258。改一个词整篇的哈希就全变了, 所以只抓到 30 份逐字副本, 外加 1 篇恰好一个词都没被改到的转载。\n- MinHash-LSH: 召回 0.967, 误杀 0 篇。漏掉的 4 篇, 真实 Jaccard 在 0.48 到 0.52 之间, 正好卡在 0.5 的校验线上, 签名估计有一点误差就被判到线下。',
+          title: '精确哈希只能拦截一字不差的完全副本',
+          body: '互联网语料中充斥着轻度改写的转载文章。m17 构造了 300 篇原件加 120 篇重复件 (30 篇逐字复制 + 90 篇每词约 4% 概率增删改的转载, 与原件的 5-gram Jaccard 相似度均值 0.69):\n- 整篇 CRC32 精确哈希: 改掉一个词哈希值就彻底改变, 仅抓出 30 篇完全副本与 1 篇未触发随机改动的转载, 召回率低至 0.258。\n- MinHash-LSH 近似去重: 召回率跃升至 0.967 且误删为 0 (仅 4 篇真实相似度落在 0.48~0.52 临界区被判在线下)。',
         },
         {
-          title: 'MinHash 估相似度, LSH 只决定谁被比较',
-          body: '两篇两篇直接算 Jaccard 太慢: 每篇要存整个 5-gram 集合, 还要两两全比。MinHash 和 LSH 分别解决这两个问题。\nMinHash 把集合压成一个短签名。它靠一个性质: 把所有 5-gram 的编号随机打乱一次 (随机置换), 两个集合各自取打乱后最小的那个元素, 两者相同的概率恰好等于 Jaccard。打乱 128 次, 每篇文档就得到 128 个最小值, 这就是它的签名。两篇签名里相同位置的比例, 就是 Jaccard 的估计。\nLSH (局部敏感哈希) 决定谁和谁要比。两两全比是 $O(n^2)$。LSH 把 128 位签名切成 $b=32$ 段, 每段 $r=4$ 位; 两篇只要有任何一段 4 位完全相同, 就落进同一个桶, 成为候选对。\n两篇成为候选的概率是一条 S 形曲线 $1-(1-s^r)^b$ ($s$ 是两篇的真实 Jaccard)。这个式子在说: 一段 4 位全相同的概率是 $s^4$, 32 段里至少有一段相同的概率, 就是 1 减去 32 段全都不同的概率。曲线的拐点约在 $(1/b)^{1/r} \\approx 0.42$。$s$ = 0.2 / 0.4 / 0.6 / 0.8 时成候选的概率是 0.05 / 0.564 / 0.988 / 1.0: 不像的几乎不会被比, 像的几乎一定被比。\n成了候选还要校验: 用签名估出的 Jaccard ≥ 0.5 才算重复。所以有两个阈值, 分开调:\n- S 曲线的拐点: 管有多少对会进入比较, 决定召回和算量。\n- 校验线 0.5: 管最终判不判重复。',
+          title: 'MinHash 压缩集合求相似度, LSH 分桶避开两两全比',
+          body: '直接存储每篇文档的全部 5-gram 并做 $O(n^2)$ 两两交并比无法扩展到十亿级网页, MinHash 与 LSH 分两步化简:\n- MinHash 签名: 对全集施加一次随机哈希置换后, 两个集合最小哈希值相等的概率严格等于它们的 Jaccard 相似度 $s$。独立取 128 组线性哈希系数求最小值, 每篇文档即压成 128 个整数的短签名, 两签名对应位相等的比例即为 $s$ 的无偏估计。\n- LSH (局部敏感哈希) 分桶: 将 128 维签名切成 $b=32$ 段、每段 $r=4$ 行; 只要两篇文档在任意一段上 4 个值完全一致就落入同桶成为候选对。单段全相等概率为 $s^4$, 至少一段命中的概率呈陡峭 S 形曲线 $1 - (1 - s^r)^b$ (拐点约 $(1/b)^{1/r} \\approx 0.42$): 相似度 0.2 的无关文档仅 5% 概率进桶, 相似度 0.6 的转载则有 98.8% 概率被捕获。进桶候选对再按签名相似度 $\\ge 0.5$ 二次确认即可。',
         },
         {
-          title: '配比: 数据源温度配比',
-          body: '数据来自好几个来源, 大小悬殊。m17 里 5 个来源共 1000M token, web 占 800M, math 只有 2M。按原始比例采样, math 只占 0.2%, 模型几乎见不到它。\n数据源温度配比 $p_i \\propto n_i^{1/T}$ 把小语料抬上来。$n_i$ 是来源 i 的库存 token 数, $p_i$ 是它在训练数据里的占比, T 是温度。这个式子在说: 占比不按库存本身定, 按库存开 1/T 次方定。T=1 就是原始比例; T 越大, 各来源的占比越接近均匀。训练预算 500M token 时:\n- T=2: math 的占比变成 0.028, 相对原始比例上采样 13.84 倍, 2M 的库存在预算内被过 6.9 遍。\n- T=5: 上采样 50.89 倍, 过 25.4 遍, 很可能已经在背诵。\n目标配比定了, 还有一个问题: 单个 batch 里的实际占比会偏。指标是一个 batch (64 条) 内, 各来源的实际占比与目标占比的最大偏差, 再取所有 batch 里最坏的那个:\n- iid 抽样 (每条独立按 $p_i$ 随机抽): 0.228。\n- 额度调度: 0.021。\n额度调度是确定性的: 每出一条数据前, 给每个来源的额度加上它的 $p_i$, 选额度最大的来源出一条, 然后把它的额度减 1。偏差不会随时间累积。',
+          title: '数据源温度配比与确定性额度调度',
+          body: '预训练语料各分域规模极其悬殊: m17 中 5 个数据源共 1000M token, 普通网页占 800M 而数学仅 2M (0.2%)。温度采样按库存幂次设定采样权重 $p_i \\propto n_i^{1/T}$ ($T=1$ 为原始比例, $T$ 越大越趋向均分; 注意它调节的是数据源抽样配比而非解码 softmax 温度):\n- 当总训练预算为 500M token 时, 取 $T=2$ 可将数学占比抬升至 2.8% (重复训练约 6.9 遍); 若盲目拉到 $T=5$, 数学库存会被反复背诵 25.4 遍导致严重过拟合。\n确定目标配比后, 若每个样本独立随机抽样 (i.i.d.), 单 batch (64 条) 内的实际配比最大偏差达 0.228; 改用确定性额度调度 (每步为各源累加 $p_i$ 额度, 选最高者出样并扣减 1) 可将单批最坏偏差压低到 0.021。',
         },
         {
-          title: '拼行把有效 token 从 0.285 提到 0.990',
-          body: '训练时模型吃的是定长序列, m18 里序列长 L=128。但文档长短不一, 400 篇文档的长度中位数只有 28 个 token。有效 token 比例是真正来自文档的 token 占全部位置的比例, 其余位置是补位用的 pad, 算力照样花在它们身上。\n- 每篇一行, 补 pad 到 128: 0.285。七成算力花在 pad 上。\n- 动态 padding: 每个 batch (8 篇) 内只补到本 batch 最长那篇的长度。0.406。一篇长文档还是会拖着同批的其他文档一起补。\n- FFD packing: 0.990, 400 篇塞进 115 行。\nFFD (First-Fit-Decreasing) 的做法: 把文档从长到短排好, 每篇放进第一个还装得下它的行, 哪行都放不下就新开一行。不切断文档。',
+          title: 'FFD 序列装箱将有效算力占比从 0.285 推升至 0.990',
+          body: 'm18 中模型定长窗口为 $L=128$, 而 400 篇文档长度中位数仅 28 token:\n- 每篇独占一行补 pad 到 128: 真实 token 仅占 0.285, 逾七成矩阵乘浪费在 pad 位置上。\n- Batch 内动态补齐到本批最长篇: 升至 0.406, 仍易被批内单篇长文拖累。\n- FFD (First-Fit-Decreasing) 整篇装箱: 将文档按长度降序排列, 依次塞入第一个剩余空间足够的训练行中, 400 篇文档紧凑装入 115 行, 有效 token 比例达 0.990。',
         },
         {
-          title: 'packing 必须配文档 mask',
+          title: '拼行不串味的三件套: 文档掩码、位置归零与跨篇标签屏蔽',
           key: true,
-          body: 'packing 的代价: 同一行里的文档会互相看见。第 3 篇的 token 在算注意力时能看到第 1、2 篇的内容, 学到的是一个不存在的上下文。\nm18 拿逐篇单独前向当基准, 比较拼在一行后每篇输出的最大绝对差:\n- 只有普通因果 mask (只挡住未来, 不分文档): RoPE 位置编码下差 3.0, 绝对位置编码下差 4.3。\n- 加上文档 mask: 差 1e-15, 只剩浮点舍入。\n文档 mask 是 block-diagonal (分块对角) 的: 每个 token 只许看同一篇里排在自己前面的 token。代码里就是 "因果 mask 并且属于同一篇" 这一个条件。',
+          body: '把多篇独立文档塞进同一行后, 若只保留普通下三角因果掩码, 后一篇文档就会在注意力里直接读到前一篇的内容 (m18 中与逐篇独立前向相比, 输出最大偏差在 RoPE 下达 3.0, 绝对位置编码下达 4.3)。要让装箱结果与逐篇训练严格等价, 需补齐三处细节:\n- 分块对角文档 mask: 限定位置 $t$ 只能关注满足 `t >= s and doc_id[t] == doc_id[s]` 的同篇前文 (工业界直接向 FlashAttention varlen 接口传入各篇起止偏移 `cu_seqlens`, 连跨篇注意力块都不用算, 本例计算量顺带省去 53.4%)。\n- 篇首位置 id 归零: 每篇文档开头把 `position_id` 重置回 0 (绝对位置编码必需; RoPE 在加了文档 mask 后仅依赖篇内相对位移, 重置还能避免 bf16 大位置转角精度退化)。\n- 屏蔽跨篇交界处的预测标签: 前一篇末尾 token 的下一个位置是后一篇开头, 两者毫无因果关联, 必须从交叉熵损失中剔除。三项齐备后整行交叉熵总和为 566.353069, 与逐篇单独计算误差仅 1e-15 (漏屏蔽交界标签则会偏高至 577.563075)。',
         },
         {
-          title: '位置和 label 也要管',
-          body: '有了文档 mask 还不够, 还有两样:\n- 位置重置: 每篇文档的位置 id 要从 0 重新数。用绝对位置编码 (位置向量直接加在 embedding 上) 时必须重置, 否则第 2 篇起每个 token 的位置都和单独训练时不同, 输出差 4.6。用 RoPE (把位置转进 q 和 k 的旋转式位置编码) 时, 注意力分数只依赖两个 token 的位置差, 有文档 mask 时同一篇内的位置差没变, 不重置也等价, 差 1.3e-15。\n- 边界 label: 训练目标是预测下一个 token。每篇最后一个 token 的 "下一个" 是下一篇的第一个 token, 两者毫无关系, 这个预测要从 loss 里屏蔽掉。一行 4 篇共 128 token, 有效预测只有 124 个 (128 减去 4 篇各自的最后一个)。\n三样都做到, 这一行的 CE (交叉熵) 总和是 566.353069, 与逐篇单独训练完全相同。漏掉边界屏蔽, 变成 577.563075。',
-        },
-        {
-          title: '这个 demo 没覆盖的',
-          body: '- 垃圾是合成的: demo 的质量过滤用几条规则 (长度、平均词长、符号比例、停用词、重复 3-gram) 拦垃圾页。垃圾按 5 种模式合成, 规则一眼就能分开, 拦截率 1.000 没有意义。真实流水线在规则之后还要跑质量分类器 (FineWeb / DCLM)。\n- 代码被误杀: 为网页调的规则把 100% 的代码当成了垃圾, 这是真问题。符号比例、停用词、词长这些规则都不适合代码。实际做法是按来源分流, 代码、表格、数学各走各的过滤。\n- 不加 mask 很常见: 很多预训练 (GPT-2/3 风格) 直接把文档拼接起来, 不加文档 mask。Llama 3 加了, 并说在标准预训练里影响有限, 超长序列续训时才重要。',
+          title: '规则清洗的盲区与预训练拼接惯例',
+          body: '读实验数字时需留意两处真实工程边界:\n- 网页启发式规则会误杀代码: m17 按平均词长、特殊符号占比与停用词过滤合成垃圾文本时, 把 100% 的正常代码片段也判成了垃圾; 真实数据管线必须先按来源/模态分流, 再叠加强分类器过滤 (如 FineWeb / DCLM)。\n- 预训练与微调对跨篇掩码的取舍: 早期 GPT-2/3 预训练常仅用 `<eos>` 拼接而不加文档 mask; Llama 3 与几乎所有指令微调 (SFT) 装箱则严格启用文档 mask 与交界标签屏蔽, 避免短样本之间相互污染。',
         },
       ],
       links: [
-        { from: 'MinHash 签名', to: 'LSH 分桶', body: 'MinHash 签名只负责把 "两篇像不像" 压成每篇 128 个整数, 比起来快, 但还是要两两比, $O(n^2)$。LSH 分桶接在后面: 只比落进同一个桶的文档, 全比才变成只比候选。' },
-        { from: 'doc_mask', to: 'FlashAttention varlen', body: 'demo 的 doc_mask 是一张 [L, L] 的 bool 表。真实实现不会造这张表, 而是把每篇的起止偏移 (cu_seqlens) 传给 FlashAttention 的 varlen 接口, 它只算每篇自己那个对角块。所以 packing 还顺带省了注意力算量, 本例只剩整行因果注意力的 0.466。' },
-        { from: 'RoPE', to: '位置重置', body: 'RoPE 把位置 m 的 q 和位置 n 的 k 各转一个角度, 它们的内积 $\\langle R(m)q, R(n)k\\rangle$ 只依赖 $n-m$。这个式子在说: 分数只看两个 token 隔多远, 不看它们的绝对位置。所以有文档 mask 时, 同一篇内的相对位置没变, 不重置也一样。HF 的实现仍然重置, 因为 bf16 下位置很大时转角有误差。' },
-        { from: 'packing', to: 'SFT', body: 'SFT (监督微调) 的样本一般很短, 而且彼此无关。把它们 pack 进一行时, 文档 mask 和边界 label 屏蔽一般都要加, 否则一条样本会看到另一条的内容。' },
+        { from: 'MinHash 签名', to: 'LSH 分桶', body: 'MinHash 将不定长文本压成 128 个整数以快速估算重合度, LSH 分桶则把 $O(n^2)$ 全量比对收敛到同桶高相似候选对。' },
+        { from: 'doc_mask', to: 'FlashAttention varlen', body: '教学代码构造显式 `[L, L]` 布尔矩阵验证等价性; 实际训练直接把文档边界 `cu_seqlens` 传给变长 FlashAttention, 既隔离跨篇干扰又省去空白块算力。' },
+        { from: 'RoPE', to: '位置重置', body: 'RoPE 内积 $\\langle R(m)q, R(n)k\\rangle$ 仅取决于相对距离 $n-m$, 但实际框架在装箱时仍习惯在篇首重置位置 id 以防大坐标下浮点转角失真。' },
+        { from: 'packing', to: 'SFT', body: '监督微调样本普遍短小且彼此独立, 装箱训练时必须配齐文档掩码与边界 `-100` 屏蔽。' },
       ],
       sourceRows: [
-        { concept: 'MinHash 签名', code: 'm17_data_pipeline/demo.py:minhash_signatures', takeaway: '签名的第 j 位是对集合里每个 5-gram 的哈希值 x 算 $(a_j x + b_j) \\bmod p$, 再取最小。一对系数 $(a_j, b_j)$ 就是一次随机置换, 取最小就是取置换后的最小元素。128 对系数给出 128 位签名。' },
-        { concept: 'LSH 分桶 + 校验', code: 'm17_data_pipeline/demo.py:lsh_dedup', takeaway: '签名切 32 段分桶, 同一个桶里的文档都和桶里第一篇连成候选对。候选对再用签名估的 Jaccard ≥ 0.5 确认。确认的对用并查集连成簇, 每簇只留下标最小的那篇, 其余删掉。' },
-        { concept: 'crc32 而非 hash()', code: 'zlib.crc32(" ".join(words[i:i + n]).encode())', takeaway: '5-gram 的哈希用 zlib.crc32 而不用 Python 自带的 hash()。hash(str) 每启动一个进程就换一个随机盐, 两次运行算出的签名不同, 去重结果就不可复现。' },
-        { concept: '温度配比', code: 'm17_data_pipeline/demo.py:temperature_weights', takeaway: '把各来源的 token 数开 1/T 次方再归一化。T=1 时就是原始比例; T 越大各来源越接近均匀, T 趋于无穷时完全均匀。' },
-        { concept: '文档 mask', code: 'm18_sequence_packing/demo.py:doc_mask', takeaway: 'mask[t, s] 为真的条件是 t ≥ s (因果: 只看前面) 并且 doc[t] == doc[s] (同一篇)。一行代码。' },
-        { concept: '位置重置', code: 'm18_sequence_packing/demo.py:reset_positions', takeaway: '每篇文档开头的位置 id 归零: 三篇长度 3、2、4 的文档拼在一起, 位置 id 是 [0,1,2, 0,1, 0,1,2,3]。' },
+        { concept: 'MinHash 签名', code: 'm17_data_pipeline/demo.py:minhash_signatures', takeaway: '用 128 组线性同余参数 `(a * x + b) % p` 模拟随机置换并对文档 5-gram 集合求最小值向量。' },
+        { concept: 'LSH 分桶 + 校验', code: 'm17_data_pipeline/demo.py:lsh_dedup', takeaway: '签名切为 32 段×4 行分桶产生候选对, 再按签名重合率 $\\ge 0.5$ 校验并用并查集聚簇去重。' },
+        { concept: 'crc32 而非 hash()', code: 'zlib.crc32(" ".join(words[i:i + n]).encode())', takeaway: '使用确定性的 `zlib.crc32` 替代每次启动随机加盐的内置 `hash()`, 保证跨进程去重结果可复现。' },
+        { concept: '温度配比', code: 'm17_data_pipeline/demo.py:temperature_weights', takeaway: '对各数据源 token 总量取 $1/T$ 次幂后归一化, 平滑拉高小体量高价值语料的抽样权重。' },
+        { concept: '文档 mask', code: 'm18_sequence_packing/demo.py:doc_mask', takeaway: '一行布尔组合 `(t >= s) & (doc[t] == doc[s])`, 同时满足因果顺序与同篇隔离。' },
+        { concept: '位置重置', code: 'm18_sequence_packing/demo.py:reset_positions', takeaway: '在每篇新文档起始处将位置计数归零 (如长度 3、2、4 拼行后位置序列为 `[0,1,2, 0,1, 0,1,2,3]`)。' },
       ],
       snippetTitle: '去重与 packing 的骨架',
       snippet: `# 近似去重: 签名 → 分段分桶 → 同桶成候选 → 校验
@@ -781,9 +777,9 @@ valid = doc[1:] == doc[:-1]                      # 3. 不跨篇预测`,
     // ---------------------------------------------------------------- 规模: scaling law / μP
     'train-scaling': {
       title: '规模 · scaling law 与 μP',
-      subtitle: '读完你能用 loss 公式 $L(N,D)$ 算出固定算力下模型该做多大。也能说清在 SP (标准参数化, 默认初始化加各层统一学习率) 下, 小模型调好的学习率 lr 为什么搬不到大模型。',
-      tldr: '- scaling law: 用 $L(N,D)=E+A/N^\\alpha+B/D^\\beta$ 描述 loss 怎么随参数量 N 和训练数据量 D 下降。训练算力约为 $C \\approx 6ND$。算力定死时, 模型大小有一个最优值, 两头都亏: demo 里同样的算力, 参数量 81 的模型 loss 0.0285, 比 21 和 641 的都低。\n- μP (最大更新参数化): 按宽度改初始化和每层的 lr, 小模型上扫出的 lr 直接搬到大模型。demo 里宽 32 到 512 的最优 lr 都是 $2^{-5}$; 不改的话, 宽 16 倍最优 lr 要移 64 倍。\n本章的指数是玩具任务拟合的, 与 Chinchilla 论文的完全不同, 不能拿来推 LLM。',
-      question: '钱一定, 模型做大还是数据加多? 小模型上调好的学习率, 为什么搬到大模型就不灵了?',
+      subtitle: '大模型往往只训得起一次, 开训前就要定下参数规模、数据量与学习率。Scaling law 用小规模网格外推算力最优配比, μP 则通过按宽度缩放初始化与层学习率实现超参零样本迁移。',
+      tldr: '- Scaling law 用幂律 $L(N,D) = E + A/N^\\alpha + B/D^\\beta$ 刻画损失随参数量 $N$ 和训练数据量 $D$ 的下降规律; 在固定算力 $C \\approx 6ND$ 下, 模型过小或数据不足都会推高损失, IsoFLOP 曲线谷底给出算力最优模型规模。\n- 标准参数化 (SP) 下模型加宽 16 倍会导致最优学习率漂移 64 倍; 最大更新参数化 (μP) 将输出层初始化与隐藏/输出层 Adam 学习率按宽度倍数 $m$ 额外除一次, 使宽 32 到 512 的最优学习率稳定停在同一档 $2^{-5}$。',
+      question: '总算力预算固定时, 该把预算多分给模型参数还是训练语料? 为什么在标准初始化下小模型调好的学习率搬到宽模型上就失效了?',
       evolution: {
         title: '只训得起一次, 所以先在小模型上算',
         subtitle: '根问题: 大模型只训得起一次, 模型多大、数据多少、lr 多少都得开训前定',
@@ -797,46 +793,38 @@ valid = doc[1:] == doc[:-1]                      # 3. 不跨篇预测`,
       code: 'llm_train/m19_scaling_laws/demo.py · llm_train/m20_mup/demo.py',
       points: [
         {
-          title: 'loss 被三件事卡住',
-          body: 'loss 降不下去, 原因可以拆成三份: 数据本身有噪声、模型太小、数据太少。\n先定符号: $N$ 是参数量, $D$ 是训练用的 token 数, $L$ 是 loss。Chinchilla 把 loss 写成 $L(N,D)=E+A/N^\\alpha+B/D^\\beta$。这个式子在说: loss 是三项相加。\n- 数据本身的噪声: $E$。它是常数, 模型再大、数据再多也消不掉。\n- 模型太小: $A/N^\\alpha$。模型越大这项越小, $\\alpha$ 决定小得多快。\n- 数据太少: $B/D^\\beta$。数据越多这项越小, $\\beta$ 决定小得多快。\nm19 真训了 6 个宽度 × 6 个数据量, 共 36 个单隐层 MLP。它们学的是一个固定的 teacher 网络 (生成数据的目标网络), 标签上加了方差 0.01 的噪声。每个模型的数据只看一遍。然后用这 36 个 loss 去拟合 5 个数, 得到 $E / A / \\alpha / B / \\beta$ = 0.0080 / 1.213 / 1.075 / 460.3 / 1.125, 相对残差 0.100 (拟合值和实测值平均差约 10%)。\n- 噪声地板: $E$ = 0.0080, 真实标签噪声方差是 0.01。$E$ 确实是谁也消不掉的那部分。\n- 被模型卡住: N=21 的模型, 数据从 16K 加到 65K, loss 从 0.0608 到 0.0603, 纹丝不动。这时第二项占了大头, 加数据只是在压第三项。',
+          title: '损失拆解为不可约噪声、模型容量项与数据有限项',
+          body: 'Chinchilla 幂律公式 $L(N,D) = E + A/N^\\alpha + B/D^\\beta$ 将验证损失分解为三项之和: 数据固有的不可约熵底 $E$、受模型规模制约的近似误差 $A/N^\\alpha$, 以及受训练样本数制约的估计误差 $B/D^\\beta$。\nm19 在带方差 0.01 标签噪声的合成师生回归任务上真实训练了 $6\\times 6 = 36$ 个不同宽度与数据量的 MLP (单遍训练并各自完整余弦退火), 拟合得到 $E=0.0080$ (贴近真实噪声底 0.01)、$\\alpha=1.075$、$\\beta=1.125$: 当模型极小 ($N=21$) 时把数据从 16K 加到 65K, 损失仅从 0.0608 微动到 0.0603, 说明此时瓶颈完全卡在容量项 $A/N^\\alpha$ 上。',
         },
         {
-          title: '固定算力, IsoFLOP 是 U 形',
+          title: '固定算力预算下, IsoFLOP 曲线呈 U 形谷底',
           key: true,
-          body: '算力定死时, 把它多分给模型还是多分给数据, loss 画出来是一条 U 形曲线, 谷底就是最优模型大小。\n先算算力。训练一个模型的浮点运算次数约为 $C \\approx 6ND$: 每个参数每个 token 前向约 2 次浮点运算, 反向约 4 次。所以算力一定时, 模型大一倍, 能看的数据就少一半。\nIsoFLOP (iso 是相等, FLOP 是浮点运算次数) 曲线就是固定 $C$, 只换 $N$ 和 $D$ 的分法, 看 loss 怎么变。m19 取训练网格的反对角线: 宽度每翻一倍, 数据就减半, 6 个点的算力都约等于 $8 \\times 10^6$。\n- 太小: N=21, loss 0.0603。数据很多, 但模型学不下。\n- 中间: N=81, loss 0.0285, 最好。拟合预测的最优是 N=89。\n- 太大: N=641, loss 0.0853。模型够大, 但数据不够把它训出来。\n六个点按 N 从小到大是 0.0603、0.0312、0.0285、0.0338、0.0632、0.0853, 先降后升。\n最优点也可以直接算。把 $D = C/6N$ 代进 loss 公式, 对 $N$ 求最小, 得 $N_{\\text{opt}} \\propto C^a$, $a = \\beta/(\\alpha+\\beta)$。这个式子在说: 算力每涨 10 倍, 最优模型大小涨 $10^a$ 倍, 而 $a$ 只看模型项和数据项下降速度的比。\n本例 $a$ = 0.511: 算力从 1e7 到 1e9, $N_{\\text{opt}}$ 从 100 到 1054。数据那边的指数是 0.489, 模型和数据大约各拿一半指数。',
+          body: '单步前反向近似消耗 $C \\approx 6ND$ 次浮点运算: 预算 $C$ 固定时, 参数量 $N$ 翻倍就意味着能训练的 token 数 $D$ 减半。沿着 m19 网格中算力同为 $C \\approx 8\\times 10^6$ 的反对角线观察 6 个模型:\n- 模型偏小 ($N=21$): 数据虽充足但容量见顶, loss 为 0.0603。\n- 配比均衡 ($N=81$): 落入 U 形谷底, 取得最低 loss 0.0285 (闭式解预测最优值为 $N=89$)。\n- 模型偏大 ($N=641$): 步数太少欠训练, loss 反弹至 0.0853。\n将 $D = C/(6N)$ 代入幂律求极值可得最优缩放指数 $N_{\\text{opt}} \\propto C^a$, 其中 $a = \\beta / (\\alpha + \\beta)$ 取决于数据项与容量项的衰减速率之比。',
         },
         {
-          title: '这些数字不能拿去推 LLM',
-          body: '上面的数字只说明方法, 不能拿去推 LLM:\n- 指数: 这里 $\\alpha \\approx 1.08$、$\\beta \\approx 1.13$, 论文是 0.34 / 0.28。玩具 teacher 的 $1/k$ 谱决定了 $\\alpha$: 生成数据的目标网络里, 第 k 个单元的输出权重按 $1/k$ 衰减。窄的学生网络只学得到排在前面的那些单元, 所以误差随宽度按幂律下降, 这个幂次由 $1/k$ 定, 和语言无关。\n- $a \\approx 0.5$ 是巧合: $a$ 只看 $\\alpha$ 与 $\\beta$ 的比值, 这里两者碰巧接近, 才和 Chinchilla 的 0.5 撞上。换个 teacher 就变。\n- D/N ≈ 150, 不是 20: Chinchilla 的结论是每个参数约 20 个 token。这里一个「token」是一个回归样本, 信息量和语言 token 不可比。\n- 不是样本外检验: IsoFLOP 的 6 个点也参与了拟合。每格只跑 1 个种子。',
+          title: '合成回归指数不能直接套用到真实自然语言模型',
+          body: '本实验用于演示完整拟合与极值推导方法, 具体数值与真实 LLM 存在本质区别:\n- 幂指数差异: 合成教师网络采用 $1/k$ 奇异谱衰减, 决定了 $\\alpha \\approx 1.08, \\beta \\approx 1.13$, 远陡于自然语言的 Chinchilla 经验值 ($0.34 / 0.28$); 两者比值 $a \\approx 0.51$ 与论文的 $\\sim 0.50$ 接近纯属两侧指数同步放大的结果。\n- 训练最优不等于推理最优: Chinchilla 只最小化一次性预训练算力; 面向海量请求部署的小模型 (如 Llama 3 8B 训满 15T token, $D/N \\approx 1900$) 会刻意大幅「过训练」以换取线上推理阶段更低的延迟与显存成本。',
         },
         {
-          title: 'SP 下最优 lr 随宽度漂',
-          body: '用默认做法时, 网络越宽, 最优学习率越小, 小模型上调好的 lr 搬到宽模型会差很多。\nSP (标准参数化) 就是默认做法: 每层初始化的标准差取 1 除以 fan_in 的平方根 (fan_in 是这一层的输入个数), 各层用同一个 lr。\nm20 用一个两层隐藏层的 ReLU MLP 去学一个固定的 teacher, Adam 训 150 步。它扫了 3 个宽度 × 10 个 lr ($2^{-13}$ 到 $2^{-4}$, 每格差 2 倍), 每个宽度挑 loss 最低的 lr:\n- SP 最优 $\\log_2 \\text{lr}$: −5 / −7 / −11 (宽 32 / 128 / 512)。宽 16 倍, lr 左移 6 格, 每格 2 倍, 一共小了 64 倍。\n- 直接搬: 把宽 32 调出的 lr 用到宽 512, loss 0.0976。该宽度最优 0.0215, 差 4.5 倍。',
+          title: '标准参数化 (SP) 下加宽网络会让最优学习率大幅左移',
+          body: '标准参数化 (SP) 采用 $1/\\sqrt{\\text{fan\\_in}}$ 初始化并对所有层使用同一个学习率。为什么加宽后原学习率会失效? 在 Adam 下每个权重元素单步变化量级约为 $\\text{lr}$; 隐藏层单个神经元输出将 `width` 个输入的更新同向叠加后, 对下一层激活造成的扰动幅度与 $\\text{lr} \\cdot \\text{width}$ 成正比——网络越宽冲击越剧烈, 被迫大幅调小学习率。\nm20 在 3 种宽度 (`32 / 128 / 512`) × 10 档学习率网格上训练两层 ReLU MLP: SP 下最优 $\\log_2 \\text{lr}$ 从 `-5` 一路滑落到 `-7` 和 `-11` (加宽 16 倍最优 lr 缩小了 64 倍); 直接把宽 32 的最优 lr 搬给宽 512 使用, 损失高达 0.0976, 比该宽度真实最优值 (0.0215) 差了 4.5 倍。',
         },
         {
-          title: '为什么会漂: width 个小更新叠在一起',
-          body: '最优 lr 会漂, 是因为 Adam 下网络越宽, 同样的 lr 对下一层的冲击越大。\n原因在 Adam: 它把每个元素的梯度除以这个元素梯度平方的滑动平均的平方根, 所以每个元素的更新大小约等于 lr, 与梯度本身多大无关。\n隐藏层的每个输出, 是 width 个输入各乘一个权重再加起来。一步更新里, 这 width 个权重各变了约 lr 那么多, 而且方向相同。它们的影响叠加起来, 下一层激活的变化 $\\propto \\text{lr} \\cdot \\text{width}$。这个式子在说: 宽度翻 4 倍, 同一个 lr 造成的冲击也翻 4 倍, 所以 lr 得小 4 倍才能维持原来的效果。\n按这个机制, 宽 16 倍, 最优 lr 应该小 16 倍 (lr $\\propto 1/\\text{width}$)。实测是 64 倍, 比预测的多。\n这组实验分不清多出来的部分从哪来: SP 的曲线不光滑 (宽 512 在 −9 到 −7 之间来回跳), lr 网格也是 2 倍一格, 都会让读数偏。',
-        },
-        {
-          title: 'μP: 三处多除一个 m',
-          body: 'μP 只比 SP 多改三个地方, 每处都是按宽度多除一次, 改完后最优 lr 不再随宽度移动。\nμP (maximal update parametrization, 最大更新参数化) 设宽度倍数 $m = \\text{width}/\\text{base}$, demo 的 base 宽度是 32, 宽 512 时 m=16。三处改动:\n- 输出层初始化: 标准差多除 $m$ (方差除 $m^2$)。源码注释给的理由是, 初始输出也要随宽度变小, 否则一开始就被随机的输出层主导。\n- 隐藏层的 Adam lr: 除以 $m$。抵消上一条说的「width 个更新叠加」。\n- 输出层的 Adam lr: 除以 $m$。\n输入层的 fan_in 固定是 $d_{\\text{in}}$ (输入特征数, 不随宽度变), lr 不缩。\n在 base 宽度上 m=1, μP 和 SP 完全一样, 所以在小模型上调出的 lr 两种参数化通用。\nm20 的结果:\n- 最优 lr: 三个宽度都是 $2^{-5}$。\n- 同一 lr 下的 loss: 越宽越好 (宽 32 / 128 / 512 依次是 0.0186、0.0101、0.0088)。宽 512 直接用宽 32 的 lr, 就是它自己的最优。\nμP 省的是在大模型上重新扫 lr 的成本。',
-        },
-        {
-          title: '玩具规模下的边界',
-          body: '- 规模: 只到 512 宽、150 步。README 提到 μTransfer 论文在 Transformer 上验证到约 6.7B 参数, 这里只能说明机制。\n- lr 调度: 如果换成常数 lr, μP 的最优点会在 −5 / −7 / −8 之间漂, 迁移没这么干净。所以 demo 用了线性衰减到 0。',
+          title: 'μP: 三处按宽度倍数多除一次, 锁住最优学习率位置',
+          body: '最大更新参数化 (μP) 定义相对基础宽度的放大倍数 $m = \\text{width} / \\text{base}$ (m20 中 `base=32`, 宽 512 时 $m=16$), 仅在 SP 基础上修改三处缩放:\n- 输出层权重初始化标准差额外除以 $m$ (避免初始随机输出随宽度发散)。\n- 隐藏层与输出层的 Adam 学习率各除以 $m$ (恰好抵消 `width` 个权重更新的叠加放大; 输入层 `fan_in` 固定为输入特征维 $d_{\\text{in}}$, 学习率保持不变)。\n在基础宽度 $m=1$ 处 μP 与 SP 完全重合; 扩展到宽 `32 / 128 / 512` 后, 三条曲线的最优学习率全部稳稳停在 $2^{-5}$, 且同学习率下模型越宽损失单调越低 (`0.0186 -> 0.0101 -> 0.0088`), 省去了在大模型上网格重扫学习率的高昂代价。',
         },
       ],
       links: [
-        { from: 'Kaplan (2020)', to: 'Chinchilla (2022)', body: 'cosine 调度让 lr 按余弦曲线从最大值降到 0, 降完叫退火完。Kaplan 所有规模共用一个 cosine 周期, 小数据的模型还没退火完就被评估, 数据的作用被低估了, 结论偏向加大模型 ($N_{\\text{opt}} \\propto C^{0.73}$)。m19 改成 cosine 周期等于本次的 D。' },
-        { from: 'Chinchilla 最优', to: '过训练', body: 'Chinchilla 最优只最小化训练算力, 不管部署。Llama 3 8B 训了 15T token (D/N ≈ 1900), 远超这个最优。原因是模型要服务大量推理, 小模型推理便宜, 多训一些更划算。' },
-        { from: 'm19 共用 lr=0.03', to: 'μP', body: 'm19 所有规模共用 lr=0.03, 只是粗扫过。真实的 scaling 研究要每个规模单独调 lr, 或者用 μP 让最优 lr 不随宽度漂。' },
-        { from: 'μP', to: 'lr 幂律', body: '还有更省事的替代: 不改参数化, 直接在几个规模上测出最优 lr, 拟合它随规模变化的幂律 (DeepSeek LLM 就这样做)。' },
+        { from: 'Kaplan (2020)', to: 'Chinchilla (2022)', body: '早期实验为不同数据量共用固定余弦周期导致小预算组未充分退火; Chinchilla 修正为每组训练步数恰好走完各自完整的余弦退火周期, m19 沿用了这一设定。' },
+        { from: 'Chinchilla 最优', to: '过训练', body: '算力最优配比只核算训练期成本; 实际开源基座常把 token/参数比推高一到两个数量级, 用一次性训练算力换取长期推理端低成本。' },
+        { from: 'm19 共用 lr=0.03', to: 'μP', body: 'Scaling 网格横跨不同模型宽度时, 借助 μP 按宽度自动缩放各层步长, 可避免因固定单一学习率给宽模型引入次优偏差。' },
+        { from: 'μP', to: 'lr 幂律', body: '除修改参数化的 μP 外, 另一条常见工程路线是在若干小规模点上实测最优学习率并直接拟合其随算力的幂律外推公式 (如 DeepSeek LLM)。' },
       ],
       sourceRows: [
-        { concept: '拟合', code: 'm19_scaling_laws/demo.py:fit_scaling_law', takeaway: '变量投影: $\\alpha$、$\\beta$ 一固定, loss 公式对 $E, A, B$ 就是线性的。所以 $\\alpha$、$\\beta$ 在 79×79 的网格上逐格试, 每格用线性最小二乘解出 $E, A, B \\ge 0$, 留残差最小的那格。残差按相对误差计。' },
-        { concept: '闭式最优', code: 'm19_scaling_laws/demo.py:compute_optimal', takeaway: '直接套公式 $G = (\\alpha A / \\beta B)^{1/(\\alpha+\\beta)}$, $N_{\\text{opt}} = G (C/6)^a$。main 里再用数值搜索找一遍最小点, 两者核对到 1% 以内。' },
-        { concept: '单遍 + 退火到 D', code: 'm19_scaling_laws/demo.py:train', takeaway: '每步取新样本, 一共见 D 个, 每个只看一次。cosine 周期等于本次数据量, 每个模型都正好退火完。这正是 Chinchilla 对 Kaplan 的修正。' },
-        { concept: 'SP vs μP', code: 'm20_mup/demo.py:init_and_lrs', takeaway: '两种参数化的全部差别是三处 /m ($m$ = 宽度 / 32): 输出层初始化的标准差, 隐藏层的 lr, 输出层的 lr。' },
+        { concept: '拟合', code: 'm19_scaling_laws/demo.py:fit_scaling_law', takeaway: '采用变量投影法: 在 $79\\times 79$ 网格上枚举 $(\\alpha, \\beta)$, 内层通过非负最小二乘直接解出最优线性系数 $(E, A, B)$。' },
+        { concept: '闭式最优', code: 'm19_scaling_laws/demo.py:compute_optimal', takeaway: '根据拉格朗日极值公式直接解出 $N_{\\text{opt}} = G(C/6)^a$, 并与一维数值搜索结果交叉校验至 1% 误差内。' },
+        { concept: '单遍 + 退火到 D', code: 'm19_scaling_laws/demo.py:train', takeaway: '每个样本只训练一遍且余弦学习率周期严格对齐当次数据量 $D$, 消除未完成退火带来的系统性偏差。' },
+        { concept: 'SP vs μP', code: 'm20_mup/demo.py:init_and_lrs', takeaway: '清晰展示两套参数化的唯一代码差异: 输出层初始化标准差与隐藏/输出层学习率各除以宽度倍数 $m$。' },
       ],
       snippetTitle: '算力最优与 μP 的实现',
       snippet: `# 固定 C = 6ND, 把 D = C/(6N) 代入 L(N, D) 求最小
@@ -855,9 +843,9 @@ lrs = [lr, lr / m, lr / m]                    # ★ 输入层不缩, 隐藏层�
     // ---------------------------------------------------------------- 评测
     'train-eval': {
       title: '评测 · perplexity、污染、pass@k 与裁判',
-      subtitle: '读完你能看出一个评测数字背后的四个坑: 分词器不同、测试题混进了训练集、pass@k 算法偏低、裁判偏心第一个位置。',
-      tldr: '每个评测数字都有口径, 不说口径的数字没法比:\n- PPL (perplexity, 困惑度) 跟着分词器变: 同一个模型同一段文本, token 数减半, PPL 从 5.501 变成 30.265。跨模型要比按字符或字节摊的 bits (本章实测的是 bits-per-char)。\n- 测试题混进训练集叫污染。n-gram 查得到原题, 查不到改写过的题。\n- pass@k (生成 k 个答案至少一个对的概率) 用朴素公式算会系统性偏低, 要用无偏估计。\n- 让 LLM 当裁判, 它偏爱先出现的回答, 要交换 A/B 各判一次。',
-      question: '分数高是模型真会, 还是背过题、换了分词器、或者裁判偏心?',
+      subtitle: '模型榜单数字离开统计口径便失去可比性: 分词粒度会改写困惑度, 改写题能绕过 n-gram 污染筛查, 朴素 pass@k 存在向下偏置, LLM 裁判则自带前后位置偏好。',
+      tldr: '四类主流评测指标各自对应明确的口径陷阱与校正方法:\n- 困惑度 (PPL): 数值随分词器粒度剧烈变化 (token 合并减半会让同一模型的 PPL 从 5.501 跳到 30.265), 跨词表对比必须折算为每字符/每字节比特数 (bits-per-char/byte)。\n- 数据污染筛查: n-gram 匹配能抓出原题和微改题, 但对同义改写题召回为 0, 过滤后的剩余得分仍可能高于真实干净水平。\n- 代码生成 pass@k: 直接用经验通过率代入 $1-(1-\\hat p)^k$ 会因凹函数性质系统性偏低, 应采用无放回组合无偏估计量。\n- LLM-as-a-Judge: 裁判天然偏爱排在前面的候选回答, 需交换 A/B 顺序各判一次并取一致结论消除位置偏差。',
+      question: '评测集得分上涨时, 如何逐项排除词表差异、改写题泄漏、估计器偏置与裁判位置偏心这四类干扰?',
       evolution: {
         title: '题越开放, 判分越难',
         subtitle: '根问题: 分数要说明模型真会什么, 可每种打分只量得到它能量的那一部分',
@@ -871,42 +859,38 @@ lrs = [lr, lr / m, lr / m]                    # ★ 输入层不缩, 隐藏层�
       code: 'llm_train/m21_llm_eval/demo.py',
       points: [
         {
-          title: 'PPL 是等效分支数',
-          body: 'PPL (perplexity, 困惑度) 是最常用的语言模型指标。先说 CE (交叉熵): 模型给每个 token 的正确答案一个概率, 取负对数, 再对所有 token 取平均。$\\mathrm{PPL} = e^{\\mathrm{CE}}$。这个式子在说: 把平均的负对数概率还原回去, 得到一个 "模型平均在几个词里犹豫" 的数。\nm21 用一条 20 个词的马尔可夫链 (下一个词的概率只由前一个词决定) 生成语料, 所以真实分布是已知的:\n- 均匀分布 (每个词概率 1/20): PPL 恰好 20.000, 等于词表大小。完全瞎猜就是在 20 个词里犹豫。\n- bigram 计数 (在训练集上数每个词后面跟什么): 5.501。\n- 真实分布: 5.448, 这是能达到的下限。',
+          title: '困惑度 (PPL) 度量单步预测的等效候选分支数',
+          body: '给定验证集逐 token 平均负对数似然 (即交叉熵 $\\mathrm{CE}$), 困惑度定义为 $\\mathrm{PPL} = e^{\\mathrm{CE}}$, 直观含义是模型在每个位置平均在多少个等概率候选词之间犹豫。m21 在已知真实转移矩阵的 20 词马尔可夫语料上验证:\n- 均匀瞎猜 ($p=1/20$): PPL 恰好为 20.000。\n- 训练集统计出的 bigram 模型: PPL 降至 5.501, 逼近真实分布的理论熵下界 5.448。',
         },
         {
-          title: 'PPL 不能跨分词器比',
-          body: '同一段文本、同一个模型, 只换分词器。假设新的分词器把两个字符并成一个 token, token 数减半:\n- PPL: 从 5.501 变成 30.265。\n- bits-per-char (每个字符平均多少比特): 都是 2.4598。\n原因: 整段文本的总信息量 (所有 token 负对数概率之和) 没变, 只是摊到了更少的 token 上, 每个 token 分到的就多了。所以跨分词器比模型, 要用每字符或每字节的 bits。\n平均的口径也要对齐:\n- 按 token 平均 (所有文档的 token 拼在一起算 CE 再取指数): 5.501。\n- 按文档平均 (每篇先算自己的 PPL, 再对文档取平均): 5.573, 被短文档拉高了。',
+          title: '跨模型对比不能直接比 PPL, 必须换算到字符或字节基准',
+          body: '对同一段文本、同一个概率模型, 假设将相邻两个 token 合并为一个复合 token (总 token 数减半, 整篇文本的总对数似然不变):\n- 单 token 平均交叉熵翻倍, 导致 PPL 从 `5.501` 平方暴涨至 `30.265`。\n- 折算到原始字符长度的 `bits-per-char` 则保持恒定的 `2.4598`。\n因此词表大小不同的两个模型绝不能直接比较 PPL; 即使同一词表, 全库按 token 加权平均 (5.501) 与先按篇求 PPL 再算术平均 (5.573) 也会因短文档权重差异给出不同读数。',
         },
         {
-          title: '去掉被标记的题还不够',
+          title: 'n-gram 去污染拦得住原题复制, 拦不住同义改写泄漏',
           key: true,
-          body: '污染指测试题混进了训练语料, 模型见过答案, 分数是背出来的。常用的检测是 n-gram 重叠: 把训练集里所有连续 8 个词的片段 (8-gram) 建一个集合, 测试题只要有任何一个 8-gram 在里面出现过, 就判为脏题。GPT-3 用的是 13-gram。\nm21 往训练语料里混了 30 道原题、30 道轻改的题 (换 2 个词)、30 道重度改写的题 (每 3 个词换 1 个):\n- 原题、轻改: 被标记的比例 1.00。换 2 个词, 30 个词的题里仍有完整的 8-gram 幸存。\n- 重度改写: 0.00。每 3 个词就换 1 个, 没有任何连续 8 个词是原样的, 检测完全失效。\n分数怎么被抬高: demo 假设模型见过的题 90% 答对, 没见过的 4 选 1 瞎猜。全部 200 题的报告分 0.570; 去掉被标记的题后 0.436; 只算真正干净的题, 真实能力 0.300。中间那个 0.436 仍然虚高, 因为漏网的重度改写题还在里面。',
+          body: '评测基准混入预训练语料会让背题伪装成推理能力。常规做法是检索测试题与训练语料的连续词串重叠 (如 8-gram 或 13-gram)。m21 在 200 道测试题背后的训练语料里混入 30 道原题、30 道改 2 词的微改题和 30 道每 3 词改 1 词的深度改写题:\n- 原题与微改题: 仍保留完整 8-gram 片段, 检出率 1.00。\n- 深度改写题: 连续 8 词原串已全部打断, 检出率为 0.00。\n在「见过题答对率 90%、未见过题四选一 25%/30%」的设定下, 原始总分为 0.570, 剔除 8-gram 命中题后降为 0.436, 但仍显著高于真正干净子集的 0.300——漏网的改写题依然在虚抬分数。',
         },
         {
-          title: '朴素 pass@k 偏低',
-          body: 'pass@k 是代码题的指标: 每题让模型生成 k 个答案, 至少一个通过单元测试的概率。\n实际做法是每题采 n 个样本 (n 比 k 大), 数出 c 个对的。怎么从 (n, c) 估 pass@k, 有两种算法:\n- 朴素: 把 c/n 当成这题的通过率 p, 代进 $1-(1-p)^k$。它会偏低。原因是 $1-(1-p)^k$ 对 p 是凹函数 (越往上越平), 由 Jensen 不等式, 对一个有随机误差的估计值取这个函数再求期望, 会比对真值取函数小。\n- 无偏: $1-\\binom{n-c}{k}/\\binom{n}{k}$。这个式子在说: 从 n 个样本里无放回地挑 k 个, 挑到的全是错的概率是 $\\binom{n-c}{k}/\\binom{n}{k}$, 1 减去它就是至少一个对的概率。\nm21 的实验 ($n=20$, 300 题, 重复 400 次取平均), $k=10$ 时:\n- 真值 (用每题真实的通过率算): 0.5864。\n- 无偏: 0.5861。\n- 朴素: 0.5470, 偏低 0.0394。\n$k=1$ 时两种算法都退化成 c/n, 结果相同。',
+          title: '代码评测 pass@k 需用无放回组合估计消除向下偏置',
+          body: '评估代码或数学题时常报告 `pass@k` (生成 $k$ 个候选中至少有一个通过单测的概率)。实践中每题采样 $n \\ge k$ 个解并测出 $c$ 个正确解, 两种估计公式表现迥异:\n- 朴素代入式 $1 - (1 - c/n)^k$: 由于 $1-(1-p)^k$ 在 $k>1$ 时是关于 $p$ 的严格凹函数, 由 Jensen 不等式可知将带采样方差的 $\\hat p = c/n$ 直接代入会导致期望值系统性偏低。\n- Codex 无偏估计量 $1 - \\binom{n-c}{k} / \\binom{n}{k}$: 直接计算从 $n$ 个样本中无放回抽取 $k$ 个全部落入错误样本 ($n-c$ 个) 的补集概率。\nm21 在 $n=20, k=10$ 下模拟 300 题 × 400 轮: 真实期望为 0.5864, 无偏估计给出 0.5861, 而朴素公式仅为 0.5470 (系统性低估近 4 个百分点)。',
         },
         {
-          title: '裁判要交换顺序',
-          body: '写作、对话这类题没有测试可跑, 常让一个 LLM 当裁判比较两个回答 A 和 B。LLM 裁判有位置偏差: 偏爱先出现的那个。\nm21 用一个规则裁判模拟这件事: 它看两个回答的质量差, 但给排在第一个位置的回答加 0.8 分, 再加一点噪声。2000 对回答, A 和 B 谁更好是随机的 (A 更好的占 49.8%):\n- 单次判 (只按 A 在前、B 在后判一次): 70.0% 的情况选了第一个。好的回答在 A 位时准确率 0.994, 在 B 位时只有 0.593。\n- 交换判 (A、B 各当一次第一个, 判两次, 两次结论一致才算数, 不一致记平局): 好的在 A 位和在 B 位的准确率变成 0.993 和 0.991。两边一样, 位置偏差被抵消了。\n代价:\n- 调用次数翻倍。\n- 平局 40.7%: 都是两个回答质量接近、0.8 的位置加分压过了真实差距的那些对。',
-        },
-        {
-          title: '合成语料下的边界',
-          body: '- 语料是合成的: 随机文本里两篇恰好撞上同一个 8-gram 的概率很低, 所以干净题一道都没被误标。真实语料里的版权声明、代码模板这类常见短语会造成误标, 实际检测一般会忽略在训练集里出现太多次的高频 n-gram。\n- 记忆率是假设: "见过就 90% 答对" 只是用来演示污染怎么抬高分数, 不代表真实模型的记忆率。\n- 交换只消位置偏差: 真实 LLM 裁判还有长度偏差 (偏爱长回答) 和自我偏好 (偏爱自家模型的回答), 交换顺序对这两种没用。',
+          title: '双向交换判分可抵消 LLM 裁判的位置偏心',
+          body: '开放式问答与写作常依赖大模型裁判做 A/B 胜负盲评, 但模型对排在第一位的候选普遍存在正向偏置。m21 用给首位固定加 0.8 分的带噪比较器评测 2000 对随机排列的样本:\n- 单向固定顺序 `(A, B)`: 裁判 70.0% 的概率判首位赢; 优质答案排在 A 位时准确率 0.994, 落到 B 位时骤降至 0.593。\n- 双向交换顺序 `(A, B)` + `(B, A)`: 正反各判一次, 仅当两次都选同一答案时计胜负、前后矛盾记平局, 优质答案在 A 位与 B 位的非平局准确率立即拉平至 0.993 与 0.991。代价是评测 API 开销翻倍, 且质量接近的样本会留出 40.7% 的平局 (可记 0.5 分或引入多裁判投票); 此外交换顺序无法消除偏爱长文 (length bias) 与偏爱同源模型等非位置偏差。',
         },
       ],
       links: [
-        { from: '训练 loss', to: 'PPL', body: '训练时打印的 loss 就是 CE (逐 token 负对数概率的平均)。对它取指数 $e^{\\text{loss}}$ 就是 PPL。两者一一对应, 看 loss 曲线和看 PPL 曲线是同一件事。' },
-        { from: '数据去重', to: '去污染', body: '去重和去污染用的是同一类工具 (哈希、n-gram 重叠), 只是找的地方不同: 去重在训练集内部找近似副本, 去污染在训练集和测试集之间找。' },
-        { from: '改写题', to: '其他检测法', body: 'n-gram 抓不到改写过的题, 实际还有三种办法: 用 embedding 相似度检索语义上像的题; 让模型补全题目的后半段, 看它能不能逐字复现; 只用模型发布日期之后才出现的新题。' },
-        { from: '平局', to: '多裁判', body: '交换判留下 40.7% 的平局, 不能就这么扔掉。真实做法是把平局记 0.5 分, 或者再加几个裁判投票。' },
+        { from: '训练 loss', to: 'PPL', body: '预训练监控的逐 token 交叉熵取自然指数 $e^{\\text{loss}}$ 即为对应词表下的困惑度 PPL。' },
+        { from: '数据去重', to: '去污染', body: '近似去重在训练集内部清理重复网页, 去污染则在训练集与评测集之间排查重叠样本。' },
+        { from: '改写题', to: '其他检测法', body: '弥补字面 n-gram 盲区通常要结合稠密向量语义检索、检查模型能否低熵补全题干后半段, 或持续换用模型截断日期后的新题 (如 LiveCodeBench)。' },
+        { from: '平局', to: '多裁判', body: '双向交换判出的平局反映了两份回答差距小于位置偏置阈值, 工程上常折算为半胜或交给更高阶裁判复核。' },
       ],
       sourceRows: [
-        { concept: '逐 token NLL', code: 'm21_llm_eval/demo.py:token_nll', takeaway: '对每个 token 算正确答案概率的负对数, 第一个 token 按均匀分布计。这些数的均值就是 CE, $e^{\\mathrm{CE}}$ 就是 PPL。' },
-        { concept: 'n-gram 污染检测', code: 'm21_llm_eval/demo.py:ngram_flags', takeaway: '把训练集里所有的 8-gram 放进一个 set。对每道测试题, 它的任何一个 8-gram 在 set 里出现过就判为污染。' },
-        { concept: '无偏 pass@k', code: 'm21_llm_eval/demo.py:pass_at_k', takeaway: 'Codex 论文的写法: 把 $\\binom{n-c}{k}/\\binom{n}{k}$ 约分成 c 项连乘, 算 $1-\\prod_{i=n-c+1}^{n}(1-k/i)$。不用算大的组合数, n 很大也不溢出。' },
-        { concept: '交换判', code: 'm21_llm_eval/demo.py:judge_swap', takeaway: '判两次, 第一次 A 在前, 第二次 B 在前。两次都选 A 才算 A 赢, 两次都选 B 才算 B 赢, 两次不一致记平局。' },
+        { concept: '逐 token NLL', code: 'm21_llm_eval/demo.py:token_nll', takeaway: '逐位置计算真实下一词的负对数概率, 求全序列均值后再取指数即得 PPL。' },
+        { concept: 'n-gram 污染检测', code: 'm21_llm_eval/demo.py:ngram_flags', takeaway: '将训练语料全部 8-gram 存入哈希集合, 筛查任一片段命中的测试题。' },
+        { concept: '无偏 pass@k', code: 'm21_llm_eval/demo.py:pass_at_k', takeaway: '将组合数比值化简为连乘 $1 - \\prod_{i=n-c+1}^n (1 - k/i)$, 避免大整数阶乘溢出。' },
+        { concept: '交换判', code: 'm21_llm_eval/demo.py:judge_swap', takeaway: '先后执行 `judge(A, B)` 与 `judge(B, A)`, 仅两次指向同一方时确认胜负, 否则返回 0 (平局)。' },
       ],
       snippetTitle: 'pass@k 与交换判',
       snippet: `def pass_at_k(n, c, k):
@@ -931,12 +915,12 @@ const supplements = {
   "train-model-parallel": [
     {
       "title": "三种并行要放进同一张预算表",
-      "body": "真实训练常常三种并行一起用: DP (数据并行, 每组卡放一份完整模型, 各吃一部分数据)、TP 和 PP。三者的份数乘起来要等于总卡数。只算「参数装不装得下」, 回答不了「训练会不会更快」, 所以 m22 把显存和时间放进同一张预算表一起算。\n它固定一个场景: 1B 参数、24 层、全局 batch 64、8 张卡, 比较 DP×TP×PP 的不同组合。每个组合按四步算:\n- 先查合法性: 给每张卡排好 rank 网格 (这张卡在 DP、TP、PP 三个方向上各排第几), 再查整除约束, 比如 hidden 要能被 TP 整除、层数要能被 PP 整除。DP2×TP3×PP2 一共要 12 张卡, 对不上 8 卡, 直接拒绝, 不给非法配置编出收益。\n- 再算显存: 每卡要放的训练状态 (参数、梯度、fp32 主权重和 Adam 的两份动量) 和激活。\n- 再算通信: 一次通信的时间是「消息条数 × α + 传输字节 ÷ 带宽」。α 是每发一条消息的固定启动延迟, 和消息大小无关。\n- 最后算一步的时间: 计算时间, 加上没能藏到计算后面的通信 (只有 DP 的梯度同步能和计算重叠), 再乘上 PP 气泡带来的倍率。\n三组读数:\n- DP2×TP2×PP2: 每卡状态 3.725 GiB, 一步约 708 ms, 关键卡 (代价模型按它算步时间的那张卡) 一步要发 786 条通信消息。\n- DP1×TP4×PP2: 状态降到 1.863 GiB, 一步却涨到 975 ms, 通信 4640 次。TP 每一层都要同步, TP 越大, 小消息越多, 每条都要付一次 α。省下的显存被多出来的通信时间吃掉了。\n- 同样是 DP1×TP4×PP2, 把 α 从 8 μs 改到 100 μs: 一步 1429 ms。\n计算时间用 Roofline 估: 一次计算能跑多快, 上限由峰值算力和显存带宽里更紧的那个决定。MFU (实际有效计算量占硬件峰值算力的比例) 也是这个代价模型估出来的 (0.694 对 0.504), 不是硬件实测。",
+      "body": "大规模集群训练往往同时组合 DP、TP 与 PP (三路并行度乘积等于总卡数)。单看参数放不放得下无法判断哪套切分跑得最快, 因此 m22 将单卡显存、集合通信与流水线气泡放进同一张代价表里联合估算。\n固定 1B 参数、24 层、全局批大小 64、8 张卡的场景, 对候选 `DP×TP×PP` 组合依次核算四步: 先校验总卡数匹配与头数/层数整除约束 (如 `DP2×TP3×PP2` 需 12 卡会被直接拒绝); 再统计单卡模型状态与在途激活显存; 接着按 `消息条数 × 启动延迟 α + 传输字节 / 带宽` 计算通信耗时; 最后结合 Roofline 计算耗时、不可隐藏通信与 PP 气泡倍率给出单步墙钟时间:\n- `DP2×TP2×PP2`: 单卡状态 3.725 GiB, 单步约 708 ms, 关键路径每步发出 786 条通信消息。\n- `DP1×TP4×PP2`: 单卡状态减半至 1.863 GiB, 单步耗时却反升至 975 ms (消息激增至 4640 条)——TP 跨层高频同步累加了大量固定启动延迟 $\\alpha$, 吃掉了省显存的收益; 若网络延迟 $\\alpha$ 从 8 μs 恶化到 100 μs, 单步耗时更会拉长至 1429 ms。\n需注意这里的步耗时与 MFU (0.694 对 0.504) 均出自解析代价模型, 用于开训前筛除明显失衡的拓扑配置, 而非真机算子实测。",
       "source": "llm_train/m22_parallel_budget/demo.py:estimate"
     }
   ],
   "train-collectives-loop": [
-    {"title":"本章查通信对不对, 不估快慢", "body":"这一章关心的是通信的语义: 每个 collective (多张卡一起参与的通信操作, 上面四个原语都是) 有哪些卡参与、张量在各卡上怎么摆、按什么顺序调用。例如 reduce-scatter 做完, 每个 rank (一张卡在通信组里的编号) 只持有总和里属于自己的那一片; 接着 all-gather 再把各片拼回完整的张量。\nm09 用 N=4 张卡、S=32 B 的张量逐项核对:\n- reduce-scatter 每卡发 24 B, all-gather 每卡发 24 B, 加起来正好是 all-reduce 的 48 B。\n- ring_all_reduce_sum 真的把张量切成块 (chunk), 沿环一步一步传。断言检查两件事: 实测发出的字节数等于公式, 求和结果等于直接相加的结果。\n显存要多少、一步要多久这类预算估算, 放在模型并行那一章。这里不估时间, 只用真实的同步结果和断点续训后的断言, 检查主循环有没有写对。", "source":null}
+    {"title":"本章核验通信语义等价, 不估算硬件耗时", "body":"本章聚焦集合通信原语的数值语义与张量分片契约: 每次调用后哪些 rank 参与归约、各卡持有的分片如何对齐。m09 在 4 张卡、32 B 张量上逐项断言: `reduce_scatter` 每卡发 24 B、`all_gather` 每卡发 24 B, 串联后字节数与求和结果均与 `ring_all_reduce_sum` (48 B) 严格一致; 至于不同并行拓扑的显存与耗时权衡, 则归入「TP / PP 切模型」一章的联合预算表。", "source":null}
   ]
 }
 for (const [route, rows] of Object.entries(supplements)) {
@@ -957,8 +941,8 @@ mergePage(topic, 'train-low-precision', 'train-precision-stability', '进阶 · 
 
 topic.pages['train-precision-stability'].title = '低精度训练 · 稳定性、缩放与 FP4'
 const precision = topic.pages['train-precision-stability']
-precision.sections[0].points[0].body = '低精度格式能表示的范围很窄, 张量里的数要先除以一个缩放系数 scale, 缩进格式的网格里, 再舍入到最近的格点。这里的 scale 和上文 loss scaling 放大 loss 的 scale 不是一回事: 它按每一组元素各算一个。\n- 怎么算: 共用一个 scale 的那组元素叫一个 block。scale 等于 block 里绝对值最大的那个数 (amax) 除以网格的最大值。这样最大的元素正好落在网格顶端, 其余元素按同一个 scale 缩小后再舍入。\n- outlier 的连累: outlier 是个别异常大的值。它把 amax 顶得很高, 同 block 的邻居除以 scale 后都变得很小。outlier 越大, 邻居被挤得越靠近 0; block 越小, 被连累的邻居越少。\nFP8 上这一点上文已经量过: outlier 大到 1e5 倍时, 其余 token 的输出相对误差 per-tensor (整个张量共用一个 scale) 是 0.126, block 是 0.026。\nFP4 更紧。它的网格只有 $\\pm\\{0.5,1,1.5,2,3,4,6\\}$ 和 0, 非零格点里最大的 6 只是最小的 0.5 的 12 倍。不切成小 block, 一个张量里稍微悬殊一点的数就装不下, 所以 block 必须缩到 16~32 个元素。'
-topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = 'PP (流水线并行) 把模型按连续的层切成 PP 段, 每段叫一个 stage, 各放一张卡。卡与卡之间只在 stage 边界传一份激活, 比 TP 在每一层里都要 all-reduce 省得多。\n代价是空等。一个 batch 要从第一个 stage 流到最后一个再倒回来: 刚开始时后面的卡还没拿到数据, 快结束时前面的卡已经没活干。空等时间占总时间的比例叫气泡。把 batch 切成 M 个 micro-batch 依次灌进去, 各 stage 就能同时忙起来, 空等只剩首尾。m04 的模拟里, PP=4、M=8 时气泡还有 27.3%。\nmicro-batch 的执行顺序 (调度) 决定两件事: 空等多久, 以及每个 stage 同时攥着几份在途激活。在途激活是已经做完前向、还没做反向的 micro-batch 留下的激活, 反向要用, 所以一直占着显存。\n- GPipe: 先把 M 个 micro-batch 的前向全做完, 再做反向, 每个 stage 最多攥 M 份。\n- 1F1B: 前向和反向交替做, stage s 最多攥 PP−s 份。它的气泡和 GPipe 一样, 省的只是在途激活。\n气泡公式、逐格时间线和通信代价都放在「1F1B 与交错调度」一章。'
+precision.sections[0].points[0].body = '低精度浮点能覆盖的区间极窄, 量化前需按一组共享元素里的最大绝对值 `amax` 算出缩放系数 `scale = amax / max_val`, 将数值映射进网格后再就近舍入 (注意这里的张量量化 scale 按数据块现算, 与前文放大标量损失的 loss scaling 不是同一概念)。\n当块内混入个别幅值极高的离群值 (outlier) 时, 它会独自撑大 `amax`, 迫使同块正常元素除以大数后挤向 0 附近; 分块尺寸切得越细, 离群值波及的邻居就越少。FP8 下离群值达到 1e5 倍时, 整张量共享 scale 的相对误差为 0.126, 按 128 元素分块则压回 0.026; 再降到非零动态范围仅 12 倍的 FP4 ($\pm\\{0.5, 1, 1.5, 2, 3, 4, 6\\}$), 分块粒度更必须收缩到 16~32 个元素才能装下真实权重与激活。'
+topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).body = '流水线并行 (PP) 将模型按连续层切成 PP 个 stage 各放一张卡, 卡间只在 stage 边界传递单层激活, 跨卡流量远小于每层都要做四次 all-reduce 的 TP。\n它的代价体现在首尾空等与显存驻留两方面: 一个 batch 从首卡流向末卡再反向传回期间, 未排满的空闲占比称为气泡; 将 batch 拆成 M 个 micro-batch 连续送入后可把空闲收束到首尾 (m04 中 `PP=4, M=8` 时气泡占比为 27.3%)。同时, 已跑完前向但尚未等回反向的 micro-batch 必须将激活留在显存里 (称为在途激活):\n- GPipe 先跑完全部 M 个前向再统一反向, 每张卡峰值都要驻留 M 份激活。\n- 1F1B 尽早穿插前反向, 将第 s 张卡的在途激活峰值压到 `PP - s` 份, 但气泡比例本身与 GPipe 相同。\n具体的气泡公式、排程时间表与交错调度代价将在下一章「1F1B 与交错调度」中详细展开。'
 
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 
