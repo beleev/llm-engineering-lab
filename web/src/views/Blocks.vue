@@ -3,22 +3,22 @@
     <h1 class="page-title">Block 组装器</h1>
     <div class="page-subtitle lead-group">
       <p>
-        一个 Transformer 模型是几十个长得一模一样的 block 叠起来的。每个 block 里有两个子层: 注意力 (attn) 和前馈网络 (ffn), 各配一个归一化 (norm); 位置编码 (pos) 决定注意力怎么知道 token 的先后。
-        这个库最省事的一点: <strong>模型之间的差别基本都在「构造参数」上 (也就是建 block 时传进去的那几个零件), 很少需要新写一个类</strong>。
+        现代 Transformer 模型由几十个结构相同的编码或解码 block 堆叠而成。每个 block 包含注意力 (attn) 与前馈网络 (ffn) 两个子层, 各自搭配归一化层 (norm), 并由位置编码 (pos) 为注意力机制注入 token 的序列位置信息。
+        本仓库在架构设计上的核心抽象在于: <strong>不同主流模型之间的架构差异几乎全部收敛在构造参数 (即实例化 block 时传入的子模块组件) 上, 极少需要重写底层骨架类</strong>。
       </p>
       <p>
-        下面的零件菜单每栏挑一个, 看看拼出来的是哪个模型。骨架就一份:
+        在下方零件库的四个槽位中各选一项, 即可查看对应的主流模型架构。底层通用骨架仅有一份实现:
         <RepoLink path="llm_models/layers/core/blocks.py:PreLNBlock" label="llm_models/layers/core/blocks.py::PreLNBlock(attn, ffn, norm_cls)" tiny />。
       </p>
     </div>
 
     <ChapterIntro
-      tldr="现代大语言模型由几十层结构相同的 Pre-LN Block 堆叠而成: 残差主干一路只做加法, 让梯度无损传回底层; 注意力与前馈网络作为旁路分支接在归一化之后。本仓库只写了一份通用的 PreLNBlock 骨架, 把注意力、前馈网络、归一化和位置编码做成可插拔的构造参数——从 GPT-3、LLaMA 到 DeepSeek-V3, 本质上都是同一副骨架换上了不同代的零件组合。"
-      question="模型之间就差 4 个构造参数的话, 「读 N 个模型的源码」是不是变成了「读 N 张零件配置表」?"
+      tldr="现代大语言模型由几十层结构相同的 Pre-LN Block 堆叠而成: 残差主干一路只做加法, 让梯度无损传回底层; 注意力与前馈网络作为旁路分支接在归一化之后。本仓库只写了一份通用的 PreLNBlock 骨架, 把注意力、前馈网络和归一化做成可插拔的构造参数——从 GPT-3、LLaMA 到 DeepSeek-V3, 本质上都是同一副骨架换上了不同代的零件组合。"
+      question="既然主流模型之间的核心差异仅在于 4 个构造参数, 阅读 N 个模型的架构源码是否就可以简化为对照 N 张零件配置表?"
       :goals="[
-        '把任意一个模型翻译成 PreLNBlock 的四个零件配置',
-        '说清 Pre-LN 为什么让深层模型不靠精细 warmup (学习率先小后大) 也能开训',
-        '在 LLaMA / Mixtral / DeepSeek 的代码里一眼找到零件被换掉的那几行',
+        '将主流 Transformer 模型拆解并映射为 PreLNBlock 的四个槽位配置',
+        '阐明 Pre-LN 为何能让深层网络无需依赖精细的学习率 warmup 即可稳定训练',
+        '在 LLaMA、Mixtral 与 DeepSeek 的源码中快速定位组件替换对应的构造逻辑',
       ]"
       :codes="[
         { path: 'llm_models/layers/core/blocks.py', label: 'blocks.py · PreLNBlock' },
@@ -28,8 +28,8 @@
     />
 
     <EvolutionChain
-      title="演进逻辑链 · 骨架先稳住, 再只换零件"
-      subtitle="根问题: 几十层堆起来, 训练信号 (梯度) 得能从最后一层传回第一层; 骨架稳住之后, 各家的差别只落在零件上"
+      title="演进逻辑链 · 稳定残差主干与组件模块化"
+      subtitle="根问题: 数十层网络堆叠时, 反向传播梯度必须稳定传回底层; 当残差主干定型后, 模型演进便收敛为内部子模块的迭代"
       :steps="evoSteps"
     />
 
@@ -54,27 +54,27 @@
       <div class="card">
         <h3>数据流 · {{ isPostLn ? 'Post-LN' : 'Pre-LN' }} Block <span class="tag">{{ modelMatch.name }}</span></h3>
         <p class="desc">
-          图上是什么: 从上到下是一个 token 的向量走过一个 block 的路, 入口 x (in), 出口 y (out); 形状 [B, T, D] 是「B 条序列, 每条 T 个 token, 每个 D 维」。
-          高亮那条竖线是残差流 (主干), 它身上只有「+」; 两个子层从旁边接出去, 算完加回主干。
+          图上是什么: 自上而下展示隐状态张量流经单个 block 的计算路径, 入口为 x (in), 出口为 y (out); 张量形状 [B, T, D] 对应 batch 大小 B、序列长度 T 与隐藏维 D。
+          高亮竖线表示残差主干, 主干上仅包含逐元素加法节点「+」; 两个子层作为旁路分支从主干引出, 计算完成后加回主干。
         </p>
         <ul class="desc pts">
           <li>
-            <b>Pre-LN:</b> norm (归一化, 把向量拉回固定尺度) 只作用于送进分支的那份副本, 残差流从块的入口一直贯到出口, 上面只有加法。
-            训练时梯度 (告诉参数往哪改的信号) 要从最后一层传回第一层; 加法把梯度原样往回传, 所以有一条不被缩放的恒等通路直接到底 (Xiong et al., 2020)。
+            <b>Pre-LN:</b> 归一化层仅作用于送入旁路分支的输入副本, 残差流从入口直通出口且仅经过加法运算。
+            反向传播时加法算子将梯度原样回传, 从而形成一条不受归一化重缩放影响的恒等梯度通路直达模型底层 (Xiong et al., 2020)。
           </li>
           <li>
-            <b>分支:</b> attention 和 FFN 都不在主干上, 从旁边接出去算完再加回来; norm 只归一化送进分支的副本, 主干上的 x 本身不被改。
+            <b>分支:</b> attention 与 FFN 均位于旁路分支, 计算结果以残差增量形式累加回主干; 归一化不会原地覆盖主干上的隐状态 x。
           </li>
           <li>
-            <b>Post-LN:</b> 把 norm 槽位换成 Post-LN, 接线跟着变: 子层算完先加回主干, 再在主干上做 norm。梯度每过一个 norm 就被它缩放一次, 几十层叠起来就可能放大或衰减到训练发散,
-            所以得靠精细的 warmup (学习率先很小再慢慢升) 才敢开训。
+            <b>Post-LN:</b> 将 norm 槽位切换为 Post-LN 后, 拓扑连线随之改变: 子层输出先与残差相加, 再在主干上执行归一化。反向梯度每经过一个主干 norm 节点都会被重缩放一次, 数十层累积后容易引发梯度失衡甚至训练发散,
+            因此必须配合精细的学习率 warmup 才能稳定启动训练。
           </li>
         </ul>
         <p class="desc" style="margin-top: 6px;">可以做什么:</p>
         <ul class="desc pts" style="margin-bottom: 16px;">
-          <li>左边换零件, 图里对应节点的名字跟着换。</li>
-          <li>切到 Post-LN, 看主干上多出两个 norm 节点。</li>
-          <li>图可以拖, 子层可以折叠。</li>
+          <li>在左侧切换不同槽位的组件, 观察图中对应子层节点的名称与注释同步更新。</li>
+          <li>将归一化切换为 Post-LN, 对比残差主干上新增的两个归一化节点及其拓扑变化。</li>
+          <li>拖拽画布平移视图, 或点击子层分组框折叠与展开内部节点。</li>
         </ul>
 
         <DagView v-bind="blockDag" />
@@ -94,7 +94,7 @@
         </div>
 
         <div class="card" style="margin-top: 16px;">
-          <h3>换零件之后, 参数量和 cache 变成多少</h3>
+          <h3>组件替换对参数量与 KV cache 的影响</h3>
           <div class="stat" style="margin-top: 4px;">
             <div class="k">FFN 参数</div>
             <div class="v">{{ ffnParams }}</div>
@@ -103,7 +103,7 @@
           <div class="stat" style="margin-top: 8px;">
             <div class="k">KV 每层 / token</div>
             <div class="v">{{ kvNote }}</div>
-            <div class="hint">按 d_model=4096, n_heads=32, fp16 算: 每生成一个 token, 这一层要新存的字节</div>
+            <div class="hint">基于 d_model 为 4096、n_heads 为 32、fp16 精度估算: 每生成一个 token 时单层新增的 KV cache 字节数</div>
           </div>
         </div>
       </div>
@@ -114,17 +114,17 @@
       <h2>一键载入预设</h2>
       <div class="lead-group">
         <p>
-          点任意一个模型, 它的零件配置会自动填进上面的菜单。
-          按年份依次点 Transformer、GPT-3、LLaMA、Mixtral、DeepSeek-V3, 能看到四个槽位是一个一个被换掉的:
+          点击下方任意模型预设, 即可将其组件配置载入上方组装器。
+          按时间顺序依次切换 Transformer、GPT-3、LLaMA、Mixtral 与 DeepSeek-V3, 可以清晰观察四个槽位的演进脉络:
         </p>
         <ul class="pts">
-          <li><b>norm:</b> 先从 Post-LN 挪到 Pre-LN (norm 从主干挪进分支), 再瘦成 RMSNorm (只按均方根缩放, 不减均值)。</li>
-          <li><b>ffn:</b> 激活函数从 ReLU 换成 GELU (硬开关换成软开关), 再换成带门控的 SwiGLU (一路决定每个通道开多大, 一路装内容)。</li>
-          <li><b>attn:</b> 从 MHA 砍到 GQA (几个头共用一对 K/V), 再压成 MLA (K/V 存成压缩件)。</li>
-          <li><b>pos:</b> 从加在 embedding 上的正余弦换成旋转 Q/K 的 RoPE。</li>
+          <li><b>norm:</b> 先由 Post-LN 迁移至 Pre-LN (将归一化从残差主干移入旁路分支), 随后精简为省去均值中心化的 RMSNorm。</li>
+          <li><b>ffn:</b> 激活函数由分段线性的 ReLU 演进为平滑的 GELU, 再升级为引入逐通道门控分支的 SwiGLU, 乃至稀疏激活的 MoE。</li>
+          <li><b>attn:</b> 先由标准多头注意力 MHA 演进为多查询头共享键值头的 GQA, 再进一步发展为将 KV cache 低秩压缩至潜在向量的 MLA。</li>
+          <li><b>pos:</b> 由直接在输入 embedding 上相加的正余弦绝对位置编码, 演进为在注意力层内对 Q/K 施加相对位置旋转变换的 RoPE。</li>
         </ul>
         <p>
-          预设填的是本仓库里这个模型的搭法。BERT 和 GPT-3 各有一处和原版不同, 按钮上标了「本仓库实现」, 载入后「匹配模型」卡片写明差在哪。
+          各预设均对应本仓库中的实际代码实现。其中 BERT 与 GPT-3 各有一处配置与原始论文存在差异, 按钮上已标注「本仓库实现」, 载入后可在右侧「匹配模型」卡片中查看具体差异说明。
         </p>
       </div>
       <div class="btn-group">
@@ -140,8 +140,8 @@
       <h2>内部矩阵变换</h2>
       <div class="lead-group">
         <p>
-          把选中的零件拆开看计算流和权重矩阵。每一步都标了张量的符号形状 (例如 [B, T, D] 是 B 条序列、每条 T 个 token、每个 D 维), 以及按当前参数算出来的实际数字。
-          拖形状滑条, 所有数字同步刷新。
+          展开当前所选组件的内部计算图与权重矩阵维度。每个计算步骤均同时标注符号张量形状 (如 [B, T, D] 分别代表 batch 大小 B、序列长度 T 与隐藏维 D) 以及当前超参数下的具体维度数值。
+          拖动面板中的维度滑杆, 所有张量尺寸与参数统计将实时同步更新。
         </p>
         <p>
           源码:
@@ -153,28 +153,28 @@
 
     <!-- 零件都拼对了, 模型也不一定训得起来: 初始化是另一道坎 -->
     <section class="section">
-      <h2>零件拼对了, 还有一道坎: 初始化</h2>
+      <h2>组件之外的关键细节: 权重初始化</h2>
       <div class="lead-group">
         <p>
-          一个刚建好、什么都没学的模型, 应该在词表上均匀瞎猜: 每个词的概率都是 1/V (V 是词表大小)。
-          交叉熵 CE 是「正确答案的概率取负对数」, 均匀瞎猜时它就等于 <Tex text="$\ln V$" />; V=1000 时是 6.91。第一步的 loss 该落在这条线附近。
+          未经训练的初始语言模型应当在词表上呈近似均匀分布预测, 即每个词的预测概率约为 1/V (V 为词表大小)。
+          此时交叉熵损失 CE 的理论基准等于 <Tex text="$\ln V$" />; 当词表大小 V 为 1000 时约为 6.91, 正常初始化模型的首步 loss 应当落在该数值附近。
         </p>
         <p>
-          典型的坑: LLaMA 把 lm_head (最后把隐藏向量变成每个词一个分数的那个矩阵) 和输入嵌入绑权重 (两处共用同一个矩阵, 省参数), 嵌入又用了 <span class="mono">nn.Embedding</span> 默认的
-          <Tex text="$\mathcal{N}(0, 1)$" /> 初始化 (每个数的标准差 <Tex text="$\sigma = 1$" />)。
+          一个典型的工程隐患出现在权重绑定场景中: LLaMA 将输出投影层 lm_head 与输入词嵌入共享同一权重矩阵以节省参数, 若输入嵌入直接沿用 <span class="mono">nn.Embedding</span> 默认的
+          <Tex text="$\mathcal{N}(0, 1)$" /> 初始化 (<Tex text="$\sigma = 1$" />), 首步损失便会严重异常。
         </p>
-        <p>出错的过程:</p>
+        <p>具体成因如下:</p>
         <ol class="pts">
-          <li>残差流一路做加法, 最后一层输出的向量几乎还是 token 自己的嵌入。</li>
-          <li>lm_head 给每个词打分, 是拿这个向量和那个词的嵌入做内积; 和「自己」的嵌入做内积得到约 <Tex text="$\sigma\cdot d$" /> 的高分 (d 是模型宽度), 其它词的分数只有 <Tex text="$\sigma\sqrt{d}$" /> 量级。</li>
-          <li>于是模型很自信地猜「下一个词就是我自己」, 而正确答案几乎从来不是它自己。</li>
+          <li>残差主干全程执行加法累加, 初始阶段顶层输出的隐状态方向仍由输入 token 自身的嵌入向量主导。</li>
+          <li>lm_head 通过计算顶层归一化隐状态与词表各词嵌入的内积生成 logits: 与输入 token 自身嵌入的内积高达约 <Tex text="$\sigma\cdot d$" /> (d 为隐藏维宽度), 而与其他词嵌入的内积仅为 <Tex text="$\sigma\sqrt{d}$" /> 量级。</li>
+          <li>这导致模型在初始步便以极高置信度预测「下一个词等于当前输入词本身」, 而真实目标标签几乎不会是当前词自身。</li>
         </ol>
         <ul class="pts">
-          <li><b><Tex text="$\sigma = 1$" />:</b> d=256、V=1000 时首步 CE 是 <strong class="mono">258</strong>, 而 <Tex text="$\ln 1000 = 6.91$" />, 差了 37 倍。</li>
-          <li><b><Tex text="$\sigma = 0.02$" />:</b> 改法只有这一行 (本仓库 utils/init.py 把所有 Linear 和 Embedding 初始化成 <Tex text="$\mathcal{N}(0, 0.02^2)$" />), LLaMA 的首步 CE 回到 <strong class="mono">7.07</strong> (llama 的 README 实测 7.073, 和 ln V = 6.908 只差 0.17)。</li>
+          <li><b><Tex text="$\sigma = 1$" />:</b> 当 d 为 256、V 为 1000 时, 首步 CE 高达 <strong class="mono">258</strong>, 约为理论值 <Tex text="$\ln 1000 = 6.91$" /> 的 37 倍。</li>
+          <li><b><Tex text="$\sigma = 0.02$" />:</b> 本仓库在 utils/init.py 中统一将所有 Linear 与 Embedding 初始化为 <Tex text="$\mathcal{N}(0, 0.02^2)$" />, 修正后 LLaMA 首步 CE 回归至 <strong class="mono">7.07</strong> (llama 目录 README 实测值为 7.073, 与理论值 <Tex text="$\ln V = 6.908$" /> 仅相差 0.17)。</li>
         </ul>
         <p>
-          这类 bug 不容易发现, 因为 loss 照样在降: 它只是在把「给自己打高分」纠正回来, 不代表模型学会了任务。下面的实验台可以自己调 <Tex text="$\sigma$" />。
+          此类初始化缺陷在训练初期极具隐蔽性, 因为损失曲线依然会快速下降; 但前期的优化步主要消耗在纠正「对自身打高分」的初始偏置上, 而非学习真实的语言规律。可在下方实验台中调节 <Tex text="$\sigma$" /> 验证这一现象。
         </p>
       </div>
     </section>
@@ -187,8 +187,8 @@
 
 
     <ChapterNav
-      :prev="{ ...prevChapter, hint: '本章 pos 槽位的所有候选项的来历' }"
-      :next="{ ...nextChapter, hint: '把 ffn 槽位拆成多专家: Mixtral / DeepSeek 的两条路' }"
+      :prev="{ ...prevChapter, hint: '回顾本章 pos 槽位各位置编码方案的原理与演进' }"
+      :next="{ ...nextChapter, hint: '将 ffn 槽位扩展为混合专家架构: Mixtral 与 DeepSeek 的两条技术路线' }"
     />
   </div>
 </template>
@@ -214,41 +214,41 @@ const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${l
 // 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
 const evoSteps = [
   { name: 'Post-LN', year: 2017, color: 'var(--text-muted)',
-    pain: '(原点) 几十层堆起来, 训练信号 (梯度) 要从最后一层一路传回第一层, 中间每层都可能把它放大或缩小',
-    fix: '每个子层算完先和输入相加 (残差), 再做 LayerNorm (把向量拉回固定尺度)。norm 压在主干上, 梯度每层都被它缩放一次, 得靠精细的学习率 warmup 才敢开训' },
+    pain: '(原点) 数十层网络堆叠时, 反向传播梯度需从顶层传回底层, 逐层连乘极易引发梯度爆炸或消失',
+    fix: '子层输出与残差相加后再执行 LayerNorm。由于归一化层位于残差主干上, 梯度每经一层都会被重缩放一次, 必须依赖精细的学习率 warmup 才能避免训练初期发散' },
   { name: 'Pre-LN', color: 'var(--accent)',
-    pain: 'Post-LN 离了精细 warmup 就容易发散 (loss 变成 NaN 或飞走), 层越多越难调',
-    fix: '把 norm 挪进分支: 只归一化送进 attn / FFN 的那份副本, 主干上只剩加法。反传时梯度沿着加法原样往回走, 有一条不被缩放的通路直达底部' },
+    pain: 'Post-LN 一旦缺乏精细 warmup 极易训练发散, 网络越深超参数越难调优',
+    fix: '将归一化移入旁路分支, 仅对送入 attn 与 FFN 的副本做归一化, 残差主干只保留加法运算, 使反向梯度沿恒等通路无损直达底层' },
   { name: 'LLaMA 换零件', year: 2023, color: 'var(--left)',
-    pain: '骨架定型后, 再想变强只能往零件里找',
-    fix: 'LayerNorm 换成 RMSNorm (只按均方根缩放, 不减均值, 少一组参数); FFN 换成 SwiGLU (多一条门控分支决定哪些通道通过); 骨架一行不改' },
+    pain: 'Pre-LN 残差骨架定型后, 进一步提升参数效率与训练稳定性的空间转向内部子层',
+    fix: '用 RMSNorm 替代 LayerNorm (省去均值中心化与偏置参数, 仅按均方根缩放), 用带门控分支的 SwiGLU 替代传统 FFN, 底层残差骨架保持不变' },
   { name: 'PreLNBlock', color: 'var(--right)',
-    pain: '每换一个零件就复制一整套模型代码, 看不出哪几行真变了',
-    fix: '骨架只写一份, attn / ffn / norm / pos 当构造参数传进去: 新模型就是一张零件配置表' },
+    pain: '每替换一个子层组件就复制整套模型代码, 导致大量冗余且掩盖了真实的架构差异',
+    fix: '将 Pre-LN 残差骨架固定为通用类, 把 attn、ffn、norm 与 pos 抽象为可插拔构造参数, 定义新模型即声明一张组件配置表' },
 ]
 
 const inspectorTab = ref('attn')
 
 const slots = [
   { key: 'attn', label: '注意力 (attn)', options: [
-    { id: 'mha', name: 'MHA',  note: '原始, 每个头各存 K/V, cache 最大' },
-    { id: 'gqa', name: 'GQA',  note: 'KV 头只留 Q 头的 1/4' },
-    { id: 'mla', name: 'MLA',  note: 'K/V 压成低维 latent 再存' },
-    { id: 'dsa', name: 'DSA',  note: 'MLA + 只算 top-k 个位置' },
-    { id: 'ssm', name: 'SSM',  note: '不用注意力, 状态定长 (Mamba)' },
+    { id: 'mha', name: 'MHA',  note: '标准多头, 每头独立缓存 K/V' },
+    { id: 'gqa', name: 'GQA',  note: '分组共享, KV 头数为 Q 头的 1/4' },
+    { id: 'mla', name: 'MLA',  note: '将 K/V 低秩压缩为 latent 缓存' },
+    { id: 'dsa', name: 'DSA',  note: 'MLA 结合 top-k 位置稀疏计算' },
+    { id: 'ssm', name: 'SSM',  note: '无注意力机制, 维护定长状态 (Mamba)' },
   ]},
   { key: 'ffn', label: '前馈 (ffn)', options: [
-    { id: 'relu',   name: 'ReLU',    note: '原始 Transformer' },
-    { id: 'gelu',   name: 'GELU',    note: 'BERT / GPT 用的软开关' },
-    { id: 'swiglu', name: 'SwiGLU',  note: '带门控, LLaMA / Qwen' },
-    { id: 'moe_mx', name: 'Mixtral-MoE', note: '8 个专家, softmax 选 2 个' },
-    { id: 'moe_ds', name: 'DeepSeek-MoE', note: 'sigmoid 路由 + 共享专家' },
+    { id: 'relu',   name: 'ReLU',    note: '原始 Transformer 分段线性激活' },
+    { id: 'gelu',   name: 'GELU',    note: '平滑非线性激活, BERT / GPT 采用' },
+    { id: 'swiglu', name: 'SwiGLU',  note: '逐通道门控前馈层, LLaMA / Qwen 采用' },
+    { id: 'moe_mx', name: 'Mixtral-MoE', note: '8 个专家, softmax 路由选 top-2' },
+    { id: 'moe_ds', name: 'DeepSeek-MoE', note: 'sigmoid 路由 + 常驻共享专家' },
   ]},
   { key: 'norm', label: '归一化 (norm)', options: [
-    { id: 'post_ln', name: 'Post-LN', note: '原始; norm 在主干上, 需 warmup' },
-    { id: 'pre_ln',  name: 'Pre-LN LayerNorm', note: 'norm 在分支里, GPT-3 风' },
-    { id: 'pre_rms', name: 'Pre-LN RMSNorm',   note: '不减均值, LLaMA / DeepSeek 风' },
-    { id: 'ada_ln',  name: 'adaLN-Zero',       note: '用条件向量调 norm 的缩放, DiT 扩散' },
+    { id: 'post_ln', name: 'Post-LN', note: '归一化位于残差主干, 依赖 warmup' },
+    { id: 'pre_ln',  name: 'Pre-LN LayerNorm', note: '归一化移入旁路分支, GPT-3 采用' },
+    { id: 'pre_rms', name: 'Pre-LN RMSNorm',   note: '省去均值中心化, LLaMA / DeepSeek 采用' },
+    { id: 'ada_ln',  name: 'adaLN-Zero',       note: '由条件向量调制归一化参数, DiT 采用' },
   ]},
   { key: 'pos', label: '位置编码 (pos)', options: [
     { id: 'sin',   name: 'Sinusoidal' },
@@ -292,9 +292,9 @@ const presets = [
   { name: 'Transformer', year: 2017, config: { attn: 'mha', ffn: 'relu',   norm: 'post_ln', pos: 'sin'   } },
   // 这两个预设跟着本仓库的实现走, 和原版各差一处, repoNote 会显示在界面上
   { name: 'BERT',        year: 2018, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'learn' },
-    repoNote: 'norm 填的是 Pre-LN, 因为本仓库的 BERT 用 PreLNBlock 搭。原版 BERT 是 Post-LN。' },
+    repoNote: '本仓库 BERT 统一基于 PreLNBlock 构建, 因此 norm 槽位配置为 Pre-LN; 原始论文 BERT 采用 Post-LN。' },
   { name: 'GPT-3',       year: 2020, config: { attn: 'mha', ffn: 'gelu',   norm: 'pre_ln',  pos: 'sin'   },
-    repoNote: 'pos 填的是 Sinusoidal, 这是本仓库 GPT3 的默认值。原版 GPT-3 用可学位置编码。' },
+    repoNote: '本仓库 GPT3 默认使用 Sinusoidal 位置编码; 原始论文 GPT-3 采用可学习绝对位置编码 (Learnable)。' },
   { name: 'LLaMA',       year: 2023, config: { attn: 'gqa', ffn: 'swiglu', norm: 'pre_rms', pos: 'rope'  } },
   { name: 'Mixtral',     year: 2024, config: { attn: 'gqa', ffn: 'moe_mx', norm: 'pre_rms', pos: 'rope'  } },
   { name: 'DeepSeek-V3', year: 2024, config: { attn: 'mla', ffn: 'moe_ds', norm: 'pre_rms', pos: 'rope'  } },
@@ -325,9 +325,9 @@ const blockDag = computed(() => {
       dir: 'TB',
       nodes: [
         io('x', 'x (in)'), attn, { id: 'add1', label: '+', kind: 'trunk' },
-        norm('n1', '★ 在主干上: 梯度过这里要被缩放一次'),
+        norm('n1', '★ 位于主干: 反向梯度经此重缩放一次'),
         ffn, { id: 'add2', label: '+', kind: 'trunk' },
-        norm('n2', '★ 又缩放一次'), io('y', 'y (out)'),
+        norm('n2', '★ 位于主干: 反向梯度再次重缩放'), io('y', 'y (out)'),
       ],
       edges: [
         { from: 'x', to: 'add1', kind: 'main', label: '残差' }, { from: 'x', to: 'attn' }, { from: 'attn', to: 'add1' },
@@ -342,8 +342,8 @@ const blockDag = computed(() => {
     dir: 'TB',
     nodes: [
       io('x', 'x (in)'),
-      { ...norm('n1', '只归一化送进分支的副本'), group: 'attn' }, { ...attn, group: 'attn' },
-      { id: 'add1', label: '+', kind: 'trunk', note: '残差相加; 主干上没有 norm' },
+      { ...norm('n1', '仅归一化送入分支的输入副本'), group: 'attn' }, { ...attn, group: 'attn' },
+      { id: 'add1', label: '+', kind: 'trunk', note: '残差相加; 主干无归一化层' },
       { ...norm('n2'), group: 'ffn' }, { ...ffn, group: 'ffn' },
       { id: 'add2', label: '+', kind: 'trunk' },
       io('y', 'y (out)'),
@@ -372,25 +372,25 @@ const modelMatch = computed(() => {
   if (match) {
     const meta = {
       'Transformer': { track: 'left', color: C.old,
-        blurb: '2017 年的原始 Transformer: encoder-decoder 结构, Post-LN, 四个零件都是最朴素的版本' },
+        blurb: '2017 年提出的原始 Transformer 架构: 采用 encoder-decoder 结构与 Post-LN 主干, 四个槽位均为初代基础实现。' },
       'BERT': { track: 'left', color: C.a,
-        blurb: '只留 encoder, 注意力双向 (每个 token 能看前后文); 训练目标是 MLM (掩码语言建模: 遮住几个词让模型填), 理解类任务的里程碑' },
+        blurb: '仅保留双向注意力 encoder 结构, 允许每个 token 同时关注上下文; 基于掩码语言建模 (MLM) 预训练, 奠定了自然语言理解任务的预训练范式。' },
       'GPT-3': { track: 'left', color: C.a,
-        blurb: '只留 decoder (因果 mask, 只看前文), 堆到 175B 参数, 任务是预测下一个 token; 生成式范式的起点' },
+        blurb: '采用带因果掩码的纯 decoder 结构并扩展至 175B 参数规模, 以自回归预测下一个 token 为统一训练目标, 确立了生成式大模型范式。' },
       'LLaMA': { track: 'left', color: C.b,
-        blurb: '现代开源 LLM 的事实模板: 在 GPT-3 骨架上把四个零件全换成新版 (GQA、SwiGLU、RMSNorm、RoPE)' },
+        blurb: '现代开源大语言模型的标准架构基线: 沿用 GPT-3 的 Pre-LN 残差骨架, 将四个核心组件全面升级为 GQA、SwiGLU、RMSNorm 与 RoPE。' },
       'Mixtral': { track: 'left', color: C.c,
-        blurb: 'LLaMA 骨架, 只把 FFN 换成 MoE: 8 个专家 FFN, 每个 token 由 softmax 路由选 2 个来算' },
+        blurb: '在 LLaMA 架构基础上仅将稠密 FFN 替换为稀疏 MoE 层: 每层包含 8 个专家网络, 每个 token 经 softmax 路由选出 top-2 个专家参与计算。' },
       'DeepSeek-V3': { track: 'left', color: C.d,
-        blurb: '注意力换成 MLA (KV cache 压成 latent), MoE 的专家切得更细 (sigmoid 路由 + 共享专家); 671B 总参数, 每个 token 只激活 37B' },
+        blurb: '注意力层升级为压缩 KV cache 的 MLA, 前馈层采用细粒度专家搭配 sigmoid 路由与常驻共享专家; 总参数量达 671B, 单 token 仅激活 37B 参数。' },
       'DeepSeek-V3.2': { track: 'left', color: C.d,
-        blurb: 'V3 再加 DSA: 一个小打分器先挑出 top-k 个位置, 注意力只算这 k 个, 算力从 $O(T^2)$ 降到 $O(T\\cdot k)$' },
+        blurb: '在 V3 基础上引入动态稀疏注意力 DSA: 先由轻量级打分器筛选出 top-k 个关键位置再执行注意力计算, 将序列计算复杂度从 $O(T^2)$ 降至 $O(T\\cdot k)$。' },
       'Mamba': { track: 'left', color: C.e,
-        blurb: '不用注意力的另一条主线: SSM (状态空间模型) 用一个定长状态一路往后传, 算力随序列长度线性 $O(T)$ 增长' },
+        blurb: '脱离注意力机制的状态空间模型 (SSM) 路线: 通过选择性状态转移维护定长递归状态, 使计算复杂度随序列长度呈 $O(T)$ 线性增长。' },
       'DiT': { track: 'right', color: C.d,
-        blurb: '扩散模型用的 Transformer: 去噪步数 timestep 等条件经 adaLN-Zero (用条件向量算出 norm 的缩放和平移, 初始为零) 注入每个 block' },
+        blurb: '面向扩散生成模型的 Transformer 架构: 将去噪时间步 timestep 等条件向量经零初始化的自适应归一化层 adaLN-Zero 调制后注入每个 block。' },
       'Qwen2-VL': { track: 'eye', color: C.c,
-        blurb: 'LLaMA 骨架 + M-RoPE (位置按时间 / 行 / 列三轴旋转), 图像 patch 和文本共用一个 decoder' },
+        blurb: '在 LLaMA 骨架上引入多维旋转位置编码 M-RoPE (沿时间、行、列三个坐标轴分别施加旋转变换), 使视觉图像 patch 与文本 token 共享同一自回归 decoder。' },
     }
     return { ...match, ...meta[match.name], color: meta[match.name]?.color || 'var(--accent)' }
   }
@@ -399,7 +399,7 @@ const modelMatch = computed(() => {
     year: '—',
     track: null,
     color: 'var(--text-muted)',
-    blurb: '这组零件没有对应的主流模型。',
+    blurb: '当前组件组合未对应已收录的主流模型架构。',
   }
 })
 
@@ -440,9 +440,9 @@ const ffnParams = computed(() => {
   return '—'
 })
 const ffnNote = computed(() => {
-  if (config.ffn === 'swiglu') return '三个矩阵 (gate、up、down), 但中间维从 4d 缩到 $8d/3$, 总参数量和两个矩阵的 GELU-FFN 持平: gate 这一路决定每个通道开多大, up 这一路装内容'
-  if (config.ffn.startsWith('moe')) return '专家就是多份 FFN, 总参数很大, 但每个 token 只经过被路由选中的少数几个专家, 用显存换算力'
-  return '标准 FFN: 先升到 d_ff = 4·d_model 维, 过激活函数, 再降回 d_model, 两个矩阵'
+  if (config.ffn === 'swiglu') return '包含三个投影矩阵 (gate、up、down), 中间隐藏维由 $4d$ 缩减为 $8d/3$, 使总参数量与双矩阵 GELU-FFN 持平: gate 分支计算逐通道门控权重, up 分支提取特征表示'
+  if (config.ffn.startsWith('moe')) return '由多组独立 FFN 专家组成, 总参数容量大幅扩展, 但每个 token 仅激活路由器选中的少数几个专家, 实现总参数量与单步计算量的解耦'
+  return '标准双矩阵 FFN: 先将维度升至 $4d$, 经非线性激活后再投影回 $d$ 维'
 })
 const kvNote = computed(() => {
   const d = 4096, h = 32

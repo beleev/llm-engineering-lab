@@ -6,31 +6,31 @@
 <template>
   <LabFrame
     title="ratio clip — 一批样本更新多轮时, 哪些 token 这一步已经不许再推"
-    sub="- 模拟什么: PPO / GRPO 为了把一批昂贵的采样多用几轮, 从第二轮起策略已经变了, 要用重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 来修正 (新策略比旧策略给这个 token 的概率涨了几倍)。为了不让单步走太远, 目标函数取 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$: 当 $\rho$ 朝有利方向越出 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 时直接切换为截断项, 对 $\rho$ 导数归零, 本轮停止继续推拉。$\hat{A}$ 是优势: 正表示这是个好 token 想推高, 负表示想压低。DAPO 的 clip-higher 把上界单独放宽。
-      - 图上是什么: 横轴是 $\rho$。图里各部分:
-        - 竖虚线: $\rho = 1$ (新旧策略一样)。
-        - 两条黄竖线: 裁剪边界 $1-\varepsilon_{\text{low}}$ 和 $1+\varepsilon_{\text{high}}$。
-        - 灰色虚线: 不裁剪的 $\rho\hat{A}$。
-        - 紫色折线: 裁剪后的目标。
-        - 黄色阴影: 梯度为 0 的区域。
-        - 右侧灰色区域: $\rho \gt 1/\pi_{\text{old}}$, 新概率超过 1 了, 不可能到达。
-        - 圆点: 这个 token 当前的 $\rho$, 绿色表示还有梯度, 黄色表示被 clip。
-      - 可以做什么: 按界面顺序:
-        - 「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」: 切换这是好 token 还是坏 token。
-        - 「PPO/GRPO 对称 0.2」和「DAPO clip-higher 0.2/0.28」: 两组 $\varepsilon$ 预设。
-        - 拖「ε_low」「ε_high」: 单独改两条边界。
-        - 拖「π_old」: 改旧策略给这个 token 的概率 (0.01 到 0.89), 它决定灰色不可达区从哪开始。
-        - 左右拖圆点 (或聚焦后按方向键): 改 $\rho$。
-      - 应该看到: $\hat{A} \gt 0$ 时只有右边有阴影 (只封顶), $\hat{A} \lt 0$ 时只有左边有阴影 (只托底)。右侧读数:
-        - 第一行: $\rho$ 换算成新概率 $\rho\,\pi_{\text{old}}$。
-        - 「这个 token 的梯度」: 绿色的 ±1·|Â| 或红色的 0 (被 clip)。
-        - 「上界内 π 最多涨到」: 这一轮新概率能到的上限 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$。
-        - 「上界碰得到吗」: $\pi_{\text{old}}$ 很大时 $1/\pi_{\text{old}}$ 不到 $1+\varepsilon$, 上界碰不到, 这个 token 不受上界约束。"
+    sub="- 模拟什么: PPO 与 GRPO 为复用同一批高成本在线采样执行多轮参数更新, 自第二轮内层迭代起当前策略已偏离采样策略, 需引入重要性比率 $\rho = \pi_{\text{new}}/\pi_{\text{old}}$ 修正分布偏移。为防止单轮策略更新幅度过大, 代理目标取 $\min(\rho\hat{A},\ \text{clip}(\rho, 1-\varepsilon_{\text{low}}, 1+\varepsilon_{\text{high}})\hat{A})$: 当 $\rho$ 沿提升目标函数的有利方向越出区间 $[1-\varepsilon_{\text{low}},\ 1+\varepsilon_{\text{high}}]$ 时切换为常数截断项, 对 $\rho$ 的导数归零, 暂停继续推高或压低该 token。优势值 $\hat{A}$ 为正表示应提高该 token 概率, 为负表示应压低其概率; DAPO 的 clip-higher 机制则单独放宽上界 $\varepsilon_{\text{high}}$。
+- 图上是什么: 横轴为重要性比率 $\rho$, 图中各视觉元素对应关系如下:
+  - 竖直虚线: $\rho = 1$, 对应新旧策略概率相等的初始位置。
+  - 两条黄色竖线: 两侧裁剪边界 $1-\varepsilon_{\text{low}}$ 与 $1+\varepsilon_{\text{high}}$。
+  - 灰色虚线: 未加裁剪的原始线性目标 $\rho\hat{A}$。
+  - 紫色折线: 经 $\min$ 与 $\text{clip}$ 截断后的实际代理目标曲线。
+  - 黄色阴影区: 目标函数斜率归零、梯度截断为 0 的区域。
+  - 右侧灰色区域: 满足 $\rho \gt 1/\pi_{\text{old}}$, 对应新概率 $\pi_{\text{new}} \gt  1$ 的概率公理不可达区域。
+  - 可拖动圆点: 当前 token 所处的比率 $\rho$, 绿色表示仍具非零梯度, 黄色表示已触发裁剪。
+- 可以做什么: 按界面自上而下可进行以下操作:
+  - 切换「$\hat{A} \gt 0$ / $\hat{A} \lt 0$」按钮: 选择正优势或负优势样本情形。
+  - 点击「PPO/GRPO 对称 0.2」或「DAPO clip-higher 0.2/0.28」: 载入两组裁剪阈值预设。
+  - 拖动「ε_low」与「ε_high」滑杆: 独立调整左右裁剪边界宽度。
+  - 拖动「π_old」滑杆: 在 0.01 至 0.89 范围内调节旧策略赋予该 token 的概率, 决定右侧灰色不可达区域的起始位置。
+  - 左右拖动圆点 (或聚焦后使用方向键): 改变当前重要性比率 $\rho$。
+- 应该看到: 当 $\hat{A} \gt 0$ 时仅右侧出现黄色截断阴影 (仅限制概率上浮), 当 $\hat{A} \lt 0$ 时仅左侧出现黄色截断阴影 (仅限制概率下压)。右侧读数含义如下:
+  - 第一行: 将当前比率 $\rho$ 换算为新策略概率 $\rho\,\pi_{\text{old}}$。
+  - 「这个 token 的梯度」: 未裁剪时显示绿色 ±1·|Â|, 触发裁剪后显示红色 0。
+  - 「上界内 π 最多涨到」: 单轮裁剪窗口允许新策略达到的概率上限 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$。
+  - 「上界碰得到吗」: 当 $\pi_{\text{old}}$ 较大时, 概率上限 $1/\pi_{\text{old}}$ 小于 $1+\varepsilon_{\text{high}}$, 裁剪上界落入不可达区, 该高概率 token 实际上不受上界约束。"
     module="llm_finetune/methods/grpo.py"
     run="python -m llm_finetune.run_finetune.grpo.train_grpo"
     :challenge="{
-      ask: '设 Â 大于 0, 按顺序做:\n1. 把 π_old 拖到最右 (约 0.89): 这个 token 能撞到 1+ε_high 的上界吗?\n2. 把 π_old 拖到 0.01, 对称 ε = 0.2 时它一步最多涨到多少?\n3. 换成 DAPO 的 0.2 / 0.28 呢?',
-      answer: '答案:\n1. $\\pi_{\\text{old}} \\approx 0.89$ 时碰不到上界。\n2. $\\pi_{\\text{old}} = 0.01$ 时对称 0.2 一步最多涨到 0.012。\n3. DAPO 的 0.28 最多涨到 0.0128。\n为什么:\n- 新概率不能超过 1, 所以 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}} \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): $\\rho$ 最大 1.12, 永远碰不到 1.2 的上界。它不受上界约束, 想涨就涨。\n- 低概率的探索 token ($\\pi_{\\text{old}} = 0.01$): 被卡在 $0.01 \\times 1.2 = 0.012$, 每轮最多涨 20%。要翻身得连续很多轮都拿到正优势。结果是高概率 token 越涨越高, 分布越来越尖, 熵一路塌缩。\n- DAPO 的 clip-higher 只放宽上界 ($0.01 \\times 1.28 = 0.0128$), 给低概率的好 token 更多上升空间。下界不动: 放宽下界会让 token 概率被一步压到接近 0, 同样塌缩。\n- 只有「一批样本做多轮内层更新」时 clip 才起作用。第一轮 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, $\\rho$ 恒为 1, 落在裁剪区间里, clip 是死代码。',
+      ask: '固定优势 Â 大于 0, 按顺序完成以下观察:\n1. 将 π_old 拖至最右侧 (约 0.89): 该 token 能否触及 $1+\\varepsilon_{\\text{high}}$ 裁剪上界?\n2. 将 π_old 拖至 0.01, 在对称裁剪阈值 $\\varepsilon = 0.2$ 下, 该 token 单轮更新最多能升至多大概率?\n3. 切换为 DAPO 的非对称阈值 0.2 / 0.28 后, 单轮概率上限变为多少?',
+      answer: '结论:\n1. 当 $\\pi_{\\text{old}} \\approx 0.89$ 时无法触及裁剪上界。\n2. 当 $\\pi_{\\text{old}} = 0.01$ 且采用对称阈值 0.2 时, 单轮概率最多升至 0.012。\n3. 切换为 DAPO 的上界阈值 0.28 后, 单轮概率上限升至 0.0128。\n机制解析:\n- 受概率公理 $\\pi_{\\text{new}} \\le 1$ 约束, 重要性比率满足 $\\rho = \\pi_{\\text{new}}/\\pi_{\\text{old}} \\le 1/\\pi_{\\text{old}}$。\n- 高概率 token ($\\pi_{\\text{old}} \\approx 0.89$): 比率 $\\rho$ 的理论最大值约为 1.12, 始终低于 1.2 的裁剪上界, 因此完全不受上界截断约束, 可直接推向概率 1。\n- 低概率探索 token ($\\pi_{\\text{old}} = 0.01$): 单轮更新被严格限制在 $0.01 \\times 1.2 = 0.012$ 以内, 每轮相对增幅不超过 20%, 必须连续多轮获得正优势才能显著提升概率。这种相对比例裁剪天然偏向既有高概率 token, 容易导致策略分布迅速尖锐化并引发策略熵塌缩。\n- DAPO 的 clip-higher 机制单独将上界放宽至 0.28 ($0.01 \\times 1.28 = 0.0128$), 为低概率正向探索 token 留出更大抬升空间; 同时维持下界 0.2 不变, 防止负优势更新单步将候选概率压近 0 而加剧熵塌缩。\n- 裁剪机制仅在「单批采样复用执行多轮内层更新」时生效: 首轮更新时 $\\pi_{\\text{new}} = \\pi_{\\text{old}}$, 比率 $\\rho$ 恒等于 1, 必然处于裁剪区间内部, 此时截断分支不会触发。',
     }"
   >
     <template #controls>
@@ -79,8 +79,8 @@
       <div class="kv"><span><Tex text="上界内 $\pi$ 这一轮最多涨到 $\pi_{\text{old}}(1+\varepsilon_{\text{high}})$" /></span><b>{{ Math.min(1, piOld * (1 + eHi)).toFixed(4) }}</b></div>
       <div class="kv"><span>上界碰得到吗</span><b :class="rhoCap > 1 + eHi ? 'good' : 'bad'">{{ rhoCap > 1 + eHi ? '碰得到' : '碰不到 (1/π_old 不到 1+ε, 不受约束)' }}</b></div>
       <div class="lab-note">
-        <p><Tex text="$\min(\cdot)$ 让 clip 只在「对自己有利的方向」上生效: $\hat{A} \gt 0$ 时只封顶 (涨太多就停), $\hat{A} \lt 0$ 时只托底 (压太狠就停)。" /></p>
-        <p><Tex text="走错方向的 token (例如 $\hat{A} \gt 0$ 但 $\rho$ 已经掉到 0.5, 好 token 反而被压低了) 永远有梯度, 会被拉回来。" /></p>
+        <p><Tex text="外层 $\min(\cdot)$ 算子使裁剪仅在「顺着优势优化的有利方向」上生效: $\hat{A} \gt 0$ 时仅截断上界 (防止过度推高), $\hat{A} \lt 0$ 时仅截断下界 (防止过度压低)。" /></p>
+        <p><Tex text="若某个 token 因其他参数耦合更新而偏离目标方向 (例如 $\hat{A} \gt 0$ 但 $\rho$ 已跌至 0.5, 正优势 token 概率反而下降), $\min(\cdot)$ 会保留未截断项的完整梯度以将其拉回合理区间。" /></p>
       </div>
     </template>
   </LabFrame>

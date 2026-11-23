@@ -2,31 +2,31 @@
 <template>
   <LabFrame
     title="P/D 分离 — 把 prefill 搬到另一台机器, 用一次 KV 传输换掉 decode 卡顿"
-    sub="- 模拟什么: 推理分两段: prefill 把整段 prompt 一次算完 (几千 token, 吃算力), decode 之后每步只出 1 个 token (吃带宽)。几个用户正在 decode 时来了一条长 prompt, 同一张卡要先把它的 prefill 算完, 这一步里所有人的下一个 token 都得等, 用户看到的是输出突然卡住一下 (ITL 尖刺; ITL 是相邻两个输出 token 之间的间隔)。所有时间来自代价模型: decode 每步 25 ms, prefill 8000 tok/s, 不是实测。P/D 分离的做法:
-        - P 节点: 一组节点只做 prefill, 算完把这条请求的 KV cache 通过网络发给 D。
-        - D 节点: 另一组只做 decode, 接着往下生成。
-        - 代价: KV 要过一次网络。
-      - 图上是什么: 五条时间线, 横轴是时间, 竖虚线是长 prompt 到达的时刻。第一条是同卡部署, 下面四条是分离部署:
-        - 第一条「同卡 GPU」: 一串绿色小格是 decode 步, 黄色一段是插进来的长 prompt 的 prefill, 这段时间里 decode 格子停了。
-        - 「D 节点」: decode 格子从头到尾不断。
-        - 「P 节点」: 上面只有那段 prefill。
-        - 「链路」: 红色一段是 KV 传输。
-        - 「新请求 @ D」: 这条长 prompt 的后续 token 开始在 D 节点上 decode 的时刻。
-      - 可以做什么: 按界面从上到下:
-        - 顶上两个按钮选模型, 决定每个 token 的 KV 有多少字节 (LLaMA-3-8B 用 GQA, 128 KiB; LLaMA-2-7B 用 MHA, 512 KiB)。
-        - 拖「prompt 长度」改这条长 prompt 有多少 token, prefill 时间和 KV 字节数都随它线性变。
-        - 拖「链路带宽」或点预设 (10 GbE 到 NVLink) 改 P 到 D 之间的网速, 下面一行显示 Gbps 换算成 GB/s 的结果。
-        - 拖「链路固定延迟」加一笔和字节数无关的固定开销。
-        - 按下「把 Gbps 当成 GB/s」, 右侧多出一行, 显示少除一个 8 会把传输时间算错多少。
-        - 悬停或点时间线上的任一段看它的时长。
-      - 应该看到: 右侧「最大 ITL: 同卡 → 分离」: 同卡那个数等于整段 prefill 加一步 decode, prompt 越长越大; 分离后恒为 25 ms, 就是一步 decode。把链路拖到 10 Gbps 再拖长 prompt, 能看到红色传输段变得比黄色 prefill 段还长。另外两个读数:
-        - 「传 X GB KV, 第 2 个 token 推迟」是传输花的时间, 它推迟的是新请求的第 2 个 token (首 token 在 P 节点算完 prefill 时就产出了, 不受影响); 传输比它换掉的那次 prefill 卡顿短就标绿, 长就标红。
-        - 「盈亏带宽」是让传输时间恰好等于那次 prefill 卡顿的网速, 当前链路比它快就划算。"
+    sub="- 模拟什么: 大模型推理包含特征迥异的两个阶段: prefill 阶段一次性并行计算整段 prompt (常达数千 token, 属于算力受限阶段), decode 阶段每步仅自回归生成 1 个 token (属于访存带宽受限阶段)。在同卡混合部署下, 若多条请求正在 decode 时插入一条长 prompt, GPU 必须先完成该长请求的 prefill, 导致同批次所有活跃请求的下一个输出 token 被迫阻塞等待, 用户侧表现为流式输出突然停顿 (即 ITL 延迟毛刺; ITL 为相邻两个输出 token 之间的时间间隔)。本实验所有耗时均基于代价模型计算 (decode 每步固定 25 ms, prefill 吞吐率 8000 tok/s), 并非真机实测。P/D 分离架构的解决思路如下:
+  - P 节点: 专职执行 prefill 计算, 完成后将该请求生成的 KV cache 经网络发送至 D 节点。
+  - D 节点: 专职执行 decode 迭代, 接收 KV cache 后继续自回归生成后续 token。
+  - 工程代价: 整段 prompt 的 KV cache 需要跨节点传输一次。
+- 图上是什么: 五条对齐的时间轴, 横轴为时间, 竖直虚线标示长 prompt 到达的时刻; 第一条对应同卡混部基线, 下方四条对应 P/D 分离部署:
+  - 「同卡 GPU」: 连续绿色小格代表正常 decode 步, 中间插入的黄色区段代表长 prompt 的 prefill 计算, 期间所有 decode 步被迫中断。
+  - 「D 节点」: 绿色 decode 步全程均匀推进、不受新到达长请求的干扰。
+  - 「P 节点」: 仅执行该长 prompt 的黄色 prefill 区段。
+  - 「链路」: 红色区段代表 KV cache 跨网络传输的耗时。
+  - 「新请求 @ D」: 标示该长请求在 KV 传输完毕后于 D 节点开始 decode 的时刻。
+- 可以做什么: 按界面从上到下依次操作:
+  - 点击顶部两个模型预设按钮切换单 token KV 体积 (LLaMA-3-8B 采用 GQA, 每 token 占 128 KiB; LLaMA-2-7B 采用 MHA, 每 token 占 512 KiB)。
+  - 拖动「prompt 长度」调整新到达长请求的 token 数量, prefill 耗时与待传 KV 字节数均随其线性变化。
+  - 拖动「链路带宽」或点击网络预设 (从 10 GbE 到 NVLink) 调整 P 节点至 D 节点的互联速率, 下方同步显示 Gbps 换算为 GB/s 后的有效字节带宽。
+  - 拖动「链路固定延迟」叠加与数据量无关的单次通信固定开销。
+  - 勾选「把 Gbps 当成 GB/s」, 右侧会新增一行对比读数, 展示漏除以 8 时对传输耗时的低估程度。
+  - 悬停或点击时间轴上的任意区段查看具体耗时。
+- 应该看到: 右侧「最大 ITL: 同卡 → 分离」读数中, 同卡混部的最大 ITL 等于整段 prefill 耗时加上一步 decode, 随 prompt 变长而线性增大; 分离部署下则恒定为一步 decode 的 25 ms。将链路带宽拖至 10 Gbps 并拉长 prompt 时, 可见红色 KV 传输区段长于黄色 prefill 区段。其余两项读数含义如下:
+  - 「传 X GB KV, 第 2 个 token 推迟」表示网络传输耗时, 该耗时仅推迟新请求第 2 个输出 token 的生成时刻 (首 token 已在 P 节点完成 prefill 时直接产出, 不受传输影响); 当传输耗时短于同卡混部下造成的 prefill 阻塞时间时标绿, 反之标红。
+  - 「盈亏带宽」表示使 KV 传输耗时恰好等于该次 prefill 计算耗时的临界网络速率, 当前链路带宽高于该值时跨网传输在时间账上占优。"
     module="llm_infer/m15"
     run="python -m llm_infer.m15_pd_disaggregation.demo"
     :challenge="{
-      ask: '链路延迟设为 0, 把 prompt 长度从 1K 拖到 16K, 盈亏带宽怎么变? 为什么?',
-      answer: '不变, 一直是 8.4 Gbps 左右 (LLaMA-3-8B)。\n盈亏带宽的定义: 传输时间恰好等于它换掉的那次 prefill 卡顿时的网速。两边都和 prompt 长度成正比:\n- KV 字节数 = token 数 × 每 token 的 KV 字节 (128 KiB)。\n- prefill 时间 = token 数 ÷ 8000 tok/s。\n传输时间 = KV 字节数 ÷ 带宽。令它等于 prefill 时间, 两边的 token 数约掉: 盈亏带宽 = 每 token KV 字节 × prefill 速度 = 128 KiB × 8000 tok/s ≈ 1.05 GB/s。换成网卡的单位要乘 8: ≈ 8.4 Gbps。换成 LLaMA-2-7B (512 KiB/token) 就是 4 倍, 约 33.6 Gbps。普通的 100 GbE 都远高于这个数, 所以搬 KV 几乎总比让所有人等 prefill 划算。\n两个容易错的地方:\n- 单位: 网卡和 InfiniBand 都按 Gbps (bit 每秒) 标, KV 按 byte 算, 要除以 8 才是 GB/s。少除一个 8, 传输时间就被低估 8 倍, 按下「把 Gbps 当成 GB/s」能看到这个差距。\n- 推迟的是谁: 传输推迟的是新请求的第 2 个 token, 不是首 token (TTFT)。首 token 是 P 节点 prefill 的直接产物, 可以马上回给用户。\n链路固定延迟不为 0 时, 盈亏带宽会随 prompt 变短而升高: 固定延迟在总传输时间里占的比例变大了, 要靠更快的链路把剩下的部分压短。',
+      ask: '将「链路固定延迟」设为 0, 并将「prompt 长度」从 1K 拖至 16K, 「盈亏带宽」会如何变化? 原因是什么?',
+      answer: '盈亏带宽保持不变, 在 LLaMA-3-8B 预设下恒定约为 8.4 Gbps。\n盈亏带宽定义为使 KV 传输耗时恰好等于同卡 prefill 阻塞耗时所需的临界带宽。在零固定延迟下, 传输数据量与 prefill 耗时均与 prompt 长度成严格正比:\n- 待传 KV 字节数等于 token 数乘以单 token KV 体积 (128 KiB)。\n- prefill 计算耗时等于 token 数除以吞吐率 8000 tok/s。\n传输耗时等于 KV 字节数除以链路带宽。令传输耗时等于 prefill 耗时, 等式两侧的 token 数直接约去, 得到盈亏带宽等于单 token KV 字节数乘以 prefill 吞吐率, 即 $128\\text{ KiB} \\times 8000\\text{ tok/s} \\approx 1.05\\text{ GB/s}$, 乘以 8 换算为网络比特速率即约为 8.4 Gbps。若切换为 LLaMA-2-7B (512 KiB/token), 单 token 体积增大至 4 倍, 盈亏带宽相应升至约 33.6 Gbps。常规数据中心 100 GbE 网卡的实际带宽已远高于上述阈值, 因此跨网传输 KV 几乎总是比同卡阻塞全体 decode 请求更划算。\n工程核算中有两处常见误区需要注意:\n- 速率单位换算: 网卡与 InfiniBand 带宽通常按 Gbps (每秒比特数) 标称, 而 KV 体积按字节计算, 必须除以 8 才能得到 GB/s。若漏除以 8, 传输耗时会低估 8 倍, 勾选「把 Gbps 当成 GB/s」即可直观对比这一误差。\n- 受延迟影响的指标: KV 传输推迟的是新请求第 2 个输出 token 的生成时刻, 而非首 token 延迟 (TTFT)。首 token 在 P 节点完成 prefill 时便已直接产出并可立即返回客户端。\n当链路固定延迟不为 0 时, 盈亏带宽会随 prompt 变短而升高: 此时固定延迟在总传输时间中的占比上升, 需要更高的传输带宽压缩数据发送耗时才能与 prefill 耗时持平。',
     }"
   >
     <template #controls>
@@ -75,9 +75,9 @@
           <li>再算一步 decode。</li>
           <li>下一个 token 才出来。</li>
         </ol>
-        <p>分离后 D 节点不受打扰, 最大 ITL 就是一步 decode。</p>
+        <p>采用 P/D 分离后, D 节点的自回归迭代不受新请求 prefill 干扰, 最大 ITL 恒等于单步 decode 耗时。</p>
         <p>盈亏带宽: 传输耗时恰好等于它换掉的那次 prefill 卡顿 ({{ fmtMs(prefillMs) }}) 时的网速。当前链路是它的 {{ (gbps / breakEven).toFixed(1) }}×, 大于 1 就说明搬 KV 比让大家等 prefill 划算。</p>
-        <p>TTFT (首 token 延迟) 两种部署相同: 首 token 在 P 节点 prefill 结束时就产出了, 传输只推迟第 2 个 token。</p>
+        <p>两种部署架构下的 TTFT (首 token 延迟) 相同: 首 token 在 P 节点完成 prefill 时即已生成, 跨网传输 KV 仅推迟第 2 个输出 token。</p>
         <p v-if="wrongUnit">忘了 ÷8 会把传输时间低估 8 倍: 错算 {{ fmtMs(xferWrong) }} vs 真实 {{ fmtMs(xfer) }}。网卡和 InfiniBand 都按 bit 标速, KV 按 byte 算。</p>
       </div>
     </template>

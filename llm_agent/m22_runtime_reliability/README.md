@@ -8,81 +8,48 @@
 
 ## 直觉
 
-超时了再试一次, 会不会执行两次?
+请求超时后直接重试, 是否会导致副作用执行两次?
 
-- 超时只说明没收到回复, 不说明服务端没执行。demo 的账本第一笔已经写进去了才丢响应:
-- 盲重试写了 2 行共 20 元。
-- 带幂等键 (请求上附一个唯一编号, 服务端认出同一编号就不重复写) 或先查收据再决定, 都只写 1 行 10 元。
-- 一次任务同时派 3 路去做, 最快的那路结果不合格; 等第一个合格结果出来就取消其余, 总工作量从 10 降到 7。
-- 取消不是撤销:
-- 从发出取消到执行器确认之间, 它还可能再写一笔。
-- 确认之后旧任务迟到的结果要丢掉, 不能混进新任务。
+- 超时仅表明客户端未收到响应, 不能说明服务端未执行。demo 中的账本在第一笔写入完成后丢失响应:
+  - 盲目重试会写入 2 行、合计 20 元。
+  - 携带幂等键 (请求附带唯一标识, 服务端识别相同标识后不再重复写入) 或先查询收据再决定是否重发, 均只写入 1 行 10 元。
+- 单次任务并发派发 3 路执行时, 最快返回的一路结果不合格; 等待首个验收合格的结果返回后立即取消其余分支, 总工作量从 10 降至 7。
+- 取消不等于撤销:
+  - 从发出取消请求到执行器确认之间, 执行器仍可能再产生一次写入。
+  - 确认取消且任务换代后, 旧任务迟到的结果必须丢弃, 不能混入新任务。
 
 ## 核心原理
 
 ### 响应丢失不是没执行
 
-一次写操作分三步:
-
-1. 客户端发请求。
-
-2. 服务端执行。
-
-3. 服务端把响应发回来。
-
-超时只说明第三步没等到, 第二步可能早就做完了。
-
-demo 的 Ledger 是一个内存账本, 它故意模拟这种情况: 第一次 submit 先把这一行 (10 元) 写进 rows, 然后才抛 TimeoutError ("committed, response lost")。retry_write 收到超时后按三种策略处理, 每种最多发 2 次请求:
-
-- blind (盲重试): 不带任何标识再发一次。第二次又写了一行, 结果 writes=2、amount=20。
-- idempotent (幂等键): 两次请求都带同一个键 task-1/payment-1。账本按键记收据 (receipts), 第二次看到这个键已经有收据, 直接返回原来那行, 不再写。结果 writes=1、amount=10, requests=2。
-- query (先查收据): 超时后不重发, 先查 receipts 里有没有这个键; 有就算确认。结果 writes=1、amount=10, requests=1, queries=1。
-
-还有一个 assert: blind 只试 1 次就停, status 是 unknown, 不是 failed。没收到响应时只能记 "不知道", 不能当成没执行。
+超时仅表明客户端未收到响应, 不能证明服务端未执行副作用。一次写操作包含三个阶段:
+1. 客户端发送请求。
+2. 服务端执行写入。
+3. 服务端返回响应。
+超时只说明第三步未在时限内完成, 第二步可能早已落盘。
+demo 中的内存账本 Ledger 专门复现这一故障窗口: 首次调用 submit 时先将 10 元记录写入 rows, 随后抛出 TimeoutError (「committed, response lost」)。retry_write 捕获超时后按三种策略处理, 每种最多发送 2 次请求:
+- blind (盲目重试): 不附带任何唯一标识直接重发, 第二次请求再次写入一行, 最终 writes 为 2、amount 为 20。
+- idempotent (幂等键): 两次请求携带同一幂等键 task-1/payment-1。账本按幂等键记录收据 receipts, 第二次识别到该键已有收据后直接返回原记录而不再写入, 最终 writes 为 1、amount 为 10、requests 为 2。
+- query (先查收据): 超时后不立即重发写请求, 而是先查询 receipts 中是否存在该幂等键; 查到记录即确认为成功, 最终 writes 为 1、amount 为 10、requests 为 1、queries 为 1。
+demo 还通过 assert 验证了另一种边界: blind 策略若仅尝试 1 次便停止, 返回的 status 为 unknown 而非 failed, 因为未收到响应时只能标记状态未知, 不能断定服务端未执行。
 
 ### 幂等键绑定同一个操作
 
-幂等键只能代表一个固定的操作, 键和参数要一起核对, 不能只认键。
-
-账本的 receipts 以键为索引, 记下 (操作名, 金额)。再来一个同键请求时, 先比参数:
-
-- 一样就返回旧行。
-- 不一样就抛 ValueError ("同一幂等键不能换参数")。
-
-demo 用 Ledger(False) 验证: 同一个键先交 10 元再交 20 元, 第二次被拒, rows 还是 1 行。如果不比参数, 第二次会拿到第一次的收据, 误以为 20 元已经入账。
-
-权限拒绝是另一类错误: submit 的 allowed=False 时抛 PermissionError, retry_write 把 status 记成 denied 并立刻停止, requests=1、writes=0。被拒绝的操作重试多少次都不会变成放行, 再试只是浪费。
+幂等键必须绑定固定的操作与参数, 服务端校验时须同时核对键名与请求参数。账本的 receipts 以幂等键为索引记录 (操作名, 金额), 收到同键请求时先比对参数:
+- 参数一致: 直接返回初次写入的记录。
+- 参数不一致: 抛出 ValueError (「同一幂等键不能换参数」)。
+demo 使用 Ledger(False) 验证该约束: 同一幂等键先后提交 10 元与 20 元时, 第二次请求被拒绝, rows 仍保持 1 行。若服务端仅核对键名而忽略参数, 第二次请求会误拿第一次的收据, 导致调用方误判 20 元已入账。
+权限拒绝则属于不可重试的确定性错误: 当 submit 的 allowed=False 时抛出 PermissionError, retry_write 将 status 记为 denied 并立即终止, 最终 requests 为 1、writes 为 0。权限不足不会因重试而改变, 继续重发只会浪费配额。
 
 ### 最快不等于合格
 
-同一个任务同时派给 3 路去做时, 先回来的那路不一定对, 所以要等的是 "第一个验收合格的", 不是 "第一个回来的"。
-
-schedule 用逻辑时钟模拟, 没有真线程: 三个任务 fast-wrong、correct、slow 分别在时刻 1、3、6 做完, 其中 fast-wrong 的 valid=False (结果不合格)。每个时刻, 每个还在跑的任务消耗 1 个工作单位 (work)。
-
-- all 模式 (等全部): 时刻 1 三个都在跑 (work 3), 之后 correct 和 slow 跑到时刻 3 (work 7), slow 再跑到时刻 6 (work 10)。accepted 是 [correct, slow]; fast-wrong 虽然完成, 但 valid=False, receive 不收它。最后工作时刻 6。
-- first-valid 模式 (首个合格后取消): 时刻 1 fast-wrong 完成但不合格, 不触发取消; 时刻 3 correct 完成且合格, 这时才对其余任务 cancel 并 acknowledge, slow 变成 canceled。work 7, 最后工作时刻 3。
-
-还有两个 assert:
-
-- budget=2 时 work 只到 2, 什么都没验收通过。
-- budget=0 时所有任务都被取消, 没有一个还在 running。
-
-预算用完是取消的另一个触发条件。
-
-### 取消不等于回滚
-
-取消只是一个请求, 它不会撤销已经发生的事, 也不会瞬间停住正在跑的执行器。
-
-Runtime 里一个任务有四种状态: running、cancel_requested (收到取消请求, 执行器还没确认)、canceled (执行器确认了)、completed。effect 方法模拟一次副作用: 它在 running 和 cancel_requested 两种状态下都会执行, 只有到了 canceled 才不执行。
-
-demo 按顺序做了四件事, 日志是 [write:cancel_requested, write:effect, write:cancel_ack, write:ignored_result]:
-
-- cancel: 状态变 cancel_requested。
-- effect: 这时执行器还没确认, 副作用照样发生, effects 变成 1。
-- acknowledge: 状态变 canceled。再调 effect 不再计数, effects 停在 1。
-- 然后把 runtime.generation (任务代号, 新一轮任务就加 1) 从 1 拨到 2, 再用旧代号 1 调 receive: 结果被忽略, accepted 为空。旧任务迟到的结果不能污染新任务。
-
-这里没模拟的: 分布式事务、重试退避、网络分区; 也不能据此说任意线程都能被安全杀掉。
+并发派发多路子任务时, 停止其余分支的条件是收到首个验收合格的结果, 而非首个返回的结果。schedule 使用逻辑时钟模拟 3 路并发任务而未启动真实线程: fast-wrong、correct、slow 分别在时刻 1、3、6 完成, 其中 fast-wrong 的 valid=False (结果不合格); 每个逻辑时刻内, 每个仍处于运行态的任务消耗 1 个工作单位 (work)。
+- all 模式 (等待全部完成): 时刻 1 三个任务同时运行 (累计 work 为 3), 随后 correct 与 slow 运行至时刻 3 (累计 work 为 7), slow 继续运行至时刻 6 (累计 work 为 10)。最终 accepted 为 [correct, slow]; fast-wrong 虽已完成, 但因 valid=False 被 receive 拒收, 最后工作时刻为 6。
+- first-valid 模式 (首个合格后取消): 时刻 1 fast-wrong 完成但未通过验收, 不触发取消; 时刻 3 correct 完成且验收合格, 此时对其余运行中任务执行 cancel 与 acknowledge, slow 转为 canceled, 累计 work 降至 7, 最后工作时刻提前至 3。
+demo 另外通过两个 assert 验证预算边界:
+- budget=2: 累计 work 达到 2 时预算耗尽并触发取消, 无任何结果通过验收。
+- budget=0: 所有任务在启动前即被取消, 没有任何任务处于 running 状态。
+因此, 除首个合格结果外, 预算耗尽同样是触发取消的边界条件。
 
 ### 读代码的顺序
 

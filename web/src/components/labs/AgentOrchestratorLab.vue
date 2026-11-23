@@ -5,29 +5,29 @@
 <template>
   <LabFrame
     title="Orchestrator–workers — 把调研拆给几个子 agent, 三本账怎么变: lead 上下文 / 总 token / 墙钟时间"
-    sub="- 模拟什么: 一个调研任务要读很多长文档, 比较两种做法:
-  - 「单 agent 全自己读」: 一个 agent 把全部 N×r 份文档一份一份读进自己的上下文。
-  - 「orchestrator-workers」: 一个 lead agent 把任务拆成 N 个子任务, 用 delegate 工具分给 N 个 worker (子 agent), 每个 worker 在自己独立的上下文里读文档, 做完只交回一条很短的摘要 (harness 硬截断到 200 字符, 约 50 token), lead 再汇总。worker 可以一个接一个串行跑, 也可以用线程池并行跑 (最多 4 个同时)。
-- 图上是什么: 一张甘特图, 横轴是墙钟时间 (用户实际要等的秒数, 每次「模型调用 + 工具执行」按 3 秒算):
-  - orchestrator 模式: 第一行是 lead, 两段橙色条分别是开头的「扇出」和结尾的「汇总」; 下面每行一个 worker, 紫色条是它从领到任务到交回摘要的这段时间, 长度带一点随机, 条上写着它读了几份。
-  - 单 agent 模式: 只有一行, 一条长条从头读到尾。
-  - 点任意一个 worker 条: 图下方会显示这个 worker 自己读了多少 token 的文档、花了多少 input token, 以及 lead 实际只收到多少。
-- 可以做什么: 第一排切换三种做法, 「换一组耗时」重新随机每个 worker 的耗时。四根滑杆:
-  - 「子任务数 N」: 有几个 worker。
-  - 「每个子任务读几份文档」: 每个 worker 要读几份, 单 agent 则要读 N×r 份。
-  - 「每份文档」: 一份文档的 tool_result 有多少 token。
-  - 「worker 多探索」: 模拟真实系统里 worker 常常会自己多翻几份资料, 这个倍数让每个 worker 读 r 乘倍数那么多份, 单 agent 不受它影响。
-- 应该看到: 三本账方向不一样。右侧读数:
-  - 「峰值上下文」: 单次模型调用里上下文最大有多少 token。lead 的永远比单 agent 小, 因为长文档都在 worker 那边, lead 只看到摘要。
-  - 「总 input tokens」: 所有模型调用的输入加起来 (lead 加全部 worker)。文档少又短时 orchestrator 更贵 (默认 11.1K 对 9.4K), 因为每个 worker 都要重建一份 system prompt 加任务简报 (800 + 150 token); 文档一多, 单 agent 每一轮都要重发前面读过的全部文档, 账按平方涨, orchestrator 反而便宜。
-  - 「总 token 相对单 agent」: 就是这个倍数。
-  - 「墙钟时间」: 默认大致打平, 子任务多了并行才拉开差距。
-  - 每一项下面的灰字: 对照组的数, 比它小 10% 以上标绿, 大 10% 以上标红。"
+    sub="- 模拟什么: 针对需阅读大量长文档的调研任务, 对比两种多步执行架构的资源开销:
+  - 「单 agent 全自己读」: 由单个 agent 将全部 $N \times r$ 份文档逐一读入同一个上下文窗口。
+  - 「orchestrator-workers」: 由顶层 lead agent 将任务拆解为 $N$ 个独立子任务, 通过 delegate 工具分发给 $N$ 个 worker (子 agent); 每个 worker 在各自隔离的上下文中阅读文档, 完成后仅向上游返回一条精简摘要 (由 harness 硬截断至 200 字符, 约 50 token), 最后由 lead 统一汇总。worker 既可逐个串行执行, 也可通过线程池并行执行 (并发上限为 4)。
+- 图上是什么: 执行时间甘特图, 横轴表示墙钟时间 (即用户实际等待秒数, 每次「模型调用 + 工具执行」按 3 秒折算):
+  - orchestrator 模式: 首行为 lead 进程, 两段橙色时间条分别代表起始的「扇出」分发与末尾的「汇总」生成; 下方每行对应一个 worker, 紫色时间条表示该 worker 从接收任务到返回摘要的持续时间 (含轻微随机抖动), 条内标注其实际阅读的文档份数。
+  - 单 agent 模式: 仅有一行连续长条, 从头至尾串行读完所有文档。
+  - 点击任意 worker 时间条: 图表下方会展示该 worker 自身读取的文档总 token 数、累计消耗的 input token 数, 以及最终回传给 lead 的摘要 token 数。
+- 可以做什么: 第一排切换三种执行模式, 点击「换一组耗时」可重新采样各 worker 的随机耗时; 下方提供四根参数滑杆:
+  - 「子任务数 N」: 设定拆分的子任务及对应 worker 数量。
+  - 「每个子任务读几份文档」: 设定单个 worker 需阅读的文档数 $r$, 单 agent 模式下则需顺序阅读全部 $N \times r$ 份。
+  - 「每份文档」: 设定单份文档作为 tool_result 返回时的 token 长度。
+  - 「worker 多探索」: 模拟真实场景下子智能体自主扩充检索范围的行为, 使每个 worker 实际阅读文档数增至 $r$ 乘以该倍率, 单 agent 基线不受此参数影响。
+- 应该看到: 峰值窗口、累计成本与等待延迟三项指标呈现不同的变化规律。右侧读数含义如下:
+  - 「峰值上下文」: 单次模型调用所承受的最大上下文长度。由于长文档原文被隔离在各 worker 内部、lead 仅接收短摘要, lead 的峰值上下文始终低于单 agent。
+  - 「总 input tokens」: 全部模型调用的输入 token 累加和 (含 lead 与所有 worker)。当文档数量少且篇幅短时, orchestrator 总消耗反而更高 (默认配置下为 11.1K 对 9.4K), 原因是每个 worker 均需独立携带一份基础开销 (system prompt 与工具定义 800 token 加任务简报 150 token); 随着文档增多变长, 单 agent 每轮都必须重发此前读过的全部历史文档, 累计成本按轮数平方级增长, orchestrator 架构反而更节省总 token。
+  - 「总 token 相对单 agent」: 当前架构总输入 token 与单 agent 基线的比值。
+  - 「墙钟时间」: 默认小规模配置下两者耗时大致持平, 当子任务规模扩大后并行扇出才能显著缩短等待时间。
+  - 读数下方灰字: 显示对照组基线数值, 当前值较基线降低 10% 以上时标绿, 高出 10% 以上时标红。"
     module="llm_agent/m11"
     run="python -m llm_agent.m11_orchestrator.demo"
     :challenge="{
-      ask: '默认状态和 m11 demo 是同一种情形: 3 个子任务, 各读 1 份短文档。先猜: 把「读几份文档」和「每份文档」都拖大, orchestrator 的总 token 会一直比单 agent 多吗? 最后把「worker 多探索」拖到 3×, 再看一次。',
-      answer: '不会一直多, 会翻转两次。\n- 活少、文档短 (默认状态): orchestrator 更贵, 11.1K 对 9.4K。每个 worker 都要从零建一份自己的上下文 (system prompt 加工具定义 800 token, 任务简报 150 token), 这份固定开销占了大头。m11 demo 实测是 770 对 413 (右栏), 方向一样。\n- 活一多: 单 agent 的账按平方涨, 因为它每一轮都要把此前读过的全部文档重发一遍 (读第 k 份时前 k-1 份都还在上下文里)。每个 worker 只重发自己那几份, 同样的工作量下总 token 反而更少。\n- 「worker 多探索」拖上去: 总账又反超。真实系统里 worker 会各自多翻几份资料, Anthropic 报告过多智能体系统的 token 用量约为普通聊天的 15 倍。\n不随滑杆翻转的只有一件事: lead 的峰值上下文始终比单 agent 小 (默认 2.2K 对 3.1K), 文档越长差得越多, 因为 lead 永远只收 50 token 的摘要。\n墙钟时间要看活有多少: 默认状态下两边都是 4 轮模型调用, 并行扇出和单 agent 大致打平; 子任务或文档一多, 并行才拉开差距。',
+      ask: '默认配置对应 m11 demo 的小规模场景: 3 个子任务, 每个子任务仅读取 1 份短文档。先预测: 若将「每个子任务读几份文档」与「每份文档」长度同时调大, orchestrator 的总 token 消耗会始终高于单 agent 吗? 随后再将「worker 多探索」调至 3× 观察结果变化。',
+      answer: '不会始终高于单 agent, 大小关系会发生两次翻转。\n- 任务量少且文档较短时 (默认状态): orchestrator 总开销更高, 为 11.1K 对 9.4K。原因是每个 worker 均需从零构建独立上下文 (system prompt 与工具定义占 800 token, 任务简报占 150 token), 固定启动开销占据主导。m11 demo 实测数据为 770 对 413 (见右栏), 相对关系一致。\n- 文档数量与长度增加后: 单 agent 的累计成本呈平方级增长, 因为每推进一轮都必须将此前读过的全部文档重新发送一遍 (读取第 $k$ 份文档时, 前 $k-1$ 份文档仍驻留在上下文中)。而在多智能体架构下, 每个 worker 仅重发各自负责的少量文档, 相同总阅读量下累计消耗反而显著低于单 agent。\n- 将「worker 多探索」调高后: orchestrator 总开销再次反超。真实场景中各 worker 往往会自主追加检索轮次, Anthropic 曾披露生产级多智能体系统的平均 token 消耗约为普通单轮对话的 15 倍。\n全程不随参数翻转的指标只有一项: lead 的峰值上下文始终小于单 agent (默认配置下为 2.2K 对 3.1K), 且文档越长差距越显著, 因为 lead 每轮仅接收硬截断后的 50 token 摘要。\n墙钟时间则取决于并发规模: 默认状态下两种模式均经历 4 轮模型调用深度, 并行扇出与单 agent 耗时相近; 当子任务数量或单任务阅读轮数扩大后, 并行执行才能明显拉开速度差距。',
     }"
   >
     <template #controls>
@@ -65,16 +65,16 @@
       <div class="kv"><span>总 input tokens (lead + 全部 worker) <em>对照: {{ vs.name }} {{ fmtNum(vs.total) }}</em></span><b :class="cmp(acct.total, vs.total)">{{ fmtNum(acct.total) }}</b></div>
       <div class="kv"><span>总 token 相对单 agent</span><b>{{ (acct.total / acct.single.total).toFixed(2) }}×</b></div>
       <div class="kv"><span>墙钟时间 (用户实际等多久) <em>对照: {{ vs.name }} {{ vs.wall.toFixed(1) }}s</em></span><b :class="cmp(plan.wall, vs.wall)">{{ plan.wall.toFixed(1) }}s</b></div>
-      <p class="lab-note">颜色是和每项下面灰字的对照组比: 比它小 10% 以上变绿, 大 10% 以上变红。orchestrator 模式和「单 agent」比, 单 agent 模式和「并行 orchestrator」比。</p>
+      <p class="lab-note">指标颜色均以每项下方灰字所示的对照组为基准: 较对照组低 10% 以上标绿, 高 10% 以上标红。处于 orchestrator 模式时以「单 agent」为对照, 处于单 agent 模式时则以「并行 orchestrator」为对照。</p>
       <div class="lab-note">
         <p><b>m11 demo 实测的两本账, 不随滑杆变化:</b></p>
         <ul class="pts">
           <li>峰值上下文: lead 247, 单 agent 375。lead 小, 因为长文档只进了 worker 的上下文。</li>
           <li>总输入: 770 (lead 285 + workers 485), 单 agent 413。总账大, 因为每个 worker 都要重建自己的上下文。</li>
         </ul>
-        <p>demo 的 system prompt 只有一句话, 所以只有几百 tok。上面的玩具模型按真实 harness 取值 (system prompt + 工具定义 1500 tok), 数字更大, 但方向一样。</p>
+        <p>代码 demo 中的 system prompt 仅有一句话, 总消耗仅数百 token; 上方代价模型按真实工程 harness 规模设定基础开销 (system prompt 加工具定义共 1500 token), 绝对读数更大, 但成本翻转规律完全一致。</p>
       </div>
-      <p class="lab-note">delegate 只是一个普通工具。lead 在同一轮发出 N 个 tool_use, agent loop 本来就会并行执行同一轮的多个调用, 扇出自然就有了, 不需要另一套调度器。</p>
+      <p class="lab-note">delegate 在实现上只是一个标准工具。当 lead 在同一轮回复中并发输出 $N$ 个 tool_use 时, 底层 agent loop 原生支持并行执行同一轮内的多个工具调用, 无需额外引入专用调度器即可实现任务扇出。</p>
     </template>
   </LabFrame>
 </template>

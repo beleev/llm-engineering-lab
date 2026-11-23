@@ -5,32 +5,32 @@
 <template>
   <LabFrame
     title="Plan 模式 — 计划批准之前「只许看不许动」, 是权限门强制的, 不是模型自觉的"
-    sub="- 模拟什么: 多步任务里让人在动手之前有否决权的机制, 流程是:
-  1. 模型先用 todo_write 工具把计划写成一份显式的待办列表。
-  2. 再用 exit_plan_mode 工具把计划提交给用户。
-  3. 用户批准之前, 权限门处于 plan 模式, 只放行声明了 read_only=true 的只读工具, 任何写操作一律拒绝。这个限制由门强制: 模型不交计划直接写, 门照样不开。
-  4. 用户批准后, exit_plan_mode 把门切到 accept_edits 模式, 写操作才解锁。
-- 图上是什么: 左边是计划, 右边是工具:
-  - 左边: 模型用 todo_write 写下的最新一版计划 (两项, 状态是待办或已完成), 下面一行是 exit_plan_mode 这次提交得到的答复。
-  - 右边 7 个工具: 每行写着工具名、它自己声明的 read_only 和风险等级 risk, 最右边是它在当前模式下会被裁决成 allow 还是 deny, 左边绿条是放行, 红条是拒绝。
-  - 点任意一个工具: 下方画出它的裁决路径, 先查 deny 规则, 再查 ask / allow 规则 (plan 模式下直接跳过), 再按模式兜底, 最后是结论; 红色的那一格就是把它拒掉的那一步。
-- 可以做什么: 第一排扮演用户, 第二排是三个开关:
-  - 「plan 模式 · 计划待批」: 提交后还没答复。
-  - 「用户拒绝计划」: 门留在 plan 模式。
-  - 「用户批准」: 门切到 accept_edits。
-  - 「配一条 allow write_note 规则」: 演示一条早先配好的放行规则在 plan 模式下为什么不管用。
-  - 「把 delegate 标成只读 (漏洞)」: 把委托子 agent 的工具错标成只读, 看写入怎样绕过 plan 模式。
-  - 「有人审批高风险工具」: 只在批准之后有意义, 决定 shell、delegate 这类高风险工具是问人批准, 还是无人可问直接拒。
-- 应该看到: 三种情形和右侧读数:
-  - plan 模式下: 只有 4 个只读工具放行, write_note、delegate、shell 全拒, 右侧「放行 / 拒绝」是 4 / 3。打开 allow write_note 规则也不变, 因为 plan 模式查完 deny 规则就跳出, ask / allow 规则都不看。
-  - 批准之后: write_note 放行, 「直接写进的笔记 / 已获批」变成 1 / 1。计划里只有一条写笔记, 写一条在授权之内, 绿色。
-  - 把 delegate 标成只读再回到 plan 模式: delegate 被放行, 子 agent 用它自己那扇门写了笔记, 「经子 agent 写进的笔记 / 已获批」变成 1 / 0 标红: 「批准前零写入」被一层委托绕开了。
-  - 「gate.mode」: 门现在处于哪个模式。"
+    sub="- 模拟什么: 在多步复杂任务中赋予人类事前否决权的 plan 模式机制, 标准工作流分为四步:
+  1. 模型先调用 todo_write 工具将执行计划整理为显式的结构化待办列表。
+  2. 模型调用 exit_plan_mode 工具将待办计划正式提交给用户审阅。
+  3. 在用户点击批准前, 权限门始终锁定在 plan 模式, 仅放行声明了 read_only 为 true 的只读工具, 一律拒绝任何外部写操作。该约束由权限门硬性实施: 即便模型跳过计划直接发起写调用, 权限门同样予以拦截。
+  4. 用户批准计划后, exit_plan_mode 内部将权限门切换至 accept_edits 模式, 写操作权限随之解锁。
+- 图上是什么: 左侧展示计划状态面板, 右侧列出全部可用工具:
+  - 左侧面板: 显示模型通过 todo_write 记录的最新计划列表 (共两项, 状态分为待办或已完成), 下方显示本次 exit_plan_mode 提交所收到的用户审批结果。
+  - 右侧 7 个工具: 每行依次列出工具名称、该工具静态声明的 read_only 属性与风险等级 risk, 最右侧显示其在当前模式下的裁决结论 (allow 或 deny), 左侧绿条代表放行、红条代表拒绝。
+  - 点击任意工具行: 底部展开该工具的完整裁决路径, 依次经过 deny 规则检查、ask / allow 规则检查 (plan 模式下直接跳过)、模式兜底策略及最终结论; 标红节点即为触发拦截的具体步骤。
+- 可以做什么: 第一排模拟用户的三种审批决策, 第二排提供三个实验开关:
+  - 「plan 模式 · 计划待批」: 计划已提交但尚未收到人工答复。
+  - 「用户拒绝计划」: 审批未通过, 权限门继续停留在 plan 模式。
+  - 「用户批准」: 审批通过, 权限门切换至 accept_edits 模式。
+  - 「配一条 allow write_note 规则」: 验证预先配置的白名单放行规则在 plan 模式下为何不会生效。
+  - 「把 delegate 标成只读 (漏洞)」: 模拟将委托子 agent 的工具错误声明为只读属性, 观察写操作如何借由子进程绕过父级 plan 模式。
+  - 「有人审批高风险工具」: 仅在计划获批后产生影响, 决定 shell 与 delegate 等高风险工具是经人工确认放行, 还是因无人值守而直接拒绝。
+- 应该看到: 三种典型状态的对比表现与右侧读数:
+  - 处于 plan 模式时: 仅 4 个只读工具获准放行, write_note、delegate 与 shell 全部被拒, 右侧「放行 / 拒绝」读数为 4 / 3。即使开启 allow write_note 规则结果依然不变, 因为 plan 模式在检查完 deny 规则后立即跳出规则链, 完全忽略 ask 与 allow 配置。
+  - 用户批准计划后: write_note 解锁放行, 「直接写进的笔记 / 已获批」变为 1 / 1。由于获批计划中包含一项写笔记任务, 该次写入处于授权范围内, 读数标绿。
+  - 开启「把 delegate 标成只读 (漏洞)」并切回 plan 模式: delegate 被父级权限门当作只读工具放行, 而被拉起的子 agent 使用自身独立的权限门执行了写笔记操作, 导致「经子 agent 写进的笔记 / 已获批」变为 1 / 0 并标红, 即「批准前零写入」承诺被一层跨智能体委托击穿。
+  - 「gate.mode」: 实时显示当前权限门所处的工作模式。"
     module="llm_agent/m10"
     run="python -m llm_agent.m10_planning.demo"
     :challenge="{
-      ask: '打开「配一条 allow write_note 规则」, 停在 plan 模式: write_note 会被放行吗? 再打开「把 delegate 标成只读」: 计划还没批准, 右侧为什么已经有一条笔记被写进去了?',
-      answer: '第一问: 不放行。\n权限门的 _evaluate_one 按 deny、ask、allow 的顺序查规则, 但在 plan 模式下:\n1. 处理完 deny 规则就 break, ask 和 allow 都不看。\n2. 然后按「只读才放行」兜底; write_note 不是只读, 拒绝。\n点右边的 write_note 看裁决路径, 「plan 模式 → break」那一格是红的。这样设计是因为 plan 模式的承诺是「批准之前零写入」, 不能被一条早先配好的 allow 绕开; deny 规则倒是照常生效, 连只读工具也能被它拒掉。\n第二问: 洞在 read_only 这个标记上。\n- read_only 是写工具的人自己在类属性里声明的, harness 没法验证, 标错就是漏洞。\n- delegate 一旦被标成只读, plan 模式就放行它; 子 agent 跑的是自己那扇 auto 模式的门, 和父级的 plan 模式无关, 里面的 write_note 是 medium 风险, 直接放行。笔记就这样在计划批准之前写进去了, 右侧「经子 agent 写进的笔记 / 已获批」是 1 / 0。\n所以 core/subagents.py 里 DelegateTool 显式写了 read_only = False 并按高风险处理, 注释里说明了原因。',
+      ask: '开启「配一条 allow write_note 规则」并保持在 plan 模式下: write_note 会被放行吗? 随后再开启「把 delegate 标成只读 (漏洞)」: 在计划尚未获批的情况下, 为什么右侧已记录到一条实际写入的笔记?',
+      answer: '第一问: 不会被放行。\n权限门内部的 _evaluate_one 默认按 deny、ask、allow 顺序依次匹配规则, 但在 plan 模式下存在特殊短路逻辑:\n1. 检查完 deny 规则后立即执行 break 跳出规则链, 完全跳过后续的 ask 与 allow 规则。\n2. 直接进入「仅放行只读工具」的模式兜底判断; 由于 write_note 未声明为只读, 调用被直接拒绝。\n点击右侧的 write_note 查看下方裁决路径, 可见「plan 模式 → break」节点标红。该设计旨在严格兑现 plan 模式「人工批准前零副作用写入」的安全承诺, 防止被会话早期遗留的 allow 白名单意外穿透; 而最上游的 deny 规则依然正常生效, 仍可用于封禁特定只读工具。\n第二问: 漏洞出在工具的 read_only 静态元数据声明与子智能体权限隔离失配上。\n- read_only 属性由工具开发者在类定义中手工标注, 外围 harness 无法在运行前静态证明工具代码是否确实无副作用, 一旦误标即构成权限逃逸漏洞。\n- 当 delegate 被误标为只读后, 父级 plan 模式会将其直接放行; 而被派生的子 agent 实例绑定的是自身独立的 auto 模式权限门, 未继承父级的 plan 模式约束, 子环境内风险等级为 medium 的 write_note 随即获准执行。由此导致计划获批前便发生了外部写入, 右侧「经子 agent 写进的笔记 / 已获批」显示为 1 / 0。\n因此, 在源码 core/subagents.py 中, DelegateTool 显式声明了 read_only 为 False 并将其风险等级定为高风险, 以阻断跨层级委托越权。',
     }"
   >
     <template #controls>
@@ -80,9 +80,9 @@
       <div class="kv"><span>直接写进的笔记 / 已获批的条数</span><b :class="notes > approved ? 'bad' : 'good'">{{ notes }} / {{ approved }}</b></div>
       <div class="kv"><span>经子 agent 写进的笔记 / 已获批的条数</span><b :class="viaChild > 0 ? 'bad' : 'good'">{{ viaChild }} / 0</b></div>
       <div class="lab-note">
-        <p>写进的笔记比已获批的多就标红: 那是在用户点头之前就发生的写入。</p>
-        <p>todo_write 标成只读, 是因为它只改 agent 自己的计划状态, 不碰外部世界。否则连「先列个计划」这一步都会被 plan 模式拒掉。</p>
-        <p>模式的翻转发生在 ExitPlanModeTool.execute 里: 人点了同意, 它才去改 gate.mode。模型没有别的路径能自己改模式, 所以批准绕不过去。</p>
+        <p>当实际写入的笔记数大于已获批计划中的写入配额时读数标红, 表明系统在获得用户授权前已产生越权写入。</p>
+        <p>todo_write 被声明为只读工具, 是因为该操作仅更新 agent 内存中的待办计划状态而不触碰外部环境; 否则连「起草待审批计划」这一前置动作本身也会被 plan 模式拦截。</p>
+        <p>权限模式的切换逻辑封装在 ExitPlanModeTool.execute 内部: 仅当人工审批返回同意结果时, 代码才会修改 gate.mode。模型不存在其他可自行变更权限模式的调用路径, 从而保证了人工审批环节不可绕过。</p>
       </div>
     </template>
   </LabFrame>

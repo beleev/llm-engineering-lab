@@ -7,27 +7,27 @@
 <template>
   <LabFrame
     title="拿掉 reference 之后 — SimPO 与 ORPO 靠什么抵消回答长度"
-    sub="- 模拟什么: DPO 要常驻一份 ref 模型, 它除了当锚, 还顺带抵消了一件事: 一条回答越长, 它的 log 概率之和 $\sum\log p$ 天然越低 (每个 token 都在乘一个小于 1 的概率)。如果直接拿 policy 对 chosen 和 rejected 的 $\sum\log p$ 相减, rejected 只要比 chosen 长, 差值就白白变大, 模型什么偏好都没学也能把 loss 压到 0。SimPO 和 ORPO 都不用 ref, 各自用别的办法顶上:
-        - SimPO: 按长度取平均再减一个目标间隔 $\gamma$。
-        - ORPO: 用每 token 平均概率算 odds 之比, 再加一项 SFT loss 当锚。
-      - 图上是什么: 各部分:
-        - 上面两行格子: 同一个 prompt 下的 chosen (绿) 和 rejected (红) 回答, 每个格子一个 token, 亮着的格子数就是长度。
-        - 下面四根横条: 四种写法里送进 $\log\sigma(\cdot)$ 的那个量 $z$。中间竖线是 0, 往右 (绿) 表示模型认为自己已经把这一对排对, 往左 (红) 表示排反。四行分别是裸 sum 差 (没有 ref 也不归一, 对照组)、DPO、SimPO、ORPO。
-        - 每行右侧: 给出 $z$ 和它对应的梯度权重 $\sigma(-z)$ (接近 0 就是不再学)。
-        - 悬停某一行: 下方显示它的公式。
-      - 可以做什么: ref 对两条回答都固定是每 token −1.5。能动的有:
-        - 点格子行的第 n 个格子: 把那条回答的长度设成 n。
-        - 拖「chosen / rejected 每 token log p」: 改模型对两条回答每个 token 的平均 log 概率 (设成一样就是模型毫无偏好)。
-        - 拖「SimPO 目标间隔 γ」: 改 SimPO 要求的最小领先量。
-      - 应该看到: 两条回答每 token log p 相同时, 只把 rejected 点长, 「裸 sum 差」的横条一路往右, 其余三行不动。右侧读数:
-        - 「rejected 每多写 1 个 token, z 白涨多少」: 每种写法里长度带来的假 margin, 应为 0 (绿)。
-        - 「裸 sum 差还剩的梯度权重」: 低于 0.05 变红, 表示这条对照组只因为长度差就几乎不再学习。
-        - 「ORPO 总 loss」: chosen 的 NLL 加上 $\lambda$ 倍的 odds ratio 项。"
+    sub="- 模拟什么: DPO 需要常驻一份参考模型 (ref), 它除了提供策略锚点外, 还隐式抵消了序列长度偏置: 回答越长, 对数概率之和 $\sum\log p$ 天然越低 (每增加 1 个 token 都相当于乘上一个小于 1 的概率)。若直接将策略模型对 chosen 与 rejected 的 $\sum\log p$ 相减, 只要 rejected 比 chosen 更长, 差值就会凭空增大, 模型无需学到真实偏好即可将损失压向 0。SimPO 与 ORPO 均省去了 ref 模型, 各自采用不同机制消除长度偏置:
+  - SimPO: 按序列长度对 log 概率取平均, 再减去目标间隔 $\gamma$。
+  - ORPO: 基于每 token 平均概率计算 odds 比值, 并叠加一项 SFT 损失作为锚点。
+- 图上是什么: 视图由上下两部分组成:
+  - 上方两行方格: 同一 prompt 下的 chosen (绿) 与 rejected (红) 回答, 每格代表 1 个 token, 高亮格数表示序列长度。
+  - 下方四根横条: 四种目标函数送入 $\log\sigma(\cdot)$ 的判别量 $z$。中间竖线对应 0, 向右延伸 (绿) 表示模型对当前偏好对排序正确, 向左延伸 (红) 表示排序反转。四行依次为裸 sum 差 (无 ref 且不做长度归一化的对照组)、DPO、SimPO 与 ORPO。
+  - 每行右侧读数: 显示当前的 $z$ 值及其对应的梯度权重 $\sigma(-z)$ (趋近 0 表示梯度几乎消失, 停止更新)。
+  - 行悬停提示: 悬停任意一行时在下方展开对应的数学公式。
+- 可以做什么: 参考模型对两条回答的每 token 对数概率固定为 −1.5, 可调节以下交互项:
+  - 点击方格行的第 n 格: 将对应回答的长度设为 n。
+  - 拖动「chosen / rejected 每 token log p」: 修改策略模型对两条回答每 token 的平均对数概率 (设为相等即代表模型对二者无偏好)。
+  - 拖动「SimPO 目标间隔 γ」: 调节 SimPO 要求的最小领先间隔。
+- 应该看到: 当两条回答的每 token 平均 log p 相同时, 仅将 rejected 点长, 「裸 sum 差」的横条会持续向右增长, 而其余三行保持不变。右侧读数含义如下:
+  - 「rejected 每多写 1 个 token, z 白涨多少」: 度量各目标函数中单纯由长度差引入的虚假间隔, 理想值应为 0 (绿)。
+  - 「裸 sum 差还剩的梯度权重」: 低于 0.05 时标红, 表明该对照组仅因序列长度差异就几乎丧失了学习梯度。
+  - 「ORPO 总 loss」: chosen 的负对数似然 (NLL) 加上 $\lambda$ 倍的 odds ratio 损失项。"
     module="llm_finetune/methods/simpo.py · orpo.py"
     run="python -m llm_finetune.run_finetune.simpo_orpo.train_simpo_orpo"
     :challenge="{
-      ask: '保持两条回答每 token 的平均 log p 都是 −1.5 (模型对两者毫无偏好), chosen 留在 8 token, 把 rejected 从 12 点到 24 token:\n1. 「裸 sum 差」的 z 变成多少?\n2. 它的梯度权重还剩多少?\n3. DPO 和 SimPO 的 z 为什么不跟着变?',
-      answer: '答案:\n1. 裸 sum 差的 $z$ 变成 +24。\n2. 梯度权重 $\\sigma(-24)$ 约等于 0。\n3. DPO 靠 ref 抵消长度, SimPO 靠除以长度抵消。\n为什么:\n- 裸 sum 差 $= (-1.5\\times 8) - (-1.5\\times 24) = +24$。模型对两条回答每个 token 的看法完全一样, 什么偏好都没学, loss 却已经是 0, 只因为长序列的 log 概率之和天然更小。数据里 rejected 普遍更长时, 这个目标学到的只是「短的好」。\n- DPO: ref 对同一条长回答也给出同样低的 $\\sum\\log p$, 两边相减后长度项成对抵消, 只剩 policy 相对 ref 的变化。这一行不为 0 只发生在 policy 已经偏离 ref 时, 那是学到的偏好, 不是长度红利。\n- SimPO: 没有 ref, 改成每 token 平均 log p 之差, 长度直接约掉。代价是数值范围变小, $\\beta$ 要取 2 左右; 再减一个目标间隔 $\\gamma$, 要求平均 log p 至少领先 $\\gamma/\\beta$ 才算排对, 否则继续更新。但它没有任何锚, 本仓库实测留出集 EM 掉到 0.023。\n- ORPO: 同样用每 token 平均概率 $p$ 算 odds $= p/(1-p)$, 再拿两条的 odds 之比取 log 当 $z$; 总 loss 里还有 chosen 的 NLL (就是 SFT loss) 把模型锚住。一个阶段、一个模型, 连单独的 SFT 都省了, 实测从零训 300 步留出集 EM 0.973。',
+      ask: '保持两条回答每 token 的平均 log p 均为 −1.5 (即模型对二者无偏好), 固定 chosen 长度为 8 token, 将 rejected 长度从 12 token 调至 24 token:\n1. 「裸 sum 差」的 $z$ 值变为多少?\n2. 对应的梯度权重还剩多少?\n3. DPO 与 SimPO 的 $z$ 值为什么保持不变?',
+      answer: '答案:\n1. 裸 sum 差的 $z$ 值变为 +24。\n2. 梯度权重 $\\sigma(-24)$ 约为 0。\n3. DPO 依靠参考模型对消长度项, SimPO 依靠按长度求平均消除长度影响。\n原因解析:\n- 裸 sum 差满足 $z = (-1.5\\times 8) - (-1.5\\times 24) = +24$。尽管模型对两条回答中每个 token 的对数概率估计完全相同、尚未学到任何实质偏好, 仅因长序列的对数概率之和天然更低, 损失便已趋近于 0。当训练集中 rejected 普遍偏长时, 该目标最终只会学到偏爱短回答的捷径。\n- DPO: 参考模型对同一条长回答同样给出较低的 $\\sum\\log p$, 策略模型与参考模型相减后长度项成对抵消, 仅保留策略相对参考模型的偏移量。该行非零仅发生在策略模型已偏离参考模型时, 反映的是学到的偏好而非长度偏差。\n- SimPO: 省去参考模型, 直接计算每 token 平均 log p 之差, 从定义上约去序列长度。代价是差值量纲缩小, 温度系数 $\\beta$ 需取 2 左右; 同时减去目标间隔 $\\gamma$, 要求平均 log p 至少领先 $\\gamma/\\beta$ 才视为排序达标, 否则继续提供梯度。但由于缺乏分布锚点, 本仓库实测其留出集精确匹配率 (EM) 降至 0.023。\n- ORPO: 同样基于每 token 平均概率 $p$ 计算发生比 $\\mathrm{odds} = p/(1-p)$, 取两条回答的 odds 比值对数作为 $z$; 总损失中同时保留 chosen 的 NLL 损失 (即 SFT 损失) 充当锚点。单阶段、单模型即可完成训练, 无需预先单独执行 SFT, 本仓库实测从零训练 300 步后留出集 EM 达 0.973。',
     }"
   >
     <template #controls>
@@ -75,8 +75,8 @@
           <li><b>DPO:</b> 每步 2 次前向, policy、ref 各 1 次, 每次 2B 条序列 (chosen 和 rejected 各 B 条), 要常驻两个模型。</li>
           <li><b>SimPO / ORPO:</b> 只有 policy 1 次, 一个模型。</li>
         </ul>
-        <p>本仓库实测 DPO 每步 5.4 s, SimPO 与 ORPO 4.0 s。</p>
-        <p>DPO 这一行不为 0 只发生在 policy 已经偏离 ref 时, 那是学到的偏好, 不是长度红利。</p>
+        <p>本仓库实测单步训练耗时为: DPO 每步 5.4 s, SimPO 与 ORPO 每步 4.0 s。</p>
+        <p>DPO 行的判别量仅在策略模型偏离参考模型时非零, 反映的是模型学到的真实偏好而非序列长度偏差。</p>
       </div>
     </template>
   </LabFrame>

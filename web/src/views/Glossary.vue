@@ -2,7 +2,7 @@
 <template>
   <div>
     <h1 class="page-title">术语速查</h1>
-    <p class="page-subtitle">读到陌生缩写先来这里。每条只给一句话和一个值得记住的数字, 想深入就点进对应章节。</p>
+    <p class="page-subtitle">阅读过程中遇到陌生缩写或专有概念可在此快速检索。每个词条提供简明定义与关键量化指标, 并附有对应章节跳转入口。</p>
 
     <div class="bar">
       <input v-model="q" type="search" class="search" placeholder="搜索: KV cache / ZeRO / GRPO / 投机解码 …" aria-label="搜索术语" />
@@ -16,7 +16,7 @@
 
     <p class="count mono" aria-live="polite">{{ shown.length }} / {{ glossary.length }} 条</p>
     <p v-if="!shown.length" class="card empty">
-      没有匹配的术语。换个关键词<template v-if="stage">, 或切回「全部」</template>。
+      未找到匹配的术语, 请尝试更换检索关键词<template v-if="stage">, 或切回「全部」阶段</template>。
       <button v-if="q || stage" type="button" @click="q = ''; stage = ''">清空筛选</button>
     </p>
     <div class="grid grid-2">
@@ -26,7 +26,7 @@
         <p v-if="stageBy[g.stage]" class="stage-tag">阶段 {{ stageBy[g.stage].idx }} · {{ stageBy[g.stage].title }}</p>
         <p class="desc"><Tex :text="g.oneliner" /></p>
         <p v-if="g.number" class="num" :class="{ mono: !g.number.includes('$') }"><Tex :text="g.number" /></p>
-        <router-link v-if="g.route" :to="{ name: g.route }" class="go">去这一章 →</router-link>
+        <router-link v-if="g.route" :to="{ name: g.route }" class="go">前往本章 →</router-link>
       </article>
     </div>
   </div>

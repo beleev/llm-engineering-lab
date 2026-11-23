@@ -3,39 +3,39 @@
     <h1 class="page-title">LLM 全栈 · 主线总览</h1>
     <div class="page-subtitle lead-group">
       <p>
-        把 "训出一个能用、能部署、能行动的大模型系统" 拆成 <strong>六个递进阶段</strong>。每个阶段对应仓库根目录下的一个子项目。
+        本教程将「构建一个可训练、可部署、可执行任务的完整大模型系统」拆解为<strong>六个递进工程阶段</strong>, 每个阶段分别对应仓库根目录下的一个独立子项目。
       </p>
-      <p>教程与代码逐行对照, 每一段叙述都能在 Python 文件里找到出处。</p>
+      <p>全书正文与源码实现逐一对应, 每处机制讲解均可在仓库的 Python 文件中定位到具体实现。</p>
     </div>
 
     <!-- ── 新手 30 秒导览: 第一次来的人先看这里, 所以紧跟在副标题下面 ───────── -->
     <section class="section onboarding">
-      <h2>新手 30 秒导览 <span class="lead-inline">第一次来? 先看这里</span></h2>
+      <h2>快速导览 <span class="lead-inline">首次访问阅读指南</span></h2>
       <div class="grid grid-3 onboard-grid">
         <div class="card onboard-card">
           <div class="onboard-num">1</div>
-          <h3>这是什么</h3>
+          <h3>教程定位</h3>
           <p class="desc">
-            一份<strong>边读代码、边看图</strong>的 LLM 全栈教程。每章对应仓库里一段能跑的代码, 点链接直达 GitHub。
+            这是一套<strong>源码与交互图解紧密对照</strong>的 LLM 全栈工程教程。每章均配有可独立运行的仓库源码, 点击文件链接即可直达对应实现。
           </p>
         </div>
         <div class="card onboard-card">
           <div class="onboard-num">2</div>
-          <h3>需要先会什么</h3>
+          <h3>先修基础</h3>
           <p class="desc">
-            会一点 Python + 高中线性代数即可。<span class="muted-line">不需要 PyTorch, 阶段 1 用 numpy 把所有东西摊开。</span>
+            具备基础 Python 编程与矩阵运算知识即可开始。<span class="muted-line">起步阶段不依赖深度学习框架, 阶段 1 使用纯 NumPy 完整展开前向与反向计算。</span>
           </p>
         </div>
         <div class="card onboard-card">
           <div class="onboard-num">3</div>
-          <h3>怎么读</h3>
+          <h3>阅读方法</h3>
           <p class="desc">
-            <strong>不用从头读到尾。</strong>先选阅读档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章), 每章建议按三步走:
+            <strong>无需按目录逐章通读。</strong>建议先按背景选择阅读档位 (冲刺 {{ sprintCount }} 章 / 主干 {{ coreCount }} 章), 单章学习可分三步推进:
           </p>
           <ol class="desc pts">
-            <li>动手调实验台参数, 建立直觉。</li>
-            <li>结合要点与源码对照表理清机制。</li>
-            <li>做章末自测检验理解。</li>
+            <li>调节交互实验台参数, 观察核心变量的动态响应。</li>
+            <li>对照正文要点与源码映射表厘清实现细节。</li>
+            <li>完成章末自测题以检验关键概念掌握程度。</li>
           </ol>
         </div>
       </div>
@@ -49,11 +49,11 @@
         4. llm_finetune: SFT、LoRA 家族、偏好对齐与强化学习微调。
         5. llm_infer: KV Cache 分页、连续批处理、量化与投机解码。
         6. llm_agent: 工具调用、权限护栏、上下文工程与评测闭环。"
-      question="如果一个新人要从零开始, 先看哪一段, 跳过哪一段?"
+      question="面对从底层算子到上层应用的庞大链路, 不同背景的读者应当如何规划切入点与阅读顺序?"
       :goals="[
-        '看清 LLM 全栈的六个工程阶段, 各自解决什么问题',
-        '知道每一阶段对应仓库里的哪个目录、入口文件',
-        '能根据自己背景挑一条合适的阅读路径',
+        '厘清 LLM 全栈工程的六个递进阶段及其各自解决的核心问题',
+        '掌握每一阶段在代码仓库中的目录结构与核心入口文件',
+        '根据自身技术背景与学习目标规划合适的阅读路径',
       ]"
       :codes="[
         { path: 'llm_basic/' },
@@ -69,13 +69,13 @@
     <section v-if="resume" class="section">
       <div class="card resume">
         <div>
-          <p class="resume-k">接着上次学</p>
+          <p class="resume-k">继续上次阅读</p>
           <p class="resume-t">{{ resume.label }}</p>
           <p class="desc">已读 {{ readCount }} / {{ chapters.length }} 章 · 自测全对 {{ masteredCount }} 章</p>
         </div>
         <div class="btn-group">
-          <router-link :to="{ name: resume.route }" class="btn active">回到这一章 →</router-link>
-          <router-link v-if="nextUnread" :to="{ name: nextUnread.route }" class="btn">{{ levelLabel }}下一个没读的: {{ nextUnread.label }}</router-link>
+          <router-link :to="{ name: resume.route }" class="btn active">回到本章 →</router-link>
+          <router-link v-if="nextUnread" :to="{ name: nextUnread.route }" class="btn">{{ levelLabel }}下一未读章节: {{ nextUnread.label }}</router-link>
         </div>
       </div>
     </section>
@@ -85,49 +85,49 @@
     <section class="section">
       <div class="card route-cta">
         <div>
-          <p class="cta-k">{{ chapters.length }} 章不用全读</p>
+          <p class="cta-k">按档位规划全书 {{ chapters.length }} 章</p>
           <ul class="cta-t pts">
-            <li><b>主干 {{ coreCount }} 章:</b> 走完整条链路。</li>
-            <li><b>冲刺 {{ sprintCount }} 章:</b> 一天读完。</li>
-            <li><b>其余:</b> 分支和深水区, 随时回来补。</li>
+            <li><b>主干 {{ coreCount }} 章:</b> 完整贯通六个工程阶段的核心链路。</li>
+            <li><b>冲刺 {{ sprintCount }} 章:</b> 聚焦承上启下的关键节点, 适合单日速览。</li>
+            <li><b>扩展章节:</b> 涵盖架构变体与前沿专题, 可按需选读查阅。</li>
           </ul>
         </div>
         <div class="cta-go">
           <router-link :to="{ name: 'basic' }" :class="['btn', { active: !resume }]">从阶段 1 开始 →</router-link>
-          <router-link :to="{ name: 'fast-track' }" class="cta-alt">只有一天? 看速成路线</router-link>
+          <router-link :to="{ name: 'fast-track' }" class="cta-alt">按时间规划? 查看速成路线</router-link>
         </div>
       </div>
     </section>
 
     <!-- ── 怎么用这本教程 (图形化路径) ───────────────────── -->
     <section class="section">
-      <h2>三种学习节奏 <span class="lead-inline">挑一条适合你的路径</span></h2>
+      <h2>三种阅读路径 <span class="lead-inline">按背景选择切入起点</span></h2>
       <div class="grid grid-3 path-grid">
         <div class="card path-card">
           <span class="path-tag green">🟢 入门</span>
-          <h3>从零开始</h3>
+          <h3>从底层原理起步</h3>
           <ol class="path-steps">
-            <li>读完 <router-link :to="{ name: 'basic' }">阶段 1</router-link>, 用 numpy 跑通最小闭环</li>
-            <li>挑 <router-link :to="{ name: 'attention' }">注意力</router-link> 与 <router-link :to="{ name: 'blocks' }">Block 组装</router-link> 看现代零件</li>
-            <li>看 <router-link :to="{ name: 'compare' }">总览对照表</router-link>, 决定下一站</li>
+            <li>精读 <router-link :to="{ name: 'basic' }">阶段 1</router-link>, 用纯 NumPy 跑通最小训练与采样闭环</li>
+            <li>进入 <router-link :to="{ name: 'attention' }">注意力演进</router-link> 与 <router-link :to="{ name: 'blocks' }">Block 组装</router-link>, 掌握现代主干组件</li>
+            <li>对照 <router-link :to="{ name: 'compare' }">总览对照表</router-link>, 规划后续工程章节</li>
           </ol>
         </div>
         <div class="card path-card">
           <span class="path-tag orange">🟠 进阶</span>
-          <h3>有 PyTorch 经验</h3>
+          <h3>具备 PyTorch 经验</h3>
           <ol class="path-steps">
-            <li>跳过阶段 1, 直接看 <router-link :to="{ name: 'attention' }">阶段 2 · 注意力演进</router-link></li>
-            <li>关注 <router-link :to="{ name: 'train' }">阶段 3 训练</router-link> 和 <router-link :to="{ name: 'finetune' }">阶段 4 微调</router-link></li>
-            <li>再用 <router-link :to="{ name: 'infer' }">阶段 5 推理</router-link> 把模型部署起来</li>
+            <li>略过阶段 1, 直接从 <router-link :to="{ name: 'attention' }">阶段 2 · 注意力演进</router-link> 切入</li>
+            <li>重点研读 <router-link :to="{ name: 'train' }">阶段 3 规模化训练</router-link> 与 <router-link :to="{ name: 'finetune' }">阶段 4 任务适配</router-link></li>
+            <li>衔接 <router-link :to="{ name: 'infer' }">阶段 5 推理优化</router-link>, 贯通从训练到线上服务的主线</li>
           </ol>
         </div>
         <div class="card path-card">
           <span class="path-tag blue">🔵 工程</span>
-          <h3>只关心落地</h3>
+          <h3>聚焦部署与应用</h3>
           <ol class="path-steps">
-            <li>先看 <router-link :to="{ name: 'infer' }">阶段 5 · 推理优化</router-link></li>
-            <li>再看 <router-link :to="{ name: 'agent' }">阶段 6 · Agent 应用层</router-link></li>
-            <li>遇到原理盲点回到阶段 1/2 翻查</li>
+            <li>优先阅读 <router-link :to="{ name: 'infer' }">阶段 5 · 推理优化</router-link>, 掌握缓存与并发调度</li>
+            <li>继续深入 <router-link :to="{ name: 'agent' }">阶段 6 · Agent 应用层</router-link>, 构建工具调用与状态闭环</li>
+            <li>遇到模型结构或梯度细节问题时再回查阶段 1 与阶段 2</li>
           </ol>
         </div>
       </div>
@@ -135,14 +135,14 @@
 
     <!-- ── 六阶段流程图 ───────────────────────────────────────────── -->
     <section class="section">
-      <h2>六阶段 · 一张图 <span class="lead-inline">点击进入对应章节</span></h2>
+      <h2>六阶段全景架构 <span class="lead-inline">点击卡片进入对应阶段</span></h2>
       <div class="lead-group">
         <ul class="pts">
-          <li><b>前两阶段:</b> 看清模型本身。</li>
-          <li><b>中间三阶段:</b> 解决 "怎么训、怎么改、怎么上线"。</li>
-          <li><b>最后一阶段:</b> 把推理服务接成 Agent, 能调用工具、保留状态、隔离子任务。</li>
+          <li><b>阶段 1~2 (模型层):</b> 剖析 Transformer 最小数学闭环与现代主流模型架构组件。</li>
+          <li><b>阶段 3~5 (系统层):</b> 依次解决规模化分布式训练、低成本后训练对齐与高吞吐推理服务。</li>
+          <li><b>阶段 6 (应用层):</b> 将模型推理封装为具备工具调用、权限控制、状态持久化与子任务隔离的 Agent 系统。</li>
         </ul>
-        <p>每张卡都直接连到对应目录的原始代码。</p>
+        <p>每张阶段卡片均关联对应子项目的源码目录与章节入口。</p>
       </div>
 
       <div class="stage-flow">
@@ -184,11 +184,11 @@
     <section class="section">
       <h2>阶段 2 内部 · llm_models 演进时间轴</h2>
       <div class="lead-group">
-        <p>2017 → 2025, 三条主线 (语言 / 多模态理解 / 图像视频生成) 各自的代表模型。</p>
-        <p>时间轴这样用:</p>
+        <p>时间轴涵盖从 2017 年至 2025 年语言建模、多模态理解与图像视频生成三条技术主线的代表性架构。</p>
+        <p>交互方式如下:</p>
         <ol class="pts">
-          <li><strong>点一个节点看它的零件配置。</strong></li>
-          <li>再点一次, 或点卡片里的「去这一章」, 跳到对应章节。那里用一份 PyTorch 实现把零件还原。</li>
+          <li><strong>单击任意模型节点, 可固定展开该模型的组件配置卡片。</strong></li>
+          <li>再次点击已选中节点, 或点击卡片底部的「前往本章」, 即可跳转至对应的 PyTorch 源码拆解章节。</li>
         </ol>
       </div>
 
@@ -229,7 +229,7 @@
              @mouseenter="hover = m.id" @mouseleave="hover = null"
              @focus="hover = m.id" @blur="hover = null"
              tabindex="0" role="button" :aria-pressed="pinned === m.id"
-             :aria-label="`${m.year} ${m.name}: ${m.blurb}。${pinned === m.id ? '再按一次进入对应章节' : '按回车看零件配置'}`"
+             :aria-label="`${m.year} ${m.name}: ${m.blurb}。${pinned === m.id ? '再次按下进入对应章节' : '按回车查看组件配置'}`"
              class="node">
             <circle :cx="nodeX(m)" :cy="trackY(m.track)"
                     :r="shownId === m.id ? 10 : 7"
@@ -261,25 +261,25 @@
           </div>
           <div class="hover-foot mono">
             <RepoLink :path="`llm_models/${hovered.file}`" :label="hovered.file" tiny />
-            <router-link :to="chapterOf(hovered.id)" class="go">去这一章 →</router-link>
+            <router-link :to="chapterOf(hovered.id)" class="go">前往本章 →</router-link>
           </div>
         </div>
       </div>
     </section>
 
     <section class="section">
-      <h2>六个目录之间的依赖</h2>
+      <h2>六个子项目的递进依赖</h2>
       <p class="lead">
-        后一阶段会复用前一阶段的抽象, 只是把约束换成更真实的工程约束。
+        后一阶段均建立在前一阶段的数学或系统抽象之上, 并逐步引入真实生产环境中的算力、显存、延迟与安全约束。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="path-table">
           <thead>
             <tr>
               <th>阶段</th>
-              <th>接住上一章什么</th>
-              <th>新增约束</th>
-              <th>读代码时先看</th>
+              <th>承接的前序基础</th>
+              <th>引入的工程约束</th>
+              <th>推荐源码入口</th>
             </tr>
           </thead>
           <tbody>
@@ -377,12 +377,12 @@ const labels = {
 }
 
 const pathRows = [
-  { stage: 'llm_basic',    from: '从 token 到 loss 的完整闭环',     constraint: '不用 autograd, 反向必须手写并 gradcheck',  file: 'llm_basic/model.py' },
-  { stage: 'llm_models',   from: '把单头、单层替换成现代组件',       constraint: '不同模型只是 attn / ffn / norm / pos 的组合', file: 'llm_models/layers/core/' },
-  { stage: 'llm_train',    from: '同一个 loss/backward/update 主循环', constraint: 'batch、层、状态、精度、通信都要切分',     file: 'llm_train/full_loop/demo.py' },
-  { stage: 'llm_finetune', from: '已有 base model 和标准 LM loss',   constraint: '数据少、算力少、目标更窄, 需要 SFT/LoRA/DPO', file: 'llm_finetune/methods/' },
-  { stage: 'llm_infer',    from: '训练好的权重和自回归生成',         constraint: '延迟、吞吐、显存、合法输出同时受限',      file: 'llm_infer/full_engine/' },
-  { stage: 'llm_agent',    from: '可服务化的模型生成能力',           constraint: '工具、权限、上下文、记忆、状态和子任务同时受控', file: 'llm_agent/full_loop/demo.py' },
+  { stage: 'llm_basic',    from: '从 token 输入到交叉熵损失的最小闭环', constraint: '不依赖 autograd, 手写全部反向传播并通过数值梯度校验 (gradcheck)', file: 'llm_basic/model.py' },
+  { stage: 'llm_models',   from: '单层单头 Transformer 的基础前向骨架', constraint: '将注意力、FFN、归一化与位置编码模块化, 组合出主流现代架构', file: 'llm_models/layers/core/' },
+  { stage: 'llm_train',    from: '单卡前向、反向与参数更新的训练主循环', constraint: '在多卡间切分数据批次、模型层、优化器状态, 并协同混合精度与集合通信', file: 'llm_train/full_loop/demo.py' },
+  { stage: 'llm_finetune', from: '预训练基座模型与标准自回归语言模型损失', constraint: '在有限样本与受限显存下完成指令遵循、低秩适配与人类偏好对齐', file: 'llm_finetune/methods/' },
+  { stage: 'llm_infer',    from: '微调对齐后的模型权重与自回归解码逻辑', constraint: '同时受首 token 延迟、并发吞吐、KV 显存容量与结构化输出语法约束', file: 'llm_infer/full_engine/' },
+  { stage: 'llm_agent',    from: '高吞吐、输出可控的模型推理服务接口', constraint: '围绕模型构建工具执行、权限护栏、上下文压缩、记忆检索与子任务隔离闭环', file: 'llm_agent/full_loop/demo.py' },
 ]
 
 // 节点 → 章节路由 (集中放在主入口, 避免散落到各章 view 中)

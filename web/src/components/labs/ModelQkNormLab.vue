@@ -5,27 +5,27 @@
 <template>
   <LabFrame
     title="QK-Norm — 把注意力的打分关进笼子里"
-    sub="- 模拟什么: attention 给每一对 (query q, key k) 打的分叫 logit, 等于 $q \cdot k / \sqrt{d}$ (点积除以头维度的平方根), 再经 softmax 变成权重。训练中 q、k 的范数 (向量的长度) 会慢慢长大, 点积随之按平方长: 两边各放大 2 倍, logit 放大 4 倍。logit 一大, softmax 就把几乎全部权重压到一个 key 上 (塌成 one-hot), 这个 head 的梯度就传不过去了, 低精度下 logit 还会溢出。QK-Norm 的办法是在算点积之前给 q、k 各做一次 RMSNorm (除以自身的均方根, 再乘一个可学的增益 g), 让 logit 的上界只由 g 决定。对应 llm_models/layers/core/attention.py 的 qk_norm 开关。
-      - 图上是什么: 左右两块:
-        - 左边: 8×8 的格子是一个 head 的因果注意力图。行是 query, 列是 key, 颜色越深权重越大; 右上半边是未来位置, 被 mask 掉所以画得很淡。
-        - 右边: 选中那个 query 对它能看见的每个 key, 上方数字是 logit, 柱子是 softmax 之后的概率。
-      - 可以做什么: 按界面顺序:
-        - 「无 QK-Norm / QK-Norm」切开关。
-        - 「换一组 q / k」: 重抽随机向量。
-        - 拖「q、k 范数倍率」: 模拟训练中范数长大的过程 (把 q、k 同时放大这么多倍)。
-        - 「可学增益 g」: 开着 QK-Norm 时多出这一根滑杆, 就是 RMSNorm 后面乘的那个系数。
-        - 点左图最左边的 q0 到 q7: 换选中的 query。
-      - 应该看到: 先关掉 QK-Norm 拖倍率, 再打开它重复一次:
-        - 关掉 QK-Norm, 倍率从 1 拖到 4: 右侧「最大 |logit|」从约 2 涨到约 31 (16 倍), 注意力图从每行好几格有颜色变成每行只剩一格最深, 右边的柱子只剩一根。
-        - 「注意力熵 / 最大熵」: 选中 query 的权重分布有多散, 熵接近 0 就是全押一个 key。
-        - 「梯度通过率 $1 - \sum p^2$」: softmax 反向时能把多少梯度传回 logit, 接近 0 说明饱和, 这个 head 学不动了。
-        - 打开 QK-Norm 再拖同一根倍率滑杆: 什么都不变, 因为归一化把倍率整个除掉了。
-        - 「理论上界 $g^2 \sqrt{d}$」: logit 最多能有多大 (这里 d = 16, g = 1 时上界 4.0), 只有拖 g 才能改变尖锐度。"
+    sub="- 模拟什么: 注意力层对每一对 $(q, k)$ 计算相关性得分 $\text{logit} = q \cdot k / \sqrt{d}$ (点积除以头维度的平方根), 再经 softmax 归一化为注意力权重。在深层大规模训练中, query 与 key 向量的范数往往会随训练逐步增长, 导致点积按平方倍率放大: 当 $q$ 与 $k$ 的范数各自放大 2 倍时, logit 会放大 4 倍。一旦 logit 幅值过大, softmax 输出就会坍缩为近似 one-hot 分布, 使该注意力 head 因饱和而丧失梯度反传能力, 在低精度浮点下还会引发数值溢出。QK-Norm 在计算点积前分别对 $q$ 和 $k$ 施加 RMSNorm (除以自身均方根后再乘以可学习缩放增益 $g$), 使 logit 的绝对值上界仅由 $g$ 决定。对应实现见 llm_models/layers/core/attention.py 中的 qk_norm 开关。
+- 图上是什么: 视图分为左右两部分:
+  - 左侧热力图: $8 \times 8$ 网格展示单个注意力 head 的因果注意力权重矩阵, 行为 query、列为 key, 颜色越深代表权重越大; 右上三角为未来位置, 受因果 mask 屏蔽而呈浅淡色。
+  - 右侧柱图: 展示当前选中 query 对各可见 key 的计算明细, 柱顶数字为原始 logit, 柱高为经过 softmax 后的注意力概率。
+- 可以做什么: 按界面控件顺序操作:
+  - 「无 QK-Norm / QK-Norm」: 切换是否启用 QK-Norm。
+  - 「换一组 q / k」: 重新采样随机向量。
+  - 拖动「q、k 范数倍率」: 将 $q$ 与 $k$ 的范数同步放大指定倍数, 模拟训练过程中表示范数持续膨胀的现象。
+  - 「可学增益 g」: 开启 QK-Norm 时显示该滑杆, 对应 RMSNorm 之后乘上的可学习缩放系数。
+  - 点击左图左侧的 q0 至 q7: 切换右侧面板观察的目标 query。
+- 应该看到: 先在关闭 QK-Norm 下拖动范数倍率, 再开启 QK-Norm 重复相同操作对比:
+  - 关闭 QK-Norm 并将倍率从 1 拖至 4: 右侧「最大 |logit|」从约 2 升至约 31 (放大 16 倍), 左侧注意力图从每行分散关注多个位置退化为每行仅剩单格深色, 右侧概率柱也坍缩为单根独大。
+  - 「注意力熵 / 最大熵」: 衡量当前选中 query 注意力分布的离散程度, 趋近 0 表示权重几乎全部集中在单一 key 上。
+  - 「梯度通过率 $1 - \sum p^2$」: 衡量反向传播经过 softmax 时能够传回 logit 的梯度比例, 趋近 0 说明进入饱和区, 该 head 难以继续更新。
+  - 开启 QK-Norm 后再拖动范数倍率滑杆: 各项读数与分布完全保持不变, 因为 RMSNorm 已将输入范数倍率彻底消去。
+  - 「理论上界 $g^2 \sqrt{d}$」: 启用 QK-Norm 后 logit 的最大可能幅值 (此处 $d = 16$, 当 $g = 1$ 时上界为 4.0), 此时唯有调节 $g$ 才能受控地改变注意力分布的尖锐度。"
     module="llm_models/layers/core/attention.py"
     run="python -m llm_models.run_models.foundation.attention.train_attention"
     :challenge="{
-      ask: '关掉 QK-Norm, 把范数倍率从 1 拖到 4。先猜: 最大 logit 变成几倍? softmax 的「梯度通过率」会怎样?',
-      answer: '最大 logit 变成 16 倍 (约 2 涨到约 31), 梯度通过率从 0.79 掉到 0.008。\n- q、k 各放大 4 倍, 点积放大 4 × 4 = 16 倍, 即「二次增长」。logit 之间的差距一拉大, softmax 就塌成 one-hot: 熵趋向 0, 通过率 $1 - \\sum p^2$ 趋向 0。\n- 梯度为什么传不过去: softmax 的雅可比 (输出对输入的导数矩阵) 是 $\\mathrm{diag}(p) - pp^\\top$, p 是 one-hot 时它每一项都是 0, 上游梯度乘上去全是 0, 这个 head 的 q/k 投影就收不到任何更新。\n- 溢出: logit 还会超出 bf16/fp16 能表示的范围。\nQK-Norm 把 q、k 归一到 RMS = 1 再乘可学增益 $g$, 于是 $\\text{logit} = g^2 \\cdot \\sqrt{d} \\cdot \\cos\\theta$, 上界 $g^2\\sqrt{d}$, 与范数倍率完全无关。模型仍然可以通过学 $g$ 来调「尖锐度」, 只是只剩这一个受控的旋钮。',
+      ask: '关闭 QK-Norm, 将 q、k 范数倍率从 1 拖至 4。请先思考: 最大 logit 幅值会变为原来的多少倍? softmax 的「梯度通过率」会发生怎样的变化?',
+      answer: '答案: 最大 logit 变为原来的 16 倍 (从约 2 增至约 31), softmax 梯度通过率从 0.79 骤降至 0.008。\n- 二次放大效应: 当 $q$ 与 $k$ 各自放大 4 倍时, 其点积放大 $4 \\times 4 = 16$ 倍。logit 之间的分差随之剧烈拉大, 促使 softmax 输出坍缩为近似 one-hot 分布, 注意力熵与梯度通过率 $1 - \\sum p^2$ 双双趋近于 0。\n- 梯度消失机制: softmax 的雅可比矩阵为 $\\mathrm{diag}(p) - pp^\\top$; 当概率向量 $p$ 退化为 one-hot 时, 该矩阵所有元素均趋近于 0, 上游反传梯度左乘该矩阵后几乎全被截断, 导致该 head 的 Q/K 投影矩阵无法获得有效参数更新。\n- 数值溢出风险: 过大的 logit 还会直接超出 bf16 或 fp16 的有限动态范围。\n启用 QK-Norm 后, $q$ 与 $k$ 先被归一化至均方根为 1 再乘以可学习增益 $g$, 此时 $\\text{logit} = g^2 \\cdot \\sqrt{d} \\cdot \\cos\\theta$, 严格受限于理论上界 $g^2\\sqrt{d}$ 而与输入向量的范数倍率无关; 模型仍可通过训练标量参数 $g$ 自主调节注意力尖锐度, 且尺度始终处于受控范围内。',
     }"
   >
     <template #controls>

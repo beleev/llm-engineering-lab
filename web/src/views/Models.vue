@@ -1,26 +1,26 @@
 <template>
   <div>
-    <h1 class="page-title">常见模型结构 · 把主流模型拆成四类零件</h1>
+    <h1 class="page-title">常见模型结构 · 将主流模型拆解为四类组件</h1>
     <div class="page-subtitle lead-group">
-      <p>阶段 1 在 <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 里手写了每一个梯度, 原理那一关已经过了。</p>
+      <p>阶段 1 已在 <RepoLink path="llm_basic/" label="llm_basic/" tiny /> 中手写了全部算子的前向与反向梯度, 完成了底层原理闭环。</p>
       <p>
-        阶段 2 进 <RepoLink path="llm_models/" label="llm_models/" tiny /> 换成 PyTorch,
-        把 attention、FFN、norm、position 四种零件装进同一个 Block, 堆出 Transformer、MoE、多模态和扩散模型。
+        阶段 2 在 <RepoLink path="llm_models/" label="llm_models/" tiny /> 中切换至 PyTorch,
+        将 attention、FFN、norm 与 position 四类组件组装进统一的 Block, 进而堆叠出 Transformer、MoE、多模态与扩散模型。
       </p>
-      <p><strong>换一个零件只需要改前向, 反向交给 autograd (PyTorch 的自动求导)</strong>。所以一个仓库里放得下二十多种架构。</p>
+      <p><strong>替换任意组件只需修改前向计算逻辑, 反向传播交由 PyTorch autograd 自动完成</strong>, 因此同一套代码骨架即可容纳二十多种架构。</p>
     </div>
 
     <ChapterIntro
-      tldr="主流模型的差别几乎都落在 4 个槽位上, 其它部分大同小异:
-        - attention (注意力): 生成时每个 token 要缓存多少 K/V (这份缓存叫 KV cache), 各家都在想办法把这个数砍小
-        - FFN (前馈网络): 要不要加门控 (SwiGLU), 要不要拆成多个专家、每个 token 只激活其中几个 (MoE)
-        - norm (归一化): 放在子层前还是后
-        - 位置信息: 加在 embedding 上, 还是乘在 Q/K 上 (RoPE)"
-      question="拿到没读过的模型, 能不能先认出它只换了哪几个零件, 而不是从头读整套架构?"
+      tldr="主流模型架构的差异主要集中在 4 个槽位上, 其余骨架结构基本一致:
+        - Attention: 决定生成阶段每个 token 的 KV cache 体积, 各代注意力变体均致力于压缩 K/V 缓存开销
+        - FFN: 决定是否引入门控结构 (SwiGLU), 以及是否拆分为多个专家并令每个 token 仅激活其中少数几个 (MoE)
+        - Norm: 决定归一化层放置在子层前还是子层后
+        - 位置信息: 决定直接叠加在输入 embedding 上, 还是通过旋转变换作用在 Q/K 上 (RoPE)"
+      question="面对一个陌生的模型架构, 如何快速定位它替换了哪几个核心槽位, 而不必从头通读整套实现?"
       :goals="[
-        '用同一张零件表读懂 Transformer / LLaMA / Mixtral / DeepSeek',
-        '把多模态和扩散模型放回「先 token 化, 再过 Transformer block」这条主线',
-        '知道每个小标题该对着哪一组源码看',
+        '借助统一的四槽位对照表拆解 Transformer / LLaMA / Mixtral / DeepSeek 的结构差异',
+        '将多模态与扩散模型纳入「先完成 token 化, 再经由 Transformer block 处理」的统一主线',
+        '建立各架构分支与仓库核心源码目录之间的一一对应关系',
       ]"
       :codes="[
         { path: 'llm_models/layers/core/' },
@@ -35,16 +35,16 @@
     <StageContents stage-id="models" />
 
     <EvolutionChain
-      title="演进逻辑链 · 每次换架构, 都是被一种成本逼的"
-      subtitle="根问题: 算力、显存和数据都有限, 模型却要吃更多文本、读更长上下文、生成得更快"
+      title="演进逻辑链 · 每一次架构演进都源于明确的成本瓶颈"
+      subtitle="根问题: 在算力、显存与标注数据受限的前提下, 模型需要利用更大规模的语料、处理更长的上下文并提升生成吞吐"
       :steps="evoSteps"
     />
 
     <ModelArchitectureLab />
     <p class="lead">
-      图像和音频怎样切成 token、从哪一扇门进语言模型, 单独成章:
+      关于图像与音频如何切分为连续或离散 token 并接入语言模型主干, 详见独立章节:
       <router-link :to="{ name: 'models-multimodal' }">图像与音频怎样接入语言模型</router-link>。
-      那一章带着 CLIP / Qwen2-VL / Whisper / Omni 四套模型的阅读实验台。
+      该章配有涵盖 CLIP、Qwen2-VL、Whisper 与 Omni 四套架构的交互阅读实验台。
     </p>
 
     <section class="section">
@@ -52,34 +52,33 @@
       <div class="lead-group">
         <ol class="pts">
           <li>
-            <b>注意力:</b> 先读它, 因为它直接决定长上下文的推理成本。生成时每个 token 的 K 和 V 都要缓存下来,
-            一个 token 在全部层上的 KV 占多少显存, 各代差很多:
+            <b>注意力机制:</b> 建议优先阅读该章, 因为注意力结构直接决定了长上下文场景下的推理显存与带宽成本。自回归生成时需缓存历史 token 的 K 与 V 张量, 单个 token 在全部层上的 KV cache 显存占用在不同架构间差异显著:
             <ul class="pts">
-              <li>LLaMA-2-7B (MHA) 要 512 KiB。</li>
-              <li>LLaMA-3-8B 换成 GQA 后 128 KiB。</li>
-              <li>DeepSeek-V3 换成 MLA 后 68.6 KiB。</li>
+              <li>LLaMA-2-7B 采用标准多头注意力 (MHA), 单 token 占用 512 KiB。</li>
+              <li>LLaMA-3-8B 改用分组查询注意力 (GQA) 后, 单 token 降至 128 KiB。</li>
+              <li>DeepSeek-V3 引入多头潜在注意力 (MLA) 后, 单 token 进一步压缩至 68.6 KiB。</li>
             </ul>
           </li>
           <li>
-            <b>位置编码和 Block 组装:</b>
+            <b>位置编码与 Block 组装:</b>
             <ul class="pts">
-              <li><b>位置编码:</b> 告诉模型每个 token 排在第几位。</li>
-              <li><b>Block 组装:</b> 决定四种零件怎么接成一层。</li>
+              <li><b>位置编码:</b> 为自注意力机制注入每个 token 在序列中的绝对或相对位置信息, 并直接影响长度外推表现。</li>
+              <li><b>Block 组装:</b> 定义四种核心组件在单层内部的连接拓扑与残差流向。</li>
             </ul>
           </li>
           <li>
-            <b>两条分支:</b>
+            <b>两条扩展分支:</b>
             <ul class="pts">
-              <li><b>MoE:</b> 把 FFN 拆成多个专家, 每个 token 只用其中几个。</li>
-              <li><b>扩散模型:</b> 换掉「一个 token 一个 token 生成」这套方式, 改成从噪声逐步去噪。</li>
+              <li><b>MoE:</b> 将稠密 FFN 拆分为多个独立专家网络, 每个 token 仅路由激活其中少数专家, 实现参数容量与单步算力解耦。</li>
+              <li><b>扩散模型:</b> 跳出「逐 token 串行自回归生成」的范式, 改为从随机噪声或全掩码状态出发通过多步迭代逐步去噪。</li>
             </ul>
           </li>
         </ol>
-        <p>每一章都按同一个顺序讲:</p>
+        <p>本阶段各章统一遵循相同的演进叙事结构:</p>
         <ol class="pts">
-          <li>上一代的痛点。</li>
-          <li>这一代的解法。</li>
-          <li>解法引出的新问题。</li>
+          <li>上一代架构暴露的工程或建模瓶颈。</li>
+          <li>当前架构针对该瓶颈提出的结构解法。</li>
+          <li>新解法引入的权衡与下一代待解问题。</li>
         </ol>
       </div>
 
@@ -87,7 +86,7 @@
 
     <section class="section">
       <h2>四个源码入口</h2>
-      <p class="lead">读一个模型时先来这四个文件认槽位。认完再去看它自己的实现文件, 一般只剩几十行。</p>
+      <p class="lead">阅读任意具体模型前, 建议先对照以下四个核心源码文件理清槽位接口; 掌握共享组件后, 单个具体模型的实现文件通常只剩几十行。</p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="models-table">
           <thead>
@@ -111,8 +110,8 @@
     <section class="section">
       <h2>模型族谱</h2>
       <p class="lead">
-        时间线上这 {{ timeline.length }} 个模型共用同一套元数据, 源码列直接跳到 GitHub。
-        按年份读一遍: 新模型几乎从不从零开始, 都是在上一个的某个槽位上改。
+        时间线上的这 {{ timeline.length }} 个代表性模型共用同一套元数据定义, 右侧源码链接可直接跳转至 GitHub 对应实现。
+        顺着年份对比可见, 新一代架构极少从零构建, 通常是在前代主干的特定组件槽位上进行针对性改进。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="models-table">
@@ -136,7 +135,7 @@
       </div>
     </section>
 
-    <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 没配置时不渲染 -->
+    <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 未配置时不渲染 -->
 
     <LabMount />
 
@@ -144,8 +143,8 @@
 
 
     <ChapterNav
-      :prev="{ ...prevChapter, hint: '从最小闭环进入现代模型结构' }"
-      :next="{ ...nextChapter, hint: '先拆 KV cache 成本最高的 attention 槽位' }"
+      :prev="{ ...prevChapter, hint: '从手写梯度的最小闭环过渡到现代模块化架构' }"
+      :next="{ ...nextChapter, hint: '深入剖析决定长上下文 KV cache 成本的 attention 槽位' }"
     />
   </div>
 </template>
@@ -167,30 +166,30 @@ const at = learningPath.findIndex((x) => x.route === 'models')
 const prevChapter = { name: learningPath[at - 1].route, label: `上一章 · ${learningPath[at - 1].label}` }
 const nextChapter = { name: learningPath[at + 1].route, label: `下一章 · ${learningPath[at + 1].label}` }
 
-// 演进逻辑链: 每步的 pain 是上一步 fix 留下的窟窿
+// 演进逻辑链: 每步的 pain 对应上一步 fix 遗留的瓶颈
 const evoSteps = [
   { name: 'Transformer', year: 2017, color: 'var(--text-muted)',
-    pain: '(原点) RNN 逐 token 串行, 训练没法并行, 远处信息要一步步传过来',
-    fix: '全靠注意力: 整段并行训练, 任意两个位置一步直达; Encoder-Decoder 只吃成对的翻译数据' },
+    pain: '(原点) RNN 按 token 逐步串行计算, 训练阶段无法并行, 长距离信息在多步传递中容易衰减',
+    fix: '完全基于注意力机制实现整段序列并行训练, 任意两个位置一步直达; 但早期 Encoder-Decoder 结构依赖成对平行翻译数据' },
   { name: 'GPT', year: 2018, color: 'var(--accent)',
-    pain: '成对数据有限, 海量无标注文本用不上',
-    fix: '只留 Decoder + 因果 mask, 预测下一个 token: 任何文本都是训练数据, 能力随参数量涨' },
+    pain: '成对平行数据规模有限, 难以直接利用海量无标注文本语料',
+    fix: '仅保留 Decoder 与因果 mask 进行下一 token 预测: 任意连续文本均可作为训练数据, 模型能力随参数规模扩展' },
   { name: 'MoE', year: 2024, color: 'var(--left)',
-    pain: '稠密模型每个 token 都过全部参数, 容量翻倍, 算力也翻倍',
-    fix: 'Mixtral、DeepSeek-V3 把 FFN 拆成 E 个专家, 每 token 只过 k 个: 算力按 k 算' },
+    pain: '稠密模型中每个 token 均需经过全部参数计算, 模型容量翻倍会导致算力开销同步翻倍',
+    fix: 'Mixtral 与 DeepSeek-V3 将 FFN 拆分为 E 个专家, 每个 token 仅激活其中 k 个: 单步算力仅按 k 计' },
   { name: 'SSM / 混合线性', year: '2023 / 2025', color: 'var(--right)',
-    pain: '注意力仍随上下文长度 T 变贵: cache 线性涨, 算力 $O(T^2)$',
-    fix: 'Mamba、Qwen3-Next 用一个定长状态代替越来越长的 KV cache, 解码每步 $O(1)$; 状态装不下的信息会丢, 所以留几层全注意力兜底' },
+    pain: '标准注意力开销仍随上下文长度 T 增长: KV cache 线性扩张, 注意力计算复杂度为 $O(T^2)$',
+    fix: 'Mamba 与 Qwen3-Next 用定长状态替代持续增长的 KV cache, 单步解码复杂度降至 $O(1)$; 因定长状态容量有限易丢失细节, 常混合保留数层全注意力兜底' },
   { name: '非自回归', year: '2024 / 2025', color: 'var(--eye)',
-    pain: 'cache 再小, 自回归也一次只出 1 个 token, N 个要串行 N 步',
-    fix: 'VAR 一步出一整级分辨率, LLaDA 从全 [MASK] 逐步去噪: 一次前向定一批 token' },
+    pain: '即便压缩了 KV cache, 自回归解码每步仍只生成 1 个 token, 生成 N 个 token 需串行执行 N 步',
+    fix: 'VAR 单步预测一整级分辨率的视觉 token, LLaDA 从全 [MASK] 序列逐步去噪: 单次前向即可并行确定一批 token' },
 ]
 
 const sourceRows = [
-  { slot: 'Attention', problem: '生成时每个 token 要缓存多少 K/V: 从 MHA 到 GQA、MLA、DSA, 每一代都在砍这个数', file: 'llm_models/layers/core/attention.py' },
-  { slot: 'Position', problem: '位置信息从哪进模型: Sin / Learnable 加在 embedding 上, RoPE / M-RoPE 乘在 Q/K 上', file: 'llm_models/layers/core/position_encoding.py' },
-  { slot: 'Block', problem: '把 attn、ffn、norm、pos 装进同一个壳: 所有模型共用的那段控制流', file: 'llm_models/layers/core/blocks.py' },
-  { slot: 'Sparse / Generative', problem: '主干之外的扩展: MoE 把 FFN 拆稀疏, SSM 换掉注意力, DiT / MM-DiT / VAR 换掉生成方式', file: 'llm_models/layers/sparse/' },
+  { slot: 'Attention', problem: '决定生成阶段每个 token 的 KV cache 规模: 从 MHA 到 GQA、MLA 与 DSA, 持续压缩缓存与带宽开销', file: 'llm_models/layers/core/attention.py' },
+  { slot: 'Position', problem: '定义位置信息的注入方式: Sin / Learnable 直接叠加于 embedding, RoPE / M-RoPE 以旋转变换乘在 Q/K 上', file: 'llm_models/layers/core/position_encoding.py' },
+  { slot: 'Block', problem: '将 attn、ffn、norm 与 pos 组装进统一模块: 承载各主流架构共享的单层前向控制流', file: 'llm_models/layers/core/blocks.py' },
+  { slot: 'Sparse / Generative', problem: '承载稠密主干之外的结构扩展: MoE 实现 FFN 稀疏化, SSM 替代标准注意力, DiT / MM-DiT / VAR 重构生成方式', file: 'llm_models/layers/sparse/' },
 ]
 
 const sortedTimeline = computed(() =>

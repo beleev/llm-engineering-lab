@@ -6,72 +6,57 @@
 
 ## 直觉
 
-相关文档找到了, 为什么还是不能回答?
+检索器已经召回相关文档块, 为什么系统仍然不能直接给出答案?
 
-检索找到一个"长得像"的文档块, 不等于能回答。一个数字要当答案, 得有一条能核对的证据链:
-
-- 问的是哪个对象 (产品)、哪个版本、这个数字出自哪条来源。
-- 问题里用了别名 (comet 是 atlas v2 的别名), 还要多一条"别名指向谁"的记录。
-
-demo 里 4 个块都写着 upload limit:
-
-- 只取最相似那块的做法三道题全答不出。
-- 把对象和版本写进块里再筛, 直接问 atlas v2 的题答出 20 MB。
-- 别名题要查两跳、引用两条来源才答出 20 MB。
-- 没有别名记录的 nova 答 insufficient (证据不足)。
+检索命中字面相似的文档块并不等于具备足够回答问题的依据。一个数值要成为可采信的答案, 必须具备完整可核验的证据链:
+- 明确对应问题所指的目标实体 (entity)、具体版本 (version) 及数据来源。
+- 若问题使用项目别名 (如 comet 是 atlas v2 的别名), 证据链还必须包含证明别名映射关系的记录。
+demo 语料中的 4 个文档块均涉及 upload limit:
+- 仅取相似度最高单块且不含元数据前缀的基线方法在三道题上全部无法作答。
+- 将实体与版本拼入检索文本并做元数据过滤后, 直接询问 atlas v2 的问题可在一跳内答出 20 MB。
+- 询问别名 comet 的问题需经两跳检索并同时引用两条来源, 方可答出 20 MB。
+- 语料中无任何别名记录的 nova 则如实返回 insufficient (证据不足)。
 
 ## 核心原理
 
 ### 先给块补对象与版本
 
-相似度只负责找候选, 对不对要看块上标的对象和版本。demo 的语料是 4 个文档块 (Document), 每块带元数据: entity (对象, 哪个产品)、version (版本)、body (正文), 还有可选的 alias (别名) 和 limit (数值):
-
-- alias-comet: atlas v2, 正文 "comet project maps to atlas v2", alias=comet, 没有数字
-- atlas-v1: atlas v1, "upload limit is 10 MB", limit=10
-- atlas-v2: atlas v2, "upload limit is 20 MB", limit=20
-- orion-v2: orion v2, "upload limit is 90 MB", limit=90
-
-后三块的正文几乎一样, 都写着 upload limit, 只有数字不同。检索用的是 TF-IDF (按词出现的频率给文本打相似度分的算法), 它只看正文的字面相似, 分不出 v1 和 v2, 也分不出 atlas 和 orion。
-
-- plain (无上下文基线): 检索文本只有正文, 只取最相似的 1 块 (top-1), 也不筛元数据。直接问 "atlas v2 upload limit", 最相似的是 alias-comet, 因为只有它的正文里有 atlas 和 v2 这两个词, 可它没有数字; 三道题全答 None。
-- contextual (上下文版): 建索引时在每块正文前面加上 "atlas v2" 这样的对象和版本前缀, 让检索认得出它们; 命中之后再按 entity 和 version 筛, 只要 limit 不为空、对象和版本都对的块。直接问 atlas v2, 一跳 (查 1 次) 就得到 20, 引用来源 atlas-v2。
+词面相似度仅负责召回候选文档, 答案是否适用取决于文档块绑定的目标实体与版本元数据。demo 语料由 4 个 Document 块组成, 每块包含 entity、version、body 字段以及可选的 alias 与 limit:
+- alias-comet: 元数据为 atlas v2, 正文为「comet project maps to atlas v2」, alias=comet, 不含数值。
+- atlas-v1: 元数据为 atlas v1, 正文为「upload limit is 10 MB」, limit=10。
+- atlas-v2: 元数据为 atlas v2, 正文为「upload limit is 20 MB」, limit=20。
+- orion-v2: 元数据为 orion v2, 正文为「upload limit is 90 MB」, limit=90。
+后三块正文除数值外完全相同, 均包含 upload limit。底层检索采用 TF-IDF 词频相似度算法, 若仅索引正文则无法区分 v1 与 v2、也无法区分 atlas 与 orion:
+- plain (无上下文基线): 仅对正文建索引, 只取相似度最高的 1 块 (top-1) 且不做元数据过滤。直接询问「atlas v2 upload limit」时, 因仅 alias-comet 的正文同时出现 atlas 与 v2 两个词, top-1 落在无数值的 alias-comet 上, 三道题全部返回 None。
+- contextual (上下文增强): 建索引时将「atlas v2」等实体与版本前缀拼入检索文本, 召回后再按 entity 与 version 严格过滤出带有 limit 的匹配块。直接询问 atlas v2 时, 单跳检索 (查询 1 次) 即可返回 20 并引用来源 atlas-v2。
 
 ### 两跳要有两段证据
 
-别名题要查两跳, 两跳的来源都要引用。第二道题问 "comet upload limit"。comet 不是产品名, 是一个别名; 语料里只有 alias-comet 这一条记录说它指向 atlas v2, 这条记录本身没有数字。
-
-- contextual 模式只查一跳: 命中了 alias-comet, 知道了对象是 atlas v2, 但代码里第一跳只用来定对象, 不从别的产品块猜数字, 于是答 None。
-- agentic 模式: 第一跳定对象 (entity=atlas, version=v2, 记下来源 alias-comet); 发现查询预算还有剩, 就发第二跳查询 "atlas v2 upload limit", 命中 atlas-v2, 得到 20, 再记一条来源。最终答案 20, sources 是 [alias-comet, atlas-v2], 一共查了 2 次。
-
-只引 atlas-v2 的 20 MB, 就缺了"comet 为什么对应 atlas v2"这一段证据, 别人没法核对, 下面的验证器也不认。
+涉及别名的多跳问答必须完成两跳检索, 且最终引用列表必须同时包含别名映射记录与目标属性记录。第二道测试题询问「comet upload limit」, 其中 comet 并非直接产品名而是项目别名; 语料中唯有 alias-comet 记录了它指向 atlas v2, 且该记录本身不含上传限额数值。
+- contextual 模式 (单跳检索): 首跳命中 alias-comet 后虽解析出目标为 atlas v2, 但首跳仅用于确定目标实体而不跨产品块猜测数值, 因此停止检索并返回 None。
+- agentic 模式 (按证据继续检索): 第一跳解析出目标实体与版本 (entity=atlas, version=v2) 并记录来源 alias-comet; 检测到查询预算尚有剩余后, 自动构造第二跳查询「atlas v2 upload limit」, 命中 atlas-v2 并提取数值 20。最终返回答案 20, sources 为 [alias-comet, atlas-v2], 累计消耗 2 次查询。
+若最终仅引用 atlas-v2 的 20 MB 而省略 alias-comet, 则缺失了「comet 为何对应 atlas v2」的桥接证据, 下游独立验证器会直接判定证据链断裂。
 
 ### 预算不足时承认缺证据
 
-预算用完还没凑齐证据, 就答 None 并把 status 标成 insufficient (证据不足)。它不拿别的对象或旧版本凑数。查询预算 budget 默认 2, 表示每道题最多发几次检索:
-
-- 直接问 atlas v2: 一跳就够, 用 1 次预算, 答 20。
-- comet 需要两跳: 预算是 2 时答 20; 把预算改成 1, 第一跳定完对象就没预算了, 答 None。
-- nova: 语料里没有任何别名记录说 nova 指向谁。第一跳查不到 alias, 对象定不下来, 即使 atlas、orion 的资料都齐全, 也只能 insufficient。
-
-预算设成 0 时连第一跳都不发, queries 为空。把 atlas-v2 这块从语料里删掉再问 comet, 别名能定出对象, 但找不到 v2 的数字, 同样答 None, 不会退回去拿 v1 的 10 MB 顶替。
+当查询预算耗尽仍未凑齐完整证据链时, 系统必须返回 None 并将 status 标记为 insufficient, 绝不用其他实体或旧版本数据拼凑答案。查询预算参数 budget 默认为 2, 限定每道题允许发起的最大检索次数:
+- 直接询问 atlas v2: 单跳即可凑齐证据, 消耗 1 次预算并返回 20。
+- 询问别名 comet: 完整证据链需两跳, 预算为 2 时返回 20; 若将预算收紧为 1, 首跳解析完别名后预算即告耗尽, 如实返回 None。
+- 询问未知名称 nova: 语料中不存在任何指向 nova 的 alias 记录, 首跳无法确定目标实体; 即便库中 atlas 与 orion 的限额数据齐全, 系统也只能返回 insufficient。
+此外, 当 budget 设为 0 时系统不发起任何检索, queries 为空; 若从语料中删去 atlas-v2 后再询问 comet, 系统虽能通过别名定位到 atlas v2, 但因缺失 v2 限额块同样返回 None, 不会退而拿 v1 的 10 MB 冒充答案。
 
 ### 指标从排名走到支持度
 
-传统检索指标看排名 (正确的块排在第几), 这里改看支持度: 回答引用的来源能不能撑起这个答案。supported() 是一个独立的验证函数, 不看回答里有没有某个数字, 只核对 sources 里引用的块:
-
-- 引用的来源 id 不能重复, 也不能是语料里没有的。
-- 问题带别名时, 引用里必须有一条 alias 等于这个别名的记录, 对象和版本从这条记录里取。
-- 引用里必须有一块的 entity、version 都对得上, 并且它的 limit 等于回答的数字。
-
-demo 拿 comet 那题的正确结果改出三个坏样本去试:
-
-- 把答案改成 10 (错版本)。
-- 把 sources 改成只有 [atlas-v2] (少了别名记录, 链断了)。
-- 把 sources 改成 [alias-comet, orion-v2] (错对象)。
-
-三种都判不支持, 哪怕回答里的数字碰巧是对的。
-
-边界: 检索是 TF-IDF, 多跳计划是确定性规则, 没有神经检索, 也没有让模型自由规划; 元数据在夹具里给定, 真实系统还要验证来源和时间范围。
+面向 Agent 的检索评测应从传统的候选排名指标转向证据支持度核验, 即检验所引用的来源集合能否在逻辑上闭环支撑最终答案。supported() 是独立的验证函数, 不信任回答文本中的数值声明, 仅对 sources 引用的文档块逐项核查:
+- 引用合法性: 来源 id 必须存在于语料库中且不得重复引用。
+- 别名桥接: 若原问题包含别名, 引用列表中必须包含一条 alias 等于该别名的映射记录, 并据此锁定目标实体与版本。
+- 属性吻合: 引用列表中必须存在一块 entity 与 version 均匹配目标、且 limit 等于最终答案数值的文档。
+demo 基于 comet 题目的正确输出构造了三类反例供验证器检测:
+- 版本错误: 将最终答案改为 10 (对应 v1 而非 v2)。
+- 证据链断裂: 将 sources 删减为仅剩 [atlas-v2], 缺失别名映射记录。
+- 实体错配: 将 sources 篡改为 [alias-comet, orion-v2]。
+上述三类坏样本均被判为不支持, 即便回答文本中的数值碰巧正确也无法通过验收。
+实验边界: 本实验采用 TF-IDF 词面检索与确定性多跳规则, 未引入稠密神经检索或模型自主查询规划; 文档元数据由离线夹具直接给定, 真实生产系统还需额外核验文档来源可信度与生效时间窗口。
 
 ### 读代码的顺序
 

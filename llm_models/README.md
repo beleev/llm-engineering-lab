@@ -170,10 +170,10 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [机制解释: 可读出, 不等于起作用](run_models/foundation/interpretability/README.md) | 能读出来可能只是旁观者, 要说明它参与决策, 得改它再看输出。 |
-| [视觉任务: OCR、图表与不确定性](run_models/multimodal/vision_tasks/README.md) | 多模态模型会把图像切块编码成图像 token 送进去, 但看到图像 token 不代表读对了字, 读对了字也不代表理解了坐标轴, 感知错误和推理错误要分开查。 |
-| [语音信号: 波形、Mel 与 codec](run_models/multimodal/audio_pipeline/README.md) | 语音系统处理的是连续的声音和时间, 压缩、噪声和延迟各自改变可用信息。 |
-| [媒体生成: 一致性、水印与来源](run_models/generative/media_evaluation/README.md) | 单帧漂亮不代表视频连贯; 检测到水印, 也不代表画面内容真实。 |
-| [递归记忆与分层读取: 压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 摘要能把前后两段连起来, 不一定能还原细节; 结构连通和信息保存要分别证明。 |
+| [机制解释: 可读出, 不等于起作用](run_models/foundation/interpretability/README.md) | 区分激活线性可读性与因果作用, 通过激活修补与稀疏特征干预检验内部表示是否实际参与决策。 |
+| [视觉任务: OCR、图表与不确定性](run_models/multimodal/vision_tasks/README.md) | 将视觉问答拆解为文本识别、坐标轴对齐与数值推理三步独立核验, 分离前端感知误差与后端推理错误。 |
+| [语音信号: 波形、Mel 与 codec](run_models/multimodal/audio_pipeline/README.md) | 追踪波形采样、Mel 频谱提取与离散 codec 量化全链路, 量化压缩率、噪声与流式帧延迟的权衡。 |
+| [媒体生成: 一致性、水印与来源](run_models/generative/media_evaluation/README.md) | 分别评测单帧质量、跨帧时间一致性、数字水印检出率与内容来源签名链的独立边界。 |
+| [递归记忆与分层读取: 压缩丢了什么](run_models/foundation/hierarchical_memory/README.md) | 对比滑动窗口、递归摘要与分层记忆检索, 区分结构连通性与精确细节保留率。 |
 
 全量入口: 在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。

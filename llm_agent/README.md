@@ -144,13 +144,13 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | [m28_coding_agent](m28_coding_agent/README.md) | 围绕测试失败信息执行定位、补丁生成与回归运行闭环, 用独立单测而非口头声明判定修复完成。 |
 | [m29_async_runtime](m29_async_runtime/README.md) | 基于真实 asyncio 与 SQLite 验证提交前取消、提交后取消及幂等重放对账本副作用的边界影响。 |
 | [m30_collaboration](m30_collaboration/README.md) | 展示并行子智能体无文本冲突却违反全局资源配额的场景, 引入共享预算与合并校验。 |
-| [m31_eval_suite](m31_eval_suite/README.md) | 用内容哈希固定评测集版本, 对比不同机制开关的通过率并用配对 bootstrap 检验差异显著性。 |
+| [m31_eval_suite](m31_eval_suite/README.md) | 用内容哈希固定评测集版本, 按 easy / hard / safety 分层归因授权门与澄清各自救回了哪道题, 并用标好对错的回答校准裁判。 |
 | [m32_agent_training](m32_agent_training/README.md) | 在 CPU 小模型上训练 4 动作工具调用协议, 在未见过的留出实体集上检验协议泛化。 |
 | [m33_skill_evolution](m33_skill_evolution/README.md) | 演示三层渐进式资料披露, 以及新规则上线前经回归测试拦截旧场景退化的版本演进流程。 |
 | [m34_voice_interaction](m34_voice_interaction/README.md) | 串联 VAD 端点检测、ASR 识别、Agent 推理与 TTS 播报四段流水线, 处理用户中途打断 (barge-in)。 |
-| [m35_visual_grounding](m35_visual_grounding/README.md) | 对比基于截图像素坐标的视觉定位与无障碍树节点引用, 分析分辨率缩放与布局偏移下的稳定性。 |
-| [m36_embodied_control](m36_embodied_control/README.md) | 在带扰动的一维控制环境中对比开环规划与闭环反馈控制, 说明观测校正对消除累积误差的作用。 |
-| [m37_midtraining](m37_midtraining/README.md) | 在预训练与后训练之间补充领域语料与长轨迹格式数据, 对比直接微调与先做中期训练的收敛差异。 |
+| [m35_visual_grounding](m35_visual_grounding/README.md) | 从截图像素里定位目标按钮, 演示布局变化后按旧坐标会点错对象, 以及点击前重新截图、提交前核对目标两道防线。 |
+| [m36_embodied_control](m36_embodied_control/README.md) | 在执行器增益与模拟器标定不一致的一维小车上, 对比开环动作块、逐步反馈与按最坏增益限幅三种控制方式的误差和越界次数。 |
+| [m37_midtraining](m37_midtraining/README.md) | 用 next-token 目标在新领域语料上继续训练小 LLaMA, 对比只训新域导致旧域遗忘、与按比例混入旧语料两种做法。 |
 | [m38_programmatic_actions](m38_programmatic_actions/README.md) | 让模型生成可执行代码交由沙箱解释器批量运算, 替代高延迟、易算错的多轮自然语言心算。 |
 | [m39_meta_optimization](m39_meta_optimization/README.md) | 在固定预算下对比广度优先与先验引导搜索策略, 通过调整外层探索方式提升复杂任务命中率。 |
 | [m40_agent_society](m40_agent_society/README.md) | 通过多轮重复博弈实验观察不同策略组合的长期收益, 分析多智能体协作中的激励与背叛边界。 |
@@ -159,7 +159,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 
 m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
 
-- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 对比暴力全量扫描与倒排分桶近似搜索 (IVF), 观察探针数 `nprobe` 在召回率与查询耗时之间的权衡。
+- [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 对比精确扫描、单叶投影树与带预算的图搜索, 看近似索引怎样用更少的距离计算换召回率。
 
 - [在轨自蒸馏 · 特权信息与部署边界](m44_self_distillation/README.md): 教师利用包含环境提示的特权上下文生成分布, 指导仅能看到部署期常规输入的学生模型对齐动作分布。
 
@@ -176,14 +176,14 @@ m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 S
 
 | 模块 | 关注的问题 |
 | --- | --- |
-| [RAG: 答案误差如何反传到检索器](m46_joint_rag/README.md) | RAG (retrieval-augmented generation, 检索增强生成) 先由检索器从文档库里挑文档, 再由生成器看着挑出的文档写答案。 |
-| [有效上下文: 看得到, 不等于用得上](m47_context_utilization/README.md) | 窗口装得下、证据被召回、多条证据被一起用上, 是三件要分开测的事。 |
-| [安全与治理: 误拒、漏拦和责任记录](m48_safety_governance/README.md) | 正常文档可以讨论攻击, 恶意文档也可以不含关键词, 所以权限只能来自可信的用户授权, 不能看文字。 |
-| [学习世界模型: 预测和反馈的差别](m49_learned_world/README.md) | 世界模型负责预测, 控制器还得在预测出错之后回去看现实。 |
-| [代码任务: 跨文件修改与独立验收](m50_repository_verification/README.md) | 一个函数过了测试, 不等于整个仓库对了。 |
-| [形式证明与科学假设: 三种正确](m51_formal_science/README.md) | 这组实验区分三种「正确」: 算对一个数、证出一个命题、发现一条现实规律, 各要各的证据。 |
-| [专业领域: 证据时效、地域与复核](m52_domain_workflows/README.md) | 专业任务的错误常常不是句子不通, 而是引错了版本、地域或人群。 |
-| [工具学习: 从候选调用到训练数据](m53_tool_data/README.md) | 工具执行成功, 不代表值得教给模型; 训练数据应保留能帮助后续预测的调用, 并把额外成本算进去。 |
+| [RAG: 答案误差如何反传到检索器](m46_joint_rag/README.md) | 联合优化检索排序与生成分布, 分析答案监督信号向检索端反传的路径与条件。 |
+| [有效上下文: 看得到, 不等于用得上](m47_context_utilization/README.md) | 区分窗口容量、证据召回与多段证据联合利用三层边界, 量化长上下文位置偏置的影响。 |
+| [安全与治理: 误拒、漏拦和责任记录](m48_safety_governance/README.md) | 对比关键词过滤与服务端白名单授权, 区分执行层拦截、输出安全、群体公平与发布治理四类证据。 |
+| [学习世界模型: 预测和反馈的差别](m49_learned_world/README.md) | 对比开环轨迹规划与闭环状态反馈, 检验近似环境模型存在预测偏差时的在线纠偏边界。 |
+| [代码任务: 跨文件修改与独立验收](m50_repository_verification/README.md) | 验证跨模块依赖修改不能仅凭局部单测放行, 必须结合全仓回归与独立留出测试集验收。 |
+| [形式证明与科学假设: 三种正确](m51_formal_science/README.md) | 并排对照数值执行、形式证明内核核验与独立留出数据拟合检验三类不同的正确性判据。 |
+| [专业领域: 证据时效、地域与复核](m52_domain_workflows/README.md) | 检验法规与医疗等专业工作流中的证据时效、适用地域与受众约束, 对超界请求触发人工复核。 |
+| [工具学习: 从候选调用到训练数据](m53_tool_data/README.md) | 按调用对目标预测的净增益与延迟成本筛选工具轨迹, 剔除无增益的冗余成功调用。 |
 
 全量入口：在仓库根目录运行 `python scripts/run-research-completion.py`。主题与边界见 [研究实验指南](../docs/research-completion.md)。
 

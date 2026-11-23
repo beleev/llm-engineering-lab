@@ -7,25 +7,25 @@
 <template>
   <LabFrame
     title="forward KL vs reverse KL — 容量不够的学生该盖住所有峰, 还是钻进一个峰"
-    sub="- 模拟什么: 蒸馏时 student 常常比 teacher 小, 装不下 teacher 的全部行为。这个台子把这件事压成一维: teacher 是双峰分布 $p$ (两种都对的答法), student 只能是单峰的高斯 $q$ (容量不够)。两种 KL 散度 (衡量两个分布差多远的量) 各代表一种训练方式, 期望在谁的样本上取, 决定了惩罚落在哪:
-        - forward KL $= \mathbb{E}_{x\sim p}[\log p/q]$: 在 teacher 的样本上算, 对应离线蒸馏 / SFT (在 teacher 写的数据上做极大似然)。
-        - reverse KL $= \mathbb{E}_{x\sim q}[\log q/p]$: 在 student 自己的样本上算, 对应 on-policy 蒸馏 (学生自己生成, teacher 逐 token 打分)。
-      - 图上是什么: 上图紫色是 teacher 的密度曲线 (双峰), 绿色是 student 的密度曲线 (单峰), 峰顶的绿点可以拖。下图是当前选中的那种 KL 的逐点被积函数: 曲线下的面积就是 KL 的值, 哪里鼓起来, 惩罚就来自哪里。
-      - 可以做什么: 按界面顺序:
-        - 「看 forward / reverse KL 的被积函数」: 切换下图画哪一个。
-        - 「最小化 forward KL」: 把学生放到 forward KL 最小的位置 (高斯族内有闭式解: 均值和方差匹配)。
-        - 「最小化 reverse KL」: 用数值下降找 reverse KL 最小的位置 (从当前位置和两个峰各下降一次, 取最小的)。
-        - 拖「teacher 两峰间距」和「左峰的质量」: 改 teacher 的形状。
-        - 拖绿点 (或聚焦后按方向键): 左右改均值 $\mu$, 上下改宽度 $\sigma$ (越高越窄)。
-      - 应该看到: forward 的最优解是一个摊开盖住两峰的宽高斯, 大量概率放在两峰之间的低谷; reverse 的最优解缩进其中一个峰。右侧读数:
-        - 前两行: 两个 KL 的当前值, 选中的那个带 ▸ 标记。
-        - 「垃圾样本率」: student 的样本落在 teacher 认为几乎不可能的区域 (密度低于 teacher 峰值的 5%) 的概率, 就是生成时「胡说」的比例。
-        - 「漏掉的 teacher 质量」: teacher 的样本落在 student 几乎不会去的区域的比例, 就是学生「不会」的答法。"
+    sub="- 模拟什么: 知识蒸馏中 student 模型容量通常小于 teacher, 难以完整表达 teacher 的多模态输出分布。本实验台将该容量受限拟合问题投影至一维连续空间: teacher 为具有两个高密度峰的双峰混合分布 $p$ (代表同一问题的两种合法解答范式), 而容量受限的 student 仅能取单峰高斯分布 $q$。正向与反向 KL 散度分别对应两类蒸馏采样范式, 期望在哪一分布的样本上求取直接决定了损失惩罚的作用区域:
+  - forward KL ($\mathbb{E}_{x\sim p}[\log(p/q)]$): 在 teacher 分布采样下求期望, 对应离线蒸馏与常规 SFT (即在固定的 teacher 生成语料上做极大似然训练)。
+  - reverse KL ($\mathbb{E}_{x\sim q}[\log(q/p)]$): 在 student 自身分布采样下求期望, 对应 on-policy 在线蒸馏 (由 student 自回归采样生成序列, 再由 teacher 逐 token 给出对数概率监督)。
+- 图上是什么: 上方主图中紫色曲线为双峰 teacher 概率密度 $p$, 绿色曲线为单峰 student 概率密度 $q$, 峰顶绿色圆点支持直接拖拽调节。下方子图绘制当前选定 KL 散度的逐点被积函数曲线, 其与横轴围成的有向面积即等于总 KL 散度值, 局部凸起位置直观指示主要惩罚来源。
+- 可以做什么: 按界面顺序可执行以下交互:
+  - 切换「看 forward / reverse KL 的被积函数」按钮: 选择下方子图展示哪一种散度的逐点被积函数。
+  - 点击「最小化 forward KL」按钮: 将 student 直接移至正向 KL 的全局最优解 (单峰高斯族内具有矩匹配解析解, 即均值与方差严格匹配 $p$)。
+  - 点击「最小化 reverse KL」按钮: 通过数值梯度下降搜索反向 KL 的极小值点 (分别从当前参数与左右两峰初值出发优化并取最优解)。
+  - 拖动「teacher 两峰间距」与「左峰的质量」滑杆: 调整双峰目标分布的不对称度与模态间隔。
+  - 拖动峰顶绿色圆点 (或聚焦后使用方向键): 水平拖动改变高斯均值 $\mu$, 垂直拖动改变标准差 $\sigma$ (峰顶越高分布越窄)。
+- 应该看到: 最小化 forward KL 得到横跨双峰的宽方差高斯分布, 将大量概率质量分配在两峰之间的低密度谷底; 最小化 reverse KL 则使高斯分布收缩锁定至其中一个单峰内部。右侧汇总读数含义如下:
+  - 前两行: 实时显示正向与反向 KL 散度数值, 当前子图选中的散度项带有 ▸ 标记。
+  - 「垃圾样本率」: student 采样落入 teacher 极低密度区域 (密度低于 teacher 峰值的 5%) 的总概率质量, 对应模型自回归生成时产生失真或非法输出的比率。
+  - 「漏掉的 teacher 质量」: teacher 概率质量落入 student 极低密度区域的比例, 度量容量受限的 student 主动放弃覆盖合法解答模态的程度。"
     module="llm_finetune/methods/on_policy_distill.py"
     run="python -m llm_finetune.run_finetune.on_policy_distill.train_on_policy_distill"
     :challenge="{
-      ask: '先点「最小化 forward KL」, 再点「最小化 reverse KL」, 然后回答:\n1. 两个最优学生分别落在哪?\n2. 各自的「垃圾样本率」是多少?\n3. 哪一个更像你希望小模型在生成时的表现?',
-      answer: '答案:\n1. forward 最优的学生是一个盖住两峰的宽高斯, reverse 最优的学生缩进一个峰。\n2. forward 的垃圾样本率很高; reverse 的垃圾样本率接近 0, 但漏掉另一个峰。\n3. 生成时希望小模型像后者。\n为什么:\n- forward KL $= \\mathbb{E}_{x\\sim p}[\\log p/q]$ 在 teacher 有概率质量的每个位置检查 student 给了多少概率。只要 teacher 有质量而 student 几乎为 0, $\\log(p/q)$ 就会急剧变大, 迫使学生摊开盖住两个峰; 代价是大量概率落在两峰之间的低谷, 垃圾样本率很高。离线蒸馏和 SFT 在 teacher 数据上做极大似然, 优化的就是 forward KL。\n- reverse KL $= \\mathbb{E}_{x\\sim q}[\\log q/p]$ 只在 student 自己采到的位置检查 teacher 是否认可。没去的地方完全不罚, 去了 teacher 不认可的地方重罚, 于是它缩进一个峰。它生成的样本都像 teacher 会写的, 但放弃了另一种答法。\n- on-policy 蒸馏 (学生采样、teacher 逐 token 打分) 优化的是 reverse KL: 容量小的学生因此少会一种答法, 但很少胡说。本仓库实测样本合格率从 0.059 (离线) 到 0.402 (on-policy), 代价是 teacher 的少数派答法被放弃。',
+      ask: '依次点击「最小化 forward KL」与「最小化 reverse KL」, 对比观察并回答:\n1. 两种目标函数下的最优 student 分布各自呈现何种几何位置与宽度?\n2. 两者对应的「垃圾样本率」表现有何差异?\n3. 在实际在线生成部署中, 哪一种分布形态更符合小容量模型的质量要求?',
+      answer: '结论:\n1. 最小化 forward KL 得到的最优 student 是强行覆盖双峰的宽方差高斯分布; 最小化 reverse KL 得到的最优 student 则收缩锁定在单个主峰内部。\n2. forward KL 最优解的垃圾样本率很高; reverse KL 最优解的垃圾样本率接近 0, 代价是漏掉了另一侧次峰的概率质量。\n3. 面向生成部署时, 容量受限的小模型应优先追求后者 (高准确率单模态输出)。\n机制解析:\n- 正向 KL 的均值覆盖特性 (mode-covering): 正向散度 $\\mathrm{KL}(p\\|q) = \\mathbb{E}_{x\\sim p}[\\log(p/q)]$ 在 teacher 具有非零密度的所有区域检验 student 的概率覆盖度。一旦某处 $p(x) &gt; 0$ 而 $q(x) \\to 0$, 对数比 $\\log(p/q)$ 即趋向正无穷, 迫使单峰高斯拉大方差以同时覆盖左右两峰; 其副作用是将大量概率质量摊铺在两峰之间的低密度空白带, 导致极高的垃圾样本率。基于固定语料的离线蒸馏与 SFT 极大似然训练优化的正是 forward KL。\n- 反向 KL 的寻峰锁定特性 (mode-seeking): 反向散度 $\\mathrm{KL}(q\\|p) = \\mathbb{E}_{x\\sim q}[\\log(q/p)]$ 仅在 student 自身采样到达的区域评估 teacher 的认可度。对于 $q(x) \\approx 0$ 的未覆盖区域被积函数为零而不产生惩罚, 而一旦 $q(x) &gt; 0$ 落入 $p(x) \\approx 0$ 的非法区域则会遭受严厉惩罚, 从而驱动 student 集中收敛至单一高密度峰内, 确保生成的每条样本均符合 teacher 规范, 仅放弃另一套等价表述方式。\n- 在线蒸馏实证对比: on-policy 蒸馏 (由 student 在线自回归采样、teacher 逐 token 提供目标分布) 实质上近似优化 reverse KL, 使小容量模型以牺牲多样性为代价换取高生成可靠性。本仓库实测显示, 将离线蒸馏切换为 on-policy 蒸馏后, 生成样本合格率从 0.059 提升至 0.402, 同时主动放弃了 teacher 中的少数派答法模态。',
     }"
   >
     <template #controls>

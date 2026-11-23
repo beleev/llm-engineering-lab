@@ -6,28 +6,28 @@
 <template>
   <LabFrame
     title="KV cache 与上下文上限 — 窗口一满, cache 作废, 之后每一步都整段重算"
-    sub="- 模拟什么: 一个语言模型逐 token 生成: 先一次读完 P 个 prompt token (这一步叫 prefill), 然后每步生成 1 个新 token (叫 decode), 共 N 步。KV cache 是把每个旧 token 在每一层算出来的 K 和 V 存起来, 新 token 只算自己那一份再去查缓存, 不用把前缀重算一遍。但模型有一个上下文上限 max_len: 序列一超过它, 模型只能看最近 max_len 个 token, 窗口左移, 每个 token 的绝对位置都变了, 旧的 K/V 对不上号, 只能丢掉重新 prefill。这个台子逐步复刻 generate() 里的三个分支: 无 cache、prefill (或重新 prefill)、decode。
-      - 图上是什么: 上排是 token 格子, 下排是每一步的柱子:
-        - 上排格子: 每个格子是一个 token, p0 到 p5 是 prompt, g0 起是生成的。悬停格子有提示。
-        - 格子颜色 (见下方图例): 黄色是本步要重新算 K/V 的 token, 绿色是直接从 cache 读的, 紫色高亮的是本步刚采样出的新 token, 灰色是还没生成的或已经滑出窗口的。
-        - 下排柱子: 每根柱子是一步, 高度是这一步喂进模型的 token 数 (也就是每层要做几次 K/V 投影)。绿柱是只喂 1 个, 黄柱是整段重算。
-      - 可以做什么: 按界面顺序:
-        - 「use_cache = True / False」切换有没有 cache。
-        - 三根滑杆: 拖「prompt 长度 P」「生成 token 数 N」「上下文上限 max_len」。改参数后台子会自动停在 cache 作废的那一步。
-        - 播放控件: 逐步看, 或者直接点某根柱子跳到那一步。
-      - 应该看到: 默认 max_len = 12, 而 prompt 加生成一共 22 个 token。先看柱子怎么变, 再看右侧读数:
-        - 第 1 步: prefill 算 6 个。
-        - 第 2 到 7 步: 每步只算 1 个。
-        - 第 8 步起: 序列超过 12, 每一步都重新 prefill 12 个, 柱子一下跳高再也不下来。
-        - 「本步重算 token 数」: 对应当前柱子的高度。
-        - 「cache 从第几步起作废」: 除第 1 步 prefill 外第一根黄柱的位置。
-        - 「累计 token 前向」: 所有柱子的高度加起来。
-        - 「是『cache 全程有效』的几倍」: 累计数除以 P + N − 1, 后者是 cache 从头到尾有效时的最小值 (prefill P 个加之后每步 1 个), 1.0× 就是没浪费。"
+    sub="- 模拟什么: 语言模型自回归逐 token 生成过程分为两阶段: 首先一次性处理全部 P 个 prompt token (prefill 阶段), 随后每步生成 1 个新 token (decode 阶段), 共执行 N 步。KV cache 将历史 token 在各层计算出的 K 与 V 缓存起来, decode 阶段新 token 只需计算自身的 Q、K、V 并读取历史缓存, 无需重复计算前缀。但模型受上下文窗口上限 max_len 限制: 一旦序列总长度超过 max_len, 模型只能截取最近 max_len 个 token, 窗口整体左移导致各 token 的绝对位置发生变化, 原有 K/V 缓存因位置错位而失效, 只能丢弃缓存并重新执行 prefill。本实验逐步复现 generate() 中的三条执行路径: 禁用 cache、prefill (含重跑 prefill) 与常规 decode。
+- 图上是什么: 上排展示序列 token 状态格, 下排展示各生成步的计算量柱状图:
+  - 上排格子: 每格代表一个 token, p0 至 p5 为 prompt token, g0 起为新生成的 token; 鼠标悬停可查看详细状态。
+  - 格子颜色 (对应下方图例): 黄色表示本步需重新计算 K/V 的 token, 绿色表示直接从 KV cache 读取的 token, 紫色高亮表示本步刚采样出的新 token, 灰色表示尚未生成或已滑出上下文窗口的 token。
+  - 下排柱子: 每根柱子对应一个生成步, 柱高代表该步送入模型前向计算的 token 数量 (即每层执行的 K/V 投影次数); 绿柱表示仅计算 1 个新 token, 黄柱表示整段窗口重算。
+- 可以做什么: 按界面控件顺序操作:
+  - 「use_cache = True / False」: 切换是否启用 KV cache。
+  - 三根滑杆: 分别调节「prompt 长度 P」「生成 token 数 N」「上下文上限 max_len」; 修改参数后视图会自动定位至缓存首次失效的步数。
+  - 播放控件: 单步回放生成过程, 或直接点击某根柱子跳转至对应步。
+- 应该看到: 默认配置下 max_len 为 12, 而 prompt 加生成总长度为 22 个 token。结合柱状图与右侧读数可观察到:
+  - 第 1 步: 执行 prefill, 一次计算 6 个 token。
+  - 第 2 至第 7 步: 缓存命中, 每步仅计算 1 个新 token。
+  - 第 8 步起: 序列长度超过 12, 窗口每步左移并重新 prefill 全部 12 个 token, 柱高跃升至 12 并一直维持在该水平。
+  - 「本步重算 token 数」: 当前步柱子的高度。
+  - 「cache 从第几步起作废」: 除第 1 步初始 prefill 外, 第一根黄柱出现的步数。
+  - 「累计 token 前向」: 所有生成步柱高之和。
+  - 「是『cache 全程有效』的几倍」: 累计前向 token 数与理想下界 $P + N - 1$ 的比值 (后者对应 prefill 计算 P 个、后续每步仅算 1 个的全程命中情形), 1.0× 表示无额外重算开销。"
     module="llm_models/utils/generation.py"
     run="python -m llm_models.run_models.language_models.llama.infer_llama"
     :challenge="{
-      ask: 'P = 6, 生成 16 个 token, max_len = 12 时累计 120 次 token 前向。先猜: max_len 至少拖到多少, 柱子才全部落回 1? 那时累计是多少?',
-      answer: '答案: max_len 至少 21, 那时累计 21 次 token 前向。\n- 为什么是 21: 最后一步 (第 16 步) 开始时, 序列里已经有 6 个 prompt 加 15 个生成的, 共 21 个 token, cache 里存了 20 条, 再喂 1 个新 token 正好占满 21 个位置。只要 max_len 不小于 21, 窗口就不用左移。\n- 窗口够长、有 cache: 只在第 1 步 prefill 6 个, 之后 15 步每步 1 个, 合计 $6 + 15 = 21$。\n- 窗口够长、无 cache (点 use_cache = False 看): 每步把整个前缀重算一遍, 第 1 步 6 个, 第 2 步 7 个, 一直到第 16 步 21 个, 合计 $6 + 7 + \\dots + 21 = 216$。约 10 倍, 而且这个差距随长度平方增长。\n- max_len = 12、有 cache (默认): 合计 120。\n  - 前 7 步: prefill 6 个加 6 次 decode 各 1 个, 共 12。\n  - 第 8 步起: 序列长度超过 12, 之后 9 步每步重新 prefill 12 个, 共 108。\n为什么窗口满了 cache 就作废:\n1. 长度一超过 12, 模型只能看最近 12 个, 窗口左移一格。\n2. 每个 token 的绝对位置都变了 (RoPE 的旋转角度跟着位置走, 全部错位), 旧 K/V 不能复用。\n3. generate() 只能丢掉 cache 重新 prefill, 退化回无 cache 的状态。\n所以生产系统要么不让序列超长, 要么用滑动窗口 (SWA) 的滚动缓存。',
+      ask: '当 $P = 6$、生成 token 数为 16、$\\text{max\\_len} = 12$ 时, 累计需要 120 次 token 前向计算。请先思考: max_len 至少需要调至多少, 后续 decode 步的柱高才能全部保持为 1? 此时的累计 token 前向次数是多少?',
+      answer: '答案: max_len 至少需要设为 21, 此时累计 token 前向次数为 21。\n- 为什么临界值是 21: 到最后一步 (第 16 步) 开始时, 序列中已有 6 个 prompt token 与 15 个已生成 token, 合计 21 个 token; 此时缓存中存有前 20 个位置的 K/V, 再送入第 21 个位置的 token 恰好占满 21 个位置。只要 max_len 不小于 21, 上下文窗口就无需左移裁剪。\n- 窗口充足且启用 cache: 仅在第 1 步 prefill 6 个 token, 后续 15 步每步计算 1 个 token, 累计 $6 + 15 = 21$ 次。\n- 窗口充足但禁用 cache (切换「use_cache = False」观察): 每步均需重算完整前缀, 从第 1 步的 6 个递增至第 16 步的 21 个, 累计 $6 + 7 + \\dots + 21 = 216$ 次, 约为启用 cache 的 10 倍, 且差距随生成长度呈平方级扩大。\n- $\\text{max\\_len} = 12$ 且启用 cache (默认配置): 累计 120 次。\n  - 前 7 步: 第 1 步 prefill 6 个加 6 次 decode 各 1 个, 小计 12 次。\n  - 第 8 步起: 序列长度超过 12, 后续 9 步每步均需对最近 12 个 token 重新执行 prefill, 小计 108 次。\n窗口满载后 cache 失效的原因如下:\n1. 序列长度一旦超过 12, 模型仅保留最近 12 个 token, 窗口整体左移一格。\n2. 窗口内各 token 的绝对位置索引随之改变, RoPE 旋转角度与位置强绑定而全部错位, 原有 K/V 缓存无法直接复用。\n3. generate() 只能丢弃旧缓存并重新执行 prefill, 计算复杂度退化回无缓存状态。\n因此生产推理系统要么严格限制序列不超出上下文窗口, 要么采用滑动窗口注意力 (SWA) 配合滚动缓存机制。',
     }"
   >
     <template #controls>

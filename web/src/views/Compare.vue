@@ -2,19 +2,18 @@
   <div>
     <h1 class="page-title">总览对照表</h1>
     <p class="page-subtitle">
-      一张表看完模型零件配置, 再把六个工程目录放回同一条主线。
-      六个阶段: 原理闭环、架构替换、规模化训练、任务适配、推理服务、Agent 应用层。
+      本页汇总主流模型架构的核心组件配置, 并将全仓库六个子项目放回同一条工程演进主线: 原理闭环、架构演进、规模化训练、任务适配、推理服务与 Agent 应用层。
     </p>
 
     <ChapterIntro
-      tldr="两种读法:
-        - 竖着读模型表: 读到的是每个组件维度的演进史。
-        - 横着读六阶段表: 读到的是一个 LLM 从公式到可行动系统的工程闭环。"
-      question="遇到一个真实大模型系统, 你能快速判断问题发生在结构、训练、微调、推理还是 Agent harness 层吗?"
+      tldr="本页对照表提供两个维度的全局检索视角:
+        - 纵向对比模型配置表: 梳理注意力、前馈网络、归一化与位置编码在各代模型中的演进脉络。
+        - 横向串联六阶段工程表: 定位大模型系统从底层算子到上层智能体闭环的职责边界与代码入口。"
+      question="面对一个真实大模型系统的性能或效果瓶颈, 如何快速判断问题出在模型结构、分布式训练、后训练对齐、推理引擎还是 Agent 运行时层?"
       :goals="[
-        `快速对照 ${timeline.length} 种主流模型的零件配置 (attn / ffn / norm / pos)`,
-        '看清「早期 → 现代」每个维度的演进轨迹',
-        '把六阶段闭环放回同一张地图: 哪一层出问题该读哪个目录',
+        `横向检索 ${timeline.length} 种代表性模型的组件配置 (attn / ffn / norm / pos)`,
+        '梳理各核心组件从早期设计向现代主流方案演进的技术脉络',
+        '建立六阶段工程闭环的全局索引, 明确不同层级问题对应的源码目录',
       ]"
       :codes="[
         { path: 'llm_basic/' },
@@ -75,8 +74,8 @@
     </div>
 
     <section class="section">
-      <h2>设计取舍速查</h2>
-      <p class="lead">每一行是一个维度, 从左到右是"早期 → 现代"的演进。</p>
+      <h2>核心组件演进对照</h2>
+      <p class="lead">下表按模块维度归纳了从早期标准实现到现代主流方案的架构取舍与对应源码位置。</p>
       <div class="card">
         <table class="compare-table tradeoffs">
           <thead>
@@ -106,7 +105,7 @@
     <section class="section">
       <h2>六目录工程闭环</h2>
       <p class="lead">
-        每个目录都只回答一个问题。按这个顺序读, 后一章就是把前一章的抽象放进更真实的约束里。
+        每个子目录各自聚焦一类核心工程问题; 按序推进时, 后一阶段均在前一阶段抽象之上引入更贴近生产的系统约束。
       </p>
       <div class="card" style="padding: 0; overflow-x: auto;">
         <table class="compare-table">
@@ -138,12 +137,12 @@
 
     <section class="section">
       <h2>完整学习路径 · 按主线回顾</h2>
-      <p class="lead">下面按六阶段主线给出快速跳转入口, 每一块都能落到本仓库原始代码。</p>
+      <p class="lead">以下卡片按六阶段主线提供章节入口, 分别对应仓库中的六个核心子目录。</p>
       <div class="grid grid-3">
         <router-link :to="{ name: 'basic' }" class="card chapter-card">
           <div class="chapter-idx">1</div>
           <h3>llm_basic · 最小闭环</h3>
-          <p class="desc">numpy 手写 forward / backward / Adam / 采样</p>
+          <p class="desc">纯 NumPy 手写前向、反向传播、Adam 与采样闭环</p>
         </router-link>
         <router-link :to="{ name: 'models' }" class="card chapter-card">
           <div class="chapter-idx">2</div>
@@ -158,7 +157,7 @@
         <router-link :to="{ name: 'finetune' }" class="card chapter-card">
           <div class="chapter-idx">4</div>
           <h3>llm_finetune · 任务适配</h3>
-          <p class="desc">SFT / LoRA / DPO 三柱并排</p>
+          <p class="desc">从 SFT、LoRA 家族到 DPO / GRPO / 蒸馏的后训练体系</p>
         </router-link>
         <router-link :to="{ name: 'infer' }" class="card chapter-card">
           <div class="chapter-idx">5</div>
@@ -181,8 +180,8 @@
 
 
     <ChapterNav
-      :prev="{ ...prevChapter, hint: '从应用层闭环回到全局地图' }"
-      :next="{ name: 'home', label: '返回主线总览', hint: '六阶段地图全景重看一遍' }"
+      :prev="{ ...prevChapter, hint: '从智能体应用闭环回到全栈全局索引' }"
+      :next="{ name: 'home', label: '返回主线总览', hint: '回到首页查看六阶段全景与学习路径' }"
     />
   </div>
 </template>
@@ -268,37 +267,37 @@ const projectRows = [
   {
     code: 'llm_basic/',
     question: 'Transformer 的 forward/backward/update 最小闭环是什么?',
-    link: '给后续所有 PyTorch/autograd 代码提供手写基线。',
+    link: '为后续基于 PyTorch 自动微分的模块提供手写数学基线。',
     file: 'model.py · train.py · optim.py',
   },
   {
     code: 'llm_models/',
     question: '主流模型的差别落在哪些零件上?',
-    link: '把 basic 的单层单头替换成 attention/ffn/norm/pos 的现代组合。',
+    link: '将基础闭环中的单层单头结构扩展为现代注意力、FFN、归一化与位置编码组件。',
     file: 'layers/core/ · models/',
   },
   {
     code: 'llm_train/',
     question: '同一个训练循环如何扩到多卡并保持等价?',
-    link: '把 loss/grad/update 拆成 batch、矩阵、层、状态、精度和通信。',
+    link: '围绕数据批次、张量维度、模型层、优化器状态、数值精度与集合通信展开并行切分。',
     file: `${moduleSpan(trainModules)}/demo.py · full_loop/demo.py`,
   },
   {
     code: 'llm_finetune/',
-    question: '如何用少量数据和参数把 base model 拨到任务上?',
-    link: 'SFT 改数据目标, LoRA 改可训练参数, DPO 改偏好优化流程。',
+    question: '如何在受限样本与算力预算下使基座模型遵循指令并对齐人类偏好?',
+    link: '通过 SFT 调整监督区间, 通过 LoRA 压缩可训练参数, 通过 DPO 等算法简化偏好对齐链路。',
     file: 'methods/{sft,lora,qlora,dpo,grpo,distill}.py',
   },
   {
     code: 'llm_infer/',
-    question: '训练好的模型如何低延迟、高吞吐、可控地产出 token?',
-    link: '把自回归生成接上 KV cache、分页、调度、前缀复用和采样约束。',
+    question: '如何将训练完毕的模型部署为低延迟、高吞吐且输出受控的在线推理服务?',
+    link: '在自回归解码循环中集成 KV cache、分页显存管理、连续批调度、前缀复用与语法约束。',
     file: `${moduleSpan(inferModules)}/demo.py · full_engine/engine.py`,
   },
   {
     code: 'llm_agent/',
-    question: '推理服务如何变成能调用工具、保留状态、隔离子任务的系统?',
-    link: '把模型输出接上工具、权限、上下文、记忆、Hook、持久化和子智能体。',
+    question: '如何将模型推理服务封装为支持工具执行、状态持久化与子任务隔离的智能体系统?',
+    link: '围绕模型生成接入工具调度、权限护栏、上下文管理、记忆检索、生命周期 Hook 与子智能体。',
     file: `${moduleSpan(agentModules)}/demo.py · full_loop/demo.py`,
   },
 ]

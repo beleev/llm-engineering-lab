@@ -3,20 +3,20 @@
     <h1 class="page-title">注意力的四代演进</h1>
     <div class="page-subtitle lead-group">
       <p>
-        模型生成文字是一个 token 一个 token 往外吐的。每吐一个新 token, 注意力层都要回头看一遍前面所有 token:
-        每个旧 token 在每一层都留下一个 K 向量 (key, 它能被谁问到) 和一个 V 向量 (value, 被问到时交出什么)。
-        这些向量以后不会再变, 所以算一次存起来, 这份存货就叫 KV cache。
+        语言模型的自回归生成逐 token 推进。每生成一个新 token, 注意力层都需要访问此前所有历史 token:
+        每个历史 token 在每一层都会产生一个 K 向量 (用于匹配相关性) 与一个 V 向量 (用于聚合输出内容)。
+        由于历史位置的 K 与 V 在后续解码步中不再改变, 推理引擎会将其计算一次后缓存下来, 即 KV cache。
       </p>
       <p>
-        问题是它太大: 上下文拉到 128K 个 token 时, 这份 cache 比模型权重还占显存, 而且每生成一个 token 都要把它从头读一遍。
-        从 MHA 到 MQA、GQA、MLA, 再到 DSA, 这一路都在做同一件事:
-        <strong>在不掉点 (效果不变差) 的前提下, 把每层每个 token 要缓存的东西再变小一点。</strong>
+        核心瓶颈在于显存容量与访存带宽开销过大: 当上下文扩展至 128K 个 token 时, KV cache 占用的显存甚至超过模型权重本身, 且解码阶段每生成一个新 token 都必须将其完整读取一遍。
+        从 MHA 到 MQA、GQA、MLA, 再到 DSA, 四代演进始终围绕同一目标展开:
+        <strong>在不损失模型质量的前提下, 持续压缩每层每个 token 需要缓存的状态体积。</strong>
       </p>
-      <p>真实模型上, 一个 token 在全部层上的 KV 加起来:</p>
+      <p>在代表性开源模型中, 单个 token 跨全部层的 KV cache 总量为:</p>
       <ul class="pts">
-        <li><b>LLaMA-2-7B:</b> 512 KiB (每层 K 和 V 各 4096 个数, fp16 每个数 2 字节, 一层 16 KiB, 32 层)。</li>
-        <li><b>LLaMA-3-8B:</b> 128 KiB (K/V 只留 8 个头, 每头 128 维)。</li>
-        <li><b>DeepSeek-V3:</b> 68.6 KiB (每层只存 576 个数, 61 层)。</li>
+        <li><b>LLaMA-2-7B:</b> 512 KiB (单层 K 与 V 各含 4096 个元素, fp16 下每元素占 2 字节, 单层共 16 KiB, 合计 32 层)。</li>
+        <li><b>LLaMA-3-8B:</b> 128 KiB (K/V 仅保留 8 个头, 每头 128 维)。</li>
+        <li><b>DeepSeek-V3:</b> 68.6 KiB (单层仅缓存 576 个元素, 合计 61 层)。</li>
       </ul>
     </div>
 
@@ -28,11 +28,11 @@
   - MLA: 不存完整 K/V, 改存低维压缩向量 $c_{kv}$ 与共享旋转位置向量, 用时再投影还原。
   - DSA: 在 MLA 缓存之上先用轻量打分器筛出 top-k 个候选位置, 把超长上下文的注意力计算从 $O(T^2)$ 降到 $O(T\cdot k)$。
 - 直观量级: 同样宽度 $d_{\text{model}}=4096$ 的单层里, 每新增 1 个 token 的缓存可从 MHA 的 16 KiB 一路压到 MLA 的约 1.1 KiB。"
-      question="模型每生成一个 token 都要翻一遍前面所有 token 的 K 和 V。每层每个 token 存的这份 K、V 还能不能再小, 同时效果不变差?"
+      question="自回归解码每生成一个 token 都必须读取此前所有 token 的 K 与 V。在不损害模型质量的前提下, 每层每个 token 缓存的 K 与 V 还能如何进一步压缩?"
       :goals="[
-        '说清 MHA / GQA / MLA / DSA 各自省的是哪一块',
-        '算出「头数 / KV 头数 / 压缩维 / 稀疏 top-k」变化时 cache 怎么变',
-        '对着源码认出每一种注意力的 forward 差在哪几行',
+        '阐明 MHA、GQA、MLA 与 DSA 各自压缩的显存或计算开销来源',
+        '定量计算查询头数、KV 头数、低秩压缩维与稀疏 top-k 变化时的 KV cache 规模',
+        '对照源码定位四代注意力机制在 forward 实现中的核心差异',
       ]"
       :codes="[{ path: 'llm_models/layers/core/attention.py' }]"
       :prereq="prevChapter"
@@ -40,8 +40,8 @@
     />
 
     <EvolutionChain
-      title="演进逻辑链 · 每一代都在补上一代的窟窿"
-      subtitle="每一格先写上一代的痛点, 再写这一代的解法; 解法留下的新问题, 就是下一格的开头。"
+      title="演进逻辑链 · 四代注意力的瓶颈与解法"
+      subtitle="根问题: 自回归推理需缓存全部历史 token 的 K/V 并逐位计算注意力, 长上下文下显存带宽与计算量双双受限。"
       :steps="evoSteps"
     />
 
@@ -50,23 +50,22 @@
       <div class="workbench-heading">
         <span class="eyebrow">动手建立直觉</span>
         <div>
-          <h2 id="attention-workbench-title">先把任务钉死, 再换「KV 怎么存」</h2>
+          <h2 id="attention-workbench-title">固定上下文与模型宽度, 对比「KV 如何存储」</h2>
           <p>
-            这是一次对照实验, 模拟的是一层注意力在推理时要为整段上下文存多少 KV cache。
-            上下文长度 T (要记住多少个 token) 和模型宽度 d_model (每个 token 的向量有多少维) 都钉死不动, 只换 Attention 方案。
-            这样下面柱图的差别只可能来自「K/V 怎么存」这一件事。
+            本对照实验模拟单层注意力在推理阶段为整段上下文维护的 KV cache 容量。
+            实验固定上下文长度 T 与模型宽度 d_model, 仅切换注意力方案, 使下方柱状图的差异完全归因于「K/V 如何存储」这一结构变量。
           </p>
         </div>
       </div>
 
       <ol class="learning-steps" aria-label="交互阅读顺序">
-        <li><span>1</span><strong>选上下文</strong><small>要记住多少个 token</small></li>
-        <li><span>2</span><strong>换 Attention</strong><small>看 K/V 换了种存法</small></li>
-        <li><span>3</span><strong>读结果</strong><small>说出显存和算力各差多少</small></li>
+        <li><span>1</span><strong>选择上下文规模</strong><small>设定序列长度 T</small></li>
+        <li><span>2</span><strong>切换注意力方案</strong><small>改变 K/V 的缓存结构</small></li>
+        <li><span>3</span><strong>对比量化指标</strong><small>观察显存占用与计算量差异</small></li>
       </ol>
 
       <fieldset class="context-presets">
-        <legend>第一步 · 挑一个真实的阅读场景</legend>
+        <legend>第一步 · 选择典型上下文场景</legend>
         <div class="preset-grid">
           <button
             v-for="preset in contextPresets"
@@ -86,8 +85,8 @@
         <span class="readout-kicker">当前实验</span>
         <strong>{{ activePresetLabel }}</strong>
         <span>
-          上下文 {{ formatT(p.T) }} 个 token, 模型宽度 d_model = {{ p.d_model }}。
-          下一步只换 Attention 方案, 看存法换了之后 cache 的数字怎么走。
+          上下文长度 {{ formatT(p.T) }} 个 token, 模型宽度 d_model 为 {{ p.d_model }}。
+          下一步仅切换注意力方案, 观察不同缓存结构下的显存与计算量变化。
         </span>
       </div>
     </section>
@@ -114,7 +113,7 @@
       aria-labelledby="current-concept-title"
     >
       <div class="bridge-heading">
-        <span class="eyebrow">第二步 · 现在用的是哪种</span>
+        <span class="eyebrow">第二步 · 当前注意力方案</span>
         <h2 id="current-concept-title">{{ current.fullName }}</h2>
         <Prose :text="current.description" />
       </div>
@@ -138,7 +137,7 @@
         </article>
       </div>
       <div class="concept-takeaway">
-        <span>一句话带走</span>
+        <span>核心结论</span>
         <strong>{{ conceptStory.takeaway }}</strong>
       </div>
     </section>
@@ -189,9 +188,9 @@
         </div>
 
         <p class="parameter-feedback" aria-live="polite" aria-atomic="true">
-          每来一个新 token, 本层往 cache 里再写
-          <strong class="mono">{{ formatBytes(cacheBytesPerToken(current)) }}</strong> (fp16, 每个数 2 字节);
-          当前整段上下文已经占了
+          每新增 1 个 token, 本层向 KV cache 追加写入
+          <strong class="mono">{{ formatBytes(cacheBytesPerToken(current)) }}</strong> (fp16 精度下每元素占 2 字节);
+          当前整段上下文累计占用
           <strong class="mono">{{ formatBytes(cacheBytes(current)) }}</strong>。
         </p>
 
@@ -214,14 +213,14 @@
 
       <!-- 右: KV cache 横向对比柱图 -->
       <div class="card">
-        <h3>整段 KV cache 对比 <span class="tag">单层 · B=1 · fp16</span></h3>
+        <h3>整段 KV cache 对比 <span class="tag">单层 · 单序列 · fp16</span></h3>
         <ul class="desc pts" style="margin-bottom: 16px;">
-          <li><b>图上是什么:</b> 四根柱子, 一根对应一种 Attention 方案, 长度是这一层为<strong>整段上下文</strong>存下的 KV cache 字节数, 右边的百分比是相对 MHA 的比例。</li>
+          <li><b>图上是什么:</b> 四条柱状带分别对应四种注意力方案, 长度表示单层为<strong>整段上下文</strong>维护的 KV cache 字节数, 右侧百分比为相对于 MHA 基线的比例。</li>
           <li>
-            <b>算法:</b> 「每个 token 要存几个数」乘上 token 数 <span class="mono">T={{ formatT(p.T) }}</span>, 再乘 2 字节 (fp16)。
-            当前 <span class="mono">d_model={{ p.d_model }}</span>、<span class="mono">n_heads={{ p.n_heads }}</span>; 只算一层、一条序列 (B=1)。
+            <b>计算方式:</b> 单 token 缓存元素数乘以序列长度 <span class="mono">T</span> (当前为 <span class="mono">{{ formatT(p.T) }}</span>), 再乘以 fp16 单元素字节数 (2 字节)。
+            当前模型宽度 <span class="mono">d_model</span> 为 <span class="mono">{{ p.d_model }}</span>, 查询头数 <span class="mono">n_heads</span> 为 <span class="mono">{{ p.n_heads }}</span>; 仅统计单层、单条序列 (batch 大小 B 为 1)。
           </li>
-          <li><b>怎么读:</b> 柱越短, 解码时每一步要重读的字节就越少。拖左边的滑条, 柱子跟着动。</li>
+          <li><b>读图要点:</b> 柱体越短, 解码阶段每步需要从显存重读的字节数越少。拖动左侧滑杆可实时观察各方案的缓存变化。</li>
         </ul>
         <div class="bars" aria-label="四种 Attention 的单层 KV cache 对比">
           <div v-for="v in variants" :key="v.id" class="bar-row" :class="{ current: v.id === current.id }">
@@ -241,22 +240,22 @@
           <div class="stat">
             <div class="k">新增 1 token / 层</div>
             <div class="v accent">{{ formatBytes(cacheBytesPerToken(current)) }}</div>
-            <div class="hint">每生成一个新 token, 这一层要往 cache 里追加这么多</div>
+            <div class="hint">每生成一个新 token, 单层需向缓存追加写入的字节数</div>
           </div>
           <div class="stat">
             <div class="k">当前上下文 / 层</div>
             <div class="v">{{ formatBytes(cacheBytes(current) * 1) }}</div>
-            <div class="hint">相对 MHA: {{ relToMHA(current) }}</div>
+            <div class="hint">相对 MHA 基线: {{ relToMHA(current) }}</div>
           </div>
           <div class="stat">
             <div class="k">{{ LAYERS }} 层合计</div>
             <div class="v">{{ formatBytes(cacheBytes(current) * LAYERS) }}</div>
-            <div class="hint">按 LLaMA-2-7B 的 {{ LAYERS }} 层算; 只算 KV, 没算 batch 和其他激活</div>
+            <div class="hint">按 LLaMA-2-7B 的 {{ LAYERS }} 层折算; 仅统计单序列 KV cache, 不含多 batch 与中间激活值</div>
           </div>
           <div class="stat">
-            <div class="k">整段要算多少对 (q, k)</div>
+            <div class="k">整段 (q, k) 配对计算数</div>
             <div class="v">{{ formatFlops(flopsPerQuery) }}</div>
-            <div class="hint"><Tex text="每个 query 要和几个 key 算分数, $T$ 个 query 加起来的对数。拉长 $T$ 看它是按 $T^2$ 还是按 $T\cdot k$ 涨" /></div>
+            <div class="hint"><Tex text="全部 $T$ 个 query 需参与打分的 key 总对数; 增大 $T$ 可对比 $T^2$ 与 $T\cdot k$ 的增长斜率" /></div>
           </div>
         </div>
       </div>
@@ -268,22 +267,22 @@
       <div class="lead-group">
         <ul class="pts">
           <li>
-            <b>模拟什么:</b> 一层注意力里, 每个 token 在看哪些历史 token。图里的权重是按「离得近的分高, 再撒几个热点」生成的示意, 不是真实模型算出来的。
+            <b>模拟什么:</b> 单层自注意力中各位置 token 对历史 token 的注意力权重分布。图中权重按「近邻距离衰减叠加局部热点」规则合成, 仅作机制示意而非真实模型推理输出。
           </li>
           <li>
             <b>图上是什么:</b>
             <ul class="pts">
-              <li>一行是一个 query (正在算的 token), 一列是一个 key (被看的 token), 一共 24 个 token。</li>
-              <li>格子颜色越深, 这个 query 分给那个 key 的权重越大; 每一行的权重加起来是 1。</li>
-              <li>右上三角被因果 mask 屏蔽 (因果 mask: 语言模型只许看前面的 token, 后面位置的分数直接填成负无穷), 所以谁也看不见未来。</li>
-              <li v-if="current.id === 'dsa'">DSA 只在 indexer 挑出的 top-k 个位置上有权重, 所以左下三角也大片是空的。</li>
+              <li>每行对应一个 query (当前计算的 token), 每列对应一个 key (被访问的历史 token), 共 24 个 token。</li>
+              <li>色块越深代表该 query 分配给对应 key 的注意力权重越高; 每行权重经归一化后总和为 1。</li>
+              <li>右上三角被因果 mask (将未来位置的分数置为负无穷以禁止访问后续 token) 屏蔽, 确保自回归生成不泄漏未来信息。</li>
+              <li v-if="current.id === 'dsa'">DSA 仅在 indexer 筛选出的 top-k 个候选位置上保留注意力权重, 因此左下三角亦呈大面积稀疏状态。</li>
             </ul>
           </li>
           <li>
-            <b>可以做什么:</b> 在上面切换方案。
+            <b>可以做什么:</b> 在上方切换不同注意力方案。
             <ul class="pts">
-              <li><b>MHA / GQA / MLA:</b> 只改 K/V 怎么存, 每个 query 看的 key 一个不少, 所以矩阵长得一样。</li>
-              <li><b>DSA:</b> 切到 DSA 再拖「稀疏候选 sparse_top_k」, 每行只留分最高的几格。</li>
+              <li><b>MHA / GQA / MLA:</b> 三者仅改变 K/V 的缓存结构, 每个 query 仍对全部可见历史 key 计算分数, 因此注意力矩阵形态一致。</li>
+              <li><b>DSA:</b> 切换至 DSA 并拖动「稀疏候选 sparse_top_k」滑杆, 每行仅保留得分最高的若干候选位置。</li>
             </ul>
           </li>
         </ul>
@@ -312,8 +311,8 @@
               <span>0</span><span>权重</span><span>1</span>
             </div>
             <p class="desc" style="margin-top: 16px; max-width: 280px;">
-              N = <span class="mono">{{ N }}</span> 个 token 的因果注意力矩阵。
-              <span v-if="current.id === 'dsa'">滑条上的 sparse_top_k 对这张小图封顶成 <span class="mono">{{ Math.min(p.sparse_top_k, N) }}</span>; 画格子时另按 1/32 缩小, 每行最多亮 8 格, 滑条拖到 256 以下亮的格子才会变少。</span>
+              序列长度 N 为 <span class="mono">{{ N }}</span> 个 token 的因果注意力矩阵。
+              <span v-if="current.id === 'dsa'">滑杆上的 sparse_top_k 在此小尺寸矩阵中截断上限为 <span class="mono">{{ Math.min(p.sparse_top_k, N) }}</span>; 绘制时另按 1/32 比例缩放, 每行最多高亮 8 格, 将滑杆调至 256 以下时高亮格数随之减少。</span>
             </p>
             <p class="matrix-reading">{{ matrixReading }}</p>
           </div>
@@ -323,27 +322,26 @@
 
     <!-- mask 一族: 投影压缩之外的另一条降本路线 -->
     <section class="section">
-      <h2>另外两条路线: 改 mask, 或者干脆不存 KV</h2>
+      <h2>另外两条正交路线: 稀疏化注意力掩码与线性状态压缩</h2>
       <div class="lead-group">
-        <p>本章主线是「压 KV 投影」。要省 cache 和算力, 还有两条路和它互不冲突, 可以叠着用。</p>
+        <p>本章主线聚焦于「压缩单 token 的 KV 投影表示」。围绕降低推理显存与计算开销, 工程上还有两条与之正交、可叠加使用的技术路线:</p>
         <ul class="pts">
-          <li><b>压 KV 投影 (本章, MHA 到 GQA 再到 MLA):</b> 每个 token 要存的 K/V 变小; 每个 query 看的 key 一个不少。</li>
+          <li><b>压缩 KV 投影 (本章主线, 从 MHA、GQA 到 MLA):</b> 缩减每个历史 token 缓存的 K/V 向量体积, 但每个 query 仍对全部历史位置计算注意力。</li>
           <li>
-            <b>改 mask (Mistral / StreamingLLM / DSA):</b> mask 是一张「谁能看见谁」的表。
+            <b>稀疏化注意力掩码 (Mistral / StreamingLLM / DSA):</b> 通过注意力 mask 限定每个 query 可访问的历史 key 集合。
             <ul class="pts">
-              <li><b>Mistral:</b> 滑动窗口只让每个 token 看最近 W 个, 窗口外的 KV 直接丢掉。</li>
-              <li><b>StreamingLLM:</b> 在窗口之外再永久留住开头几个 token (叫 sink)。</li>
-              <li><b>DSA:</b> 只看 indexer 挑出的 top-k 个。</li>
+              <li><b>Mistral:</b> 采用滑动窗口注意力, 每个 token 仅访问最近 W 个历史位置, 滑出窗口的 KV 直接驱逐。</li>
+              <li><b>StreamingLLM:</b> 在局部滑动窗口之外永久保留序列开头的若干个初始 token (即 attention sink)。</li>
+              <li><b>DSA:</b> 每个 query 仅访问由轻量级 indexer 动态筛选出的 top-k 个历史位置。</li>
             </ul>
-            看的 key 少了, 省的是算力; 前两种因为丢掉了窗口外的 KV, 还顺手省了 cache。
+            减少参与计算的 key 数量可直接降低注意力计算量; 其中滑动窗口与 StreamingLLM 因驱逐了窗口外的历史状态, 同时还将 KV cache 限制在固定容量内。
           </li>
           <li>
-            <b>线性注意力</b> (Gated DeltaNet, <RepoLink path="llm_models/layers/sparse/linear_attention.py" label="linear_attention.py" tiny />):
-            省得最多的一条: 它不再按 token 存 K/V, 而是把全部历史压进一个固定大小的状态矩阵, 序列再长它也不变大。代价是固定大小的状态记不精确。
-            Qwen3-Next 拿它换掉了 75% 的层, 剩下 25% 留全注意力, 给需要精确召回的地方兜底。
+            <b>线性注意力</b> (如 Gated DeltaNet, 见 <RepoLink path="llm_models/layers/sparse/linear_attention.py" label="linear_attention.py" tiny />):
+            不再逐 token 保存 K/V 历史, 而是将全部上下文递归压缩进固定维度的状态矩阵, 使状态空间开销与序列长度完全解耦。代价是定长状态矩阵难以无损完成精确键值召回; 因此 Qwen3-Next 将 75% 的层替换为线性注意力, 其余 25% 仍保留标准全注意力以保障精确检索能力。
           </li>
         </ul>
-        <p>下面的实验台画的是第二条路: 拖窗口大小和 sink 数, 看每个 token 能看见的格子怎么变。细节在「SWA · MTP · 混合线性」那一章。</p>
+        <p>下方交互实验台展示第二条路线: 调节滑动窗口宽度与 attention sink 数量, 观察各位置可见历史范围的变化。完整机制详见「SWA · MTP · 混合线性」一章。</p>
       </div>
       <AttnMaskLab />
     </section>
@@ -351,7 +349,7 @@
     <!-- 源码速览 -->
     <section class="section">
       <h2>核心代码</h2>
-      <p class="lead">你现在选中的这一档, 在 <RepoLink path="llm_models/layers/core/attention.py" label="llm_models/layers/core/attention.py" tiny /> 里就是 <span class="mono">{{ classFor(current.id) }}</span> 这个类。四个类在同一个文件里, 可以直接对着看差在哪几行。下面的片段是精简版, 只留了决定「cache 里存什么」的那几行。</p>
+      <p class="lead">当前选中的方案对应 <RepoLink path="llm_models/layers/core/attention.py" label="llm_models/layers/core/attention.py" tiny /> 中的 <span class="mono">{{ classFor(current.id) }}</span> 类。四代注意力实现位于同一源码文件内, 便于直接对照结构差异; 下方代码片段已做精简, 重点展示决定「KV cache 存储结构与稀疏筛选方式」的核心逻辑。</p>
       <CodeBlock :code="codeSnippet" />
     </section>
 
@@ -365,7 +363,7 @@
 
     <ChapterNav
       :prev="prevChapter"
-      :next="{ ...nextChapter, hint: '看完 attention 后, 再看 RoPE 是怎么注入 Q/K 的' }"
+      :next="{ ...nextChapter, hint: '理解注意力主干与缓存结构后, 进一步考察 RoPE 如何向 Q/K 注入相对位置信息' }"
     />
   </div>
 </template>
@@ -398,23 +396,23 @@ const LAYERS = 32
 
 const evoSteps = [
   { name: 'MHA', year: 2017, color: 'var(--text-muted)',
-    pain: '(原点) 注意力分成很多个头各看各的, 每个头都要存自己的一对 K/V',
-    fix: '每个头独立投影出 K、V, 表达力最满。代价是 cache 也最大: 当年序列短没人在意, 这笔账留给了八年后的长上下文推理' },
+    pain: '(原点) 多头注意力将特征空间拆分为多个子空间并行关注不同模式, 每个头均需维护独立的 K 与 V 投影。',
+    fix: '各查询头独立投影并缓存专属 K 与 V, 表达能力最为充分, 但 KV cache 开销也最大; 早期短序列下尚不显著, 却成为八年后长上下文推理的首要瓶颈。' },
   { name: 'MQA / GQA', year: '2019 / 2023', color: 'var(--accent)',
-    pain: '一层的 cache 是 $2\\cdot T\\cdot d_{\\text{model}}$ 个数 (T 个 token, K 和 V 各 d_model 个): 上下文翻倍, 显存就翻倍',
-    fix: '让好几个 Q 头共用同一对 K/V, 只存 num_kv_heads 份: cache 除以每组的头数, 效果几乎不掉。本仓库的教学配置下每 token 每层从 1024 个数降到 256 个' },
+    pain: '单层缓存为 $2\\cdot T\\cdot d_{\\text{model}}$ 个元素 ($T$ 个 token、K/V 各 $d_{\\text{model}}$ 维), 上下文翻倍则显存翻倍。',
+    fix: '令每组查询头共享同一对 K/V, 仅保留 num_kv_heads 组缓存, 按组内头数成倍压缩显存且精度几乎无损; 本仓库教学配置下每 token 每层由 1024 个元素降至 256 个。' },
   { name: 'MLA', year: 2024, color: 'var(--left)',
-    pain: 'KV 头数砍到 1 就到底了, 存的仍是整条 K 和 V 向量, 再想小没有旋钮可拧',
-    fix: '不存 K 和 V, 存一个能还原出它们的低维压缩件 c_kv, 外加一小段所有头共享的位置向量 k_rope; 要用时再乘回 K、V。教学配置下从 256 个数降到 96 个' },
+    pain: 'KV 头数降至 1 即触及跨头共享下限, 缓存的仍是完整 K 与 V 向量, 无法在头数维度继续压缩。',
+    fix: '改存可还原 K/V 的低维潜在向量 c_kv 与多头共享的旋转位置向量 k_rope, 计算时再经上投影恢复 K 与 V; 教学配置下每 token 每层由 256 个元素降至 96 个。' },
   { name: 'DSA', year: 2025, color: 'var(--right)',
-    pain: 'cache 压下去了, 但每个 query 仍要和全部 T 个 key 算分数: 上下文 128K 时算力按 $T^2$ 涨',
-    fix: '先用一个很小的打分器 Lightning Indexer 给每个位置粗打分, 只留分最高的 k 个, 昂贵的注意力只在这 k 个位置上算: 算力从 $O(T^2)$ 降到 $O(T\\cdot k)$' },
+    pain: 'KV 缓存虽已大幅压缩, 但每个 query 仍需与全部 $T$ 个 key 计算相关性分数, 128K 上下文下计算量按 $T^2$ 增长。',
+    fix: '先用轻量打分器 Lightning Indexer 粗评并筛出分数最高的 k 个位置, 仅在这 k 个候选上计算注意力, 将计算复杂度由 $O(T^2)$ 降至 $O(T\\cdot k)$。' },
 ]
 
 const contextPresets = [
   { id: 'chat', label: '日常对话 · 4K', hint: '约 10–20 页文本', T: 4096 },
   { id: 'document', label: '长文档 · 32K', hint: '整篇论文或代码库片段', T: 32768 },
-  { id: 'long-context', label: '超长上下文 · 128K', hint: '显存与计算差异被放大', T: 131072 },
+  { id: 'long-context', label: '超长上下文 · 128K', hint: '显存与计算差异显著放大', T: 131072 },
 ]
 
 const current = ref(variants[0])
@@ -482,31 +480,31 @@ const flopsPerQuery = computed(() => {
 const conceptStory = computed(() => {
   const shared = {
     input: `${formatT(p.T)} tokens × ${p.d_model} 维`,
-    inputNote: `每个 token 是一个 ${p.d_model} 维向量; 本层有 ${p.n_heads} 个 Q 头, 每个头各拿一段维度算一次注意力。换方案时上下文和模型宽度都不动。`,
+    inputNote: `每个 token 表示为 ${p.d_model} 维向量; 本层设 ${p.n_heads} 个查询头, 各头在对应子空间内独立计算注意力。切换方案时上下文长度与模型宽度保持不变。`,
     outcome: `${formatBytes(cacheBytes(current.value))} / 层`,
-    outcomeNote: `每多生成 1 个 token, 本层就再写入 ${formatBytes(cacheBytesPerToken(current.value))}; 整段加起来相对 MHA 是 ${relToMHA(current.value)}。`,
+    outcomeNote: `每新增 1 个生成 token, 本层需向缓存追加写入 ${formatBytes(cacheBytesPerToken(current.value))}; 整段上下文缓存体积约为 MHA 基线的 ${relToMHA(current.value)}。`,
   }
 
   const stories = {
     mha: {
-      mechanism: `${p.n_heads} 个 Q 头各存一组 K/V`,
-      mechanismNote: '每个头的 K、V 都是自己投影出来的, 不共享也不压缩。后面三种方案的百分比都拿它当 100%。',
-      takeaway: 'MHA 表达力最满, 但上下文翻一倍, KV cache 就跟着翻一倍。',
+      mechanism: `${p.n_heads} 个查询头各自维护独立的 K/V`,
+      mechanismNote: '每个查询头均通过独立投影生成专属的 K 与 V, 不做跨头共享或低秩压缩; 后续三种方案的缓存占比均以 MHA 为 100% 基准。',
+      takeaway: 'MHA 具备最充分的多头独立表征能力, 但 KV cache 容量随上下文长度呈严格线性增长。',
     },
     gqa: {
-      mechanism: `${p.n_heads} 个 Q 头共用 ${p.num_kv_heads} 组 K/V`,
-      mechanismNote: `每 ${Math.max(1, p.n_heads / p.num_kv_heads).toFixed(0)} 个 Q 头排成一组, 一组共用同一对 K/V, 所以只要存 ${p.num_kv_heads} 对; Q 头一个没减, 注意力照样是 ${p.n_heads} 个头在算。`,
-      takeaway: 'GQA 砍掉的是「重复存了好多份的 K/V 头」, 上下文没变短, 注意力公式也一行没改。',
+      mechanism: `${p.n_heads} 个查询头分组共享 ${p.num_kv_heads} 组 K/V`,
+      mechanismNote: `每 ${Math.max(1, p.n_heads / p.num_kv_heads).toFixed(0)} 个查询头划分为一组并共享同一对 K/V, 单层仅需缓存 ${p.num_kv_heads} 组 K/V; 查询头数量仍为 ${p.n_heads}, 注意力主干计算保持不变。`,
+      takeaway: 'GQA 仅裁减冗余的多头 K/V 副本, 在保持序列长度与注意力主干公式不变的前提下成倍降低缓存体积。',
     },
     mla: {
-      mechanism: `K/V 先压成 ${p.kv_lora_rank} 维的 latent`,
-      mechanismNote: `不存 K 和 V 本身, 只存一个 ${p.kv_lora_rank} 维的压缩向量 c_kv (叫 latent), 外加一段 ${p.qk_rope_head_dim} 维、所有头共用的位置向量 k_rope; 要用时再把 c_kv 乘上升维矩阵, 还原出各头的 K 和 V。`,
-      takeaway: 'MLA 把「存完整 K/V」换成「存一个能还原出 K/V 的压缩件」, 多算一点, 换 cache 小一截。',
+      mechanism: `将 K/V 压缩为 ${p.kv_lora_rank} 维潜在向量`,
+      mechanismNote: `不再直接缓存完整的 K 与 V, 而是缓存 ${p.kv_lora_rank} 维低秩潜在向量 c_kv 以及所有头共享的 ${p.qk_rope_head_dim} 维旋转位置向量 k_rope; 参与注意力计算时再经上投影矩阵还原各头的 K 与 V。`,
+      takeaway: 'MLA 将「缓存完整 K/V 张量」替换为「缓存可还原 K/V 的低秩潜在向量」, 以可控的投影计算换取大幅显存压缩。',
     },
     dsa: {
-      mechanism: `MLA 的压缩照旧 + 每个 query 只挑 ${Math.min(p.sparse_top_k, p.T)} 个位置算`,
-      mechanismNote: 'cache 和 MLA 一模一样, 每个旧位置的压缩件都得留着, 因为将来某个 query 可能选中它; 省的是每个 query 要和多少个位置算分数: 从全部 T 个变成 k 个。',
-      takeaway: 'DSA 分两刀砍: MLA 那一刀砍显存, top-k 这一刀只砍超长上下文的算力, 不省 cache。',
+      mechanism: `保留 MLA 低秩缓存, 每个 query 仅筛选 ${Math.min(p.sparse_top_k, p.T)} 个候选位置`,
+      mechanismNote: '缓存结构与 MLA 完全一致, 所有历史位置的压缩状态均需保留以备后续查询检索; 节省的是注意力打分规模, 每个 query 参与计算的历史位置数由全部 T 个缩减至 k 个。',
+      takeaway: 'DSA 实现正交的双重开销削减: 底层依赖 MLA 压缩 KV 显存, 上层通过 top-k 稀疏筛选降低超长上下文的计算复杂度, 但不进一步缩减缓存体积。',
     },
   }
 
@@ -561,8 +559,8 @@ const matrixCells = computed(() => {
 })
 
 const matrixReading = computed(() => current.value.id === 'dsa'
-  ? '怎么读: 右上角空着, 是因为看不到未来。左下三角里只剩零星几个色块, 那就是 indexer 挑出来的 top-k 个位置; 其余位置的分数被直接丢掉, 不参与 softmax。'
-  : '怎么读: 右上角空着, 是因为看不到未来。左下三角某格颜色越深, 说明这个 token 越依赖那个历史位置; 对角线附近最深, 是因为示意数据让离得近的 token 分数更高。'
+  ? '读图说明: 右上三角因因果掩码屏蔽未来位置而保持空白; 左下三角仅保留 indexer 筛选出的 top-k 个高分候选位置, 其余历史位置在进入 softmax 前已被剔除。'
+  : '读图说明: 右上三角因因果掩码屏蔽未来位置而保持空白; 左下三角色块越深代表当前 query 分配给对应历史位置的注意力权重越高, 对角线附近颜色最深源于合成数据赋予相邻位置更高分数。'
 )
 
 const matrixAriaLabel = computed(() =>

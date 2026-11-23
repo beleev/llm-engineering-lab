@@ -2,17 +2,16 @@
   <div>
     <h1 class="page-title">推理与部署优化 · 从能生成到高吞吐服务</h1>
     <p class="page-subtitle">
-      <RepoLink path="llm_infer/" label="llm_infer/" tiny /> 把训练好的自回归模型搬进服务环境。
-      还是一个接一个地生成 token, 但目标从"loss 下降"换成了"首 token 快、吞吐高、显存稳、输出可控"。
+      <RepoLink path="llm_infer/" label="llm_infer/" tiny /> 聚焦于将训练完毕的自回归模型部署为线上推理服务。模型依然按 token 逐步生成, 但核心工程目标从「收敛训练损失」转向了「压低首 token 延迟、提升并发吞吐、控制显存峰值与约束输出结构」。
     </p>
 
     <ChapterIntro
       :tldr="tldr"
-      question="为什么训练时最贵的是反向, 推理时最贵的却常常是 KV cache、调度和内存带宽?"
+      question="为什么训练阶段的主要开销在反向传播, 而线上推理的瓶颈却往往落在 KV cache 容量、动态调度与显存带宽上?"
       :goals="[
-        '说清 KV cache / 分页 / 前缀复用各自省掉的是什么',
-        '看懂连续批和分块 prefill 怎么把 GPU 喂饱, 以及代价落在谁头上',
-        '把 mini-vLLM 的主循环逐行对上真实的 vLLM / SGLang',
+        '厘清 KV cache、分页管理与前缀缓存各自消除的冗余开销',
+        '理解连续批处理与分块 prefill 提升 GPU 利用率的机制及其延迟权衡',
+        '将本仓库 mini-vLLM 的服务主循环与真实 vLLM / SGLang 架构逐一对应',
       ]"
       :codes="[
         { path: 'llm_infer/core/' },
@@ -30,54 +29,53 @@
       <h2>1. 推理优化的递进关系</h2>
       <div class="lead-group">
         <ul class="pts">
-          <li>先把「每生成一个 token 就把前文整段重算一遍」改成「只算新 token, 旧的从 KV cache 里拿」。</li>
-          <li>再把 KV cache 占的显存切成块, 做成可以按需分配、用完归还的资源。</li>
-          <li>然后让请求每一步重新组成 batch, 新请求随时加入, 算完的随时退出。</li>
+          <li><b>消除历史重算:</b> 将每步重新前向整段上下文的朴素解码, 改为仅计算当前新 token 并从 KV cache 读取历史键值。</li>
+          <li><b>消除显存碎片:</b> 将连续预留的 KV cache 显存池切分为固定大小的物理块, 按需动态分配并在请求结束后立即回收。</li>
+          <li><b>消除批内空转:</b> 从静态批处理改为逐步重组的连续批处理 (Continuous Batching), 允许新请求随时插入、已完成请求即时退出。</li>
         </ul>
-        <p>后面的前缀复用、投机解码、量化、结构化输出都挂在这条服务主循环上。按这个顺序拆开读, 就不会乱。</p>
+        <p>后续的前缀缓存复用、投机解码、权重与 KV 量化以及结构化解码约束, 均挂载在这条核心服务主循环之上。</p>
       </div>
       <EvolutionChain
         title="从朴素 generate 到 mini-vLLM"
-        subtitle="每一步优化都保留同一个模型语义: logits 不变, 只是执行路径更省。"
+        subtitle="每次演进均保持模型数学语义不变: 精确路径下输出 logits 一致, 仅重构计算与显存调度方式。"
         :steps="inferChain"
       />
     </section>
 
     <section class="section">
-      <h2>2. 第一性瓶颈 · 每步重算 vs KV cache</h2>
+      <h2>2. 第一性瓶颈 · 逐步重算与 KV cache</h2>
       <div class="lead-group">
         <ul class="pts">
-          <li><b>没有 cache:</b> 第 t 步要把 prompt 加上已生成的 t 个 token 整段再 prefill 一遍。</li>
-          <li><b>有 cache:</b> prefill 只跑一次, decode 只给新 token 追加 K/V。</li>
+          <li><b>无缓存路径:</b> 第 t 步解码时需要将原始 prompt 与已生成的 t 个 token 拼接后整段重新执行 prefill。</li>
+          <li><b>KV cache 路径:</b> 输入阶段仅执行一次 prefill, 后续 decode 阶段每步只为单个新 token 计算并追加键值向量。</li>
         </ul>
-        <p>m01 的 demo 里, 累计过一遍模型的 token 数从 688 掉到 37 (18.6×), 输出 ids 逐个不变。</p>
+        <p>在 m01 的基准演示中, 累计流经模型前向的 token 总数从 688 降至 37 (压缩 18.6×), 且生成的输出 token 序列逐位置完全一致。</p>
       </div>
       <div class="grid grid-2" style="gap: 16px;">
         <div class="card">
           <h3>朴素路径 <span class="tag">重复 prefill</span></h3>
           <pre class="code">{{ noCacheCode }}</pre>
           <p class="hint">
-            每一步的成本随已生成长度往上爬。demo 会把这条路径和 cache 路径的输出 ids 对齐,
-            确认优化没有改掉生成结果。
+            单步前向开销随已生成序列长度线性增长, 累计复杂度呈平方级上升。演示脚本会将该路径与缓存路径的输出序列逐项比对, 验证优化前后生成结果严格等价。
           </p>
         </div>
         <div class="card">
           <h3>增量路径 <span class="tag">KV cache</span></h3>
           <pre class="code">{{ cacheCode }}</pre>
           <p class="hint">
-            首步 prefill 存下每层 K/V, 之后每次 <code class="inline">decode_step</code> 只喂一个新 token。
-            省掉的是旧 token 的 K/V 投影和 MLP 重算。新 query 仍要和全部 t 个 key 做点积。
-            对应 <RepoLink path="llm_infer/m01_kv_cache/demo.py" label="llm_infer/m01_kv_cache/demo.py" tiny />。
+            首步 prefill 缓存各层的历史 K/V 张量, 此后每次调用 <code class="inline">decode_step</code> 仅输入单个新 token。
+            该机制省去了历史 token 的线性投影与前馈网络重算, 但当前步的新 query 仍需与全部 t 个历史 key 计算注意力内积。
+            对应实现见 <RepoLink path="llm_infer/m01_kv_cache/demo.py" label="llm_infer/m01_kv_cache/demo.py" tiny />。
           </p>
         </div>
       </div>
     </section>
 
     <section class="section">
-      <h2>3. 服务端三件套 · 内存、调度、复用</h2>
+      <h2>3. 服务端核心原语 · 分页内存、连续调度与前缀复用</h2>
       <div class="lead-group">
-        <p>KV cache 只把单条请求变快。服务端还要面对长度各异的请求、同时到达的并发、共享的 system prompt 和显存碎片。</p>
-        <p>下面三个抽象就是 vLLM / SGLang 这类系统的骨架。</p>
+        <p>基础 KV cache 仅能加速单条请求的解码过程。进入多并发线上服务后, 引擎还必须同时应对请求输出长度未知导致的显存碎片、长短请求交错到达的吞吐波动, 以及大量请求共享相同 system prompt 带来的重复计算。</p>
+        <p>以下三个核心组件共同构成了 vLLM 与 SGLang 等现代推理引擎的系统骨架。</p>
       </div>
       <div class="grid grid-3">
         <div v-for="p in servingPrimitives" :key="p.name" class="card primitive-card">
@@ -90,12 +88,12 @@
     </section>
 
     <section class="section">
-      <h2>4. 加速、压缩与约束</h2>
+      <h2>4. 算子加速、模型压缩与解码约束</h2>
       <div class="lead-group">
-        <p>cache 和调度搭起骨架, 下面这些模块分别压计算、压存储、控采样、约束输出。它们大多能叠加, 但各有正确性边界:</p>
+        <p>在分页缓存与连续调度搭起的服务骨架之上, 其余子模块分别围绕计算加速、访存压缩、采样控制与语法约束展开。工程组合时需严格区分两类正确性边界:</p>
         <ul class="pts">
-          <li><b>精确 (输出逐 token 不变):</b> 分页、调度、前缀复用、投机解码。</li>
-          <li><b>有损 (要看误差):</b> 量化、attention sink、稀疏注意力。</li>
+          <li><b>数学等价优化 (贪心或同随机源下输出逐 token 一致):</b> 分页 KV 管理、连续批调度、前缀缓存复用与投机解码。</li>
+          <li><b>有损近似压缩 (需结合任务监控精度退化):</b> 权重与 KV 量化、Attention Sink 滑窗截断以及稀疏注意力。</li>
         </ul>
       </div>
       <div class="card" style="padding: 0; overflow-x: auto;">
@@ -124,7 +122,7 @@
       <h2>5. full_engine · 把模块接成服务主循环</h2>
       <div class="lead-group">
         <p>
-          <RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 虽不是完整的工业级 vLLM, 但把连续批调度 (m03)、真分页 KV 池 (m02)、链式前缀复用 (m04)、分块 prefill (m06) 以及抢占与采样 (m10) 串在了同一条服务主循环上。
+          <RepoLink path="llm_infer/full_engine/engine.py" label="full_engine/engine.py" tiny /> 虽不是完整的工业级 vLLM, 但把连续批调度 (m03)、真分页 KV 池 (m02)、链式前缀复用 (m04)、分块 prefill (m03 的开关, 原理见 m06) 以及抢占与采样 (m10) 串在了同一条服务主循环上。
         </p>
         <p>哪怕在只有 9 个物理块的小池子里触发了 4 次抢占重算, 它的贪心输出依然与朴素单条生成逐 token 完全一致。</p>
       </div>
@@ -133,16 +131,14 @@
           <h3>Engine.step <span class="tag">混合 batch</span></h3>
           <pre class="code">{{ engineStepCode }}</pre>
           <p class="hint">
-            没有"prefill 步"和"decode 步"之分: 同一个 batch 里 n&gt;1 的 prefill chunk 和 n=1 的 decode 混跑,
-            序列把 prompt 算追平了才有 logits 可采。
+            引擎内部不再区分独立的「prefill 步」与「decode 步」: 同一批次内可同时混跑长度大于 1 的 prefill 分块与单 token 的 decode 请求, 仅当序列将输入 prompt 全部前向完毕后才对末尾 logits 执行采样。
           </p>
         </div>
         <div class="card">
           <h3>接纳新请求时发生什么 <span class="tag">资源账本</span></h3>
           <pre class="code">{{ prefillCode }}</pre>
           <p class="hint">
-            命中前缀的 token 跳过了前向: KV 就在全局分页 pool 里, 经页表读回即可。
-            demo 里 305 个待算 token = 233 个真前向 + 72 个前缀命中, 这笔账必须对得上。
+            命中前缀缓存的 token 直接跳过前向传播, 其历史键值已驻留在全局分页池中, 只需通过页表映射读取。在演示脚本的资源统计中, 305 个待处理 token 精确拆分为 233 个实际前向 token 与 72 个前缀命中 token。
           </p>
         </div>
       </div>
@@ -174,8 +170,8 @@
 
 
     <ChapterNav
-      :prev="{ ...prevChapter, hint: '微调 / 对齐产出要部署的模型或适配器' }"
-      :next="{ name: 'infer-kv-memory', label: '下一章 · KV 与缓存内存', hint: '从少算旧 token 开始拆推理优化' }"
+      :prev="{ ...prevChapter, hint: '回顾微调与偏好对齐如何产出待部署的模型与适配器' }"
+      :next="{ name: 'infer-kv-memory', label: '下一章 · KV 与缓存内存', hint: '从消除历史重算与分页显存池开始拆解推理优化' }"
     />
   </div>
 </template>
@@ -207,43 +203,43 @@ const inferChain = [
   {
     name: 'No Cache',
     year: 'baseline',
-    pain: '每步都重算完整 prefix, 已生成越长越慢。',
-    fix: '作为 m01 对照组, 用来证明 cache 路径输出必须一致。',
+    pain: '每步解码都重新前向整段已知前缀, 单步开销随生成长度线性增加。',
+    fix: '作为 m01 基准对照路径, 用于逐 token 校验后续缓存优化的数值等价性。',
     color: 'var(--text-dim)',
   },
   {
     name: 'KV Cache',
     year: 'm01',
-    pain: '注意力里的旧 K/V 每步都重复算。',
-    fix: 'prefill 保存 K/V, decode_step 只追加新 token。',
+    pain: '注意力层中历史 token 的 K/V 投影与前馈激活在每步解码中被重复计算。',
+    fix: 'prefill 阶段缓存各层 K/V, decode_step 每步仅计算并追加单个新 token。',
     color: 'var(--left)',
   },
   {
     name: 'Paged KV',
     year: 'm02',
-    pain: '请求长度不同, 按最大长度连续预留 KV 显存会空着一大片, 还容易碎片化。',
-    fix: '把 KV 显存切成固定大小的 block, 每条请求一张页表 block_table, 记它的第几页放在哪个物理块。',
+    pain: '输出长度事先未知, 按最大长度连续预留 KV 显存会造成内部浪费与外部碎片。',
+    fix: '将 KV 显存池切分为固定大小的物理 block, 每条请求通过页表 block_table 按需映射物理块。',
     color: 'var(--accent)',
   },
   {
     name: 'Scheduler',
     year: 'm03',
-    pain: '请求随时进出, 静态 batch 会浪费大量空槽。',
-    fix: '每步重组 batch, prefill chunk 与 decode 混批, block 不够就抢占。',
+    pain: '并发请求到达时刻与生成长度各异, 静态批处理需等待最长序列结束而浪费算力。',
+    fix: '按步动态重组执行批次, 支持分块 prefill 与单步 decode 混跑, 显存不足时触发抢占。',
     color: 'var(--eye)',
   },
   {
     name: 'Reuse',
     year: 'm04-m06',
-    pain: '相同 system prompt 和长 prompt 反复 prefill。',
-    fix: 'prefix/radix cache 复用 KV, chunked prefill 减少长输入阻塞。',
+    pain: '多条请求共享的 system prompt 被反复计算, 且超长输入易独占单步执行时间。',
+    fix: '通过链式哈希或 Radix 树跨请求复用前缀 KV 块, 并以 chunked prefill 摊平长输入延迟。',
     color: 'var(--right)',
   },
   {
     name: 'Engine',
     year: 'full',
-    pain: '算法模块还不是服务。',
-    fix: 'Engine.add_request / step / generate 串成 mini-vLLM 控制流。',
+    pain: '孤立的缓存、调度与采样算子尚不能直接对外提供并发流式推理能力。',
+    fix: '在 Engine 中串联 add_request、step 与 generate, 闭环构成 mini-vLLM 服务主循环。',
     color: 'var(--warn)',
   },
 ]
@@ -267,7 +263,7 @@ const servingPrimitives = [
   {
     name: 'BlockManager',
     tag: 'PagedAttention',
-    desc: '把 KV pool 切成固定 block, 每条序列持有一张 block table。',
+    desc: '将全局 KV 显存池划分为固定大小的物理 block, 为每条序列维护独立的逻辑到物理块映射表 (block_table), 支持按需分配与跨请求引用计数共享。',
     file: 'llm_infer/m02_paged_attention/block_manager.py',
     code: `for blk in shared:          # 前缀命中的 block
     share_block(blk)        # ref_count += 1
@@ -278,7 +274,7 @@ block_tables[seq_id] = table`,
   {
     name: 'Scheduler',
     tag: 'continuous',
-    desc: '每步重组 batch = [(seq, n)]: running 先各拿 1 个 token, 剩余预算切给 prefill chunk; block 不够就抢占。',
+    desc: '每步动态重组形如 [(seq, n)] 的混合执行批次: 优先为运行中序列分配单步 decode 槽位, 剩余 token 预算切分给等待队列做分块 prefill; 物理块不足时触发抢占回收。',
     file: 'llm_infer/m03_continuous_batching/scheduler.py',
     code: `budget = max_batch_tokens
 batch = schedule_running(budget)   # decode: n = 1
@@ -290,7 +286,7 @@ return batch                       # [(seq, n)]`,
   {
     name: 'PrefixCache',
     tag: 'reuse',
-    desc: '每个写满的 block 连同前一个 block 的 hash 一起再做 hash (链式 hash)。新请求的 prompt 前几个 block 若已有同样的 hash, 就直接共用那些物理 block, 不再重算。',
+    desc: '对每个写满的逻辑块结合前驱块摘要计算链式哈希。新请求到达时按块匹配前缀哈希, 命中的公共前缀直接复用全局池中的物理 block 并递增引用计数, 免去重复 prefill。',
     file: 'llm_infer/m04_prefix_cache/prefix_cache.py',
     code: `for i in range((len(ids) - 1) // bs):   # 至少留 1 个 token 真算
     parent = sha1(parent + block_i)     # 链式 hash
@@ -321,12 +317,12 @@ seq.num_computed = n_hit            # 命中的不用前向
 batch.append((seq, n))`
 
 const engineMap = [
-  { concept: '请求入口', file: 'Engine.add_request', focus: 'prompt encode 后进入 waiting 队列, 每条请求绑定 SamplingParams' },
-  { concept: '每步组 batch', file: 'm03_continuous_batching/scheduler.py', focus: 'schedule() 返回 [(seq, n)]: decode 优先, 剩余 token 预算给 prefill chunk; block 不够时 recompute 式抢占' },
-  { concept: '真分页前向', file: 'full_engine/model_runner.py', focus: 'run() 只算 ids[start_pos:], 其余 KV 经 block_table 从全局 pool 读回' },
-  { concept: '显存账本', file: 'BlockManager', focus: 'allocate(shared=…) / ensure_capacity / free / share_block 维护引用计数; free_list 顺序即 LRU 顺序' },
-  { concept: '重复前缀', file: 'PrefixCache', focus: '命中的完整 block 共享引用, 未命中部分继续分配并注册' },
-  { concept: '采样策略', file: 'm10_sampling/samplers.py', focus: 'rep penalty、temperature、top-k/top-p/min-p 最后作用在 logits 上' },
+  { concept: '请求接入入口', file: 'Engine.add_request', focus: '将输入 prompt 编码后排入 waiting 队列, 并为每条请求绑定独立的 SamplingParams' },
+  { concept: '逐步动态组批', file: 'm03_continuous_batching/scheduler.py', focus: 'schedule() 返回 [(seq, n)] 混合批次: 优先保障运行中请求的 decode, 剩余 token 预算分配给 prefill chunk, 物理块不足时执行重算式抢占' },
+  { concept: '真分页前向执行', file: 'full_engine/model_runner.py', focus: 'run() 仅前向计算增量区间 ids[start_pos:], 历史上下文 KV 通过 block_table 从全局物理池按页读取' },
+  { concept: '物理块引用账本', file: 'BlockManager', focus: '通过 allocate(shared=...)、ensure_capacity、free 与 share_block 维护引用计数, 空闲队列顺序直接对应 LRU 淘汰顺序' },
+  { concept: '公共前缀复用', file: 'PrefixCache', focus: '对写满的块计算链式哈希, 命中的前缀块直接共享物理引用, 未命中后缀继续分配新块并登记哈希' },
+  { concept: '末尾采样管线', file: 'm10_sampling/samplers.py', focus: '在末尾 logits 上依次施加重复惩罚 (repetition penalty)、温度缩放以及 top-k / top-p / min-p 截断过滤' },
 ]
 </script>
 

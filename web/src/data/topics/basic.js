@@ -89,30 +89,30 @@ y:     [e, l, l, o]
         {
           key: true,
           title: '显式 cache 承担了计算图中间激活的保存工作',
-          body: '训练不仅需要前向算出损失, 还需要反向传播求各层参数的梯度。根据链式法则, 算子的反向公式往往依赖前向阶段的输入或中间结果——例如线性层求权重梯度 $dW = x^\\top \\cdot d\\text{out}$ 需要输入 $x$, RMSNorm 求导需要输入 $x$、缩放参数 $g$ 与均方根 rms, 注意力求导需要归一化后的权重矩阵 attn。\n在深度学习框架中, autograd 会自动在后台计算图里缓存这些张量。手写 numpy 实现时没有自动求导图, 因此每层 *_forward 都显式返回 `(out, cache)`, 由对应的 *_backward 解包使用。\n- 按需缓存: 只保存反向公式真正用到的量。例如 softmax 的导数可直接由其输出 attn 算出, 因此无需再缓存求指数前的 scores。\n- 显存折中: 前向攒下的各层 cache 必须一直驻留内存直到反向逐层消费完毕, 这也是大模型训练激活显存占大头的直接原因。',
+          body: '训练不仅需要前向算出损失, 还需要反向传播求各层参数的梯度。根据链式法则, 算子的反向公式往往依赖前向阶段的输入或中间结果——例如线性层求权重梯度 $dW = x^\\top \\cdot d\\text{out}$ 需要输入 $x$, RMSNorm 求导需要输入 $x$、缩放参数 $g$ 与均方根 rms, 注意力求导需要归一化后的权重矩阵 attn。\n在深度学习框架中, autograd 会自动在后台计算图里缓存这些张量。手写 numpy 实现时没有自动求导图, 因此每层 *_forward 都显式返回 (out, cache), 由对应的 *_backward 解包使用。\n- 按需缓存: 只保存反向公式真正用到的量。例如 softmax 的导数可直接由其输出 attn 算出, 因此无需再缓存求指数前的 scores。\n- 显存折中: 前向攒下的各层 cache 必须一直驻留内存直到反向逐层消费完毕, 这也是大模型训练激活显存占大头的直接原因。',
         },
         {
           title: '主干张量形状始终围绕 B、T、D、V 四个维度流转',
-          body: '整份前向代码的张量形状只涉及四个维度符号: 批大小 B、序列长度 T、隐藏层维度 D (默认 64) 与词表大小 V (65)。\n进入 embedding 之后, 主干残差流在任意层输入和输出处都保持 `[B,T,D]` 不变, 即每条序列的每个位置始终表示为一个 D 维向量。全模型只有两处临时切换到其他形状:\n- 自注意力相关性矩阵 `[B,T,T]`: 同一条序列内 T 个位置两两计算缩放点积得分。\n- 输出层打分 `[B,T,V]`: 最终隐藏状态乘上 `[D,V]` 的语言模型头, 为每个位置给出词表 V 个候选字符的分数。\n阅读源码时先核对矩阵乘法两侧消掉与保留的维度, 计算脉络就会非常清晰。',
+          body: '整份前向代码的张量形状只涉及四个维度符号: 批大小 B、序列长度 T、隐藏层维度 D (默认 64) 与词表大小 V (65)。\n进入 embedding 之后, 主干残差流在任意层输入和输出处都保持 [B,T,D] 不变, 即每条序列的每个位置始终表示为一个 D 维向量。全模型只有两处临时切换到其他形状:\n- 自注意力相关性矩阵 [B,T,T]: 同一条序列内 T 个位置两两计算缩放点积得分。\n- 输出层打分 [B,T,V]: 最终隐藏状态乘上 [D,V] 的语言模型头, 为每个位置给出词表 V 个候选字符的分数。\n阅读源码时先核对矩阵乘法两侧消掉与保留的维度, 计算脉络就会非常清晰。',
         },
         {
           title: '输入输出同形让堆叠层数退化为简单循环',
-          body: '由于每个 Pre-LN Transformer 块接收 `[B,T,D]` 并输出同样形状的 `[B,T,D]`, 增加网络深度不需要改动任何算子接口, 在 `transformer_forward` 中用一层 `for i in range(num_layers(W))` 依次串联即可。\n这里的层数直接通过扫描参数字典中以 `_norm1_g` 结尾的键数量动态推断, 无需在 `ckpt.npz` 里额外维护配置元数据。默认单层配置共 45,568 个参数, 传入 `--n-layer 2` 即可切换为双层结构。',
+          body: '由于每个 Pre-LN Transformer 块接收 [B,T,D] 并输出同样形状的 [B,T,D], 增加网络深度不需要改动任何算子接口, 在 transformer_forward 中用一层 for i in range(num_layers(W)) 依次串联即可。\n这里的层数直接通过扫描参数字典中以 _norm1_g 结尾的键数量动态推断, 无需在 ckpt.npz 里额外维护配置元数据。默认单层配置共 45,568 个参数, 传入 --n-layer 2 即可切换为双层结构。',
         },
       ],
       links: [
-        { from: 'learned pos_emb', to: 'RoPE', body: '自注意力本身对排列顺序不敏感, 这里通过直接相加一张 `[T_max, D]` 的可学习位置表注入词序, 因此推理长度被 `T_max=64` 硬性限制。阶段 2 改用 RoPE 旋转位置编码, 不占用可学习参数且消除了硬性长度上限 (跨出训练长度后的外推衰减详见 YaRN 章节)。' },
-        { from: '单头 attention', to: 'MHA / GQA / MLA', body: '本实现采用单头注意力 (`head_dim = D`) 以简化维度变换; 阶段 2 的多头注意力 (MHA) 只需将 D 拆分为多组子空间并行计算, GQA 与 MLA 则进一步压缩推理期的 K/V 缓存开销。' },
+        { from: 'learned pos_emb', to: 'RoPE', body: '自注意力本身对排列顺序不敏感, 这里通过直接相加一张 [T_max, D] 的可学习位置表注入词序, 因此推理长度被 T_max=64 硬性限制。阶段 2 改用 RoPE 旋转位置编码, 不占用可学习参数且消除了硬性长度上限 (跨出训练长度后的外推衰减详见 YaRN 章节)。' },
+        { from: '单头 attention', to: 'MHA / GQA / MLA', body: '本实现采用单头注意力 (head_dim = D) 以简化维度变换; 阶段 2 的多头注意力 (MHA) 只需将 D 拆分为多组子空间并行计算, GQA 与 MLA 则进一步压缩推理期的 K/V 缓存开销。' },
         { from: 'cache 全存', to: 'activation checkpoint', body: '将全部前向中间激活留在内存中等反向消费会随层数线性推高显存峰值; 阶段 3 的激活重算 (activation checkpointing) 选择只存块边界输入, 反向时局部重跑前向以时间换显存。' },
       ],
       sourceRows: [
-        { concept: 'embedding', code: 'model.py:embedding_forward', takeaway: '通过整数索引 `W[ids]` 取出对应行向量; cache 仅记录 `ids` 与权重形状, 反向时按索引把梯度累加回原行即可。' },
-        { concept: 'RMSNorm', code: 'model.py:rmsnorm_forward', takeaway: '每个位置的 D 维向量除以自身均方根 rms 后乘增益 g; 因 rms 由整行元素共同决定, 反向存在跨元素耦合项, 需同时缓存 `(x, g, rms)`。' },
+        { concept: 'embedding', code: 'model.py:embedding_forward', takeaway: '通过整数索引 W[ids] 取出对应行向量; cache 仅记录 ids 与权重形状, 反向时按索引把梯度累加回原行即可。' },
+        { concept: 'RMSNorm', code: 'model.py:rmsnorm_forward', takeaway: '每个位置的 D 维向量除以自身均方根 rms 后乘增益 g; 因 rms 由整行元素共同决定, 反向存在跨元素耦合项, 需同时缓存 (x, g, rms)。' },
         { concept: '缩放点积', code: 'model.py:attention_forward', takeaway: '乘以缩放因子 $1/\\sqrt{D}$ 控制内积方差, 防止 D 增大时分数绝对值过高导致 softmax 饱和、梯度趋近于零。' },
-        { concept: 'causal mask', code: 'model.py:causal_mask', takeaway: '构造 `[T,T]` 上三角掩码并将未来位置 ($j > i$) 置为 `-inf`, 经 softmax 后权重严格归零, 阻止当前位置读取后续输入。' },
-        { concept: '残差', code: 'model.py:block_forward', takeaway: '加法节点 `h = x + a` 的导数为恒等传递, 反向直接将上游梯度原样分发给两条支路, 无需缓存任何中间张量。' },
-        { concept: '层循环', code: 'model.py:num_layers', takeaway: '统计参数名中 `_norm1_g` 的个数自动识别层数, 让检查点文件保持纯张量字典结构。' },
-        { concept: '语言模型头', code: 'model.py:transformer_forward', takeaway: '`[B,T,D] @ [D,V] -> [B,T,V]` 完成隐藏状态到词表分数的线性投影; 在数万词表的真实模型中, 该层的参数与激活占用尤为可观。' },
+        { concept: 'causal mask', code: 'model.py:causal_mask', takeaway: '构造 [T,T] 上三角掩码并将未来位置 ($j > i$) 置为 -inf, 经 softmax 后权重严格归零, 阻止当前位置读取后续输入。' },
+        { concept: '残差', code: 'model.py:block_forward', takeaway: '加法节点 h = x + a 的导数为恒等传递, 反向直接将上游梯度原样分发给两条支路, 无需缓存任何中间张量。' },
+        { concept: '层循环', code: 'model.py:num_layers', takeaway: '统计参数名中 _norm1_g 的个数自动识别层数, 让检查点文件保持纯张量字典结构。' },
+        { concept: '语言模型头', code: 'model.py:transformer_forward', takeaway: '[B,T,D] @ [D,V] -> [B,T,V] 完成隐藏状态到词表分数的线性投影; 在数万词表的真实模型中, 该层的参数与激活占用尤为可观。' },
       ],
       snippetTitle: '主干形状',
       snippet: `ids[B,T]
@@ -131,8 +131,8 @@ y:     [e, l, l, o]
     'basic-backward': {
       title: '手写 backward · cache、链式法则与 gradcheck',
       subtitle: '从交叉熵损失出发沿计算图反向回传梯度, 拆解多路分支累加与归一化耦合项的求导细节, 并用中心差分验证每一行手写导数。',
-      tldr: '- 反向传播从损失对 logits 的解析梯度 `dlogits = (p - onehot) / N` 起步, 逆序调用各算子的 `*_backward`, 结合前向保存的 cache 逐层算出输入梯度与参数梯度。\n- 手写导数即使漏掉耦合项或写错下标累加, 只要张量形状匹配就不会抛异常, 因此必须通过 `gradcheck.py` 与中心有限差分逐算子、端到端比对验证。',
-      question: '如果把词嵌入反向里的 `np.add.at` 误写成 `+=`, 程序不报错且 loss 依然下降, 该怎样及时揪出这类隐蔽错误?',
+      tldr: '- 反向传播从损失对 logits 的解析梯度 dlogits = (p - onehot) / N 起步, 逆序调用各算子的 *_backward, 结合前向保存的 cache 逐层算出输入梯度与参数梯度。\n- 手写导数即使漏掉耦合项或写错下标累加, 只要张量形状匹配就不会抛异常, 因此必须通过 gradcheck.py 与中心有限差分逐算子、端到端比对验证。',
+      question: '如果把词嵌入反向里的 np.add.at 误写成 +=, 程序不报错且 loss 依然下降, 该怎样及时揪出这类隐蔽错误?',
       evolution: {
         title: '高效求导与数值校验互补',
         subtitle: '根问题: 每步更新都需要损失对全部 45,568 个参数的偏导数, 既要算得快又要保证公式推导零差错。',
@@ -152,15 +152,15 @@ y:     [e, l, l, o]
         {
           key: true,
           title: '形状匹配不代表梯度正确, 必须用中心差分做基准校验',
-          body: '手写反向传播最棘手的地方在于静默出错: 矩阵转置写反、求和维度偏置或归一化漏掉耦合项时, 只要数组形状恰好对齐, 代码就不会报错, 优化器拿到的近似方向甚至仍能让 loss 缓慢下降。\n为此需要引入不依赖链式法则推导的中心有限差分作为黄金参照: 对待测标量元素 $w$ 分别施加 $+\\varepsilon$ 与 $-\\varepsilon$ 扰动各跑一次前向, 用 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$ 估计真实导数, 其截断误差为 $O(\\varepsilon^2)$。\n`gradcheck.py` 将手写解析梯度与数值差分逐元素对照。例如故意删去 `rmsnorm_backward` 中的均值耦合项后, 单算子校验会立即检出 `3.11e-01` 的相对误差, 而正确实现下误差稳定在 `1e-10` 量级。',
+          body: '手写反向传播最棘手的地方在于静默出错: 矩阵转置写反、求和维度偏置或归一化漏掉耦合项时, 只要数组形状恰好对齐, 代码就不会报错, 优化器拿到的近似方向甚至仍能让 loss 缓慢下降。\n为此需要引入不依赖链式法则推导的中心有限差分作为黄金参照: 对待测标量元素 $w$ 分别施加 $+\\varepsilon$ 与 $-\\varepsilon$ 扰动各跑一次前向, 用 $\\tfrac{f(w+\\varepsilon) - f(w-\\varepsilon)}{2\\varepsilon}$ 估计真实导数, 其截断误差为 $O(\\varepsilon^2)$。\ngradcheck.py 将手写解析梯度与数值差分逐元素对照。例如故意删去 rmsnorm_backward 中的均值耦合项后, 单算子校验会立即检出 3.11e-01 的相对误差, 而正确实现下误差稳定在 1e-10 量级。',
         },
         {
           title: '前向出现分叉或重复索引时, 反向梯度必须累加',
-          body: '根据多元复合函数的链式法则, 同一个变量在前向计算中被多条路径读取时, 其反向梯度等于各条支路回传梯度之和。代码中共有三处典型汇合点:\n- Q/K/V 投影分叉: 同一个归一化输出 `x` 同时乘三组权重生成 Q、K、V, 反向回传至 `x` 时需将 `dx_q + dx_k + dx_v` 相加。\n- 残差连接 `out = x + f(x)`: 上游梯度 `dout` 一路沿恒等捷径直达, 另一路穿过子层 `f_backward`, 在分叉口汇合相加。\n- 词嵌入重复查表: 同一批次内同一个 token id 往往出现多次, 对应权重表同一行的梯度必须逐次累加。NumPy 中直接写 `dW[ids] += dout` 遇到重复下标只会保留最后一次赋值, 必须调用 `np.add.at(dW, ids, dout)` 原地无缓冲累加; `check_ops` 专门构造了含重复编号的 `[[0,1,1],[5,1,0]]` 来拦截这一常见疏漏。',
+          body: '根据多元复合函数的链式法则, 同一个变量在前向计算中被多条路径读取时, 其反向梯度等于各条支路回传梯度之和。代码中共有三处典型汇合点:\n- Q/K/V 投影分叉: 同一个归一化输出 x 同时乘三组权重生成 Q、K、V, 反向回传至 x 时需将 dx_q + dx_k + dx_v 相加。\n- 残差连接 out = x + f(x): 上游梯度 dout 一路沿恒等捷径直达, 另一路穿过子层 f_backward, 在分叉口汇合相加。\n- 词嵌入重复查表: 同一批次内同一个 token id 往往出现多次, 对应权重表同一行的梯度必须逐次累加。NumPy 中直接写 dW[ids] += dout 遇到重复下标只会保留最后一次赋值, 必须调用 np.add.at(dW, ids, dout) 原地无缓冲累加; check_ops 专门构造了含重复编号的 [[0,1,1],[5,1,0]] 来拦截这一常见疏漏。',
         },
         {
           title: '单算子全量核验与端到端抽样核验配合定位问题',
-          body: '`gradcheck.py` 分两层组织测试, 兼顾定位精度与运行速度:\n- 逐算子全元素检查 (`check_op`): 独立构造算子输入与同形状随机权重张量 $R$, 定义代理标量目标 $L = \\sum(\\text{out} \\odot R)$, 此时上游梯度 $dL/d\\,\\text{out}$ 恰好就是 $R$。无需拼装整网即可遍历算子每个输入元素做中心差分, 7 个算子的相对误差均在 `1e-11` 至 `2e-10` 之间。\n- 端到端抽样检查: 串联完整模型与交叉熵损失, 在 `n_layer = 1` 和 `2` 下为每个参数张量随机抽取 8 个坐标核对差分。判定条件采用混合容差 $|g_a - g_n| \\le \\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$, 避免在未命中 token 行等真实梯度接近 0 的坐标上因分母过小而误报相对误差超标。',
+          body: 'gradcheck.py 分两层组织测试, 兼顾定位精度与运行速度:\n- 逐算子全元素检查 (check_op): 独立构造算子输入与同形状随机权重张量 $R$, 定义代理标量目标 $L = \\sum(\\text{out} \\odot R)$, 此时上游梯度 $dL/d\\,\\text{out}$ 恰好就是 $R$。无需拼装整网即可遍历算子每个输入元素做中心差分, 7 个算子的相对误差均在 1e-11 至 2e-10 之间。\n- 端到端抽样检查: 串联完整模型与交叉熵损失, 在 n_layer = 1 和 2 下为每个参数张量随机抽取 8 个坐标核对差分。判定条件采用混合容差 $|g_a - g_n| \\le \\text{atol} + \\text{rtol}\\cdot\\max(|g_a|,|g_n|)$, 避免在未命中 token 行等真实梯度接近 0 的坐标上因分母过小而误报相对误差超标。',
         },
       ],
       links: [
@@ -169,13 +169,13 @@ y:     [e, l, l, o]
         { from: 'RMSNorm backward', to: '深层训练稳定性', body: '前向除以均方根使输出对输入整体缩放保持不变, 对应到反向求导中, 沿输入向量 $x$ 自身方向的梯度分量会被耦合项精确抵消。' },
       ],
       sourceRows: [
-        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: '`dlogits = (p - onehot) / N`, 其中 `p` 为预测分布、`onehot` 为真实标签独热向量。由于每行概率和与独热和均为 1, 每行梯度元素之和恒等于 0。' },
-        { concept: 'embedding backward', code: 'np.add.at(dW, ids, dout)', takeaway: '将各位置上游梯度按 token id 原地累加回嵌入表对应行, 避免花式索引 `+=` 丢弃重复下标梯度。' },
+        { concept: 'CE 的梯度', code: 'model.py:cross_entropy_forward_backward', takeaway: 'dlogits = (p - onehot) / N, 其中 p 为预测分布、onehot 为真实标签独热向量。由于每行概率和与独热和均为 1, 每行梯度元素之和恒等于 0。' },
+        { concept: 'embedding backward', code: 'np.add.at(dW, ids, dout)', takeaway: '将各位置上游梯度按 token id 原地累加回嵌入表对应行, 避免花式索引 += 丢弃重复下标梯度。' },
         { concept: 'softmax backward', code: 'model.py:attention_backward', takeaway: '$ds = a \\odot (da - \\sum a\\cdot da)$。被因果掩码屏蔽的位置满足 $a = 0$, 乘积因子自动将该处梯度清零。' },
         { concept: 'RMSNorm 耦合项', code: 'model.py:rmsnorm_backward', takeaway: '$dx = c/\\text{rms} - x\\cdot s/(D\\cdot\\text{rms}^3)$, 其中 $c = d\\text{out}\\odot g$, $s = \\sum (c\\odot x)$。第二项刻画了均方根分母对整行输入的耦合导数。' },
         { concept: '数值梯度', code: 'gradcheck.py:numeric_grad', takeaway: '通过 $(f(w+\\varepsilon) - f(w-\\varepsilon))/2\\varepsilon$ 计算中心差分, 原地微调数组元素并在求值后恢复原值。' },
         { concept: '逐算子检查', code: 'gradcheck.py:check_op', takeaway: '用随机张量 $R$ 充当上游梯度直接测试单个算子, 一旦报错可立即锁定问题函数。' },
-        { concept: '多层反向', code: 'model.py:transformer_backward', takeaway: '按 `reversed(range(n_layer))` 逆序回传各层梯度, 最终在嵌入端将同一份 `dh` 分别交给词嵌入与位置嵌入。' },
+        { concept: '多层反向', code: 'model.py:transformer_backward', takeaway: '按 reversed(range(n_layer)) 逆序回传各层梯度, 最终在嵌入端将同一份 dh 分别交给词嵌入与位置嵌入。' },
       ],
       snippetTitle: '反向入口 + 两级 gradcheck',
       snippet: `loss, dlogits = cross_entropy_forward_backward(logits, y)
@@ -205,7 +205,7 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
             fix: '全局共用单一学习率 $W \\leftarrow W - \\text{lr}\\cdot g$: 迁就最陡方向会让平缓方向几乎停滞' },
           { name: 'Adam', year: 2014, pain: '单一学习率受限于最大曲率方向, 深层 Transformer 收敛极慢',
             fix: '逐坐标除以梯度平方滑动平均的平方根 $\\sqrt{\\hat v}$, 把单步位移拉齐到 lr 量级; 2000 步内 loss 从 4.17 降至约 2.0' },
-          { name: '贪心解码', pain: '模型前向只输出词表分布 `[V]`, 需要解码策略选出具体字符',
+          { name: '贪心解码', pain: '模型前向只输出词表分布 [V], 需要解码策略选出具体字符',
             fix: '每步固定选概率最高的字符 (argmax); 自带检查点实测数十步后极易陷入 “the the the” 死循环' },
           { name: 'temperature + top-k', pain: '纯贪心缺乏多样性且一旦进循环便无法跳出, 全词表随机抽样又容易抽中低概率乱码',
             fix: '先用 temperature 调节分布锐度, 再用 top-k 截断长尾噪声后按概率抽样' },
@@ -216,15 +216,15 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         {
           key: true,
           title: '除以二阶矩平方根, 为每个坐标赋予自适应步长',
-          body: '在朴素 SGD ($W \\leftarrow W - \\text{lr}\\cdot g$) 中, 所有参数共用同一个标量学习率, 最大稳定步长受限于损失曲面最陡方向的曲率 $2/\\lambda_{\\max}$; 而 Transformer 中词嵌入、注意力与输出层的梯度幅值往往相差几个数量级, 单一 lr 会导致梯度小的参数几乎不动。\nAdam 为每个参数坐标独立维护两个指数滑动平均: 一阶矩 $m$ 平滑梯度方向, 二阶矩 $v$ 估计梯度平方的近期尺度。更新量写为 $\\hat m / \\sqrt{\\hat v}$, 相当于把每个坐标的梯度除以它自身的典型幅值, 将无量纲比值规整到 $\\pm 1$ 附近, 乘上 lr 后每个参数单步实际移动的距离都大致落在 lr 量级。\n由于 $m$ 和 $v$ 从零初始化起步, 前几步估计值会偏小, 因此需除以 $(1 - \\beta^t)$ 做偏置修正。修正后第 1 步更新恰好退化为 $\\text{lr}\\cdot\\mathrm{sign}(g)$, 每个坐标精确移动 lr (`optim.py` 自检中对此做了断言)。',
+          body: '在朴素 SGD ($W \\leftarrow W - \\text{lr}\\cdot g$) 中, 所有参数共用同一个标量学习率, 最大稳定步长受限于损失曲面最陡方向的曲率 $2/\\lambda_{\\max}$; 而 Transformer 中词嵌入、注意力与输出层的梯度幅值往往相差几个数量级, 单一 lr 会导致梯度小的参数几乎不动。\nAdam 为每个参数坐标独立维护两个指数滑动平均: 一阶矩 $m$ 平滑梯度方向, 二阶矩 $v$ 估计梯度平方的近期尺度。更新量写为 $\\hat m / \\sqrt{\\hat v}$, 相当于把每个坐标的梯度除以它自身的典型幅值, 将无量纲比值规整到 $\\pm 1$ 附近, 乘上 lr 后每个参数单步实际移动的距离都大致落在 lr 量级。\n由于 $m$ 和 $v$ 从零初始化起步, 前几步估计值会偏小, 因此需除以 $(1 - \\beta^t)$ 做偏置修正。修正后第 1 步更新恰好退化为 $\\text{lr}\\cdot\\mathrm{sign}(g)$, 每个坐标精确移动 lr (optim.py 自检中对此做了断言)。',
         },
         {
           title: '训练靠已知前文并行计算, 生成因上下文自依赖只能串行',
-          body: '训练与推理在计算形态上的差异来自输入是否事先完整已知:\n- 训练阶段采用 teacher forcing: 整条真实文本早已在手, 配合因果 mask 隔离未来信息后, 一次前向就能把 64 个位置的预测分布与交叉熵损失同时算完。\n- 生成阶段没有现成下文: 第 $t+1$ 步的输入序列必须包含第 $t$ 步刚抽样出的字符, 数据依赖决定了外层循环只能逐个 token 串行推进。\n串行本身无法消除, 但中间存在大量可省的重复计算: `sample.py` 每追加一个新字符就把整段历史重跑一遍前向, 单步注意力 $O(T^2)$ 累积 $T$ 步达到 $O(T^3)$。实际上前文各层算出的 K 和 V 在后续步骤中完全不变, 阶段 5 的 KV cache 正是把它们缓存下来以避免重算。',
+          body: '训练与推理在计算形态上的差异来自输入是否事先完整已知:\n- 训练阶段采用 teacher forcing: 整条真实文本早已在手, 配合因果 mask 隔离未来信息后, 一次前向就能把 64 个位置的预测分布与交叉熵损失同时算完。\n- 生成阶段没有现成下文: 第 $t+1$ 步的输入序列必须包含第 $t$ 步刚抽样出的字符, 数据依赖决定了外层循环只能逐个 token 串行推进。\n串行本身无法消除, 但中间存在大量可省的重复计算: sample.py 每追加一个新字符就把整段历史重跑一遍前向, 单步注意力 $O(T^2)$ 累积 $T$ 步达到 $O(T^3)$。实际上前文各层算出的 K 和 V 在后续步骤中完全不变, 阶段 5 的 KV cache 正是把它们缓存下来以避免重算。',
         },
         {
           title: '正则化与学习率调度需匹配训练规模, 短程训练全开反而欠拟合',
-          body: '`optim.py` 实现了大模型训练常用的三项扩展开关, 默认均处于关闭状态:\n- 解耦权重衰减 (`weight_decay`, 即 AdamW): 直接把 $\\lambda W$ 加在参数更新项上, 不混入二阶矩 $v$, 使二维权重按统一比例向零收缩。\n- 全局梯度范数裁剪 (`grad_clip`): 将全部参数梯度视作单一长向量计算总范数, 超出阈值时整体等比缩放, 只限幅不改向。\n- 预热与余弦退火 (`--cosine`): 先线性升温保护初期未对齐的参数, 再沿余弦曲线平滑衰减。\n在 2000 步的极小规模对比中, 开启 `2 层 + AdamW(0.1) + clip(1.0) + cosine` (78,656 参数) 的验证集损失为 `2.042`, 反而不如默认单层全关配置 (45,568 参数) 的 `1.986`。原因在于总步数太短, 余弦调度过早将学习率压低至 `3e-5`, 新增的一层参数尚未充分收敛——这也说明工程技巧的收益高度依赖模型尺度与训练步数预算。',
+          body: 'optim.py 实现了大模型训练常用的三项扩展开关, 默认均处于关闭状态:\n- 解耦权重衰减 (weight_decay, 即 AdamW): 直接把 $\\lambda W$ 加在参数更新项上, 不混入二阶矩 $v$, 使二维权重按统一比例向零收缩。\n- 全局梯度范数裁剪 (grad_clip): 将全部参数梯度视作单一长向量计算总范数, 超出阈值时整体等比缩放, 只限幅不改向。\n- 预热与余弦退火 (--cosine): 先线性升温保护初期未对齐的参数, 再沿余弦曲线平滑衰减。\n在 2000 步的极小规模对比中, 开启 2 层 + AdamW(0.1) + clip(1.0) + cosine (78,656 参数) 的验证集损失为 2.042, 反而不如默认单层全关配置 (45,568 参数) 的 1.986。原因在于总步数太短, 余弦调度过早将学习率压低至 3e-5, 新增的一层参数尚未充分收敛——这也说明工程技巧的收益高度依赖模型尺度与训练步数预算。',
         },
       ],
       links: [
@@ -238,9 +238,9 @@ assert abs(g_a - g_n) <= atol + rtol * max(abs(g_a), abs(g_n))    # atol=1e-7, r
         { concept: '偏置修正', code: 'optim.py:adam_step', takeaway: '分别除以 $1-\\beta_1^t$ 与 $1-\\beta_2^t$, 补偿零初始化在训练初期带来的向零偏置。' },
         { concept: 'AdamW 与 L2 的区别', code: 'optim.py:adam_step', takeaway: '解耦衰减直接将 $\\lambda W$ 叠加在最终步长上, 避免并入梯度 $g$ 后被自适应分母 $\\sqrt{v}$ 抵消; 一维增益参数不做衰减。' },
         { concept: '全局范数裁剪', code: 'optim.py:clip_grad_norm', takeaway: '汇总全部参数梯度算全局二范数 $\\|g\\|$, 按 $\\min(1, \\text{max\\_norm}/\\|g\\|)$ 统一缩放, 保持梯度方向不变。' },
-        { concept: 'warmup + cosine', code: 'optim.py:cosine_lr', takeaway: '前 warmup 步从接近 0 线性爬升至峰值学习率, 随后沿半周期余弦曲线平滑降至 `min_lr`。' },
-        { concept: '自回归循环', code: 'sample.py:generate', takeaway: '每轮取出末尾位置 `logits[0, -1]`, 依次做温度缩放、top-k 掩码与多项式分布采样, 将新 id 追加回上下文序列。' },
-        { concept: '滑动窗口', code: 'sample.py:generate', takeaway: '受限于可学习 `pos_emb` 仅有 `T_max = 64` 行, 序列超长时每步只截取末尾 64 个 token 送入前向计算。' },
+        { concept: 'warmup + cosine', code: 'optim.py:cosine_lr', takeaway: '前 warmup 步从接近 0 线性爬升至峰值学习率, 随后沿半周期余弦曲线平滑降至 min_lr。' },
+        { concept: '自回归循环', code: 'sample.py:generate', takeaway: '每轮取出末尾位置 logits[0, -1], 依次做温度缩放、top-k 掩码与多项式分布采样, 将新 id 追加回上下文序列。' },
+        { concept: '滑动窗口', code: 'sample.py:generate', takeaway: '受限于可学习 pos_emb 仅有 T_max = 64 行, 序列超长时每步只截取末尾 64 个 token 送入前向计算。' },
       ],
       snippetTitle: 'Adam 一步 + 采样一轮',
       snippet: `# optim.py: adam_step

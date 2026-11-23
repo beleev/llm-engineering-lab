@@ -5,26 +5,26 @@
 <template>
   <LabFrame
     title="初始化 — 刚建好的模型, 第一步 loss 该是多少?"
-    sub="- 模拟什么: 训练第 1 步, 权重还是随机数, 模型应该什么都不懂, 对词表里 V 个 token 均匀瞎猜, 这时交叉熵 loss (CE) 恰好等于 $\ln V$。如果第一步 loss 远大于 $\ln V$, 说明模型一上来就在「极度自信地猜错」, 原因几乎都在初始化的尺度 $\sigma$ (随机权重的标准差)。这里模拟的是模型的最后一步: 最后一层 norm 之后的隐藏向量 h 和输出头 lm_head 的每一行做点积得到 logits, 再算 CE。还有一个常见坑: 把 lm_head 和输入 embedding 绑成同一张表 (weight tying, 省参数), 这时 h 几乎还贴着输入 token 自己的 embedding, 模型会给「输入 token 自己」打一个高达 $\sigma \cdot d$ 的分, 而正确答案几乎从来不是它自己。对应 llm_models/utils/init.py。
-      - 图上是什么: 一张曲线图:
-        - 坐标轴: 横轴是 $\sigma$ (对数刻度), 纵轴是第 1 步的 CE (也是对数刻度)。
-        - 曲线: 每个 $\sigma$ 下的首步 CE, 用蒙特卡洛估计 (随机抽 24 组 logits 取平均)。
-        - 虚线: $\ln V$, 均匀瞎猜的参考线。
-        - 圆点: 当前 $\sigma$, 可以直接拖。
-      - 可以做什么: 按界面顺序:
-        - 「绑权重」: 开关 lm_head 和 embedding 是否共用一张表。
-        - 两个快捷按钮: 跳到 $\sigma$ = 0.02 (本仓库 init_weights 用的值) 和 $\sigma$ = 1 (PyTorch nn.Embedding 的默认值)。
-        - 「换一组随机权重」: 重抽。
-        - 三根滑杆: 拖「嵌入初始化 $\sigma$」、「模型宽度 d」、「词表大小 V」看曲线怎么变。
-      - 应该看到: 默认 $\sigma$ = 1、d = 256、V = 1000、绑权重时首步 CE 约 250, 而 $\ln V$ = 6.91, 差了几十倍。拖到 $\sigma$ = 0.02 后 CE 约 7.1, 贴到参考线上。右侧读数:
-        - 「首步 CE」: 和 $\ln V$ 相差不到 0.5 时算正常 (和 train 脚本里的断言同一阈值)。
-        - 「自己的 logit ≈ $\sigma \cdot d$」: 绑权重时输入 token 自己拿到的分。
-        - 「其余 logit 的标准差 $\sigma \sqrt{d}$」: 别的 token 分数的散布。它远大于 1 时 softmax 已经很尖, 哪怕不绑权重 loss 也会远高于 $\ln V$。"
+    sub="- 模拟什么: 训练第 1 步时权重均为随机数, 模型尚未学到任何分布规律, 理想状态下应对词表中的 V 个 token 给出近似均匀的概率预测, 此时交叉熵损失 (CE) 恰好等于 $\ln V$。若首步 CE 远大于 $\ln V$, 说明模型在初始阶段就对随机 token 给出了过高置信度, 根源通常在于权重初始化的标准差 $\sigma$。本实验模拟前向的最后一步: 最后一层归一化后的 hidden 向量 h 与输出头 lm_head 各行做点积得到 logits, 再计算 CE。若进一步将 lm_head 与输入 embedding 共享同一权重矩阵 (weight tying), 残差连接会使 h 仍与输入 token 自身的 embedding 高度同向, 导致模型给输入 token 自身打出高达 $\sigma \cdot d$ 的 logit, 而预测目标通常并非输入 token 本身。对应实现见 llm_models/utils/init.py。
+- 图上是什么: 一张双对数坐标曲线图:
+  - 坐标轴: 横轴为初始化标准差 $\sigma$ (对数刻度), 纵轴为第 1 步的 CE (对数刻度)。
+  - 曲线: 各 $\sigma$ 取值下的首步 CE 蒙特卡洛估计值 (随机采样 24 组 logits 取平均)。
+  - 虚线: 均匀预测的理论参考线 $\ln V$。
+  - 圆点: 当前选定的 $\sigma$ 位置, 支持直接拖动。
+- 可以做什么: 按界面控件顺序操作:
+  - 「绑权重」: 切换 lm_head 与输入 embedding 是否共享权重矩阵。
+  - 两个快捷按钮: 分别跳转至 $\sigma = 0.02$ (本仓库 init_weights 采用的默认值) 与 $\sigma = 1$ (PyTorch nn.Embedding 的默认值)。
+  - 「换一组随机权重」: 重新采样随机权重。
+  - 三根滑杆: 拖动「嵌入初始化 $\sigma$」「模型宽度 d」「词表大小 V」, 观察首步 CE 曲线的变化。
+- 应该看到: 在默认配置 ($\sigma = 1$、$d = 256$、$V = 1000$、开启「绑权重」) 下, 首步 CE 约为 250, 远高于理论参考值 $\ln V = 6.91$; 将 $\sigma$ 调至 0.02 后, 首步 CE 降至约 7.1, 贴近参考线。右侧读数含义如下:
+  - 「首步 CE」: 与 $\ln V$ 之差小于 0.5 时视为正常 (与 train 脚本中的断言阈值一致)。
+  - 「自己的 logit ≈ $\sigma \cdot d$」: 开启权重绑定时输入 token 自身获得的 logit 幅度。
+  - 「其余 logit 的标准差 $\sigma \sqrt{d}$」: 其余候选 token 分数的标准差; 当该值远大于 1 时 softmax 分布已高度尖锐, 即使关闭权重绑定, 首步 CE 仍会远高于 $\ln V$。"
     module="llm_models/utils/init.py"
     run="python -m llm_models.run_models.language_models.llama.train_llama"
     :challenge="{
-      ask: '不改 σ=1, 只把「绑权重」关掉, 首步 CE 会回到 ln V 吗? 为什么真实 LLaMA 不绑权重也不乘 √d 却没这个问题?',
-      answer: '不会回到 ln V。\n- 关掉绑权重后, 「给自己打高分」那一项消失, 但其余 logit 的标准差仍然是 $\\sigma \\cdot \\sqrt{d}$ = 1 × 16 = 16。logit 之间动辄差十几分, softmax 依旧极尖, 模型还是在自信地押某个随机 token, CE 还是几十。\n- 根因是 logit 的尺度, 绑权重只是让它更糟。所以把 $\\sigma$ 降到 0.02 才治本: logit 标准差变成 0.02 × 16 ≈ 0.3, 所有 token 的分数都差不多, softmax 近似均匀, CE 回到 $\\ln V$。\n真实 LLaMA 用 $\\sigma$ = 0.02 初始化 (init_weights 的默认值), 两个问题都不存在, 所以它既不需要绑权重时的特别处理, 也不需要乘 √d 来救场。',
+      ask: '保持 $\\sigma = 1$ 不变, 仅关闭「绑权重」, 首步 CE 会回到 $\\ln V$ 吗? 为什么真实的 LLaMA 模型既不绑定权重、也不乘 $\\sqrt{d}$, 却不会出现首步损失异常偏高的问题?',
+      answer: '不会回到 $\\ln V$。\n- 关闭「绑权重」后, 给输入 token 自身打高分的偏置项消失, 但其余候选 logit 的标准差仍为 $\\sigma \\cdot \\sqrt{d} = 1 \\times 16 = 16$。不同 token 的 logit 差距可达十几分, softmax 输出依然高度尖锐, 模型仍会对某个随机 token 给出极高概率, 首步 CE 仍高达数十。\n- 问题的根源在于 logit 整体尺度过大, 权重绑定只是进一步放大了偏差。将 $\\sigma$ 降至 0.02 才能从根本上解决: 此时 logit 标准差降至 $0.02 \\times 16 \\approx 0.3$, 各候选 token 得分接近, softmax 分布近似均匀, 首步 CE 随之回到 $\\ln V$ 附近。\n真实 LLaMA 直接采用 $\\sigma = 0.02$ 初始化 (即 init_weights 的默认值), 从源头消除了 logit 尺度过大与自内积偏置两个问题, 因此既无需针对权重绑定做特殊修正, 也无需额外乘以 $\\sqrt{d}$ 缩放。',
     }"
   >
     <template #controls>
@@ -65,10 +65,10 @@
               : '✗ 远高于 $\\ln V$: 模型一上来就极度自信地猜错。这时「loss 在下降」只是在纠正初始化, 不代表学会了任务。'" />
       </p>
       <div class="lab-note">
-        <p><Tex text="简化模型: 最后一层归一化之后隐藏向量的范数约为 $\sqrt{d}$, 而且方向仍贴着输入 token 的嵌入 (残差连接一路把它带了过来)。它复现了仓库里的实测值:" /></p>
+        <p><Tex text="简化假设: 最后一层归一化输出的 hidden 向量范数约为 $\sqrt{d}$, 且受残差连接传递影响, 其方向仍与输入 token 的 embedding 保持接近。该近似模型复现了本仓库的实测读数:" /></p>
         <ul class="pts">
-          <li><Tex text="$\sigma=1$, $d=256$, $V=1000$ 时约 250。" /></li>
-          <li><Tex text="$\sigma=0.02$ 时约 7.1。" /></li>
+          <li><Tex text="当 $\sigma = 1$、$d = 256$、$V = 1000$ 时, 首步 CE 约为 250。" /></li>
+          <li><Tex text="当 $\sigma = 0.02$ 时, 首步 CE 约为 7.1。" /></li>
         </ul>
       </div>
     </template>

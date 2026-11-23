@@ -1,43 +1,43 @@
 <!--
-  模型结构浏览器, 挂在阶段首页。它不出题: 选一个模型, 看组件怎么接、四种运行态下各个节点在干什么。
-  随模型变的数字只有「规模读数」那一行, 全部由 modelArchitectures.js 里的 config 算出来。
+  模型结构浏览器, 挂载于阶段首页。支持切换代表性架构, 查看组件拓扑连接及四种运行态下各节点的行为。
+  随模型变化的「规模读数」全部由 modelArchitectures.js 中的 config 动态计算生成。
 -->
 <template>
   <section class="architecture-lab" aria-labelledby="architecture-lab-title">
     <header class="lab-header">
       <div>
         <span class="lab-kicker">模型结构浏览器</span>
-        <h2 id="architecture-lab-title">模型结构与运行态实验台 — 零件怎么接, 跑起来时各在干什么</h2>
+        <h2 id="architecture-lab-title">模型结构与运行态实验台 — 组件拓扑连接与四种运行态下的状态流转</h2>
         <!-- 列表项里再包一层 <p>: 沿用 .lab-header p 的字号和颜色, 和上下段落一致 -->
-        <p>模拟什么: 选一个模型, 看它由哪些组件接成, 以及同一张图在四种运行态下每个组件各在干什么。四种运行态:</p>
+        <p>模拟什么: 选择一套代表性模型架构, 观察其核心组件的拓扑连接方式, 以及同一计算图在四种运行态下各节点的计算职责与状态流转。四种运行态分别为:</p>
         <ul class="pts">
-          <li><p><b>「结构」:</b> 只看接线。</p></li>
-          <li><p><b>「训练态」:</b> 整段 token 并行前向、再反向算梯度。</p></li>
-          <li><p><b>「并行前向」(prefill):</b> 推理时把整段 prompt 一次送进去并写下 KV cache。</p></li>
-          <li><p><b>「迭代推理」(decode):</b> 之后每步只送 1 个新 token, 复用前面留下的状态。</p></li>
+          <li><p><b>「结构」:</b> 仅展示组件间的静态拓扑连接与层级嵌套关系。</p></li>
+          <li><p><b>「训练态」:</b> 整段 token 序列并行执行前向计算, 随后沿反向路径计算参数梯度。</p></li>
+          <li><p><b>「并行前向」(prefill):</b> 推理首阶段将整段 prompt 一次性并行送入模型, 完成前向计算并写入初始 KV cache 等持久状态。</p></li>
+          <li><p><b>「迭代推理」(decode):</b> 自回归生成阶段每步仅输入 1 个新 token, 直接复用并更新前序步骤保留的持久状态。</p></li>
         </ul>
-        <p>图上是什么: 画布里每个方块是一个组件, 箭头是数据流向, 从上到下是执行顺序; 带 + 号的方块可以展开看内部, 展开后内部组件圈在一个框里, 虚线是内部接线。方块里的小字是这个组件在当前运行态下的角色 (比如「只读 W」「写缓存」)。颜色图例:</p>
+        <p>图上是什么: 画布中每个矩形节点代表一个计算组件, 有向箭头表示张量流向, 自上而下对应前向执行顺序; 右下角带 + 号的复合节点支持展开内部子图, 展开后的子组件收纳于同一外框内并以虚线表示内部连接。节点右上角标签指示该组件在当前运行态下的角色 (如「只读 W」「写缓存」)。四种颜色图例含义如下:</p>
         <ul class="pts">
-          <li><p><b>权重:</b> 训练要学的参数。</p></li>
-          <li><p><b>激活:</b> 一次前向算出来的中间张量。</p></li>
-          <li><p><b>梯度:</b> 反向传播时每个权重要改的方向。</p></li>
-          <li><p><b>持久状态:</b> 推理时跨步保留的东西, Transformer 是 KV cache, Mamba 是 SSM state。</p></li>
+          <li><p><b>权重:</b> 训练阶段需要优化更新、推理阶段保持只读的模型参数。</p></li>
+          <li><p><b>激活:</b> 单次前向传播过程中动态生成的中间张量。</p></li>
+          <li><p><b>梯度:</b> 反向传播阶段计算出的每个权重的更新方向。</p></li>
+          <li><p><b>持久状态:</b> 推理阶段跨时间步保留的状态张量, 在 Transformer 中为 KV cache, 在 Mamba 中为 SSM state。</p></li>
         </ul>
         <p>可以做什么:</p>
         <ul class="pts">
-          <li><p>上排标签切模型。</p></li>
-          <li><p>「结构 / 训练态 / 并行前向 / 迭代推理」切运行态。</p></li>
-          <li><p>拖节点可以挪, 空白处拖拽平移, 滚轮缩放。</p></li>
-          <li><p>点一个方块, 右侧面板显示它的权重形状、激活的生命周期、公式和源码入口。</p></li>
-          <li><p>「展开全部 / 收起」一键展开或收起所有可展开的组件。</p></li>
+          <li><p>点击上排模型标签切换不同架构。</p></li>
+          <li><p>通过「结构 / 训练态 / 并行前向 / 迭代推理」按钮切换运行态。</p></li>
+          <li><p>拖拽单个节点调整局部位置, 拖拽画布空白区域平移视图, 使用滚轮缩放画布。</p></li>
+          <li><p>点击任意组件节点, 在右侧详情面板查看其权重形状、激活生命周期、核心公式与源码入口。</p></li>
+          <li><p>点击「展开全部 / 收起」一键展开或折叠所有复合组件。</p></li>
         </ul>
-        <p>应该看到: 「规模读数」一行随模型变:</p>
+        <p>应该看到: 顶部「规模读数」一行随所选模型动态变化:</p>
         <ul class="pts">
-          <li><p>层数 N 和隐藏维 D 是构造函数的默认配置。</p></li>
-          <li><p>「每层跨步保留的状态」是推理时每生成一个 token、每层要多存几个数 (LLaMA 是 K 和 V 各 32 头 × 128 维, 共 8192 个; Mamba 不随 token 增长, 是固定大小的状态; DiT 没有跨步状态)。</p></li>
-          <li><p>最后一格把它换算成序列长 1024、fp16 (每个数 2 字节) 时整个模型要占多少显存。</p></li>
+          <li><p>层数 N 与隐藏维 D 取自该模型构造函数的默认配置。</p></li>
+          <li><p>「每层跨步保留的状态」给出推理阶段每新生成 1 个 token 时单层需额外缓存的元素数量 (LLaMA 为 K 与 V 各 32 头 × 128 维, 合计 8192 个元素; Mamba 的状态大小恒定, 不随 token 数量增长; DiT 无跨步保留状态)。</p></li>
+          <li><p>最后一格按序列长度 1024、fp16 精度 (每元素占 2 字节) 折算出全模型持久状态的总显存占用。</p></li>
         </ul>
-        <p>切到「迭代推理」看 LLaMA: attention 方块标成「读 / 追加」, 其他都是「临时激活」或「只读 W」: 跨步要保留的只有 attention 读写的 KV cache。</p>
+        <p>切换至「迭代推理」模式观察 LLaMA 可见: attention 节点标记为「读 / 追加」, 其余节点均为「临时激活」或「只读 W」, 说明自回归解码阶段唯一需要跨步驻留显存的状态仅有 attention 读写的 KV cache。</p>
       </div>
       <RepoLink :path="currentModel.source" label="当前模型源码" tiny />
     </header>
@@ -61,8 +61,8 @@
       <p>{{ currentModel.description }}</p>
     </div>
 
-    <!-- 规模读数: 换模型时只有这一行的数字会变 -->
-    <dl class="runtime-stats config-stats" aria-live="polite" aria-label="规模读数, 按构造函数默认配置算">
+    <!-- 规模读数: 切换模型时只有这一行的数值随之更新 -->
+    <dl class="runtime-stats config-stats" aria-live="polite" aria-label="规模读数, 按构造函数默认配置计算">
       <div v-for="r in readings" :key="r.label" :data-tone="r.tone || 'neutral'">
         <dt>{{ r.label }}</dt>
         <dd>{{ r.value }}</dd>
@@ -81,9 +81,9 @@
         </button>
       </div>
       <div class="runtime-legend" aria-label="运行态颜色图例">
-        <span><i class="weight"></i>权重 (要学的参数)</span>
-        <span><i class="activation"></i>激活 (前向的中间张量)</span>
-        <span><i class="gradient"></i>梯度 (反向算出的更新方向)</span>
+        <span><i class="weight"></i>权重 (可训练参数)</span>
+        <span><i class="activation"></i>激活 (前向中间张量)</span>
+        <span><i class="gradient"></i>梯度 (反向参数更新方向)</span>
         <span><i class="cache"></i>持久状态 (KV cache / SSM state)</span>
       </div>
     </div>
@@ -107,7 +107,7 @@
         <div class="canvas-toolbar">
           <div class="canvas-hint">
             <span aria-hidden="true">↔</span>
-            拖节点可以挪 · 空白处拖拽平移 · 滚轮缩放 · 点击节点在右侧看细节 · 点 + 展开内部
+            拖拽节点调整位置 · 拖拽空白处平移 · 滚轮缩放 · 点击节点在右侧查看详情 · 点击 + 展开子组件
           </div>
           <div class="canvas-actions">
             <button type="button" title="展开全部组件" aria-label="展开全部组件" @click="expandAll">展开全部</button>
@@ -115,7 +115,7 @@
           </div>
         </div>
 
-        <!-- 版式交给 DagView 里的 dagre: 展开/收起组件后会自动重排, 不用在数据里摆坐标 -->
+        <!-- 版式交由 DagView 内的 dagre 自动计算: 展开或收起组件后自动重排, 无需手动指定坐标 -->
         <DagView v-bind="graph" @node-click="selectNode">
           <template #node="{ node }">
             <span class="node-topline">
@@ -151,7 +151,7 @@
           <p class="node-summary">{{ selectedNode.summary }}</p>
 
           <div class="runtime-callout" :data-mode="runtimeMode">
-            <span>此刻发生什么</span>
+            <span>当前运行态行为</span>
             <p>{{ nodeRuntimeDescription(selectedNode) }}</p>
           </div>
 
@@ -187,7 +187,7 @@
           </div>
         </template>
 
-        <p v-else class="inspector-empty">点画布里的一个组件, 这里会显示它的权重形状、激活的生命周期、在当前运行态下干什么, 以及源码入口。</p>
+        <p v-else class="inspector-empty">点击画布中的任意组件节点, 此处将展示其权重形状、激活生命周期、当前运行态下的具体行为及对应源码入口。</p>
       </aside>
     </div>
   </section>
@@ -202,10 +202,10 @@ import { architectureById, categories, modelArchitectures } from '@/data/modelAr
 import { fmtBytes } from '@/utils/labmath.js'
 
 const runtimeModes = [
-  { id: 'structure', label: '结构', short: '只看接线', icon: '◇' },
+  { id: 'structure', label: '结构', short: '静态拓扑', icon: '◇' },
   { id: 'training', label: '训练态', short: '前向 + 反向', icon: '↔' },
-  { id: 'prefill', label: '并行前向', short: '整段一次过', icon: '▦' },
-  { id: 'decode', label: '迭代推理', short: '一步一个', icon: '▷' },
+  { id: 'prefill', label: '并行前向', short: '全序列并行', icon: '▦' },
+  { id: 'decode', label: '迭代推理', short: '逐 token 解码', icon: '▷' },
 ]
 
 const selectedModelId = ref('llama')
@@ -213,11 +213,11 @@ const runtimeMode = ref('structure')
 const selectedNodeId = ref('blocks')
 const expanded = ref(new Set())
 
-// 规模读数。★ 跨步保留的状态 = 层数 × (每 token 的个数 × T + 与 T 无关的个数), fp16 每个数 2 字节
+// 规模读数。★ 跨步保留的状态 = 层数 × (每 token 的元素数 × T + 与 T 无关的固定元素数), fp16 每元素占 2 字节
 const T_REF = 1024
 const readings = computed(() => {
   const c = currentModel.value.config
-  const kept = c.perToken ? `每 token ${c.perToken} 个数` : c.fixed ? `固定 ${c.fixed} 个数` : '不保留'
+  const kept = c.perToken ? `每 token ${c.perToken} 个元素` : c.fixed ? `固定 ${c.fixed} 个元素` : '不保留'
   const bytes = c.layers * (c.perToken * T_REF + c.fixed) * 2
   return [
     { label: '层数 N (默认配置)', value: c.layers },
@@ -252,8 +252,8 @@ const visibleEdges = computed(() => currentModel.value.edges.filter(
 ))
 const selectedNode = computed(() => nodeMap.value.get(selectedNodeId.value) || visibleNodes.value[0] || null)
 
-// 喂给 DagView 的图: 只负责把"当前可见的那部分"声明出来, 坐标它自己算。
-// 展开一个组件 = 多出几个子节点, 版式会跟着重排, 不用在数据里预留位置。
+// 传给 DagView 的子图声明: 仅声明当前可见节点与连线, 节点坐标由布局算法自动计算。
+// 展开复合组件新增子节点后版式会自动重排, 无需在静态数据中预留坐标空间。
 const graph = computed(() => ({
   dir: 'TB',
   nodes: visibleNodes.value.map((n) => ({
@@ -269,7 +269,7 @@ const graph = computed(() => ({
     aria: `${categoryLabel(n.category)} ${n.label}`,
     box: n.parent,
   })),
-  // 展开的组件把它的内部组件圈成一个框, 和主干分开; 组件套组件时框也套框
+  // 展开的复合组件将其内部子组件收纳于同一外框中以区分主干, 支持多层嵌套
   boxes: visibleNodes.value
     .filter((n) => expanded.value.has(n.id) && hasChildren(n.id))
     .map((n) => ({ id: n.id, label: `${n.label} · 内部`, parent: n.parent })),
@@ -277,8 +277,7 @@ const graph = computed(() => ({
     from: e.from,
     to: e.to,
     label: e.label,
-    // detail 边是"展开后才有意义"的内部接线, 画虚线; 其余是普通连接。
-    // 不要一律用 main —— main 是加粗+动画的, 全图都 main 就等于全图都没重点。
+    // detail 边代表展开后可见的内部连接, 用虚线绘制; 其余为常规连接。
     kind: e.detail ? 'weak' : 'side',
   })),
 }))
@@ -301,22 +300,22 @@ const nodeRuntimeChip = (item) => {
   }
   if (item.category === 'attention') return '读 / 追加'
   if (item.category === 'state') return '跨步保留'
-  if (item.category === 'input') return '只进 1 步'
+  if (item.category === 'input') return '单步输入'
   if (item.weights?.length) return '只读 W'
   return '临时激活'
 }
 
 const genericRuntimeDescriptions = {
-  structure: (item) => item.detail || `它在主干里是「${categoryLabel(item.category)}」。`,
+  structure: (item) => item.detail || `该节点在模型主干中属于「${categoryLabel(item.category)}」组件。`,
   training: (item) => item.weights?.length
-    ? '前向读权重, 算出激活。反向拿上游梯度算 dW, 优化器再更新参数。'
-    : '前向结果要留到 backward, 或者由 activation checkpoint 重算。梯度沿相反方向穿过这个节点。',
+    ? '前向传播读取参数并计算输出激活; 反向传播结合上游梯度计算参数梯度 dW, 交由优化器更新权重。'
+    : '前向计算结果需保留至 backward 阶段 (或由 activation checkpoint 重算), 梯度沿反向路径流经该节点。',
   prefill: (item) => item.category === 'attention' || item.category === 'state'
-    ? '整段输入并行算完, 并写下后面每一步都要读的状态。'
-    : '权重只读, 整段输入并行通过。临时激活被下游用完就能释放。',
+    ? '对整段输入序列执行并行前向计算, 并将生成的持久状态写入缓存供后续解码步骤读取。'
+    : '权重保持只读, 整段输入序列并行通过该节点; 临时激活在下游节点使用完毕后即可释放。',
   decode: (item) => item.category === 'attention' || item.category === 'state'
-    ? '读前面各步留下的状态, 处理这一步的新输入, 再把新状态追加或覆盖进去。'
-    : '只处理当前这一步的小激活。权重每步重复读, 中间张量不留到下一步。',
+    ? '读取前序步骤保留的持久状态, 结合当前单步输入完成计算, 并将新增状态追加或覆盖写入缓存。'
+    : '仅对当前单步的激活张量执行前向计算; 模型权重在每一步重复读取, 中间张量不保留至下一步。',
 }
 
 const nodeRuntimeDescription = (item) => (

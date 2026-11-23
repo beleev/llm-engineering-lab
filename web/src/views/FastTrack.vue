@@ -7,9 +7,9 @@
   <div>
     <h1 class="page-title">速成路线</h1>
     <div class="page-subtitle lead-group">
-      <p>六个阶段一共 {{ all.length }} 章, 全读完没必要。先选一个档位, 按顺序走。</p>
+      <p>全书六个阶段共计 {{ all.length }} 章, 无需一次性逐章通读; 建议先根据可用时间选择阅读档位并按序推进。</p>
       <p>
-        主干读完, 就能讲清 "一个大模型怎么训出来、怎么上线、怎么变成会行动的系统"。扩展随时回来补。
+        完成主干档位即可贯通「大模型从底层训练、对齐微调、高吞吐部署到智能体构建」的完整工程链路, 其余扩展章节可在后续按专题选读。
       </p>
     </div>
 
@@ -19,22 +19,22 @@
         :class="['lv', `lv-${l.id}`, { active: level === l.id }]" @click="progress.setLevel(l.id)"
       >{{ l.label }} · {{ countOf(l.id) }} 章, {{ l.hint }}</button>
     </div>
-    <p class="assume legend">档位和侧栏同步, 「下一章」和键盘 ← / → 也按它走。</p>
+    <p class="assume legend">此处所选档位与左侧导航栏实时同步, 页尾「下一章」跳转及键盘方向键翻页均遵循当前档位范围。</p>
     <ul class="assume legend pts">
-      <li><b>每章前的标记:</b> <span class="tier core">★</span> 冲刺 <span class="tier core">●</span> 主干 <span class="tier ext">○</span> 扩展。</li>
-      <li><b>行尾:</b> <span class="state">✓</span> 自测全对, <span class="state">已读</span> 打开过这一章。</li>
+      <li><b>章节前缀标记:</b> <span class="tier core">★</span> 冲刺必读 <span class="tier core">●</span> 主干核心 <span class="tier ext">○</span> 专题扩展。</li>
+      <li><b>行尾进度状态:</b> <span class="state">✓</span> 表示章末自测全部答对, <span class="state">已读</span> 表示已访问过该章节。</li>
     </ul>
 
     <div class="card summary">
       <div class="sum-item"><span class="v mono">{{ list.length }}</span><span class="k">章</span></div>
-      <div class="sum-item"><span class="v mono">{{ totalTime(list.map((c) => c.route)) }}</span><span class="k">粗估用时 (含动手)</span></div>
+      <div class="sum-item"><span class="v mono">{{ totalTime(list.map((c) => c.route)) }}</span><span class="k">预计用时 (含实验操作)</span></div>
       <div class="sum-item"><span class="v mono">{{ labCount }}</span><span class="k">个实验台</span></div>
       <div class="sum-item"><span class="v mono" :class="{ good: readCount === list.length }">{{ readCount }}</span><span class="k">已读</span></div>
       <router-link v-if="nextUp" :to="{ name: nextUp.route }" class="btn active">
-        {{ readCount ? '接着读' : '从第一章开始' }}: {{ nextUp.label }} →
+        {{ readCount ? '继续阅读' : '从首章开始' }}: {{ nextUp.label }} →
       </router-link>
     </div>
-    <p class="assume">用时按每分钟 300 字粗估, 每个实验台另算 4 分钟。只用来排计划, 不必当真。</p>
+    <p class="assume">阅读耗时按每分钟 300 字估算, 每个交互实验台另计 4 分钟, 仅供安排学习计划时参考。</p>
 
     <section v-for="g in groups" :key="g.stage" class="section">
       <h2>{{ g.title }} <span class="stage-code mono">{{ g.code }}</span></h2>
@@ -60,7 +60,7 @@
     </section>
 
     <section class="section">
-      <h2>这三档是怎么分的</h2>
+      <h2>三档阅读范围的划分依据</h2>
       <div class="grid grid-3">
         <div v-for="l in LEVELS" :key="l.id" :class="['card', 'lv', `lv-${l.id}`]">
           <h3>{{ l.label }}</h3>
@@ -68,8 +68,7 @@
         </div>
       </div>
       <p class="assume">
-        扩展章是分支和深水区, 内容并不次要: 里面全是 2026 年真实系统正在用的东西。
-        先走完主干, 再读它们才有落点。
+        扩展章节聚焦架构变体与工程深水区, 涵盖 2026 年主流生产系统广泛采用的关键技术; 建议先建立主干框架, 再结合具体问题按需深入研读。
       </p>
     </section>
   </div>
@@ -83,9 +82,9 @@ import { labsOf, minutesOf, totalTime } from '@/utils/readtime.js'
 import { useProgress } from '@/composables/useProgress.js'
 
 const WHY = {
-  all: '六个阶段的全部章节。每一章都对应仓库里可以运行的代码, 读到哪跑到哪。',
-  core: '课程主线。从 numpy 手写反向传播, 一路到 Agent 能调工具, 中间不跳步。',
-  sprint: '只有一天的话读这 12 章。每个阶段挑出不读就接不上下一阶段的那几页。',
+  all: '覆盖六个阶段的全部章节。每章均与仓库中的可运行源码一一对应, 适合系统性精读与案头查阅。',
+  core: '全书核心主线。从纯 NumPy 手写反向传播出发, 循序渐进贯通至具备工具调用能力的 Agent 系统, 逻辑链条完整无跳步。',
+  sprint: '单日速览精选的 12 章。从每个阶段提炼出承上启下的最小核心集合, 帮助读者在最短时间内建立全栈全局视图。',
 }
 
 const progress = useProgress()
