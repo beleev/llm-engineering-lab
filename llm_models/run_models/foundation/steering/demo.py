@@ -164,8 +164,15 @@ def main():
     zf = (acts(model, flipped)[:, 2:].mean(1) - mu) / sd
     probe_flip = (((zf @ w + bias) > 0) == label).float().mean().item()
     print(f"  话题与情绪反着配时, 逻辑回归探针的准确率 {probe_flip:.3f}")
-    for name in ("情绪方向 d_mood", "话题方向 d_topic"):
-        assert readout[name] > 0.99, f"{name} 在混杂数据上应能读出情绪"
+    # d_mood 的读出不断言: 混杂数据上沿它投影, 话题分量会按 |d_topic| · cos 混进来。
+    # 两者都由训练的浮点细节决定, 本机是 |d_mood| 6.14、cos -0.12, 情绪分量占优 (读出 1.000);
+    # 换台机器时见过 |d_mood| 6.97、cos -0.17 的组合, 两项几乎抵消, 读出掉到 0.250。
+    mood_gap = ((a[label].mean(0) - a[~label].mean(0)) @ d_mood).item()
+    print(f"  d_mood 上两类投影均值之差 {mood_gap:+.1f} = |d_mood|² {d_mood.norm() ** 2:.0f} "
+          f"加上话题分量 {(d_topic.norm() * d_mood.norm() * cos):+.0f}: "
+          f"后一项够大时, 连情绪方向本身也读不出情绪 (这一项随训练波动, 所以不作断言)")
+    assert readout["话题方向 d_topic"] > 0.99, "话题方向在混杂数据上应能读出情绪"
+    assert readout["逻辑回归探针"] > 0.99, "探针在混杂数据上应能读出情绪"
 
     # ---- 2. 加进残差流: 谁能改行为 ----
     gn = torch.Generator().manual_seed(3)
