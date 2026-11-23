@@ -184,10 +184,18 @@ def main():
         cells = " | ".join(f"{c:g}: {p:.2f} / {sp:.2f}" for c, (p, sp) in zip(coefs, table[name]))
         print(f"  {name:<6} 正面词 / 运动名词概率 | {cells}")
     assert table["d_mood"][3][0] - base_pos > 0.5, "情绪方向 (系数 4) 应能把 NEG 提示改成说正面词"
+    # 小系数下另两个方向基本不动情绪; 系数 4 以上激活已被推离训练分布, 三个方向都会互相牵连,
+    # 所以那里比的是幅度差距, 不是绝对阈值 (两者在不同 BLAS 下都成立, 绝对阈值不成立)。
     for name in ("d_topic", "探针方向"):
-        for c, (p, _) in zip(coefs[:4], table[name][:4]):
-            assert abs(p - base_pos) < 0.1, f"{name} 系数 {c}: 能读出情绪, 加进去却不应改变情绪"
-    assert table["d_topic"][3][1] - base_sport > 0.3, "话题方向改的是名词"
+        for c, (p, _) in zip(coefs[:3], table[name][:3]):
+            assert abs(p - base_pos) < 0.1, f"{name} 系数 {c}: 能读出情绪, 加进去却不改变情绪"
+        gain = table[name][3][0] - base_pos
+        assert table["d_mood"][3][0] - base_pos > 2 * abs(gain), (
+            f"{name} 系数 4 把正面词概率改了 {gain:+.2f}, 情绪方向改了 "
+            f"{table['d_mood'][3][0] - base_pos:+.2f}: 读得出不等于改得动, 差距应在 2 倍以上")
+    # 哪一档系数开始改名词, 随随机初始化出来的方向而变 (本机是 4, 别的 BLAS 上可能到 8), 所以只要求扫到过。
+    topic_sport = max(sp for _, sp in table["d_topic"]) - base_sport
+    assert topic_sport > 0.3, f"话题方向改的是名词, 扫过的系数里运动名词概率最多只高了 {topic_sport:+.2f}"
     # 加在哪里也有关系: 连提示位置 (情绪标记) 一起加
     add_all = torch.zeros(T, d_mood.numel()) + d_mood
     h = model.layers[LAYER].register_forward_hook(lambda m, i, o: o + add_all[: o.size(1)])

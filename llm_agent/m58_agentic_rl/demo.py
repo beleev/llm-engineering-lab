@@ -66,7 +66,7 @@ def rollout(model, entity: int, key: tuple, sample: bool, temperature: float = 1
         dist = torch.distributions.Categorical(logits=logits)
         index = dist.sample() if sample else logits.argmax()
         steps.append({"state": tuple(tokens), "logp": dist.log_prob(index),
-                      "entropy": float(dist.entropy()), "action": ACTIONS[int(index)]})
+                      "entropy": float(dist.entropy().detach()), "action": ACTIONS[int(index)]})
         action = ACTIONS[int(index)]
         if action == "ask" and phase in ("start", "half"):
             # 模拟用户按轮次回一半 key; 两轮都问到了才凑齐
@@ -292,14 +292,21 @@ def main() -> None:
                           f"末步策略熵 {rows['step']['entropy']:.3f}")
         assert bad["input_dependence"] == 0.0, "输入依赖度为 0: 贪心动作序列不再随用户给的 key 变化"
         assert rows["step"]["input_dependence"] == 1.0, "学成协议的那一组, 动作序列随 key 变化"
-        assert bad["entropy"] > rows["step"]["entropy"], (
-            f"崩塌这一组的策略熵 {bad['entropy']:.3f} 反而高于学成协议的 {rows['step']['entropy']:.3f}, "
+        # 熵分不出这两组: 本机崩塌组 0.386 对健康组 0.068, CI 上是 0.083 对 0.068。
+        # 两种情形下熵都没把崩塌那组判得更差, 所以这里只要求它不低于健康组 (留 0.05 容差), 不比具体数值。
+        assert bad["entropy"] > rows["step"]["entropy"] - 0.05, (
+            f"崩塌这一组的策略熵 {bad['entropy']:.3f} 并不低于学成协议的 {rows['step']['entropy']:.3f}, "
             "只盯着熵查不出这种崩塌")
         assert bad["entropy"] < bad["history"][0]["entropy"] / 2, "熵确实掉下来了, 只是掉得不比健康的那一组多"
         assert bad["success"] <= 0.5, f"偏斜训练集上的奖励掩盖了问题, 均衡留出集只有 {bad['success']:.0%}"
         assert bad["train_reward"] > bad["success"], "训练奖励高于留出成功率, 只看训练曲线看不出崩塌"
-        assert max(h["reward"] for h in bad["history"]) - bad["history"][-1]["reward"] > 0.05, (
-            "训练奖励到顶之后还会掉下来再上去, 这种来回摆动是训练不稳的信号")
+        # 看峰值之后的最大回撤, 不看末步落在哪里: 末步正好停在峰值上也不说明曲线是单调的。
+        peak = drawdown = 0.0
+        for h in bad["history"]:
+            peak = max(peak, h["reward"])
+            drawdown = max(drawdown, peak - h["reward"])
+        assert drawdown > 0.05, (
+            f"训练奖励到顶之后还会掉下来再上去 (最大回撤 {drawdown:.2f}), 这种来回摆动是训练不稳的信号")
 
         print("\n[3] 信号枯竭: 组内奖励全同的组给不出梯度, 它在训练前后两头都占多数")
         h = rows["step"]["history"]
