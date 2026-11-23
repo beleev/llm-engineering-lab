@@ -18,14 +18,14 @@
 - **一个 loop, 任意模型**: `core/llm.py` 的 `LLM` 协议只有一个方法 `next(messages, tools) -> ModelAction`。换成 `core/claude_llm.py` 的真实模型, loop 一行不改 (m15, opt-in)。
 - **transcript 即 API 格式**: assistant 的 `tool_use` 与 user 的 `tool_result` 都是 content block, 按 id 配对。落盘的 JSONL 里还有 system 角色的消息和 `name` 字段, 发给真实 API 前要经 `core/claude_llm.py: to_api_messages` 转换 (m15)。
 - **安全可跑**: `ShellTool` 只模拟、永不执行; 不访问外网，m55 使用本机 HTTP; 文件只写临时目录; 基础模块的子进程是 m09 的本地 MCP server; m28 还会运行临时项目中固定的 Python 测试。
-- **基础模块零依赖**: 基础模块用 stdlib，研究实验使用 numpy。`--with-training` 加入 m32 / m37 / m44 / m45 / m46 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
+- **基础模块零依赖**: 基础模块用 stdlib，研究实验使用 numpy。`--with-training` 加入 m32 / m37 / m44 / m45 / m46 / m58 的 CPU 训练, 复用仓库已有 PyTorch。CI 在 Python 3.10 和 3.13 上跑。
 
 ## 运行
 
 ```bash
 # 在仓库根目录
-python -m llm_agent.run_all                 # 54 个默认 demo，使用标准库与 numpy
-python -m llm_agent.run_all --with-training # 加入 5 个 CPU 训练扩展, 共 59 个
+python -m llm_agent.run_all                 # 58 个默认 demo，使用标准库与 numpy
+python -m llm_agent.run_all --with-training # 加入 6 个 CPU 训练扩展, 共 64 个
 python -m llm_agent.m03_permissions.demo    # 单模块
 python -m llm_agent.full_loop.demo          # 组合闭环
 
@@ -73,10 +73,10 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | 12 | [Guardrails](m12_guardrails/) | prompt injection (标记 + 污点)、路径围栏、密钥脱敏 | `core/guardrails.py` `core/sandbox.py` |
 | 13 | [Evals](m13_evals/) | 终态 grader、轨迹检查、pass@k / pass^k、回归对比 | `m13_evals/demo.py` |
 | 14 | [Context Engineering](m14_context_engineering/) | 工具结果清理、模型摘要压缩 (resume 真的变小)、即时检索、记忆工具 | `core/agent.py` `core/memory.py` |
-| 15 | [Claude API](m15_claude_api/) | 真实模型适配器 (opt-in, 不在 run_all) | `core/claude_llm.py` |
+| 15 | [Claude API](m15_claude_api/) | 真实模型适配器 (opt-in, 不在 run_all): adaptive thinking + effort、无采样参数与强制 tool_choice、历史只追加的离线自检 | `core/claude_llm.py` |
 | 16 | [RAG](m16_rag/) | 定长 vs 结构切块、BM25、字符 n-gram 稠密向量、RRF 混合、rerank、recall@k / MRR | `m16_rag/demo.py` |
 | 17 | [Computer Use](m17_computer_use/) | 无障碍树快照 → click / type / scroll、ref vs 坐标点击、页面注入拦截 | `m17_computer_use/demo.py` |
-| 18 | [A2A](m18_a2a/) | Agent Card、任务状态机 (input-required)、artifact、与 MCP 的分工 | `m18_a2a/demo.py` |
+| 18 | [A2A](m18_a2a/) | Agent Card、任务状态机 (v1.0 的 8 个状态, 两个中断态)、artifact、与 MCP 的分工 | `m18_a2a/demo.py` |
 | 19 | [Prompt Caching](m19_prompt_caching/) | cache_control 断点、前缀字节匹配、写贵读便宜、TTL、时间戳反例 | `m19_prompt_caching/demo.py` |
 | 20 | [记忆更新 · 来源、范围与版本](m20_memory_lifecycle/) | 记忆要保留对象、范围和证据; 新事实只替换它能证明的那一部分。 | `m20_memory_lifecycle/demo.py` |
 | 21 | [完成验收 · 说完不等于做完](m21_completion_verification/) | 把 final 当候选结果; 只读验收通过才结束, 失败后在预算内修复。 | `m21_completion_verification/demo.py` |
@@ -87,7 +87,7 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | ★ | [持续改进 · 学会、迁移、变化与保持](full_learning_loop/) | 先行动再读反馈, 把迁移、规则更新和旧能力保持分开验收。 | `full_learning_loop/demo.py` |
 | ★ | [Full Loop](full_loop/) | 全部机制组合, 5 个场景逐一断言 | — |
 
-实验的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 55 个 demo，加 `--with-training` 后共 60 个（m15 在线 demo 仍需主动开启）。
+实验的依赖与阅读顺序见 [Agent 扩展阅读](../docs/agent-extensions.md)。默认入口共 58 个 demo，加 `--with-training` 后共 64 个（m15 在线 demo 仍需主动开启）。
 
 ## 实现说明
 
@@ -117,19 +117,22 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | JSON Schema 工具 + 参数校验 | partial | 一层 schema 子集; 真实系统用 `strict: true` / jsonschema |
 | 并行工具调用 | yes | m02 / m10, 线程池 |
 | 权限: 规则 + 模式 + plan mode | yes | m03 / m10; 黑名单局限已当场演示 |
-| OS 级沙箱 / 真实 shell | no | 教学安全: 只模拟; 路径围栏见 m12 |
+| OS 级沙箱 / 真实 shell | partial | m59 为纯标准库的策略评估模拟: 文件系统 (只写工作区、拒读密钥目录、路径先规范化) 加网络 (出站代理按域名白名单) 两层; 不真正隔离、不执行命令。路径围栏见 m12, 真实实现用 bubblewrap / Seatbelt 与出站代理 |
+| 多轮 Agent RL 的信用分配 | partial | m58 在 CPU 小模型上对比轨迹级 / 逐步 (GiGPO 式锚状态分组) / 逐轮奖励三档, 单种子玩具规模; 无 PPO critic、无 token 级优势、无在线数据合成 |
+| 长周期任务跨窗口接力 | partial | m60 为确定性模拟: 进度文件、功能清单与端到端验收对比只靠压缩的单个长会话; 不模拟真实 git、浏览器验证与子 agent 架构 |
 | Hooks (7 事件) | yes | Stop 仅通知, 不能阻止结束 |
 | Skills 渐进式披露 | yes | m05 为目录/正文两层；m33 演示 index / SKILL / rules 三层资料及版本发布 |
 | MCP | partial | 真实 stdio + tools; 无 resources / prompts / HTTP / OAuth |
 | 持久化 / resume / compact boundary | yes | m06 / m14 |
 | Subagents / orchestrator-workers | yes | m07 / m11; lead 不会多轮重规划 |
-| 检索 | partial | m08/m16 覆盖词面与字符特征检索；m43 有固定向量 ANN 机制实验；无训练过的语义 embedding、完整 ANNOY/HNSW |
-| Computer use / A2A | partial | m17 模拟浏览器，m35 可选真实 Chromium 截图/点击（颜色定位）；m18 仍为进程内 A2A，无 HTTP/流式/推送 |
-| Context editing / compaction / memory tool | yes | m14; 预算按字符, token 为估算 |
+| 检索 | partial | m08/m16 覆盖词面与字符特征检索；m43 有固定向量 ANN 机制实验；m45 训练小双编码器；均为单向量, 无 ColBERT 式多向量 / Matryoshka 截断、完整 ANNOY/HNSW |
+| Computer use / A2A | partial | m17 模拟浏览器，m35 可选真实 Chromium 截图/点击（颜色定位）；m18 为进程内 A2A，转移表覆盖 v1.0 的 8 个状态，线上沿用 v0.3 写法，无 HTTP/gRPC/流式/推送 |
+| Context editing / compaction / memory tool | yes | m14 本地模拟; 预算按字符, token 为估算; 本地改写历史在真实 API 上会让 thinking 块失效 (m15 [3]); 跨窗口接力 (把状态写到磁盘上换新会话) 见 m60 |
 | Prompt injection 防护 / 脱敏 | partial | 正则特征 + 轮级污点; 无信息流追踪。各层挡不住什么, 见 m03 / m07 / m09 / m12 / m17 的「与真实系统的差距」 |
-| Evals | partial | m13/m31 有终态、轨迹、裁判校准夹具及配对 bootstrap；无真实 LLM-as-judge 或大规模任务验证 |
-| 真实 LLM | opt-in | m15; 无 streaming / 重试 |
+| Evals | partial | m13/m31 有终态、轨迹、裁判校准夹具及配对 bootstrap；无真实 LLM-as-judge、大规模任务验证或公开基准 (Terminal-Bench / BrowseComp / τ²-bench / GDPval)；trace 未按 OTel GenAI 语义约定命名 |
+| 真实 LLM | opt-in | m15; 流式、有界重试、adaptive thinking / effort、history-editing check 离线自检; 在线路径未对真实 API 运行, 无服务端 compaction / context editing / message threads |
 | Prompt caching | partial | m19 离线模拟计费与 TTL; m15 的真实调用未启用 |
+| 模型路由 / 级联 | partial | m61 确定性成本模型 (价格比例取自 Claude 价目表, 能力阈值为假设值); 无真实路由分类器与验收器漏判 |
 
 读完本目录再看 Claude Code / Claude Agent SDK / OpenHands / LangGraph, 可以把复杂系统拆成几条主线:
 **模型怎么选动作、工具怎么执行、权限怎么拦、上下文怎么控、状态怎么留、子任务怎么隔离、不可信输入怎么防、改动之后怎么验。**
@@ -156,8 +159,12 @@ m24 多跳证据 ─ m25 轨迹学习 ─ full_learning_loop 四阶段改进评�
 | [m40_agent_society](m40_agent_society/README.md) | 通过多轮重复博弈实验观察不同策略组合的长期收益, 分析多智能体协作中的激励与背叛边界。 |
 | [m41_system_design](m41_system_design/README.md) | 对比固定步骤工作流 (workflow) 与开放循环智能体在成本、延迟与异常长尾任务处理能力上的取舍。 |
 | [m42_memory_privacy](m42_memory_privacy/README.md) | 将租户隔离、过期清理与用户删除前置到召回阶段之前, 避免越权记忆混入上下文窗口。 |
+| [m58_agentic_rl](m58_agentic_rl/README.md) | 在 4 轮多轮任务上对比轨迹级优势、按锚状态分组的逐步优势与逐轮奖励三种信用分配, 并用输入依赖度诊断策略熵查不出来的模板化崩塌。 |
+| [m59_os_sandbox](m59_os_sandbox/README.md) | 对照只开权限门、只开沙箱与两者都开三种配置, 统计被拦下的越界访问、界内破坏性操作和需要人确认的次数。 |
+| [m60_long_horizon](m60_long_horizon/README.md) | 在同一条上下文预算下对比单个长会话靠压缩与新会话靠进度文件、功能清单和端到端测试交接, 统计真正通过的功能数、虚报完成与回归次数。 |
+| [m61_model_routing](m61_model_routing/README.md) | 按每个完成任务的成本比较单模型降 effort、小模型先试的级联与按预测难度分配的路由, 并演示级联换模型接着做时缓存按模型隔离带来的额外花费。 |
 
-m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
+m28 会在临时项目执行固定 Python 测试; m29 使用真实 asyncio 和 SQLite; m32、m37、m44、m58 复用 PyTorch 训练小模型。m35 的 Chromium 版本是单独的可选验证, 不加入默认依赖。
 
 - [向量索引 · 精确扫描与近似搜索](m43_vector_index/README.md): 对比精确扫描、单叶投影树与带预算的图搜索, 看近似索引怎样用更少的距离计算换召回率。
 

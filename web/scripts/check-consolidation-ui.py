@@ -18,7 +18,7 @@ with sync_playwright() as p:
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.on('response',lambda r:http.append((r.url,r.status)) if r.status>=400 else None)
     page.goto(BASE,wait_until='networkidle')
-    expect(page.locator('.sidebar .leaf')).to_have_count(101)
+    expect(page.locator('.sidebar .leaf')).to_have_count(120)
     legacy={'visited':{'finetune-dora':200,'finetune-lora':100},'last':'finetune-dora',
             'quiz':{'finetune-dora':{'correct':3,'total':3},'finetune-lora':{'correct':3,'total':3}},'level':'all'}
     page.evaluate('(s)=>localStorage.setItem("llm-progress",JSON.stringify(s))',legacy)

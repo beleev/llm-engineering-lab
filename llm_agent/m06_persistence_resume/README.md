@@ -99,6 +99,7 @@ cd <仓库根目录> && python3 -m llm_agent.m06_persistence_resume.demo
 - 只持久化了对话。工具侧的外部状态 (demo 里的 `notes` 列表、真实系统里的文件改动) 不在 JSONL 里, resume 不会回滚或重放它们。
 - resume 时只要历史里已有 `session_start` 消息就不再注入 (hook 仍会以 source="resume" 被调用); 它若被压缩掉, 会在下次 resume 重新注入, 同时其文本会作为"必须保留"交给摘要 (见 m14)。
 - 日志是明文。这里只有传了 `guardrails` 才在 `_append` 里脱敏 (m12), 本 demo 没传。
+- 盘上只追加, 不等于发给 API 的历史只追加。压缩过的会话读回的是「摘要 + 保留的尾部」(m14), 在真实 API 看来是改了历史; Opus 5.5 等当前代模型的 thinking 块签名绑定产生它时的全部前缀, 尾部带回的 thinking 块会失效 (m15 的 `stale_thinking` 给出离线判定)。没压缩过的会话原样读回, thinking 块仍然有效。
 
 ## 常见误区
 

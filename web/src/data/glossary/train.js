@@ -43,4 +43,12 @@ export default [
   "oneliner": "Roofline 比较算子在计算与带宽上的理论上界, MFU 度量有效模型 FLOP 占硬件总峰值算力预算的比例; 理论估算不能替代实测。",
   "route": "train-model-parallel"
 },
+  t('goodput', '有效训练时间占比', "有效训练时间与墙钟时间之比。落盘阻塞、故障后的重跑和重启恢复都算在墙钟时间里, 所以卡越多这个数越难守住。", "整体 MTBF 6 小时时: 同步落盘 10 分钟 75.9%, 异步快照 30 秒 92.2%", 'train-fault-tolerance'),
+  t('Young / Daly 间隔', '最优 checkpoint 间隔', "让落盘开销与故障重跑开销相等的那个 checkpoint 间隔, 两笔开销之和在这一点最小。", "$\\tau = \\sqrt{2\\delta M}$ (Young); $\\sqrt{2\\delta(M+R)} - \\delta$ (Daly)", 'train-fault-tolerance'),
+  t('静默数据损坏', 'SDC / Silent Data Corruption', "算错了但没有任何报错: 结果是一个有限、量级也正常的数, NaN guard 查不出来, 只能靠副本间对校验和或确定性重算发现。", "翻 fp32 指数位差 2.39e+37 (抓得到), 翻尾数末位差 7.45e-09 (阈值法抓不到)", 'train-fault-tolerance'),
+  t('DiLoCo', '低通信分布式训练', "每个 worker 本地跑 H 步内层优化器再同步一次参数, 外层把旧参数减新平均参数当成伪梯度走一步 Nesterov 动量 SGD。", "通信次数降到 1/H; 论文在 1.5 亿参数上取 H = 500", 'train-fault-tolerance'),
+  t('Zero Bubble', 'ZB-H1 / ZB-H2 / ZB-V', "把完整反向拆成只算输入梯度的 B 和只算权重梯度的 W; B 留在关键路径上, W 挪到卡空闲时做, 填掉流水线收尾的空白。", "每卡空闲 $(\\mathrm{PP}-1)(t_f+t_b-t_w)$, 三者耗时相等时是 1F1B 的 1/3", 'train-pipeline-schedules'),
+  t('DualPipe', '双向流水线', "两端同时喂 micro-batch 的流水线调度, 用一对前向与反向块的计算掩盖 all-to-all 与 PP 通信; 代价是每卡存两份参数。", "空闲 $(\\mathrm{PP}/2-1)(F\\&B+B-3W)$, 在途激活 PP+1", 'train-pipeline-schedules'),
+  t('z-loss', 'logit 归一化惩罚', "在损失里加一项 $c_z \\log^2 Z$ 把 softmax 的归一化因子往 1 拉。交叉熵对 logits 整体平移不敏感, 这个自由度要靠它来管。", "PaLM 取 $10^{-4}$; m10 实测 $\\log Z$ 21.85 → 10.93", 'train-precision-stability'),
+  t('router z-loss', 'ST-MoE 的路由器 z-loss', "把 z-loss 加在 MoE 路由器的 logits 上, 防止路由分数无界增长让 softmax 饱和、路由决策被数值误差带偏。", "ST-MoE 取 $10^{-3}$; m10 实测 $\\log Z$ 23.06 → 0.60, top-1 专家不变", 'train-precision-stability'),
 ]

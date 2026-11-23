@@ -2,7 +2,7 @@
 
 m15 (真实模型) 需要可选依赖和 API key, 不在此列: python -m llm_agent.m15_claude_api.demo
 排除它还有一个原因: 环境里有 key 时 m15 会发真实请求并计费。这里列出的 demo 不访问外网；m55 只访问本机临时 HTTP 端点。
-默认路径使用标准库与 numpy。--with-training 还运行 m32 / m37 / m44 / m45 / m46 的 CPU 训练，需要 torch。
+默认路径使用标准库与 numpy。--with-training 还运行 m32 / m37 / m44 / m45 / m46 / m58 的 CPU 训练，需要 torch。
 """
 
 from __future__ import annotations
@@ -71,12 +71,17 @@ DEMOS = [
     "llm_agent.m55_mcp_versions.demo",
     "llm_agent.m56_release_loop.demo",
     "llm_agent.m57_checkpoint_migration.demo",
+    "llm_agent.m58_agentic_rl.demo",
+    "llm_agent.m59_os_sandbox.demo",
+    "llm_agent.m60_long_horizon.demo",
+    "llm_agent.m61_model_routing.demo",
 ]
 
 
 TRAINING_DEMOS = {"llm_agent.m32_agent_training.demo", "llm_agent.m37_midtraining.demo",
                   "llm_agent.m44_self_distillation.demo",
-    "llm_agent.m45_semantic_retrieval.demo", "llm_agent.m46_joint_rag.demo"}
+    "llm_agent.m45_semantic_retrieval.demo", "llm_agent.m46_joint_rag.demo",
+                  "llm_agent.m58_agentic_rl.demo"}
 
 
 def main(with_training: bool = False) -> None:
@@ -89,5 +94,5 @@ def main(with_training: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--with-training", action="store_true", help="包括需要 torch 的五个 CPU 训练扩展")
+    parser.add_argument("--with-training", action="store_true", help="包括需要 torch 的六个 CPU 训练扩展")
     main(parser.parse_args().with_training)

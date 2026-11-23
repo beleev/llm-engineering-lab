@@ -2,9 +2,31 @@
 from decimal import Decimal
 import argparse
 import json
+import re
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 from zh_punct import zh  # 页面显示中文标点, 期望文字先按同样规则转换
+
+
+def prose_lines(text):
+    """按 Prose 的渲染拆成可比的纯文字片段。
+
+    三件事: 去掉 "- " / "N. " 的列表标记与缩进 (序号由 CSS 生成, 不在 textContent 里);
+    标点按显示层规则转成中文标点; 公式按 $...$ 切开丢掉 (KaTeX 会把 HTML、MathML 和
+    annotation 一起放进 DOM, textContent 里同一个公式出现三遍, 没法直接比)。
+    """
+    out = []
+    for raw in zh(text).split('\n'):
+        line = re.sub(r'^\s*(?:[-－]\s+|\d+[.．]\s+)', '', raw).strip()
+        listed = raw.lstrip().startswith(('- ', '－ ')) or re.match(r'^\s*\d+[.．]\s', raw)
+        # 段首的短标签 (「边界：」这类) 渲染成不带冒号的色块, 列表项的标签才保留冒号。
+        if not listed:
+            line = re.sub(r'^([\u4e00-\u9fff]{1,6})：', r'\1', line)
+        for piece in re.split(r'\$[^$]*\$', line):
+            piece = piece.strip('，。；：、 ')
+            if len(piece) >= 6:   # 太短的碎片满页都是, 比它没有意义
+                out.append(piece)
+    return out
 ROOT=Path(__file__).resolve().parents[2]
 
 
@@ -37,7 +59,10 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
             lab=page.locator(f'[data-{dataset}="{entry["id"]}"]')
             expect(lab).to_be_visible()
             reading=lab.locator('.reading > summary');reading.focus();reading.press('Enter')
-            expect(lab.locator('.protocol')).to_contain_text(entry['protocol'])
+            # Prose 把 "- " / "N. " 开头的行渲染成列表项, 序号由 CSS 生成, 不在 textContent 里。
+            # 所以按行去掉标记后逐行比, 不比整段拼接的样子。
+            for line in prose_lines(entry['protocol']):
+                expect(lab.locator('.protocol')).to_contain_text(line)
             for theme in ('light','dark'):
                 page.evaluate('t=>document.documentElement.dataset.theme=t',theme)
                 for width in (1440,768,320):
@@ -49,7 +74,8 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
                         for label,value in condition['metrics'].items():
                             row=lab.locator('.kv').filter(has=page.get_by_text(zh(label),exact=True))
                             expect(row.locator('b')).to_have_text(display(value))
-                        expect(lab.locator('.lab-note')).to_have_text(condition['note'])
+                        for line in prose_lines(condition['note']):
+                            expect(lab.locator('.lab-note')).to_contain_text(line)
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(entry['id'],theme,width)
                         checked+=1
             lab.locator('.source > summary').click()
@@ -79,7 +105,7 @@ def main(base, counts_only=False, entry_id=None, conditions_only=False, dataset=
             count=page.locator('section.lab, section.architecture-lab').count()
             counts.append({'path':path,'labs':count})
             if index%20==0:print(f'counted {index+1}/{len(links)} routes',flush=True)
-        assert len(links)==len({link['href'] for link in links}) and len(links)==107,len(links)
+        assert len(links)==len({link['href'] for link in links}) and len(links)==126,len(links)   # 六阶段章节入口 (chapterGroups 的章数 + 6 个总览)
         assert not errors and not http,(errors,http)
         report={'scope':'counts-only' if counts_only else 'full','groups':len(records['entries']),'conditions':sum(len(e['conditions']) for e in records['entries']),
                 'viewport_theme_conditions':checked,'routes':counts,'lab_entries':sum(x['labs'] for x in counts),'js_errors':errors,'http_errors':http}

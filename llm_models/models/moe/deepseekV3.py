@@ -5,6 +5,8 @@ DeepSeek-V3 (2024) / V3.2 (2025) — "大容量, 小推理" 的 decoder-only LM
     FFN → DeepSeekMoE : sigmoid 打分 + top-k + 共享专家; 671B 总参, 每 token 只激活 ~37B
     GQA → MLA         : KV cache 每 token 只存 (r + rope) 个数, 而不是 2·Hkv·Dh
     V3.2: MLA → DSA   : Lightning Indexer 选 top-k 个 key, 注意力 O(L²) → O(L·k)
+    V4:   DSA → CSA/HCA: 先把每 m 个 token 压成一个条目, 再在条目上选 top-k, 缓存条数也降到 1/m。
+                       两种压缩比的层交错排布, 见 moe/deepseek_v4.py
 
 Aux-loss-free 负载均衡 (本文件的看点): aux loss 会和 LM loss 抢梯度。V3 改用不参与梯度的
 per-expert bias, 只影响 "选谁", 不影响 "权重多少"; 每步训练后:

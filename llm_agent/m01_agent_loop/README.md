@@ -99,6 +99,7 @@ calculator: 2 + 3 * 4 = 14
 - `tool_use` 的 id 在真实 API 里由模型侧生成; toy LLM 留空, 由 `Agent` 顺序编号。
 - `usage` 里的 token 数是 `core/utils.py: estimate_tokens` 的粗估, 不是计费口径。
 - 真实 API 的 system prompt 是顶层参数而不是一条消息; 这里统一用 `Message("system", ...)`, 转换由 `claude_llm.to_api_messages` 负责。
+- 「每轮重发全部历史」是无状态 Messages API 的前提。Claude API 的 message threads (beta `message-threads-2026-08-12`) 让服务端短期保存会话, 之后每次只发新增消息, 省下的是上传、校验和分词的时间, 计费不变; 线程最多空闲 5 分钟就过期, 失效时要从 harness 自己的副本整段重放, 所以 harness 仍要保存完整的 messages。
 
 ## 常见误区
 

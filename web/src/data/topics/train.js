@@ -15,6 +15,7 @@ const topic = {
     { route: 'train-data-packing', label: '数据流水线与 packing', hint: '改过几个字的转载怎么抓, 拼行怎么不串文档' },
     { route: 'train-scaling', label: '规模: scaling law 与 μP', hint: '钱定了, 模型多大、学习率多少怎么定' },
     { route: 'train-eval', label: '评测: PPL、污染、pass@k、裁判', hint: '每个评测数字都有口径' },
+    { route: 'train-fault-tolerance', label: '容错与低通信训练', hint: '挂掉是常态: 多久存一次盘, 同步能少到什么程度' },
   ],
   pages: {
     // ---------------------------------------------------------------- 切 batch
@@ -236,6 +237,10 @@ p16_shard = master_shard.astype(float16)            # 下一步再按需 gather`
         {
           title: 'FP8 消融中保留 fp32 主权重最为关键',
           body: 'm13 在贴近真实大模型尺度 (权重标准差 0.004, 梯度量级 1e-5) 的任务上做了逐项消融, 对比 200 步后的验证损失:\n- 去掉张量缩放 (scaling): 损失恶化 29 倍, 小梯度成片落入欠表示区间。\n- 去掉 fp32 主权重 (直接在 FP8 格点上更新权重): 损失恶化高达 584 倍, 因为小于 FP8 格点间距的更新在每步舍入中被直接抹除。\n另需注意, FP8 最好的几组停在约 4.6e-4, 而 FP32 基线是 1.02e-08: 这个玩具回归问题没有噪声, 量化误差直接露了出来; 真实 LLM 的 loss 噪声远大于它, 这个差距不能外推。',
+        },
+        {
+          title: '2026 年的现状: 全栈 FP4 连优化器状态和注意力一起量化',
+          body: '早期的 NVFP4 预训练只把 Transformer 的线性投影量化到 4 位, 优化器状态、优化器自身的计算和注意力的前反向路径仍是高精度。Full-Stack FP4 (arXiv 2607.04422) 把这三块也量化了, 四份配方各解决一个问题:\n- 线性投影: LoRA-SVD 把一个紧凑的投影子空间留在 BF16, 其余保持全形状 NVFP4 计算, 只量化线性层的 loss 差距从 1.40% 降到 0.61%。\n- 优化器状态: 先开平方、再按 tile 取均值、再做 Hadamard 变换的顺序化流水线, 让 AdamW 的动量能稳定地存成 NVFP4。\n- 优化器计算: 正交化迭代 (论文称 Root, 就是 Muon 那一步) 直接在 NVFP4 上做, 靠形状相关的系数和裁剪稳住。\n- 注意力: 混合精度, 对 softmax 敏感的算子留在 BF16, 不是全部 FP4。\n3B 模型 64B token 预训练的结果是 BF16 的 loss 2.267 对 FP4 的 2.286, 差 0.838%; 平均 zero-shot 困惑度 26.675 对 26.665, 准确率平均低 0.10 个百分点。单张 RTX 5090 上的四块实测: Root 比优化过的 BF16 快 2.50 到 2.83 倍, AdamW 峰值显存低 37.9% 到 42.5% —— 这两个数字是单算子加速和单项显存, 不是端到端训练的加速比。\n这和上一条消融里 "去掉 fp32 主权重损失恶化 584 倍" 不矛盾: 被量化的是 AdamW 的动量, 主权重仍然是高精度那一份。',
         },
       ],
       links: [
@@ -617,6 +622,14 @@ def nvfp4(x, block=16):
           title: '大规模训练的分层边界与 MuonClip 防护',
           body: '将 Muon 用于大规模 Transformer 时有两项关键工程配套:\n- 参数适用范围: Muon 只更新隐藏层内部的二维线性投影矩阵; 一维的归一化增益/偏置仍交由 AdamW 更新; 词嵌入层与语言模型输出头虽是矩阵, README 指出对它们用 Muon 反而更差, 同样交给 AdamW。\n- QK-clip 抑制注意力分数爆炸: 满秩正交更新在超大规模训练中容易让注意力 logit 越涨越大, softmax 饱和成独热分布、梯度消失。m14 只演示裁剪本身, 不演示 logit 怎么涨上去: 手工构造偏大的 $W_Q, W_K$ 时最大 logit 达 752.1, 最大概率均值 1.000。Kimi K2 提出的 MuonClip 在监测到最大 logit $S_{\\max} > \\tau$ 时, 将 $W_Q$ 和 $W_K$ 各乘 $\\sqrt{\\tau / S_{\\max}}$, 把内积峰值精确压回阈值 $\\tau=100.0$。',
         },
+        {
+          title: '2026 年的现状: 进了最大的开源模型, 并且按 head 切开',
+          body: 'Muon 已经是几个最大的开源模型的默认优化器:\n- DeepSeek-V4 (arXiv 2606.19348) 把 Muon 列为三项升级之一, 理由写成收敛更快、训练更稳, 没有给具体数字。两档模型是 1.6T 参数 / 49B 激活和 284B / 13B 激活, 预训练超过 32T token。\n- Kimi K3 (arXiv 2607.24653, 2.8T 参数 / 104B 激活) 用的是 per-head Muon: 注意力的 $W_Q$、$W_K$、$W_V$ 不再整块做 Newton-Schulz, 而是把动量矩阵沿 head 维切块、每个 head 单独正交化。整块正交化把所有 head 当成一个耦合的块, 梯度或动量尺度大的 head 会主导共享的更新方向, 尺度小的 head 得到的归一化不足; 按 head 切开让各 head 的更新幅度一致, 大规模下训练更稳, 顺带省一点开销 (瘦长的 per-head 块做 Newton-Schulz 比整个投影矩阵便宜)。论文没有给量化收益。\nKimi K3 还给了分布式 Muon 那笔工程成本的一种解法: 分布式优化器按数据并行的 rank 切参数, 而 Newton-Schulz 要完整矩阵, 于是每个 rank 只用点对点通信向持有者取自己负责的那一份, 不做整参数的 all-gather。',
+        },
+        {
+          title: '两条还在争的结论: 正交化之后要不要再归一化, 最优优化器是否固定',
+          body: 'Muon 的配方和它的适用范围都还在动:\n- Muon+ (arXiv 2602.21545) 指出一个反直觉的现象: 正交化把奇异值拉平到 1, 但实际的 polar 迭代会放大更新的列范数与行范数不均衡, 而这个不均衡会削弱单步下降的保证。修法是在正交化之后插一个归一化步, 不加任何优化器状态; 60M 到 7B 的 GPT 与 LLaMA 预训练上训练和验证困惑度都一致更好, 摘要没给倍数。\n- 大规模受控对比 (arXiv 2607.20548) 用 update-RMS 对齐保证各优化器之间学习率可比, 在多十亿参数、万亿 token 上测出 SOAP 与 Muon 一致优于 AdamW, batch size 到 1 亿 token 时前两者仍稳而 AdamW 退化。正文另给一条配方: 训练早期加一段 batch size ramp-up (从约 2M token 起每若干步翻倍, 学习率 warmup 绑在同一条曲线上, 大致维持 $\\eta \\propto \\sqrt{B}$), Muon 因此在最终训练 loss 和下游评测上都明显超过 AdamW。\n这篇对比不是 Muon 的独唱: SOAP 是并列主角, 一组固定 batch 的受控实验里 SOAP 的 loss 还略低于 Muon; ramp-up 那一组只用在大 batch 实验上, 作者也写明没有按模型规模调过这条曲线, 同样手法对 AdamW 无效。另一篇 (arXiv 2610.08975) 给出反向证据: 没有哪条 Muon 的缩放规则在各种训练设置下都成立, 最优优化器本身会随 batch size 改变。m14 实现的是最初那一版 (整块 Newton-Schulz 加 QK-clip), 以上几条都没有实现。',
+        },
       ],
       links: [
         { from: 'llm_basic optim.py', to: 'Muon', body: 'Adam 为每个参数维护一阶矩 m 与二阶矩 v 两份状态; Muon 只保留单份动量缓冲, 靠矩阵正交化替代逐坐标方差归一化。' },
@@ -907,6 +920,100 @@ def judge_swap(qa, qb):
       source: ['llm_train/m21_llm_eval/demo.py:pass_at_k', 'llm_train/m21_llm_eval/demo.py:ngram_flags', 'llm_train/m21_llm_eval/demo.py:judge_swap', 'llm_train/m21_llm_eval/demo.py:token_nll'],
       run: 'python -m llm_train.m21_llm_eval.demo',
     },
+
+    'train-fault-tolerance': {
+          title: '容错与低通信训练 · checkpoint 间隔、goodput 与 DiLoCo',
+          subtitle: '卡数越多整体 MTBF 越短, 训练任务的指标从吞吐变成 goodput (有效训练时间占墙钟时间的比例)。最优 checkpoint 间隔由落盘耗时和整体 MTBF 算出来, 异步快照把阻塞时间压短, 慢节点与静默数据损坏是另两笔账; 再往下一步是让每个 worker 本地多跑几步, 把同步次数直接降到 1/H。',
+          tldr: '容错训练要排的是四件事, 每件都有能算的量:\n- 整体 MTBF: $M_{\\text{sys}} = M_{\\text{gpu}} / N$。单卡 10 万小时在 16384 张卡上只剩 6.1 小时。\n- 最优 checkpoint 间隔: 落盘占比 $\\delta/\\tau$ 与重跑占比 $\\tau/(2M)$ 在 $\\tau = \\sqrt{2\\delta M}$ 处相等, 这也是和最小的那一点 (Young 1974)。\n- 异步快照: 阻塞时间从 10 分钟降到 30 秒时, 最优 goodput 从 75.9% 升到 92.2% (m27 模拟)。它写的字节数一点没少, 省的只是阻塞那一段。\n- DiLoCo: 本地跑 H 步再同步一次, 通信次数降到 1/H; H 太小会被外层动量放大, 太大跟不上, m28 的玩具上最好的 H 是 48。',
+          question: '一万多张卡的任务平均几小时就会挂一次, 为什么不干脆每一步都存盘? 既然每步同步梯度这么贵, 为什么不让各个 worker 多跑几步再同步?',
+          evolution: {
+            title: '从拍脑袋存盘到算出来的同步频率',
+            subtitle: '根问题: N 张卡各自独立出故障, 任意一张挂掉整个同步任务就得停, 所以整体 MTBF 随卡数反比缩短。',
+            steps: [
+              { name: '定期落盘', pain: '(原点) 千卡任务的整体 MTBF 以小时计, 没有 checkpoint 一次故障就等于白跑', fix: '把参数、优化器状态、数据游标和 RNG 一起落盘, 挂掉从上一份接着跑 (m08); 间隔多大靠拍脑袋' },
+              { name: 'Young / Daly 算间隔', year: 1974, pain: '存太勤时间花在落盘上, 存太稀每次挂掉要重跑很长一段, 拍脑袋两头都可能亏', fix: '$\\tau = \\sqrt{2\\delta M}$ 让落盘与重跑两笔开销相等; 16384 卡、落盘 10 分钟时最优 goodput 75.9%' },
+              { name: '异步快照 + 弹性缩容', pain: '同步落盘那十几分钟谁都不能算, 它直接压住 goodput 的上限; 少几张卡就得停工等修', fix: '先把状态拷进内存再后台落盘, 阻塞降到 30 秒、goodput 升到 92.2%; 少几张卡时重切数据, 用梯度累积补回全局 batch' },
+              { name: 'DiLoCo', year: 2023, pain: '以上都还要求每一步跨卡 all-reduce 一遍梯度, 跨数据中心的带宽和延迟撑不住', fix: '每个 worker 本地跑 H 步再同步一次参数, 外层用 Nesterov 动量 SGD 走伪梯度, 通信次数降到 1/H' },
+            ],
+          },
+          code: 'llm_train/m27_fault_tolerance/fault_tolerance.py · llm_train/m28_diloco/diloco.py',
+          points: [
+            {
+              title: '最优 checkpoint 间隔: 两笔开销相等的那一点',
+              key: true,
+              body: '卡越多挂得越勤: N 张卡各自独立出故障时故障率相加, 整体 MTBF 等于单卡 MTBF 除以 N。单卡取 10 万小时, 1024 张卡是 97.7 小时, 16384 张卡只有 6.1 小时。\n设 $\\delta$ 是一次落盘阻塞的时间, $M$ 是整体 MTBF, $\\tau$ 是两次 checkpoint 之间的纯计算时间, 要付的是两笔:\n- 落盘占比 $\\delta / \\tau$: 每跑 $\\tau$ 就额外花 $\\delta$, 存得越勤这笔越大。\n- 重跑占比 $\\tau / (2M)$: 故障平均落在一段的中间, 期望丢掉半段, 存得越稀这笔越大。\n两者相加在 $\\tau = \\sqrt{2\\delta M}$ 处最小, 这是 Young 1974 的一阶近似; 最优点上两笔正好相等 (m27 实测两边都是 0.118)。Daly 把重启耗时 R 算进去再减掉落盘本身占的那段, 给出 $\\tau = \\sqrt{2\\delta(M+R)} - \\delta$, 适用条件是 $(\\tau+\\delta)/M \\lt 1/2$。m27 在整体 MTBF 6 小时、重启 10 分钟、落盘 10 分钟时: Young 给 85 分钟、Daly 给 76 分钟, 蒙特卡洛扫出来的最优点在 90 分钟 (goodput 75.8%), 三者落在同一片平台上 —— 60 分钟到 90 分钟之间 goodput 只差 0.6 个百分点。',
+            },
+            {
+              title: '异步 checkpoint 省的是阻塞时间, 不是字节',
+              body: '公式里只有阻塞时间 $\\delta$ 说话, 所以异步 checkpoint 的做法是先把状态拷进主机内存 (这一下很快), 再让后台线程慢慢写进共享存储。写的字节数一点没少。\nm27 的两组参数 (整体 MTBF 6 小时、重启恢复 10 分钟):\n- 同步落盘阻塞 10 分钟: Daly 间隔 76 分钟, 最优 goodput 75.9%。\n- 异步快照阻塞 30 秒: Daly 间隔 19 分钟, 最优 goodput 92.2%。\n$\\delta$ 缩到 1/20 时, 最优间隔和两笔开销都按 $\\sqrt{1/20} \\approx 0.22$ 缩小, 所以存得更勤反而更划算。goodput 的曲线用解析式 $\\tau / (M e^{R/M}(e^{(\\tau+\\delta)/M}-1))$ 算, 和按泊松过程抽样的蒙特卡洛在八组参数上差最多 0.39 个百分点。\n边界: 模拟假设后台落盘总能在下一次故障前写完。真实实现要留着上一份完整的 checkpoint, 以防后台还没写完就又挂了。',
+            },
+            {
+              title: '慢节点和静默数据损坏: 另外两笔账',
+              body: '同步训练的每步时间是 N 个 rank 里的最大值, 而不是平均值。m27 让每个 rank 的单步耗时服从 $1.0 + \\mathrm{Exp}(0.1)$, 抽 4000 次:\n- N = 1 / 8 / 64 / 1024 时每步 1.102 / 1.271 / 1.477 / 1.753。\n- 被最慢的那个拖掉的比例依次是 0.0% / 13.6% / 25.5% / 37.2%。\n静默数据损坏 (SDC, silent data corruption) 是算错了但没报错, NaN guard 查不出来, 因为结果是一个有限、量级也正常的数。两条发现它的路子:\n- 副本间对梯度校验和: m27 翻掉一个 fp32 的指数位时最大差 2.39e+37, 1e-6 的阈值一定抓得到; 翻尾数最低位时差只有 7.45e-09, 阈值法抓不到。逐位比较什么都抓得到, 但这要求两个副本的归约顺序完全一致。\n- 确定性重算: 同一个 rank 同一份输入重算一遍, 校验和逐位相同 (m27 实测差 0.0e+00), 于是一旦对不上就能定位到具体那张卡。',
+            },
+            {
+              title: '弹性缩容能接着训, 接不回逐位一致',
+              body: '少几张卡时不必停工: 重切数据分片与优化器状态, 用梯度累积把全局 batch 补回原来的大小, 训练就能接着跑。m27 把全局 batch 48 固定住:\n- 8 张卡 × 每卡 1 个 micro-batch × 6 条。\n- 6 张卡 × 每卡累积 2 次 × 4 条。\n两者的全局平均梯度相差 2.24e-08, 都与单卡整批吃 48 条相差 2.61e-08 以内, 也就是在 fp32 噪声内相同。但它们不是逐位相同: 份数变了, 求和顺序跟着变, 而浮点加法不满足结合律。\nm08 的"挂掉重启等于从未挂过"要求的正是逐位相同, 靠的是连求和顺序都不变。缩容之后这条保证就断了: loss 曲线还能接着走, 但不能再靠回滚加重放去复现某一次 spike。真实框架还要做 checkpoint resharding (把 ZeRO 分片和 TP / PP 拓扑重新切一遍), m27 只重切数据和累积步数。',
+            },
+            {
+              title: 'DiLoCo: 本地跑 H 步, 外层拿参数差当梯度',
+              body: 'DiLoCo (Douillard et al., arXiv 2311.08105) 让每个 worker 用自己的数据分片连着跑 H 步 AdamW, 只在每 H 步末尾同步一次:\n1. 各 worker 从同一份外层参数 $\\theta^{(t-1)}$ 出发, 各跑 H 步, 得到 $\\theta_i^{(t)}$。内层优化器的状态留在本地, 跨轮次不清空。\n2. 把 $\\theta^{(t-1)} - \\theta_i^{(t)}$ 在 worker 之间取平均, 得到伪梯度 $\\Delta^{(t)}$。方向是旧参数减新参数, 这样它才和真梯度同向。\n3. 外层用带 Nesterov 动量的 SGD 把 $\\Delta^{(t)}$ 当梯度走一步 (论文用学习率 0.7、动量 0.9)。\n同步的东西从梯度换成了参数, 所以通信次数能降到 1/H, 而不只是把梯度攒起来。把 H 设成 1、内层换成朴素 SGD、外层学习率设 1 且无动量时, 第 3 步化简成 $\\theta \\leftarrow \\bar\\theta$, 外层变成恒等映射, 而 $\\bar\\theta$ 正是 DDP 走一步会到的地方: m28 用这组参数和手写的 DDP 对表, 差 1.79e-07, 这个差来自 $\\theta - 1.0 \\cdot (\\theta - \\bar\\theta)$ 在 fp32 下不是逐位的 $\\bar\\theta$。',
+            },
+            {
+              title: 'H 的两头都坏: 太小被动量放大, 太大跟不上',
+              body: '外层的有效步长约为 $\\mathrm{lr}/(1-\\mu) = 0.7/0.1 = 7$ 倍, 也就是本地走完的那一段又被放大 7 倍走了一遍。m28 在 16 维回归、4 个 worker、内层 AdamW 学习率 0.02、总共 960 步上扫 H (留出集 MSE, 全 0 预测的参照是 4.46):\n- H = 1 / 4: 1.18 / 1.33, 同步次数和 DDP 一样多却被这 7 倍放大走坏了。\n- H = 16 / 48: 3.6e-10 / 1.4e-11, 通信分别比 DDP 少 16 倍和 48 倍。\n- H = 120 / 240 (只同步 8 次和 4 次): 2.7e-04 / 2.9e-03, worker 之间漂得太远, 平均一下补不回来。\n- DDP 每步同步: 9.9e-14, 在这个玩具上仍然最准。\n所以 H 有一个中间的好区间, 不是越大越省。这里最好的 H 是 48, 这个数字由玩具问题的条件数和学习率决定, 论文在 1.5 亿参数、8 个 worker 上取的是 500。',
+            },
+            {
+              title: 'Streaming DiLoCo 降峰值带宽; 玩具规模的边界',
+              body: 'Streaming DiLoCo (arXiv 2501.18512) 把参数分成若干片轮流同步, 每片仍然每 H 步被同步一次, 但同步事件错开, 单次只发其中一片。m28 分 2 份和 4 份时单次字节从 408 降到 204 和 102, 总通信量三档都是 8160 B/rank, 一点没变 —— 省的是峰值带宽, 不是总量。原文按 transformer 的层分片 (默认每 3 层一片, 24 层模型峰值带宽降 8 倍), 还叠加了同步期间继续训练和把外层梯度量化到 4 位 (E3M0), 总比特数才降两个数量级。\n这一章的数字都来自玩具规模, 不能外推:\n- m28 的模型是一层线性回归, 272 字节, 数据严格 IID。论文在 1.5 亿参数、C4 语料、8 个 worker 上取 H = 500, 通信次数是每步同步的 1/500, 困惑度与每步同步持平, 还测了非 IID 分片的鲁棒性。\n- m27 的故障按单一指数分布的泊松过程到达。真实集群有相关故障: 一个机架掉电、一次固件升级会同时带走很多卡, 这时实际 goodput 比模型低。Llama 3 405B 的 54 天预训练快照里有 466 次中断, 其中 47 次计划内、419 次意外, 报告的有效训练时间高于 90%, 靠的是自动化恢复。\n- 单进程模拟, worker 之间不是真的异步, 慢 worker 不阻塞别人这件事没有建模。',
+            },
+          ],
+          links: [
+            { from: 'm08 的逐位续训', to: '弹性缩容', body: '参数、优化器状态、数据游标和 RNG 齐全时, 重启等于从未挂过; 一旦卡数变了, 求和顺序跟着变, 这条逐位保证就只剩 fp32 噪声内相同。' },
+            { from: 'm01 梯度累积', to: '保持全局 batch', body: '缩容后每张卡多累积几次, 全局 batch 不变, 学习率和调度都不用改。各份样本数相同时累加等价于整批取均值, 不等长时要按样本数加权。' },
+            { from: 'm02 的每步 all-reduce', to: 'DiLoCo 的每 H 步一次', body: 'DDP 同步的是梯度, DiLoCo 同步的是参数; 后者把 H 步的位移合成一个伪梯度交给外层优化器, 所以通信次数能降到 1/H 而不只是把梯度攒起来。' },
+            { from: 'm10 的坏 step 防护', to: 'SDC', body: 'NaN guard 只拦非有限值。SDC 产生的是一个有限、量级正常的数, 它绕过这道检查, 只能靠副本间对比或确定性重算发现。' },
+          ],
+          sourceRows: [
+            { concept: '整体 MTBF', code: 'm27_fault_tolerance/fault_tolerance.py:cluster_mtbf', takeaway: '单卡故障率 1/M 相加得 N/M, 倒过来就是 M/N。指数分布下这是精确结论, 不是近似。' },
+            { concept: 'Young / Daly 间隔', code: 'm27_fault_tolerance/fault_tolerance.py:daly_interval', takeaway: '$\\sqrt{2\\delta(M+R)} - \\delta$; 落盘比 $2(M+R)$ 还长时式子给不出有意义的间隔, 返回无穷。' },
+            { concept: 'goodput 解析式', code: 'm27_fault_tolerance/fault_tolerance.py:goodput_model', takeaway: '分母是保住 τ 秒有效进度要花的墙钟时间: 期望重试次数乘上每次重启的代价。' },
+            { concept: '缩容后重切', code: 'm27_fault_tolerance/fault_tolerance.py:accumulate_grads', takeaway: 'n_rank 张卡各累积 per_rank/micro 次再跨卡平均; 整除关系不成立就得先改 micro。' },
+            { concept: 'DiLoCo 一轮', code: 'm28_diloco/diloco.py:run_diloco', takeaway: '每轮先把外层参数拷给所有 worker, 跑 H 步内层 AdamW (状态不清空), 再平均参数走一步外层。' },
+            { concept: '外层那一步', code: 'm28_diloco/diloco.py:outer_step', takeaway: '伪梯度是旧参数减平均后的新参数; Nesterov 把动量再往前推一步, 有效步长约 lr/(1-μ)。' },
+          ],
+          snippetTitle: '两件事: 间隔怎么算, 同步怎么少',
+          snippet: `# m27: 最优 checkpoint 间隔 = 两笔开销相等的那一点
+tau = sqrt(2 * delta * mtbf)                 # Young: delta/tau == tau/(2M)
+tau = sqrt(2 * delta * (mtbf + restart)) - delta   # Daly: 把重启算进去
+
+goodput = tau / (M * exp(R / M) * (exp((tau + delta) / M) - 1))
+
+# m28: DiLoCo 的一轮
+for worker in workers:
+    worker.load_params(outer)                # 都从同一份外层参数出发
+for _ in range(H):                           # 本地跑 H 步, 期间零通信
+    for w, stream in zip(workers, streams):
+        inner_adam(w, stream, lr_in)
+
+avg   = all_reduce_mean([w.params for w in workers])   # H 步才一次
+delta = outer - avg                          # 伪梯度: 旧参数 - 新平均参数
+buf   = mu * buf + delta
+outer = outer - lr_out * (delta + mu * buf)  # lr_out=1, mu=0 时退回 DDP`,
+          source: [
+            'llm_train/m27_fault_tolerance/fault_tolerance.py:daly_interval',
+            'llm_train/m27_fault_tolerance/fault_tolerance.py:goodput_model',
+            'llm_train/m27_fault_tolerance/fault_tolerance.py:accumulate_grads',
+            'llm_train/m28_diloco/diloco.py:run_diloco',
+            'llm_train/m28_diloco/diloco.py:outer_step',
+          ],
+          run: 'python -m llm_train.m27_fault_tolerance.demo',
+          related: [
+            { route: 'train-collectives-loop', label: '完整训练主循环', reason: '本章的 checkpoint 间隔和弹性缩容都建立在主循环已经把状态存全的前提上; 分片 checkpoint 怎么存、怎么恢复, 见那一章。' },
+            { route: 'train-batch-ddp', label: 'DDP 与梯度累积', reason: 'DiLoCo 的对照基线是每步 all-reduce 的 DDP; 缩容时用来补回全局 batch 的也是那一章的梯度累积。' },
+            { route: 'train-eval', label: '评测口径', reason: 'goodput 是训练侧的口径, 和模型好不好无关; 两类数字不要混在同一张汇报表里。' },
+          ],
+    },
   },
 }
 
@@ -947,3 +1054,150 @@ topic.pages['train-model-parallel'].points.find(p => p.title.startsWith('PP:')).
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 
 canonicalizeRelated(topic)
+
+// 补充段: 进阶 · Zero Bubble 与 DualPipe: 把反向拆成两半
+topic.pages['train-pipeline-schedules'].sections = [...(topic.pages['train-pipeline-schedules'].sections || []), {
+  id: 'zero-bubble',
+  title: '进阶 · Zero Bubble 与 DualPipe: 把反向拆成两半',
+  tldr: '完整反向其实是两件事: 算对输入的梯度 (B) 和算对权重的梯度 (W)。B 要立刻传给上一个 stage, W 谁都不等它:\n- ZB-H1: W 往后挪去填本来空着的格子, 每卡空闲从 $(\\mathrm{PP}-1)(t_f+t_b+t_w)$ 降到 $(\\mathrm{PP}-1)(t_f+t_b-t_w)$, 三者耗时相等时正好是 1/3。在途激活峰值仍是 PP 份, 和 1F1B 相同。\n- ZB-H2 / ZB-V: 前者允许峰值升到 $(2\\mathrm{PP}-1)$ 份换零气泡, 后者把模型切成 $2\\mathrm{PP}$ 块按 V 字形分配, 在 1F1B 的显存下做到零气泡。\n- DualPipe: 两端同时喂 micro-batch, 用一对前向与反向块的计算掩盖通信; 代价是每卡存两份参数。',
+  question: '1F1B 的气泡来自首尾那两段必须空等的时间, 既然这段时间卡是闲着的, 为什么不拿点活来填? 哪一部分反向计算可以被挪到这里, 哪一部分不行?',
+  labNames: ['TrainZeroBubbleLab'],
+  evolution: {
+    title: '从填不满到填得满',
+    subtitle: '根问题: 流水线首尾两段里一张卡要等上游的前向或下游的梯度, 这段时间它手上没有能做的活。',
+    steps: [
+      { name: '1F1B 的三角形空白', pain: '(原点) 一个 micro-batch 的反向要等下游的反向传回来, 等的时候这张卡只能闲着', fix: '尽早穿插前反向把空闲收束到首尾; 气泡仍是 $(\\mathrm{PP}-1)(t_f+t_b+t_w)$, PP=4、M=8 时占 27.3%' },
+      { name: '拆出 W', year: 2024, pain: '完整反向被当成一个不可分的操作, 它里面那部分谁都不等的计算也被绑在关键路径上', fix: 'Qi et al. 把反向拆成算输入梯度的 B 和算权重梯度的 W; B 仍在关键路径上, W 可以任意往后挪' },
+      { name: 'ZB-H1', pain: '拆开之后 W 如果紧跟着 B 做, 时间表和原来一样长, 等于白拆', fix: 'W 只在这张卡没别的事可做时插进去, 填掉收尾的空白; 每卡空闲降到 $(\\mathrm{PP}-1)(t_f+t_b-t_w)$, 显存峰值不变' },
+      { name: 'ZB-H2 / ZB-V', pain: '首段那 $(\\mathrm{PP}-1)$ 格仍然空着, 因为开头还没有任何 W 可填', fix: '热身多做几个 F 把首段也填上 (ZB-H2, 峰值升到 $(2\\mathrm{PP}-1)$ 份), 或把模型切成 $2\\mathrm{PP}$ 块按 V 字形分配 (ZB-V, 峰值不变)' },
+      { name: 'DualPipe', year: 2024, pain: '跨节点专家并行的 all-to-all 让计算与通信的比例接近 1:1, 光排计算填不满', fix: 'DeepSeek-V3 两端同时喂 micro-batch, 用一对前向与反向块的计算掩盖 all-to-all 和 PP 通信; 每卡存两份参数' },
+    ],
+  },
+  points: [
+    {
+      title: 'B 在关键路径上, W 不在',
+      key: true,
+      body: '完整反向做的是两件事: 算对这一层输入的梯度, 和算对这一层权重的梯度。前者是上一个 stage 的输入, 挪晚了整条流水线跟着等; 后者只在这一步的优化器更新之前要用到, 谁都不等它。Zero Bubble (Qi et al., ICLR 2024) 把它们分别记作 B 和 W, 前向记作 F。\nm04 的事件模拟保持 1F1B 的 F/B 顺序不变, 只让 W 在这张卡没别的事可做时插进去。F / B / W 各占 1 格、PP=4、M=8 时:\n- 1F1B (完整反向占 2 格): 总时长 33 格, 每卡空闲 9 格, 气泡占比 27.3%。\n- ZB-H1: 总时长 27 格, 每卡空闲 3 格, 气泡占比 11.1%。\n每卡空闲的两条闭式是 $(\\mathrm{PP}-1)(t_f+t_b+t_w)$ 和 $(\\mathrm{PP}-1)(t_f+t_b-t_w)$: $t_w$ 从加号挪到了减号。模拟在 5 组 $(\\mathrm{PP}, M)$ × 4 组耗时上逐一核对过这个式子, 也逐个 micro-batch 核对了依赖合法性 (W 在自己的 B 之后、B 在下一个 stage 的 B 之后、F 在上一个 stage 的 F 之后)。',
+    },
+    {
+      title: '"降到 1/3" 带着一个前提',
+      body: '论文表 2 给的是绝对空闲格数而不是比例, 1/3 这个说法来自把 $t_f = t_b = t_w$ 代进去: $(1+1-1)/(1+1+1) = 1/3$。论文在导出这组手工调度时明确说了先假设三者耗时相同。一般情况下比值是 $(t_f+t_b-t_w)/(t_f+t_b+t_w)$, 它对 $t_w$ 很敏感:\n- $t_b$ 占 1 格时 (三者相等): 1F1B 空闲 9 格, ZB-H1 空闲 3 格, 比值 1/3。\n- $t_b$ 占 3 格时: 15 格对 9 格, 比值 3/5。\n论文实测的比例是 $T_W \\lt T_F \\lt T_B$ 且 $T_B + T_W = 2T_F$, 所以真实收益小于 1/3 这个理想值。\n另一个容易读错的地方: 气泡**占比**从 27.3% 降到 11.1%, 比值是 0.41 而不是 0.33, 因为占比的分母是总格数。每卡空闲确实是 9 → 3 格 (正好 1/3), 但总格数也从 33 降到 27。要比的是总格数, 不是占比。',
+    },
+    {
+      title: '显存: 在途份数每卡都满, 峰值却不变',
+      body: '1F1B 里第 s 张卡的在途激活峰值是 $\\mathrm{PP}-s$ 份 (PP=4 时 [4,3,2,1]), 因为反向一做完就把激活释放了。ZB-H1 把 W 推迟了, 而激活要等 W 用完才能放, 所以每张卡都攥满 PP 份 (实测 [4,4,4,4])。\n这不是显存涨了 $\\mathrm{PP}/(\\mathrm{PP}-s)$ 倍。论文把每卡显存写成 $(\\mathrm{PP}-i+1)M_B + (i-1)M_W$: 还没反向的那部分要留完整的中间量 $M_B$, 做完 B 只等 W 的那部分只要 $M_W$, 后者更小。卡 0 上 PP 份全是大的那种, 所以峰值仍由卡 0 决定, 等于 1F1B 的 $\\mathrm{PP} \\cdot M_B$ —— 这是 ZB-H1 的设计目标: 在不超过 1F1B 峰值的前提下填气泡。m04 的模拟只数份数, 不区分 $M_B$ 和 $M_W$。\n想再往下压气泡就得放开这个约束。ZB-H2 在热身阶段多做几个 F 把首段也填上, 空闲降到 $(\\mathrm{PP}-1)(t_f+t_b-2t_w)$ (三者相等时为 0), 代价是峰值升到 $(2\\mathrm{PP}-1)M_B$; ZB-V 把模型切成 $2\\mathrm{PP}$ 块、按"第一张卡到最后一张卡再折回来"的 V 字形分配, 在 $\\mathrm{PP} \\cdot M_B$ 的显存下也做到零气泡。',
+    },
+    {
+      title: 'DualPipe: 按报告的代价公式算, 本章不排它的时间表',
+      body: 'DeepSeek-V3 技术报告的动机是跨节点专家并行: all-to-all 的开销让计算与通信的比例接近 1:1。DualPipe 把每个块切成注意力、all-to-all dispatch、MLP、all-to-all combine 四段 (反向的注意力和 MLP 再按 B / W 拆开), 重排这些片段并手工分配通信与计算各占多少 SM, 让 all-to-all 和 PP 通信都被掩盖; 同时两端同时喂 micro-batch, 走双向流水线。\n报告表 2 的三行 (F 是一次前向, B 是一次完整反向, W 只算权重梯度, F&B 是一对合并执行的前向与反向块):\n- 1F1B: 空闲 $(\\mathrm{PP}-1)(F+B)$, 参数 1 份, 在途激活 PP。\n- ZB1P: 空闲 $(\\mathrm{PP}-1)(F+B-2W)$, 参数 1 份, 在途激活 PP。\n- DualPipe: 空闲 $(\\mathrm{PP}/2-1)(F\\&B+B-3W)$, 参数 2 份, 在途激活 PP+1。\n两篇论文的 B 不是一回事: 报告的 B 是完整反向, 所以 ZB1P 那一行换成本段的符号就是 $(\\mathrm{PP}-1)(t_f+t_b-t_w)$, 也就是 ZB-H1。m04 按 F=1、B=2、W=1、F&B=2 代入, PP=8 时每卡空闲依次是 21 / 7 / 3 格。这是代价模型不是事件模拟, 双向时间表 m04 没有排。',
+    },
+    {
+      title: '这些数字是确定性模拟, 不是实测',
+      body: 'm04 整个模块都是时间表仿真: 不真的算梯度, 跨卡 P2P 传输时间记为 0, 每个 stage 的耗时假设相同。拆出 W 之后多出来三件现实代价:\n- 通信: W 不产生跨卡消息, 但 B 和 W 分开调度意味着优化器更新的同步点变多; ZB-H2 还要去掉优化器步之间的同步。\n- 调度: m04 的 W 插入用的是贪心规则 (没别的事可做, 或者在途满了就补一个 W), 不是论文第 3 节那个按运行时 profile 解整数规划的自动调度器。真实负载下各 stage 耗时不均 (embedding 和输出头), 手工调度未必最优。\n- 实现: 把反向拆成两半要框架支持只算输入梯度或只算权重梯度的反向调用, 这是接入成本最高的一块。DualPipe 另外要求 stage 数和 micro-batch 数都能被 2 整除 (但不要求 micro-batch 数被 stage 数整除), 并且每卡存两份参数。\nZero Bubble 论文自己报的端到端收益是: 同等显存下吞吐比 1F1B 高最多 15%, 放开显存约束后 30% (这是 ICLR 发表版的数字; arXiv 扩展版写的是 23% 和 31%)。ZB-V 只在 arXiv 扩展版里有, ICLR 发表版没有这一节, 后续论文是 arXiv 2405.15362。',
+    },
+  ],
+  sourceRows: [
+    { concept: 'W 插空的规则', code: 'm04_pipeline_parallel/demo.py:simulate_zb', takeaway: 'F/B 顺序沿用 device_order("1f1b"); W 在卡空闲或在途满 PP 份时插入, 函数内逐个 micro-batch 断言依赖合法。' },
+    { concept: '在途份数的口径', code: 'live[s] += 1 if kind == "F" else -1', takeaway: 'F 加一份、W 减一份 (B 不释放)。1F1B 是 B 就释放, 所以得到 [PP-s]; ZB-H1 每卡都是 PP。' },
+    { concept: '显存上限', code: 'full = kind == "F" and live[s] >= cap', takeaway: 'cap 默认取 PP, 也就是 1F1B 里 stage 0 的峰值; 满了就先还一个 W 再收新的 F。' },
+    { concept: 'DualPipe 代价公式', code: 'm04_pipeline_parallel/demo.py:dualpipe_cost', takeaway: '直接实现报告表 2 的三行, 返回 (每卡空闲, 参数份数, 在途激活); 不做事件模拟。' },
+  ],
+  snippet: `# 1F1B 的 F/B 顺序一个字没改, 只是 B 之后不立刻做 W
+order = device_order("1f1b", s, PP, M)     # [("F",0), ("F",1), ..., ("B",0), ...]
+
+for t in count():                          # 一格一格往前走
+    if free[s] > t: continue               # 这张卡还在忙
+    op = next_ready(order, ptr[s])         # F 等上游的 F, B 等下游的 B
+    if op is None or (op.kind == "F" and live[s] >= PP):
+        op = ("W", pending[s].pop(0))      # ★ 没活干, 或者显存满了 -> 补一个 W
+    run(op); free[s] = t + dur[op.kind]
+    if op.kind == "B": pending[s].append(op.m)   # B 不释放激活
+    if op.kind == "W": live[s] -= 1              # W 用完了才释放
+
+# 每卡空闲: 1F1B (PP-1)(t_f+t_b+t_w)  ->  ZB-H1 (PP-1)(t_f+t_b-t_w)`,
+  source: [
+    'llm_train/m04_pipeline_parallel/demo.py:simulate_zb',
+    'llm_train/m04_pipeline_parallel/demo.py:dualpipe_cost',
+  ],
+  run: 'python -m llm_train.m04_pipeline_parallel.demo',
+  links: [
+    { from: 'device_order', to: 'simulate_zb', body: 'ZB-H1 没有换顺序表: 它拿的就是 1F1B 那张 F/B 顺序表, 区别只在 B 之后不立刻做 W, 以及空闲时拿一个欠着的 W 来填。' },
+    { from: '交错 1F1B 的气泡 ÷ v', to: 'ZB-H1 的空闲减一个 t_w', body: '交错靠把每格切小来缩短首尾的等待, 代价是 v 倍的 P2P 次数和更多在途激活; 拆 W 不改变流水线形状, 只把一部分计算挪到空闲处, 显存峰值不变。两者可以叠加。' },
+    { from: 'm11 专家并行的 all-to-all', to: 'DualPipe', body: '跨节点专家并行让 all-to-all 成为主要开销, 光排计算顺序填不满气泡; DualPipe 要掩盖的正是这部分通信, 所以它和 MoE 一起出现。' },
+  ],
+  related: [
+    { route: 'train-moe-seq', label: '专家并行的 all-to-all' },
+    { route: 'train-memory', label: '在途激活与激活重算' },
+  ],
+}]
+
+// 补充段: 进阶 · z-loss: 交叉熵管不住的那个自由度
+topic.pages['train-precision-stability'].sections = [...(topic.pages['train-precision-stability'].sections || []), {
+  id: 'z-loss',
+  title: '进阶 · z-loss: 交叉熵管不住的那个自由度',
+  tldr: 'softmax 给所有 logit 加同一个常数, 输出概率完全不变, 所以交叉熵在"整体高度"这个方向上的梯度是 0。这个方向没人管, $\\log Z$ 就会一路往上漂:\n- 现象: m10 的 16 类分类器在学习率偏大时练 3000 步, 平均 $\\log Z$ 漂到 21.85, 最大 logit 44.31。\n- 修法: 损失里加一项 $c_z \\log^2 Z$ (PaLM 取 $10^{-4}$)。同一组设置下 $\\log Z$ 降到 10.93, 加到 $10^{-3}$ 时降到 1.50。\n- 代价: 交叉熵本身从 0.0018 升到 0.0159, top-1 正确率三档都是 1.000 —— 它只压整体高度, 不改 logit 之间的差。\n- 同一个式子用在 MoE 路由器上就是 ST-MoE 的 router z-loss, 系数取 $10^{-3}$。',
+  question: '交叉熵已经在训练输出头了, 为什么还需要另一项损失来管 logits 的大小? 把 logits 压小会不会改变模型选哪个 token?',
+  points: [
+    {
+      title: '整体高度是个自由参数',
+      key: true,
+      body: 'softmax 的定义是 $p_i = \\exp(z_i) / \\sum_j \\exp(z_j)$。给每个 $z_i$ 都加上同一个常数 $c$, 分子分母同乘 $e^c$, $p$ 一点不变。交叉熵只看 $p$, 所以它对"所有 logit 一起上下移动"这个方向的梯度恰好是 0 —— 这个自由度训练过程完全不管。\n不管的结果不是停着不动, 而是被别的因素推着走。数据可分时交叉熵会一直把胜出的那个 logit 往上顶, 而 $\\log Z = \\log \\sum_j \\exp(z_j)$ 在分布很尖时约等于最大的那个 logit, 于是它跟着一路涨。m10 用一个 16 类的 softmax 分类器 (可分数据, 练 3000 步) 量这件事:\n- 学习率 0.5: 平均 $\\log Z$ 13.36, 最大 logit 26.95。\n- 学习率 8.0 (偏大): 平均 $\\log Z$ 21.85, 最大 logit 44.31。\n学习率越大漂得越远, 而且不会自己停下来。',
+    },
+    {
+      title: 'z-loss 的梯度按 softmax 分摊, 所以不改排序',
+      body: 'PaLM (arXiv 2204.02311) 在损失里加一项 $c_z \\log^2 Z$, 系数取 $10^{-4}$。这一项在 $\\log Z = 0$ 处最小, 也就是把 $Z$ 往 1 拉。它的梯度是:\n$$\\frac{\\partial \\log^2 Z}{\\partial z_j} = 2 \\log Z \\cdot \\mathrm{softmax}_j$$\n读法: 每个 logit 受到的下压力正比于它自己的 softmax 概率, 而比例系数 $2 \\log Z$ 对所有 logit 相同。概率大的被压得多、概率小的被压得少, 整体往下挪, logit 之间的差基本不动。\nm10 在学习率 8.0 下的三档对照 (系数 0 / $10^{-4}$ / $10^{-3}$):\n- 平均 $\\log Z$: 21.85 / 10.93 / 1.50。\n- 最大 logit: 44.31 / 23.55 / 10.45。\n- 交叉熵 (不含 z-loss 那一项): 0.0018 / 0.0082 / 0.0159。\n- top-1 正确率: 1.000 / 1.000 / 1.000。\n三个种子重复, $\\log Z$ 从 21.8 / 21.8 / 21.5 降到 10.9 / 11.2 / 11.5, 方向一致。学习率 0.5 时漂移本来就小, z-loss 的效果也小 (13.36 → 12.46 → 8.03)。',
+    },
+    {
+      title: 'router z-loss: 同一个式子, 换个地方用',
+      body: 'ST-MoE (arXiv 2202.08906) 把同一项用在 MoE 路由器的 logits 上, 称为 router z-loss, 系数取 $10^{-3}$。路由器的 logits 要过一次 softmax 决定每个 token 送给哪些专家, 它同样有整体高度这个自由度, 也同样会漂。\nm10 用一个 8 个专家的路由器重复这个实验 (学习率 8.0, 3000 步):\n- 不加: 平均 $\\log Z$ 23.06, 最大 logit 47.37。\n- 加 $10^{-3}$: 平均 $\\log Z$ 0.60, 最大 logit 10.98。\n- 两档的 top-1 专家选对比例都是 1.000。\n路由器的系数比输出头大一个数量级, 因为路由决策一旦被数值误差带偏, 整个 token 就被送到错误的专家, 比输出头多一位小数的概率误差要紧得多。\n真实 MoE 训练里 router z-loss 通常和负载均衡损失一起加 (两件不同的事: 一个管 logits 的大小, 一个管 token 在专家间的分布)。',
+    },
+    {
+      title: '为什么在意 log Z: 存不下和算不准',
+      body: 'softmax 的实现都会先减掉最大值再取指数, 所以 $Z$ 本身不会溢出。真正的问题在那之前: logits 要先被存下来、被搬运、被归约。\nm10 顺手算了两个阈值: $\\exp$ 在 fp16 下超过 65504 就溢出, 对应 logit 11.1; bf16 的上界是 3.39e38, 对应 logit 88.7。无界增长的 $\\log Z$ 迟早会撞上其中一个, 撞上就是一个 Inf 加一步作废 (这正是上文 NaN guard 要拦的那种坏 step)。PaLM 报告的收益是训练更稳、loss spike 更少。\n边界照写: 把 m10 训练好的 logits 舍入到 bf16 再算 softmax, 三档的最大概率偏差都在 1e-3 量级, 并没有随 $\\log Z$ 一起降下来 —— 加了 z-loss 之后分布更平, 可被扰动的概率质量反而更多。所以在这个 16 类玩具的规模上, 能证明的只有"$\\log Z$ 确实会漂、z-loss 确实拉得住、代价是交叉熵变差"这三条; "更少 spike" 是论文在真实预训练上的结论, 3000 步的分类器看不到。',
+    },
+    {
+      title: '它和这一章其他三件事的分工',
+      body: '这一章的四件工具管的是四个不同的东西, 叠加使用:\n- loss scaling: 让 fp16 的小梯度不下溢, 在反向之前放大损失、更新之前除回。\n- fp32 主权重: 让小于低精度格点间距的更新不被舍掉。\n- 全局范数裁剪: 偶发的梯度尖峰只缩长度、不改方向。\n- z-loss: 盯住 logits 的整体高度这一个标量, 不让它无界增长。\n容易混的两组:\n- z-loss 和 weight decay: 后者压的是权重范数, 前者只对 $\\log Z$ 这一个量施压。权重范数小不代表 logits 不漂 (logits 还取决于激活的大小)。\n- z-loss 和 QK-norm / QK-clip (见 Muon 一章): 两者都在防 softmax 饱和, 但位置不同 —— z-loss 在输出头或路由器, QK-clip 在注意力分数。注意力那边压的是 $W_Q$ 和 $W_K$ 的乘积, z-loss 压的是 logits 本身。',
+    },
+  ],
+  sourceRows: [
+    { concept: 'z-loss 与它的梯度', code: 'm10_training_stability/demo.py:z_loss', takeaway: '返回 (惩罚值, 对 logits 的梯度); 梯度是 $2 c_z \\log Z \\cdot \\mathrm{softmax}$, 按概率分摊到每个 logit。' },
+    { concept: 'log Z 怎么算', code: 'm10_training_stability/demo.py:log_partition', takeaway: '先减每行最大值再取指数求和, 只为防 exp 溢出, 加回最大值后结果不变。' },
+    { concept: '三档对照', code: 'm10_training_stability/demo.py:train_softmax', takeaway: '同一个函数既当输出头 (16 类) 又当路由器 (8 个专家), 两种用法只差 n_class 和系数。' },
+    { concept: '唯一的改动', code: 'd_logits = d_logits + z_loss(logits, coef)[1]', takeaway: '交叉熵那部分一个字没改, z-loss 只是在对 logits 的梯度上加一项。' },
+  ],
+  snippet: `def log_partition(logits):
+    m = logits.max(axis=-1, keepdims=True)       # 减最大值只为防 exp 溢出
+    return (m + log(exp(logits - m).sum(-1, keepdims=True)))[..., 0]
+
+def z_loss(logits, coef):
+    lz = log_partition(logits)                   # [batch]
+    grad = coef * 2.0 * lz[:, None] / batch * softmax(logits)
+    return coef * mean(lz ** 2), grad            # ★ 梯度按 softmax 分摊
+
+# 训练循环里只多一行
+d_logits = (probs - onehot) / batch              # 交叉熵, 不变
+d_logits = d_logits + z_loss(logits, c_z)[1]     # c_z: 输出头 1e-4, 路由器 1e-3`,
+  source: [
+    'llm_train/m10_training_stability/demo.py:z_loss',
+    'llm_train/m10_training_stability/demo.py:log_partition',
+    'llm_train/m10_training_stability/demo.py:train_softmax',
+  ],
+  run: 'python -m llm_train.m10_training_stability.demo',
+  links: [
+    { from: 'NaN guard', to: 'z-loss', body: 'guard 是事后拦截: 检出 Inf 就作废这一步。z-loss 是事前约束: 不让 logits 涨到 exp 溢出的那条线上去, 于是坏 step 本身变少。' },
+    { from: '全局范数裁剪', to: 'z-loss', body: '裁剪处理的是梯度偶然变得很大, 做法是缩长度不改方向; z-loss 处理的是 logits 系统性地一路变大, 做法是在损失里加一项把它拉回来。前者是补救, 后者是预防。' },
+    { from: 'MoE 的负载均衡损失', to: 'router z-loss', body: '两项都加在路由器上但管的不是同一件事: 均衡损失管 token 在专家之间分得匀不匀, router z-loss 管路由 logits 的整体高度。' },
+  ],
+  related: [
+    { route: 'train-muon', label: 'QK-clip: 注意力那一侧的同类防护' },
+    { route: 'train-moe-seq', label: 'MoE 路由与负载均衡' },
+  ],
+}]
+
+// 新章与补充段的前置和延伸链接。
+for (const [route, link] of [
+  ['train-collectives-loop', { route: 'train-fault-tolerance', label: '容错与 goodput', reason: '主循环把状态存全之后, 下一个问题是多久存一次盘: 最优间隔由落盘耗时和整体 MTBF 算出来。' }],
+  ['train-batch-ddp', { route: 'train-fault-tolerance', label: 'DiLoCo: 同步能少到什么程度', reason: 'DDP 每步 all-reduce 一遍梯度; 跨数据中心时可以让各 worker 本地跑 H 步再同步一次参数, 通信次数降到 1/H。' }],
+  ['train-moe-seq', { route: 'train-pipeline-schedules', label: 'DualPipe: 用计算掩盖 all-to-all', reason: '跨节点专家并行的 all-to-all 让计算与通信接近 1:1, DeepSeek-V3 的 DualPipe 就是为掩盖这部分通信设计的, 见那一章的 Zero Bubble 段。' }],
+]) topic.pages[route].related = [...(topic.pages[route].related || []), link]

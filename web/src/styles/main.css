@@ -12,6 +12,7 @@
   --border-strong: #323a56;
   --text: #e4e6eb;
   --text-muted: #8b93a7;
+  --idx-fg: #949cb0;
   --text-dim: #7c849a;
   --accent: #7c6bf1;
   --accent-soft: #7c6bf133;
@@ -40,6 +41,7 @@
   --border-strong: #c7cedc;
   --text: #1a202c;
   --text-muted: #5a6275;
+  --idx-fg: #515a6c;
   --text-dim: #666e80;
   --accent: #5b4cd6;
   --accent-soft: #5b4cd622;
@@ -266,7 +268,8 @@ input[type="range"]:focus-visible {
   height: 22px;
   border-radius: 4px;
   background: var(--bg-card);
-  color: var(--text-muted);
+  /* 比 --text-muted 亮一档: 展开组的底色比 --bg-card 亮, 11px 的编号在那上面要保住 4.5 的对比度 */
+  color: var(--idx-fg);
   display: grid;
   place-items: center;
   font-size: 11px;

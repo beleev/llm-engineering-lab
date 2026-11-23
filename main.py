@@ -140,6 +140,111 @@ def _smoke_vae() -> None:
     print(f"  VAE:     recon {tuple(out['recon'].shape)} z {tuple(out['z'].shape)}  ✓")
 
 
+def _smoke_conditional_depth() -> None:
+    """MoD / MoR: 初始 CE ≈ ln V。它们没有 generate() (跳过某层的 token 在那层没有 K/V), 不查 KV cache。"""
+    from llm_models.models.language_models.conditional_depth import MoDLLaMA, MoRLLaMA
+    torch.manual_seed(0)
+    for name, m in (("MoD", MoDLLaMA(capacity=0.5, vocab_size=100, d_model=64, n_heads=4, num_layers=2, max_len=32)),
+                    ("MoR", MoRLLaMA(num_recursions=2, vocab_size=100, d_model=64, n_heads=4, max_len=32))):
+        x = torch.randint(0, 100, (4, 32))
+        with torch.inference_mode():
+            ce = F.cross_entropy(m.eval()(x[:, :-1]).flatten(0, 1), x[:, 1:].flatten()).item()
+        assert abs(ce - math.log(100)) < 0.5, f"{name}: 初始 CE {ce:.2f} 偏离 ln V"
+        print(f"  {name:<8} 初始 CE {ce:.2f} ≈ ln V {math.log(100):.2f}  ✓")
+
+
+def _smoke_block_diffusion() -> None:
+    """BD3-LM: 块因果掩码 + 训练掩码前向, 初始 ELBO ≈ ln V。"""
+    from llm_models.models.language_models.block_diffusion import BlockDiffusionLM
+    torch.manual_seed(0)
+    m = BlockDiffusionLM(block_size=4, vocab_size=100, d_model=64, n_heads=4, num_layers=2, max_len=32)
+    with torch.inference_mode():
+        ce = m.elbo_loss(torch.randint(0, 99, (16, 16)), generator=torch.Generator().manual_seed(0)).item()
+    assert abs(ce - math.log(100)) < 0.5, f"BD3-LM 初始 ELBO {ce:.2f} 偏离 ln V"
+    print(f"  {'BD3-LM':<8} 初始 ELBO {ce:.2f} ≈ ln V {math.log(100):.2f}  ✓")
+
+
+def _smoke_blt() -> None:
+    """BLT: 按固定 4 字节切 patch 前向一次, 初始 CE ≈ ln 256。"""
+    from llm_models.models.language_models.byte_latent import ByteLatentLM, fixed_patch_ids
+    torch.manual_seed(0)
+    m = ByteLatentLM(d_model=32, n_heads=2, global_layers=1, max_len=32).eval()
+    x = torch.randint(0, 256, (2, 32))
+    with torch.inference_mode():
+        logits = m(x, fixed_patch_ids(2, 32, 4))
+    ce = F.cross_entropy(logits[:, :-1].flatten(0, 1), x[:, 1:].flatten()).item()
+    assert abs(ce - math.log(256)) < 0.5, f"BLT: 初始 CE {ce:.2f} 偏离 ln 256"
+    print(f"  {'BLT':<8} 初始 CE {ce:.2f} ≈ ln 256 {math.log(256):.2f}  ✓")
+
+
+def _smoke_transfusion() -> None:
+    """Transfusion: 7 个位置里 4 个是图像 patch, 打印文本 logits 和图像速度预测的形状。"""
+    from llm_models.models.multimodal.transfusion import TransfusionModel
+    torch.manual_seed(0)
+    m = TransfusionModel(vocab_size=10, patch_dim=12, d_model=32, n_heads=4, num_layers=1, max_len=16).eval()
+    image_id = torch.tensor([[-1, -1, 0, 0, 0, 0, -1]])
+    with torch.inference_mode():
+        out = m(torch.randint(0, 10, (1, 7)), torch.randn(1, 7, 12), image_id, torch.tensor([500.0]))
+    print(f"  Transfusion: logits {tuple(out['logits'].shape)} velocity {tuple(out['velocity'].shape)}  ✓")
+
+
+def _smoke_hyper_connections() -> None:
+    """HC / mHC: 加宽残差流在初始化时是恒等改动, 三种残差的初始 CE 都应 ≈ ln V。"""
+    from llm_models.models.language_models.hyper_llama import HyperLLaMA
+    cfg = dict(vocab_size=100, d_model=64, n_heads=4, num_layers=2, max_len=32)
+    x = torch.randint(0, 100, (4, 32))
+    for name in ("standard", "hc", "mhc"):
+        torch.manual_seed(0)
+        m = HyperLLaMA(residual=name, n_streams=4, **cfg).eval()
+        with torch.inference_mode():
+            logits = m(x[:, :-1])
+        ce = F.cross_entropy(logits.flatten(0, 1), x[:, 1:].flatten()).item()
+        assert abs(ce - math.log(100)) < 0.5, f"{name}: 初始 CE {ce:.2f} 偏离 ln V"
+        print(f"  {name:<8} 初始 CE {ce:.2f} ≈ ln V {math.log(100):.2f}  ✓")
+
+
+def _smoke_hybrid() -> None:
+    """HybridLM: 三种排布各跑一次最小前向, 初始 CE ≈ ln V; 顺手核对缓存算式。"""
+    from llm_models.models.language_models.hybrid import HybridLM
+    from llm_models.utils.generation import KVCache
+    torch.manual_seed(0)
+    x = torch.randint(0, 100, (2, 32))
+    for layout in ("kda kda kda mla_nope", "gdn gdn gdn gated_gqa", "gqa_chunk gqa_chunk gqa_chunk gqa_nope"):
+        m = HybridLM(layout=layout, vocab_size=100, d_model=64, n_heads=4, max_len=64,
+                     chunk_size=8, latent_dim=32, qk_rope_head_dim=16).eval()
+        cache = KVCache(len(m.layers))
+        with torch.inference_mode():
+            logits = m(x[:, :-1])
+            for t in range(31):
+                m(x[:, t:t + 1], cache=cache)
+        ce = F.cross_entropy(logits.flatten(0, 1), x[:, 1:].flatten()).item()
+        got = sum(sum(v.numel() for v in c.values()) for c in cache.layers) // 2
+        assert abs(ce - math.log(100)) < 0.5, f"{layout}: 初始 CE {ce:.2f} 偏离 ln V"
+        assert got == m.cache_elements(31)["total"], f"{layout}: 缓存元素数与算式不符"
+        print(f"  {'Hybrid':<8} {layout:<40} 初始 CE {ce:.2f} | 缓存 {got} 个元素  ✓")
+
+
+def _smoke_deepseek_v4() -> None:
+    """DeepSeek-V4: CSA / HCA 交错, 初始 CE ≈ ln V; 再查一次增量生成与整段前向一致。"""
+    from llm_models.models.moe.deepseek_v4 import DeepSeekV4
+    from llm_models.utils.generation import KVCache
+    torch.manual_seed(0)
+    m = DeepSeekV4(vocab_size=100, d_model=64, n_heads=4, num_layers=4, max_len=64, dropout=0.0,
+                   num_routed_experts=4, num_shared_experts=1, top_k=2,
+                   latent_dim=32, qk_rope_head_dim=16, csa_block=4, hca_block=16,
+                   window=8, csa_top_k=4).eval()
+    x = torch.randint(0, 100, (2, 32))
+    with torch.inference_mode():
+        full = m(x[:, :-1])[0]
+        cache = KVCache(len(m.layers))
+        step = torch.cat([m(x[:, t:t + 1], cache=cache)[0] for t in range(31)], dim=1)
+    ce = F.cross_entropy(full.flatten(0, 1), x[:, 1:].flatten()).item()
+    gap = (full - step).abs().max().item()
+    assert abs(ce - math.log(100)) < 0.5, f"DeepSeek-V4: 初始 CE {ce:.2f} 偏离 ln V"
+    assert gap < 1e-4, f"DeepSeek-V4: 增量生成与整段前向差 {gap:.1e}"
+    print(f"  {'V4':<8} 层排布 {m.pattern} 初始 CE {ce:.2f} ≈ ln V {math.log(100):.2f} | 增量差 {gap:.1e}  ✓")
+
+
 def main():
     print("=" * 70)
     print("LLM Models - 模块化大语言模型 & 生成模型教学库")
@@ -163,9 +268,16 @@ def main():
     _smoke_gpt()
     _smoke_llama()
     _smoke_mixtral()
+    _smoke_deepseek_v4()
     _smoke_mamba()
+    _smoke_conditional_depth()
+    _smoke_block_diffusion()
+    _smoke_blt()
+    _smoke_hyper_connections()
+    _smoke_hybrid()
     _smoke_clip()
     _smoke_whisper()
+    _smoke_transfusion()
     _smoke_vae()
     _smoke_dit()
 

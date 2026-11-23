@@ -18,6 +18,13 @@ const topic = {
     { route: 'models-llada', label: 'LLaDA 扩散语言模型', hint: '随机比例遮盖训练, 采样时把没把握的遮回去' },
     { route: 'models-var', label: 'VAR 逐尺度生成', hint: '先 1×1 再 2×2、4×4, 由粗到细, 级内并行' },
     { route: 'models-multimodal', label: '图像与音频怎样接入语言模型', hint: '图切 patch 当前缀, 声谱走 cross-attention' },
+    { route: 'models-conditional-depth', label: 'MoD / MoR 条件深度', hint: '每个 token 只过一部分层: 按分数路由或递归' },
+    { route: 'models-byte-latent', label: 'BLT 字节 patch', hint: '不用 tokenizer: 字节难猜的地方才开新 patch' },
+    { route: 'models-unified-multimodal', label: '统一多模态: Transfusion', hint: '文本因果, 图像段内双向, 一个模型既看图又画图' },
+    { route: 'models-block-diffusion', label: 'BD3-LM 块扩散', hint: '块间自回归、块内去噪, 定稿的块进 KV cache' },
+    { route: 'models-hyper-connections', label: 'Hyper-Connections 与 mHC', hint: '残差从 1 条加宽到 n 条, 连乘要保住恒等' },
+    { route: 'models-compressed-attention', label: 'CSA / HCA 压缩注意力', hint: '先把序列压短, 再在压缩块上选 top-k' },
+    { route: 'models-hybrid-family', label: '混合架构家族', hint: '便宜层与精确层怎么搭, 位置信息放哪' },
   ],
   pages: {
     'models-mtp': {
@@ -41,7 +48,7 @@ const topic = {
         { title: '深度换宽度', body: "带状掩码限制单层只读取最近 W 个位置, 超出窗口的前文信息依靠多层堆叠逐层接力传递。在序列长度 T=64、窗口大小 W=8 时, 两种掩码的注意力可见元素数对比明显:\n- 全因果 mask: 每个 token 可读取自身及之前的全部位置, 共 2080 个可见元素。\n- 带状 mask: 每个 token 只读取最近 8 个位置, 可见元素缩减为 484 个。\n虽然单层视野仅为 W, 但第 2 层的输入来自第 1 层的输出, 而第 1 层每个位置已聚合了各自最近 8 个位置的特征; 第 2 层再汇聚最近 8 个位置时, 实际覆盖范围便扩展到 15 个输入位置。\n堆叠 L 层后的理论感受野上界为 $1+L(W-1)$, 在位置 t 处还受限于已有前文总数 t+1。以 Mistral 的 32 层、W=4096 配置计算, 理论感受野上界达 131041 个位置; 不过这只是网络拓扑上存在的信息通路, 并不保证训练后的模型实际会利用如此远的上下文。\ndemo 使用 1 层模型单独验证局部掩码边界: 修改位置 0 的输入 token 后, 仅位置 0 到 7 的输出发生变化, 位置 8 及之后的输出保持严格不变。" },
         { title: '换一张 mask 就是换一个架构', body: "多种主流架构共用完全相同的 QKV 投影、softmax 与乘 V 运算, 架构间的核心差异仅在于注意力 mask 定义的可见范围:\n- 全因果掩码 (下三角): LLaMA 采用该模式, 允许访问全部历史位置。\n- 带状掩码: Mistral 仅开放主对角线附近宽度为 W 的带状区域。\n- 带状加 sink 掩码: GPT-OSS 在滑窗基础上令序列开头的若干列始终可见。\n- top-k 稀疏掩码: DSA 在每行仅保留检索器打分最高的 k 个历史位置。\n因此同配置下 Mistral 与 LLaMA 的可训练参数量完全相同, 在 demo 中均为 3,076,352, 两者的结构区别仅体现在一张不占参数的布尔掩码表上。推理阶段 Mistral 用滚动缓冲区 (rolling buffer) 每层只保留最近 W 组 K/V, 在窗口设为 8 的实验中输入 21 个 token 后, 每层缓存条目依然封顶在 8 个。", key: true },
         { title: '级联保因果', body: "MTP 让单个位置连续预测未来多个 token, 同时通过串行级联严格维持自回归因果性。在 DeepSeek-V3 的设计中, 第 k 级模块在位置 i 按三步推进:\n1. 将上一级输出的 hidden 状态与真实 token $t_{i+k}$ 的 embedding 拼接融合。\n2. 送入单个独立的 Transformer Block 提取特征。\n3. 复用主干输出头预测下一目标 $t_{i+k+1}$。\n例如主干在位置 i 基于前文 $t_{\\le i}$ 预测 $t_{i+1}$, 第 1 级 MTP 模块随即以 teacher forcing 方式补入真实标签 $t_{i+1}$, 在此基础上继续预测 $t_{i+2}$。每加深一级才多引入一个真实历史 token 并向后多预测一步, 因此预测 $t_{i+2}$ 时虽然已知 $t_{i+1}$, 却始终不会提前看到待预测的 $t_{i+2}$ 本身, 完整保留了因果依赖链。\n联合训练总损失为 $\\mathcal{L} = \\mathrm{CE}(\\text{main}) + \\lambda\\cdot\\mathrm{mean}_k\\,\\mathrm{CE}(\\text{mtp}_k)$, 即主干交叉熵加上各级 MTP 平均交叉熵的 $\\lambda$ 倍加权。DeepSeek-V3 将 $\\lambda$ 初值设为 0.3 并在训练后期退火至 0.1 (本代码库固定取 0.3)。demo 中由于主干仅设 2 层, 增加 1 级 MTP 模块会使参数量从 1,666,304 增至 2,503,168; 而在 61 层主干的真实规模下, 同样增加 1 级仅带来约 2% 的额外参数。" },
-        { title: '状态替代缓存', body: "Gated DeltaNet 属于线性注意力机制, 用固定大小的 $D_h \\times D_h$ 状态矩阵 S ($D_h$ 为单头维度) 替代逐 token 累积的 K/V 缓存。每读入一个新 token 时, 模型按 delta rule 执行三步状态更新:\n1. 用当前键向量 k 从状态矩阵 S 中检索该方向已存储的旧值。\n2. 从 S 中减去这部分旧值以腾出容量。\n3. 写入当前对应的新值向量 v, 同时配合门控系数 $\\alpha$ 对历史状态施加整体衰减, 输出阶段直接计算 q 与 S 的乘积。\n因此该层的推理缓存就是矩阵 S 本身, 元素总数与已处理的序列长度无关。在 demo 中固定 batch 为 2, 将序列长度 T 从 8 增至 32 时, 两类层的累计缓存元素数变化如下:\n- 全注意力层 (共 2 层): 从 4096 增至 16384, 随序列长度增长 4 倍。\n- DeltaNet 层 (共 6 层): 始终保持 49152 不变。\n这种定长表示的代价是有损压缩: 有限维度的矩阵无法无损容纳任意长度的前文, 对早期特定 token 的精确召回能力弱于标准注意力, 因此 Qwen3-Next 每 4 层保留 1 层全注意力兜底长距离精确检索。" },
+        { title: '状态替代缓存', body: "Gated DeltaNet 属于线性注意力机制, 用固定大小的 $D_h \\times D_h$ 状态矩阵 S ($D_h$ 为单头维度) 替代逐 token 累积的 K/V 缓存。每读入一个新 token 时, 模型按 delta rule 执行三步状态更新:\n1. 用当前键向量 k 从状态矩阵 S 中检索该方向已存储的旧值。\n2. 从 S 中减去这部分旧值以腾出容量。\n3. 写入当前对应的新值向量 v, 同时配合门控系数 $\\alpha$ 对历史状态施加整体衰减, 输出阶段直接计算 q 与 S 的乘积。\n因此该层的推理缓存就是矩阵 S 本身, 元素总数与已处理的序列长度无关。在 demo 中固定 batch 为 2, 将序列长度 T 从 8 增至 32 时, 两类层的累计缓存元素数变化如下:\n- 全注意力层 (共 2 层): 从 4096 增至 16384, 随序列长度增长 4 倍。\n- DeltaNet 层 (共 6 层): 始终保持 49152 不变。\n这种定长表示的代价是有损压缩: 有限维度的矩阵无法无损容纳任意长度的前文, 对早期特定 token 的精确召回能力弱于标准注意力, 因此 Qwen3-Next 每 4 层保留 1 层全注意力兜底长距离精确检索。Qwen3.5 沿用同样的 3:1 排布, 并给那一层全注意力加上 SDPA 输出门; 各家 2025-2026 的排布对照见混合架构家族一章。" },
         { title: '序列短的时候, 状态反而更大', body: "在短序列场景下, 线性注意力的定长状态矩阵反而比标准 KV cache 占用更多空间。上一条实验在 T=32 时测得 6 层 DeltaNet 占 49152 个元素、高于 2 层注意力的 16384 个; 若折算到单层、单条序列做公平对比:\n- 标准注意力层: 每个 token 需存储 $2 \\cdot H_{kv} \\cdot D_h = 2 \\times 2 \\times 32 = 128$ 个浮点数 (K 与 V 各一份, 共 2 个 KV 头、每头 32 维), 总开销随序列长度 T 线性增长。\n- DeltaNet 层: 固定存储 $H \\cdot D_h \\cdot D_h = 4 \\times 32 \\times 32 = 4096$ 个浮点数 (共 4 个头、每头维护一个 $32 \\times 32$ 矩阵), 不随 T 变化。\n由于 $4096 / 128 = 32$, 只有当序列长度 T 超过 32 时, 单层定长状态的内存占用才会低于 KV cache, 线性注意力的显存优势仅在长上下文区间体现。" },
       ],
       links: [
@@ -545,6 +552,436 @@ loss = ce(text_logits) + 0.5 * ce(audio_logits)`,
       ],
       run: `${RUN}.multimodal.qwen2_vl.infer_qwen2_vl`,
     },
+
+    'models-conditional-depth': {
+          title: '条件深度 · MoD 与 MoR: 每个 token 只走一部分层',
+          subtitle: 'MoE 让每个 token 只用一部分专家, 条件深度让每个 token 只过一部分层: MoD 在被路由的层只放整段序列里分数前 k 名的 token 过去, MoR 把一个共享块按 token 递归不同的次数; 代价是 "前 k 名" 在生成时不满足因果, 要换成只看前文的预测器。',
+          tldr: '- MoD: 被路由的层前有一个路由器, 整段序列里分数前 $k = C \\cdot T$ 名的 token 过这一层, 其余走残差; 每 token 的稠密 FLOPs 随容量 $C$ 线性下降, 路由权重乘在输出上让路由器能被训练。\n- MoR: 首尾各一个独立层, 中间一个共享块递归 $N_r$ 次, 每次递归前只留分数靠前的 token; 参数几乎不随 $N_r$ 增长, K/V 只存仍在递归的 token。',
+          question: '既然 MoE 能让每个 token 只用一部分专家, 能不能让好猜的 token 少过几层、难算的 token 多过几层?',
+          evolution: {
+            title: '从宽度稀疏到深度稀疏',
+            subtitle: '根问题: 稠密 Transformer 给每个 token 同样的层数和算力, 而序列里大部分 token 很好预测; 算力按 token 平均分配, 难的 token 分不到更多。',
+            steps: [
+              { name: '稠密 Transformer', pain: '(原点) 每个 token 都过全部 L 层, 好猜的分隔符和要算的答案花同样多的 FLOPs', fix: '所有层对所有 token 一视同仁, 每次前向的计算量是 L 层乘 T 个 token' },
+              { name: 'MoE 宽度稀疏', pain: '想加参数, 又不想加每个 token 的计算量', fix: 'FFN 换成 E 个专家, 每个 token 只走其中 k 个; 参数变多而每 token 计算不变, 但每个 token 过的层数仍然一样' },
+              { name: 'MoD 深度稀疏', year: 2024, pain: 'MoE 只在宽度上省, 每个 token 过的层数还是固定的', fix: '被路由的层只让整段序列里分数前 k 名的 token 过, 其余走残差; 隔层路由、容量 12.5% 时每 token FLOPs 约为全容量的 0.56' },
+              { name: '因果预测器', pain: '前 k 名的门槛依赖后面的 token, 逐个生成时后面的 token 还不存在', fix: '另训一个只看本位置激活的小 MLP 预测 "会不会入选", 生成时代替 top-k; 改动后面的 token, 前面的路由不再翻转' },
+              { name: 'MoR 共享递归', year: 2025, pain: '想让难的 token 多算几次, MoD 就得多存几层独立参数', fix: '一个共享块按 token 递归 1 到 $N_r$ 次, 参数几乎不随 $N_r$ 增长; 每次递归只有留下的 token 存 K/V' },
+            ],
+          },
+          code: 'llm_models/models/language_models/conditional_depth.py',
+          points: [
+            { title: '路由: 整段序列里前 k 名过层, 其余走残差', body: 'MoD 的一个被路由的层只处理整段序列里路由分数最高的 $k = C \\cdot T$ 个 token, 其余 token 原样留在残差上, 这一层对它们的增量是 0。一层的计算分三步:\n1. 路由器 (一个 $D \\to 1$ 的线性层) 给每个 token 打一个分数 $r_i$, 取整段的前 $k$ 名。\n2. 把入选 token 按原始位置排好, gather 成 $[B, k, D]$ 的张量过这一层, 它们之间仍按原始位置做因果注意力, RoPE 也用原始位置。\n3. 输出写回原位置: $x_i \\leftarrow x_i + w(r_i) \\cdot (\\mathrm{block}(x)_i - x_i)$。\n路由权重 $w(r_i)$ 乘在输出上, 路由器才在梯度路径上、能被训练。本库用 $w = 2\\sigma(r)$ (论文用原始的 $r$), 分数为 0 时权重恰为 1, 所以 infer 脚本能断言容量 100% 时与普通 LLaMA 一致 (最大差 3.6e-07), 以及 "只算入选的行" 与 "整段都算、再屏蔽落选 token" 一致 (最大差 2.4e-07)。', key: true },
+            { title: '计算量随容量线性下降', body: '因为入选 token 被 gather 成只有 $k$ 行的张量, 每 token 的稠密 FLOPs 等于不路由的层加上 $C$ 乘路由的层, 随容量线性下降; 注意力部分与过层 token 数的平方成正比, 按 $C^2$ 下降。infer 脚本里 4 层模型隔层路由 (第 1、3 层)、$T = 64$, 按每层实际过层的 token 数统计, 合计 FLOPs 相对全容量是:\n- 容量 75%: 0.869。\n- 容量 50%: 0.742。\n- 容量 25%: 0.620。\n- 容量 12.5%: 0.560, 与 "2 个全量层加 2 × 0.125 个路由层" 的 2.25 层当量相符。\n论文最好的配置正是隔层路由、容量 12.5%, 并报告每次前向的 FLOPs 能省一半以上。入选个数 $k$ 在训练前就确定, 张量形状固定, 这是选 "前 k 名" 而不是 "分数过阈值" 的原因。这里的 FLOPs 是按矩阵大小的估算, 没有测墙钟时间。' },
+            { title: 'top-k 在生成时不满足因果', body: '位置 $i$ 自己的分数只依赖前文, 但 "前 k 名" 的门槛依赖整段序列, 所以它过不过这一层取决于后面的 token。训练时整段都在, 没有问题; 逐个生成时第 $i$ 个 token 要马上决定, 后面的分数还不存在。infer 脚本只改后 16 个 token, top-k 路由下前 48 个位置的入选决定翻转了 22 次。论文给了两种解法:\n- 辅助损失: 在路由器输出上加 BCE, 让分数本身的正负就能判断入选。\n- 辅助预测器: 另训一个小 MLP, 输入是 stop-gradient 的激活, 只预测 "会不会入选", 生成时代替 top-k。\n本库实现后一种。预测器的 BCE 只更新它自己的参数, 主模型的训练目标不变; 换成预测器后翻转 0 次。train 脚本里预测器与 top-k 的一致率是 0.929 (seed 1 是 0.902), 论文报告在 97% 以上。代价是入选个数不再固定: 预测器路由时实际过层比例是 0.293, top-k 固定为 1/3。' },
+            { title: 'MoR: 一个共享块按 token 递归', body: 'MoR 用参数共享换深度: 首尾各一个独立层, 中间一个共享块递归 $N_r$ 次 (论文选的 Middle-Cycle 方式), 每次递归前路由器决定哪些 token 继续。本库用 expert-choice 路由: 第 $r$ 次递归只在仍在递归的 token 里取分数前 $k_r = T \\cdot (N_r - r) / N_r$ 名, 第 0 次全部 token 都过, 落选的不再回来。infer 脚本对照了同样展开深度的 LLaMA:\n- 参数: MoR 每多递归一次只多 64 个参数 (一个路由器), LLaMA 每多一层多 53,376 个; $N_r = 3$ 时两者分别是 161,088 和 267,648。\n- K/V: 第 $r$ 次递归只有入选的 token 存 K/V (recursion-wise caching), 共享块里的 K/V 条数是每次都全过的 $(N_r + 1) / (2N_r)$, $N_r = 3$ 时实测 0.667。\n论文还有两种变体本库没有实现: recursive KV sharing 让后面的递归都复用第一次的 K/V, 只存 $1/N_r$, 但读 K/V 的 IO 不省; token-choice 路由一开始就给每个 token 定好深度, 天然满足因果, 代价是负载不均。expert-choice 的 MoR 有与 MoD 相同的因果问题。' },
+            { title: '等 FLOPs 对照: 玩具上 MoR 最快, MoD 没占到便宜', body: 'train 脚本让三个模型的每 token 稠密 FLOPs 都等于 4 层当量 (按实际过层的 token 数核对, 相差 1% 以内), 在 "[a, b, =, (a+b) mod 10]" 的求和序列上各训 2000 步, 看答案位准确率首次到 0.9 的步数:\n- LLaMA-4 (4 层): seed 0 是 2000 步, seed 1 是 1500 步。\n- MoD-6 (第 1、3、5 层容量 1/3, 参数是 6 层): seed 0 在 2000 步内没学会, seed 1 是 2000 步。\n- MoR ($N_r = 3$, 参数只有 3 层): seed 0 是 1500 步, seed 1 是 1250 步, 两次都最快。\n- 参照 LLaMA-3 (就是 MoD-6 里不路由的那 3 层, FLOPs 少 1/4): seed 0 没学会, seed 1 是 2000 步。\nMoD 的路由器确实学到了偏向答案位置: top-k 选中的 token 里 "=" 位置占 0.500, 随机选是 0.255, 但这没有让它更快学会求和。\n边界: 这类任务有一段平台后突然学会, 学会的时刻对种子敏感, 这里只有两个种子、3 到 6 层的玩具模型。MoD 论文报告在真实语料上等训练 FLOPs 时能持平或略好于基线, MoR 论文报告等 FLOPs 下用约一半参数超过基线, 这两条都不能从这里推出来, 也不能被这里否定。' },
+          ],
+          links: [
+            { from: 'moe · token 选专家', to: 'topk_select', body: 'MoE 的常见路由是 token 选专家: 每个 token 取分数前 k 的专家。MoD 反过来是层选 token: 每个被路由的层取分数前 k 的 token, 与 MoE 里的 expert-choice 路由同类。层选 token 的好处是每层的计算量固定、不会有专家过载; 坏处就是门槛依赖整段序列。' },
+            { from: 'blocks · Pre-LN 残差主路', to: 'routed_block', body: 'Pre-LN 的残差主路是恒等相加, 每层只往上面加一个增量, 所以一个 token 跳过某层等于这层对它的增量为 0, 表示原样传给下一层。routed_block 里落选 token 和补位行都写回原值。' },
+            { from: 'models-generation · KV cache', to: 'MoRLLaMA.kv_entries', body: '条件深度让 KV cache 变成按层不齐的: MoD 里跳过某层的 token 在那一层没有 K/V, MoR 里第 $r$ 次递归只有留下的 token 有 K/V。本库只统计条数, 没有实现带 cache 的生成; 真实实现要按层分别管理缓存。' },
+          ],
+          sourceRows: [
+            { concept: '前 k 名', code: 'conditional_depth.py:topk_select', takeaway: '对每行分数取 topk, 再 scatter 成 bool 掩码。k 在整段序列上取, 所以入选个数固定, 但不满足因果。' },
+            { concept: '只算入选的行', code: 'order = torch.where(sel, pos, pos + T).argsort(dim=1)[:, :k]', takeaway: '入选位置的排序键是位置本身, 落选位置加 $T$, 排序后入选的排在前面且保持原顺序。order 同时用作 gather 的下标和 RoPE 的位置; 各行入选个数不同时, 不足 $k$ 的用 valid 标记为补位, 补位行写回原值。' },
+            { concept: '路由权重乘在输出上', code: 'new = torch.where(valid.unsqueeze(-1), xs + w * (out - xs), xs)', takeaway: 'out 是这一层对入选 token 的输出, out - xs 是增量, 乘上路由权重再加回去。路由权重因此出现在 loss 的计算图里, 路由器能拿到梯度。' },
+            { concept: '预测器 stop-gradient', code: 'pred = self.predictors[str(i)](x.detach()).squeeze(-1)', takeaway: '预测器的输入 detach 过, 它的 BCE 只更新预测器自己。训练时 routing="topk" 用 top-k 决定并算 BCE, 生成时 routing="predictor" 用 pred > 0 决定。' },
+            { concept: '共享块递归', code: 'x = routed_block(shared, x, sel, 2 * torch.sigmoid(score), self.rope)', takeaway: '每次递归都调用同一个 shared 块, 只有路由器各不相同; sel 只在上一次留下的 token 里取前 $k_r$ 名, 落选的 token 不再回来, 递归深度累加到 self.depth。' },
+          ],
+          snippetTitle: 'MoD 的一个路由层 + MoR 的递归',
+          snippet: `# MoD: 整段序列里前 k 名过层
+r = router(x)                                    # [B, T] 每个 token 一个分数
+sel = topk(r, k=round(C * T))                    # 训练时; 生成时 sel = predictor(x.detach()) > 0
+xs = gather(x, sel)                              # [B, k, D], 按原始位置排好
+out = block(xs, causal_mask, position_ids=sel)   # 只算 k 行
+x = scatter(x, sel, xs + w(r[sel]) * (out - xs)) # 落选的 token 原样留在残差上
+
+# MoR: 一个共享块递归 N_r 次, 每次只留前 k_r 名
+active = all_tokens
+for r in range(N_r):
+    sel = topk(router[r](x) where active, k=T * (N_r - r) / N_r)
+    x = routed(shared_block, x, sel)             # 同一个 shared_block
+    active = sel                                 # 只有 sel 存这一次的 K/V`,
+          source: ['llm_models/models/language_models/conditional_depth.py:topk_select', 'llm_models/models/language_models/conditional_depth.py:routed_block'],
+          run: 'python -m llm_models.run_models.language_models.conditional_depth.infer_conditional_depth',
+          related: [
+            { route: 'moe', label: '先看 MoE: 宽度上的稀疏', reason: '条件深度把 MoE 的 "只用一部分" 从专家维度搬到层维度; 路由器、top-k 和负载问题在 MoE 一章里先出现。' },
+            { route: 'models-gptoss', label: '对照 GPT-OSS 的 MoE 路由', reason: 'GPT-OSS 是 token 选专家, MoD 是层选 token; 两者的 top-k 写法相同, 选的对象不同。' },
+          ],
+        },
+
+    'models-byte-latent': {
+          title: 'Byte Latent Transformer · 按下一字节熵把字节切成 patch',
+          subtitle: 'BPE 词表在训练前就定死, 每个 token 不论难易都花同样的计算。BLT 直接读 UTF-8 字节, 用一个小字节模型的下一字节熵决定在哪里开新 patch, 大模型每个 patch 只走一步, 全局计算按信息量分配。',
+          tldr: '- 熵切分: 小字节模型算出每个位置的下一字节熵 $H(x_t)$, $H(x_t) \\gt \\theta$ 的位置开新 patch。熵只由前文算出, 所以切分是因果的, 生成时可以边走边切。\n- 两个小模型夹一个大模型: 局部编码器把一个 patch 的字节汇成一个向量, 全局 latent transformer 在 patch 序列上走, 局部解码器再还原出逐字节的预测。全局步数与字节数之比等于 1 除以平均 patch 长度。',
+          question: '不用 tokenizer、直接读字节, 序列会比 BPE 长 4 倍左右, 大模型的计算量为什么不会跟着变成 4 倍?',
+          evolution: {
+            title: '从定死的词表到按熵切分',
+            subtitle: '根问题: 模型按 token 分配计算, 而 token 的切法在训练前由词表定死, 与每个位置实际有多难预测无关。',
+            steps: [
+              { name: 'BPE 词表', year: 2016, pain: '(原点) 字符级序列太长, 注意力开销按序列长度的平方增长', fix: '合并高频字节对, 一个 token 平均覆盖约 4 个字节; 但词表在训练前定死, 词表没照顾到的语言和数字会被切碎' },
+              { name: '字节级模型', pain: '同一句话在不同语言下 token 数相差几倍, 每个 token 不论难易都花同样的计算', fix: '直接以 256 个字节为词表, 不再有词表偏差; 但序列比 BPE 长约 4 倍, 每个字节都要过一遍大模型' },
+              { name: '固定长度 patch', year: 2023, pain: '每个字节都走一遍大模型, 计算量随字节数线性增长', fix: 'MegaByte 每 K 个字节拼成一个 patch, 大模型只在 patch 上走; 但边界和内容无关, 常常把一个词切成两半' },
+              { name: '熵切分 (BLT)', year: 2024, pain: '固定边界常切在词中间, 难猜的位置也分不到更多全局计算', fix: '小字节模型算下一字节熵, 熵高处开新 patch; 局部编码器汇成 patch 向量, 全局模型在 patch 上走, 局部解码器还原字节' },
+            ],
+          },
+          code: 'llm_models/models/language_models/byte_latent.py',
+          points: [
+            { title: '熵高的地方开新 patch', body: '熵切分让全局模型的步数跟着信息量走: 难猜的字节开新 patch, 好猜的字节并进前一个 patch。熵模型是一个小的字节级语言模型, 它对每个位置算出 $H(x_t)$, 也就是只看前文时下一个字节有多难猜; 边界规则是 $b_t = 1[H(x_t) \\gt \\theta]$, 位置 0 恒为边界。\ndemo 用的熵模型只有 1 层、32 维, 训 400 步后已经能分出两类位置:\n- 词首字节: 熵在 1.3 到 2.0 nats 之间, 因为下一个词有 3 个候选。\n- 词内字节: 熵不超过 0.25, 包括汉字的第 2、3 个 UTF-8 字节。\n阈值 $\\theta$ 从 0 调到 2, 平均 patch 长度从 1 字节变到整段 64 字节一个 patch; $\\theta = 1.2$ 时平均 7.72 字节一个 patch, 全局步数是字节数的 0.129 倍, 而且几乎正好一个词一个 patch。', key: true },
+            { title: '两个小模型夹一个大模型', body: 'BLT 由三段组成, 只有中间一段在 patch 上走, 大部分参数和计算都放在这一段:\n1. 局部编码器: byte embedding 加 hash n-gram embedding (以当前字节结尾的 n 个字节的 hash 查表), 过一个滑窗因果块, 再做交叉注意力池化。每个 patch 的 query 用本 patch 字节的 max-pool 初始化, 只对本 patch 的字节做注意力。\n2. 全局 latent transformer: 在 patch 向量序列上跑普通的因果 Transformer 块。\n3. 局部解码器: 把全局输出加到字节隐状态上, 再过一个滑窗因果块, 输出 256 个字节的 logits。\n论文报告在 8B 规模、训练 FLOPs 对齐时, BLT 与 Llama 3 持平 (7 项任务平均 61.1 对 60.0, 约 4.5 字节一个 patch); patch 取 8 字节时推理 FLOPs 省近一半。本库的模型只有 d_model=64, 这些数字没有复现。' },
+            { title: '切分和输出都只依赖前文', body: '熵切分本身是因果的, 解码时还要保证同一 patch 里还没出现的字节不会泄露进来。\n- 切分: $b_t$ 只看 $H(x_t)$, 而 $H(x_t)$ 只由 $x_{\\lt t}$ 算出, 生成到哪里就能切到哪里。\n- 输出: 全局模型的输入右移一个 patch (开头补一个可学的 BOS patch), 第 $j$ 个输出 $g_j$ 只汇总 patch $0..j-1$。位置 $t$ 预测 $x_{t+1}$ 时读 $x_{t+1}$ 所在 patch 的 $g$, 它只包含 $t$ 及以前的字节。\ndemo 把 256 条样本位置 31 之后的字节全部换成随机字节: 位置 31 及以前的切分一个都没变, 之后的切分在全部样本上都变了, 位置 30 及以前的 logits 最大差 3.6e-07 (浮点误差)。' },
+            { title: '全局步数相同, 边界放在哪里更重要', body: '同样平均 8 字节一个 patch, 熵切分的留出集 bits-per-byte 比固定长度切分低。train_byte_latent 选阈值 $\\theta = 1.30$, 让熵切分的平均 patch 长度 (8.03 字节) 对齐固定 8 字节切分, 两边全局步数相同, 模型、数据、步数、种子也相同。留出集 256 条的实测结果:\n- 熵切分: BPB 0.220。\n- 固定 8 字节切分: BPB 0.229。\n- 每字节一个 patch: 全局步数多 8 倍, BPB 0.219。\n换训练种子 1、2 时是 0.221 对 0.228、0.221 对 0.230, 方向相同, 差距在 0.01 BPB 量级。\n边界: 这个差距来自刻意植入的结构。数据里一个词的 3 个后继共用同一个词尾, 只有词首能分辨上一个词是谁, 而局部模型的视野约 5 个字节, 够不到上一个词的词首。在词尾不共用的数据上, 两种切分几乎没有差别。' },
+            { title: 'patch 跟着信息量走, 不跟着字节数走', body: '按熵切分时, 一个 patch 装多少字节取决于这些字节好不好猜, 与语言和编码长度无关。demo 里英文词加空格 8 字节, 中文词加空格 10 字节 (3 个汉字, 每个 3 个 UTF-8 字节), 在 $\\theta = 1.2$ 下平均每词都是 1.00 个 patch (991 个英文词、553 个中文词)。\n对比 BPE: 词表里没有中文合并规则时, 一个汉字最多被切成 3 个字节 token, 同样的意思中文要多花几倍 token, 这正是 llm_train m26 多语言实验里看到的 token 消耗不均。BLT 把汉字的续字节并进同一个 patch, 全局模型不会因为编码更长就多走几步。\n边界: 论文没有专门报告各语言的 patch 长度, 这里的对照只说明机制。' },
+            { title: '切分也可以学出来: H-Net', body: 'BLT 的熵模型要单独训练, 阈值也是手定的; H-Net (Hwang, Wang, Gu 2025) 把切分放进模型里和语言模型一起端到端训练。它的路由模块比较相邻位置的表示: $p_t = \\tfrac{1}{2}(1 - \\cos(q_t, k_{t-1}))$, 相邻两个位置越不像, $p_t$ 越大, $p_t \\ge 0.5$ 处切开。\n切开之后只保留边界位置的向量交给主网络, 输出端再用 $p_t$ 做平滑, 让切分决策能收到梯度; 另有一个 ratio loss 把平均压缩比推向目标值 (1 阶段取 6, 实际约 4.8 字节一个 chunk)。论文报告计算和数据对齐时, 1 阶段字节级 H-Net 胜过 BPE Transformer, 在中文、代码和 DNA 上优势更大。本库没有实现 H-Net。' },
+          ],
+          links: [
+            { from: 'basic-data · Byte-level BPE', to: 'entropy_patch_ids', body: 'Byte-level BPE 和 BLT 都从 256 个字节起步, 任意 UTF-8 文本都能无损表示, 区别在于什么时候决定切法:\n- BPE: 训练前按语料频率合并字节对, 词表定死后所有文本用同一套切法。\n- BLT: 不建词表, 切分在运行时由熵模型按上下文决定, 同一个字节串在不同上下文里可以切得不一样。' },
+            { from: 'MegaByte · 固定 patch', to: 'fixed_patch_ids', body: 'MegaByte 每 K 个字节切一刀, 和内容无关。本库用 fixed_patch_ids 实现它作为对照: 换切分函数时模型不动, 平均 patch 长度相同时两种切分的全局步数相同。' },
+            { from: 'models-mtp · 一步多个 token', to: 'ByteLatentLM', body: 'MTP 和 BLT 都让大模型的一步覆盖多个输出单位: MTP 让一个位置额外预测后面几个 token, BLT 让全局模型一步覆盖一个 patch 的若干字节, 字节由局部解码器逐个预测。' },
+          ],
+          sourceRows: [
+            { concept: '熵切分', code: 'byte_latent.py:entropy_patch_ids', takeaway: '先求布尔边界 entropy > threshold, 把位置 0 强制设为边界, 再沿序列做累加减 1, 得到每个字节所属的 patch 编号。patch 数随阈值单调不增, infer 脚本对此有断言。' },
+            { concept: '下一字节熵', code: 'byte_latent.py:next_byte_entropy', takeaway: '熵模型第 $t$ 行 logits 预测的是 $x_{t+1}$, 所以算出的熵整体右移一格, 位置 0 没有前文, 记为 +inf (恒为边界)。' },
+            { concept: 'hash n-gram', code: 'byte_latent.py:hash_ngrams', takeaway: '以位置 $t$ 结尾的 n 个字节做多项式滚动 hash, 对大素数取模防溢出, 再取模到桶数查 embedding 表; 左边不足 n 个字节时补 0 字节。' },
+            { concept: '池化只看本 patch', code: 'member = patch_ids[:, None, :] == torch.arange(P)[None, :, None]', takeaway: 'member 是 [B, P, T] 的布尔矩阵, 同时用作 max-pool 的选择和交叉注意力的 mask。batch 内 patch 数不同时补位 patch 没有字节, 让它看全部字节以免 softmax 出 NaN, 它的输出不会被读到。' },
+            { concept: '不泄露未来', code: 'tgt_pid = torch.cat([patch_ids[:, 1:], patch_ids[:, -1:]], dim=1)', takeaway: '位置 $t$ 预测 $x_{t+1}$, 取 $x_{t+1}$ 所在 patch 的全局输出; 全局输入已右移一个 patch, 这个输出只汇总更早的 patch。' },
+            { concept: 'BPB', code: 'byte_latent.py:bits_per_byte', takeaway: '平均交叉熵 (nats / 字节) 除以 $\\ln 2$, 得到每个字节平均要多少比特, 与分词方式无关。' },
+          ],
+          snippetTitle: '熵切分 + 三段式前向',
+          snippet: `# 1. 熵切分: 只看前文, 生成时可以边走边切
+H = entropy(small_byte_lm(x))                # H[t] = H(p(x_t | x_<t))
+patch_id = cumsum(H > theta) - 1             # 位置 0 恒为边界
+
+# 2. 局部编码器: 字节 → patch 向量
+h = local_block(byte_emb(x) + hash_ngram_emb(x))
+patches = cross_attn(q=maxpool_per_patch(h), kv=h, mask=same_patch)
+
+# 3. 全局模型: 右移一个 patch, g[j] 只汇总 patch < j
+g = global_blocks(cat([bos, patches[:-1]]))
+
+# 4. 局部解码器: 位置 t 读 x_{t+1} 所在 patch 的 g
+logits = lm_head(local_block(h + proj(g[patch_id[t + 1]])))`,
+          source: ['llm_models/models/language_models/byte_latent.py:entropy_patch_ids', 'llm_models/models/language_models/byte_latent.py:ByteLatentLM'],
+          run: 'python -m llm_models.run_models.language_models.byte_latent.infer_byte_latent',
+          related: [
+            { route: 'basic-data', label: 'BPE 与多语言 token 消耗', reason: 'Byte-level BPE 怎样从 256 个字节合并出词表, 以及同一句话在不同语言下 token 数为什么相差一倍 (llm_train m26 的研究回放挂在同一章), 是本章熵切分要解决的问题。' },
+          ],
+    },
+
+    'models-unified-multimodal': {
+          title: 'Transfusion · 一个 transformer 同时做文本自回归和图像扩散',
+          subtitle: '前缀路线让语言模型能看图, 却只能输出文本。Transfusion 把文本 token 和连续的图像 patch 排进同一条序列, 文本位置算 next-token CE, 图像位置算扩散损失, 用一张 "整体因果、图像段内双向" 的掩码让同一个模型既看图说话, 也按文本画图。',
+          tldr: '- 一张掩码装下两种目标: 文本只能看前面; 同一张图的 patch 互相可见, 因为它们在同一个噪声水平上一起去噪。图像前的文本看不到图, 图像后的文本看得到整张图。\n- 两种损失按位置分账: 总损失是 $L_{\\text{LM}} + \\lambda L_{\\text{img}}$, 文本位置贡献交叉熵, 图像位置贡献去噪 MSE。生成时先照常写字, 遇到 BOI 就在同一个模型里对一段噪声 patch 去噪。',
+          question: '同一个 transformer 里, 文本要因果、图像去噪要整张图互相可见, 这两种要求怎样放进同一张注意力掩码, 而且不让提示词偷看到后面生成的图?',
+          evolution: {
+            title: '从 "能看图" 到 "同一个模型里画图"',
+            subtitle: '根问题: 文本是离散 token, 按顺序预测; 图像是连续像素, 适合整张一起去噪。两种生成方式放进同一个模型, 要在表示 (离散还是连续) 和可见性 (因果还是双向) 上同时取舍。',
+            steps: [
+              { name: '视觉前缀 + 外接扩散', pain: '(原点) 图像经 ViT 变成连续向量拼在文本前面, 模型能看图, 但只输出文本', fix: '要生成图像就另接一个扩散模型, 文本条件经接口传过去, 理解和生成各有一套参数, 学到的表示互不共享' },
+              { name: '离散 token 早融合', year: 2024, pain: '理解和生成分属两个模型, 图文无法在同一条序列里交错生成', fix: 'Chameleon 用 VQ 把图像量化成离散 token 并入词表, 图文统一做 next-token; 一张 512×512 的图要逐个生成 1024 个 token' },
+              { name: '离散 token + 掩码预测', year: 2024, pain: '逐 token 自回归画一张图要上千次串行前向, 左上角的 token 也看不到右下角', fix: 'Show-o 仍用离散 token, 但图像改成 MaskGIT 式掩码预测: 文本因果、图像段内全注意力, 一次前向并行定多个 token' },
+              { name: 'Transfusion', year: 2024, pain: '离散 token 要先经过有损量化, 码本大小限制了图像细节', fix: '图像保持连续 patch; 同一个 transformer 里文本算 next-token CE, 图像算扩散 MSE, 掩码整体因果、同一张图内部双向' },
+            ],
+          },
+          code: 'llm_models/models/multimodal/transfusion.py',
+          points: [
+            { title: '一张掩码装下两种目标', body: 'Transfusion 的掩码可以写成一句话: $M[i, j] = (j \\le i)$ 或 ($i$、$j$ 属于同一张图)。它保证了三件事:\n- 图像段内互相可见: 一张图的所有 patch 在同一个噪声水平上一起去噪, 左上角的 patch 要参考右下角才能画出连贯的形状。\n- 图像后的文本看得到整张图: 这就是看图说话。\n- 图像前的文本看不到图: 按文本画图时提示词的表示不随图像变化, 生成可以先写字、遇到 BOI 再去噪。\ninfer 脚本用随机初始化的模型做扰动实验 (16 个 patch, 序列长 21): 可见格子从纯因果的 231 增加到 351, 多出的 120 正好是 16·15/2; 换掉整张图, 图像前文本的 logits 变化恰好为 0, 图像后文本变化 7.6e-02; 只改最后一个 patch, 第一个 patch 的输出变化 1.5e-02, 换成纯因果掩码后变化为 0。', key: true },
+            { title: '两种损失按位置分账', body: '模型只有一套 Transformer 层, 但输入层和输出头按位置类型分开: 文本位置用 token embedding 进、lm_head 出; 图像位置用线性层把 patch 投进来, 再加上噪声时间 $t$ 的嵌入, 由另一个线性头输出去噪目标。总损失是 $L_{\\text{LM}} + \\lambda L_{\\text{img}}$, 论文取 $\\lambda = 5$, 图像项是 DDPM 的噪声预测 MSE。本库换成 flow matching: $x_t = (1-t)x_0 + t\\varepsilon$, 图像位置回归速度 $\\varepsilon - x_0$。\n训练数据里图文对 80% 文本在前、20% 图像在前, 图像在前的样本把噪声限制在 $t \\le 500$ (共 1000 步), 让后面的标题读得到图里的信息。train 脚本 (两种布局各一半, 3000 步, seed 0) 实测:\n- 看图说话 CE: 从 2.477 降到 0.005。\n- 图像去噪 MSE: 从 1.962 降到 0.268。\n- 图像前文本的 CE: 停在 1.100, 等于颜色和形状各 3 种取值时的下界 $\\ln 3$, 说明它确实看不到后面的图。' },
+            { title: '生成: 写到 BOI 就切到去噪', body: '推理时模型照常逐 token 采样文本; 采到 BOI 后切到扩散模式, 在序列末尾接一段纯噪声 patch, 反复整段前向、逐步去噪, 完成后接 EOI 回到文本模式。论文推理默认 250 个去噪步, 本库的 generate 用 20 步欧拉积分, 由调用方放好 BOI, 不用 CFG, 每一步都对整段序列前向, 没有接 KV cache。\n代价落在两处:\n- 去噪步数: 理解一张图只要一次前向, 生成一张图要 20 到 250 次, 两者的计算量差一到两个数量级。\n- 缓存: 去噪期间图像 patch 每一步都在变, 段内又是双向的, 这一段不能用 KV cache; 图像前的文本和去噪完成后的图像不再变化, 它们的 K/V 可以像普通自回归一样缓存。\n论文的 7B 模型在约 2T token (1T 文本 token、约 1T 图像 patch) 上训练; 7B 对照实验里, 达到与 Chameleon 相同 FID 所需的 FLOPs 约为后者的 0.029。' },
+            { title: '实测: 看图容易, 画图难', body: '同一个模型里理解和生成的难度不对称。train 脚本用 8×8 小图 (3 种颜色 × 3 种形状, 位置抖动 ±1 像素) 评估, 判定器先在 600 张留出真图上验收, 颜色和形状都是 1.000:\n- 看图说话 (留出 600 张): 颜色、形状、两个都对均为 1.000, 随机水平是 0.333 / 0.333 / 0.111。\n- 按文本画图 (180 张, 欧拉 20 步): 颜色 1.000, 形状 0.622。按要求的形状拆开, 方块 0.933, 圆环 0.433, 十字 0.500: 圆环和十字常被画成一团, 判定器把团块判成方块。\n理解只要把 16 个 patch 压成两个词; 生成要让 16 个 patch 协调出同一个位置和轮廓。换成 d_model 96、4 层、2000 步, 形状命中率实测 0.678; 欧拉步数从 20 加到 50 不改变结果。\n边界: 单种子; 留出集与训练集来自同一分布 (新抽的亮度、位置和噪声), 测的是通路能学会, 不是组合泛化。' },
+            { title: '统一的几种做法', body: '统一多模态模型的分歧集中在两个问题上: 图像用离散 token 还是连续向量, 理解和生成是否共用同一种视觉表示。\n- Chameleon (Meta): VQ 离散 token, 8192 码本并进词表, 图文都做 next-token, 训练稳定靠 QK-Norm 等手段。\n- Show-o: MAGVIT-v2 离散 token, 图像用 MaskGIT 式掩码预测, 文本因果、图像全注意力。\n- Janus (DeepSeek): 理解用 SigLIP 编码器, 生成用 VQ token 自回归, 两套视觉编码共用一个 transformer。\n- Show-o2: 3D 因果 VAE 的 latent 上做 flow matching, 文本由 language head 自回归输出。\n- BAGEL (ByteDance Seed): 理解用 SigLIP2、生成用冻结的 FLUX VAE, 理解专家和生成专家每层共享自注意力, 7B 激活 / 14B 总参, 生成目标是 rectified flow。\nQwen3.5 (阿里, 2026-02) 的原生多模态指视觉从预训练一开始就进入主干, 它只输出文本, 属于理解侧的早融合, 不在同一个模型里生成图像。' },
+          ],
+          links: [
+            { from: 'models-multimodal · 视觉前缀', to: 'TransfusionModel', body: 'Qwen2-VL 的前缀路线已经把图像向量和文本放进同一条因果序列, 图像后的文本能读图。Transfusion 在此基础上多做两件事: 同一张图内部改成双向可见, 并给图像位置加一个去噪输出头, 让图像也成为预测目标而不只是条件。' },
+            { from: 'diffusion · Flow Matching', to: 'transfusion_loss', body: '加噪方式和回归目标与 DiT / MM-DiT 相同: $x_t = (1-t)x_0 + t\\varepsilon$, 回归速度 $\\varepsilon - x_0$。区别在条件怎样进来: DiT 用 adaLN 注入类别, MM-DiT 让文本流和图像流做联合注意力, Transfusion 的文本条件就是同一条序列里排在前面的 token, 经因果注意力读进来。' },
+            { from: 'models-llada · 全序列双向', to: 'transfusion_mask', body: 'LLaDA 整条序列双向可见, 所以没有 KV cache。Transfusion 只在同一张图内部双向, 文本之间、文本与图像之间仍是因果, 图像前的文本和已经生成完的图都可以缓存。' },
+          ],
+          sourceRows: [
+            { concept: '掩码', code: 'transfusion.py:transfusion_mask', takeaway: 'image_id 在文本位置取 -1, 在图像位置取图号。掩码是因果下三角与 "同一张图" 两项取或, 第二项只在两端都是图像且图号相同时成立, 所以文本之间、文本与图像之间仍是普通因果。' },
+            { concept: '按位置选输入', code: 'x = torch.where(is_image, image_x, text_x)', takeaway: '每个位置同时算出两种输入, 再按 is_image 取其一: 文本位置是 token embedding 乘 $\\sqrt{D}$, 图像位置是 patch 投影加时间嵌入。输出端也一样, 两个头对所有位置都算, 由损失函数按位置挑。' },
+            { concept: '两种损失', code: 'transfusion.py:transfusion_loss', takeaway: '文本 CE 只在 lm_mask 为真的位置上平均, 图像 MSE 只在图像位置上平均, 再按 $L_{\\text{LM}} + \\lambda L_{\\text{img}}$ 相加, 默认 $\\lambda = 5$。两项各自取平均, 所以文本位置和图像位置的数量差异不会改变权重。' },
+            { concept: '噪声上限', code: 't = torch.rand(B) * (1.0 if kind == "text_first" else 0.5)', takeaway: '文本在前的样本 $t$ 取满 $(0, 1)$, 图像在前的样本 $t$ 只取 $(0, 0.5)$, 对应论文在图像在前的样本上把噪声限制在 $t \\le 500$。' },
+            { concept: '去噪循环', code: 'train_transfusion.py:generate', takeaway: '把提示词、BOI 和一段噪声 patch 拼成序列, 交给 EulerFlowSampler 积分 20 步; 每一步都对整段序列前向, 只取图像位置的速度预测更新 patch。' },
+          ],
+          snippetTitle: '训练一步 + 按文本画图',
+          snippet: `# 一条序列: 文本 token 与图像 patch 混排
+seq = [BOS, "red", "cross", BOI, p_1 .. p_16, EOI]
+mask[i, j] = (j <= i) or (img(i) == img(j) != None)   # 整体因果, 图内双向
+
+# 训练: 两种位置各算各的损失
+t = rand(); eps = randn_like(x0)
+patches = (1 - t) * x0 + t * eps                      # 加噪
+h = transformer(where(is_image, patch_in(patches) + time_emb(t), tok_emb(text)), mask)
+loss = CE(lm_head(h)[text_pos], next_tokens) + 5 * MSE(patch_out(h)[img_pos], eps - x0)
+
+# 生成: 写到 BOI 后, 在同一个模型里去噪
+x = randn(16, patch_dim)
+for t in linspace(1, 0, steps):
+    v = patch_out(transformer(cat(prompt, BOI, x, EOI), mask))[img_pos]
+    x = x - dt * v`,
+          source: ['llm_models/models/multimodal/transfusion.py:transfusion_mask', 'llm_models/models/multimodal/transfusion.py:transfusion_loss', 'llm_models/run_models/multimodal/transfusion/train_transfusion.py:generate'],
+          run: 'python -m llm_models.run_models.multimodal.transfusion.train_transfusion',
+          related: [
+            { route: 'models-multimodal', label: '前缀路线: 图像怎样接进语言模型', reason: '视觉 token 当前缀拼进因果 decoder 是本章的起点; 那一章讲清了 patch 怎样切、前缀为什么是单向的。' },
+            { route: 'diffusion', label: 'Flow Matching 与 DiT', reason: '本章图像位置的加噪方式和回归目标与 DiT / MM-DiT 相同, 那一章讲扩散目标本身。' },
+            { route: 'models-llada', label: '全序列双向的扩散语言模型', reason: 'LLaDA 整条序列双向、没有 KV cache; 对照它能看清 Transfusion 只在图内双向换来了什么。' },
+          ],
+    },
+
+    'models-block-diffusion': {
+          title: 'BD3-LM 块扩散 · 块间自回归, 块内并行去噪',
+          subtitle: '块扩散把序列切成小块, 块与块之间从左到右生成, 块内部像 LLaDA 一样并行去噪; 注意力改成块因果以后, 定稿的块不再变, 它们的 K/V 可以缓存, 生成也能一块接一块往后续。',
+          tldr: '- 块因果注意力: 一个位置能看到本块和之前所有块, 看不到之后的块。块大小为 1 时就是自回归, 块大小等于序列长时就是 LLaDA。\n- 训练一次算完: 把加噪序列和干净序列拼成 $2L$ 个位置, 用分成四块的掩码让每个加噪块只看本块和之前各块的干净 token, 算出的与采样时逐块带 cache 的前向一致。',
+          question: 'LLaDA 每个去噪步都要把整段序列重算一遍, 能不能像自回归模型那样把前文的 K/V 存下来, 同时保留一步定好几个 token 的并行?',
+          evolution: {
+            title: '在自回归和扩散之间加一个旋钮',
+            subtitle: '根问题: 自回归一步只定一个 token, 掩码扩散一步能定多个却要整段重算; 前者串行步数多, 后者每步的算力和生成长度都受限。',
+            steps: [
+              { name: '自回归 LM', pain: '(原点) 生成 N 个 token 要串行前向 N 次, 每步只定一个, 而且只能从左往右', fix: '因果掩码保证旧 token 的 K/V 不变, prefill 一次之后每步只算一个新 token' },
+              { name: 'LLaDA 掩码扩散', year: 2025, pain: '一步只定一个 token, 串行步数等于生成长度', fix: '全双向注意力配随机比例遮盖, 一步并行定多个 token; 但任何位置一变所有 K/V 都变, 没有 KV cache, 长度要事先给定' },
+              { name: '块扩散 BD3-LM', year: 2025, pain: '每个去噪步都整段重算, 生成长度也必须在开始前固定', fix: '块间因果、块内双向: 定稿的块进 KV cache, 每步只送当前块; 一块接一块生成, 长度不必事先定死' },
+              { name: '拼接训练掩码', pain: '逐块训练时每个块要单独前向一次, 前文被重复计算', fix: '把 $x_t$ 和 $x$ 拼成 $2L$ 个位置, 用 M_BD、M_OBC、M_BC 四块掩码一次算完所有块' },
+              { name: '裁剪噪声日程', pain: '遮蔽率 $t$ 很小的块乘上 $1/t$ 以后, 单次 loss 估计忽大忽小', fix: '训练时让 $t \\sim U[\\beta, \\omega]$; demo 里未训练模型的估计标准差从 0.171 降到 0.069' },
+            ],
+          },
+          code: 'llm_models/models/language_models/block_diffusion.py',
+          points: [
+            { title: '块因果: 前文定稿以后就不再变', body: '块扩散能用 KV cache, 是因为它把注意力从全双向改成了块因果, 前面的块一旦定稿, 后面怎么填都改变不了它们的隐状态。假设 16 个位置切成 4 块、每块 4 个: 第 3 块的位置能看到第 1、2、3 块, 看不到第 4 块; 块内的 4 个位置互相可见, 可以像 LLaDA 一样并行去噪。块大小是一个旋钮, 两端分别是两种已知的模型:\n- 块大小为 1: 每块只有一个位置, 块因果掩码就是下三角因果掩码, 模型退化成自回归。\n- 块大小等于序列长: 只有一个块, 所有位置互相可见, 前向与 LLaDA 逐位相同。infer 脚本断言两者的 logits 最大差为 0。\n块越大, 一步能同时定的 token 越多, 但同一步定下的 token 彼此看不见, 能缓存的前文也越少。', key: true },
+            { title: '训练: x_t 和 x 拼起来一次算完', body: '训练时每个块的条件是干净的前文, 而不是加噪的前文, 所以 BD3-LM 把加噪序列 $x_t$ 和干净序列 $x$ 拼成 $2L$ 个位置, 两半共用位置编号 $0..L-1$, 再用一张分成四块的掩码一次算完所有块:\n- M_BD (左上, 块对角): 加噪块只看本块的加噪 token。\n- M_OBC (右上, 错一块的块因果): 加噪块看之前各块的干净 token, 看不到本块的干净答案。\n- 左下全 0: 干净序列不看加噪序列。\n- M_BC (右下, 块因果): 干净序列自己块因果, 算出的就是采样时 cache 里的前文。\nloss 与 LLaDA 相同, 只在被遮位置算 CE, 乘 $1/t$ 再除以总 token 数, 区别是每个块各抽一个 $t$; 代码直接把每个块当成一条短序列交给 LLaDALoss。infer 脚本把一次训练前向的加噪块 logits 与 "前文逐块进 cache、当前块单独前向" 的结果对比, 最大差 4.9e-06。' },
+            { title: '采样: 草稿块不进 cache', body: '生成时一块接一块地做, 每块内部沿用 LLaDA 的低置信度重遮和线性日程, 而 cache 只收定稿的块。具体顺序是:\n1. 当前块填满 [MASK], 每个去噪步只把这一块的 token 送进前向, 前文的 K/V 从 cache 读。草稿块的 K/V 每步都在变, 所以这一步只用 cache 的浅拷贝。\n2. 块定稿以后, 把这个干净的块再送一次前向, 这次的 K/V 才追加进真正的 cache。\n3. 进入下一块。\n置换链任务上给首 token 续写 15 个, 块大小 4、每块 4 步时, 带 cache 一共送进前向 80 个 token, 不带 cache 逐块整段重算要 160 个, LLaDA 15 步要 240 个, 三者准确率都是 1.000。串行前向次数并没有更少: 块扩散是 20 次 (其中 4 次是写 cache), LLaDA 是 15 次。' },
+            { title: '裁剪日程降的是估计的方差', body: '裁剪日程只改训练时遮蔽率的取值范围, 目的是让每一步的 loss 估计更稳。$t$ 很小的块被遮的 token 很少, 乘上 $1/t$ 之后单次估计忽大忽小; 训练时改成 $t \\sim U[0.45, 0.95]$ 就去掉了这一段。train 脚本用同一批 64 条序列、换 64 次遮蔽随机数测 loss 估计的标准差:\n- 未训练: 全范围 0.171, 裁剪 0.069。\n- 训练后: 全范围 0.041, 裁剪 0.050。训练好的模型在 $t$ 很小时几乎都猜对, $1/t$ 放大的是接近 0 的 CE, 两者差别不大。\n裁剪日程下 loss 的均值更高 (0.268 对 0.176), 因为它只在难的那段 $t$ 上取平均, 两个均值不是同一个量; 评估时两种模型都换回全范围, held-out loss 分别是 0.182 和 0.183。论文按块大小网格搜索 $[\\beta, \\omega]$, 块越小区间越靠近全遮, 这里固定取一组。' },
+            { title: '可变长生成, 和它在玩具上的边界', body: '块因果让生成长度不必事先给定: 后面的块改不了前面的块, 所以可以一块一块往后接, 论文的做法是采到 EOS (或样本质量下降) 就停。infer 脚本断言先生成 2 块的结果与一口气生成 4 块的前 2 块完全相同。\n结构允许往后接, 不等于模型在没见过的位置上也能写对。训练序列长 16, 让模型一路生成到 32 个位置时, 实测位置 1-15 的准确率仍是 1.000, 位置 16-31 只有 0.393 (全范围日程) 和 0.432 (裁剪日程)。\n边界: 2 层、d_model=64 的玩具模型, 单种子, 数据里没有 EOS; 论文在 LM1B 和 OpenWebText 上的困惑度结论不能从这里推出来。' },
+          ],
+          links: [
+            { from: 'models-llada · 双向注意力', to: 'block_causal_mask', body: 'LLaDA 的注意力全双向, 任何位置一变所有 K/V 都变, 所以每个去噪步整段重算。块扩散只把掩码换成块因果, 其余零件 (GQA、SwiGLU、RMSNorm、RoPE、[MASK] 取词表最后一个 id) 全部继承 LLaDA; 块大小等于序列长时两者前向逐位相同。' },
+            { from: 'models-generation · KV cache', to: 'BlockDiffusionLM.sample', body: '自回归的 KV cache 成立, 是因为因果掩码保证旧 token 的 K/V 不随后面变化。块因果把这个保证从 "每个 token" 放宽到 "每个定稿的块": 草稿块内部还在变, 只能用 cache 的拷贝; 定稿之后写进 cache, 之后各块直接读。' },
+            { from: 'LLaDALoss', to: 'BlockDiffusionLM.elbo_loss', body: '块扩散的 loss 就是每个块各自的 LLaDA 式 ELBO 相加: 只在被遮位置算 CE、乘 $1/t$、除以总 token 数。代码把 $[B, L]$ 的 logits 和标签按块切成 $[B \\cdot L/b, b]$, 每块带着自己的 $t$ 直接交给 LLaDALoss。' },
+          ],
+          sourceRows: [
+            { concept: '块因果掩码', code: 'block_diffusion.py:block_causal_mask', takeaway: '位置 $i$ 属于第 $\\lfloor i / b \\rfloor$ 块, key 的块号不大于 query 的块号就可见。$b = 1$ 时等于 build_causal_mask, $b \\ge L$ 时全为 True。' },
+            { concept: '训练掩码', code: 'block_diffusion.py:training_mask', takeaway: '先按块号算出三张 $L \\times L$ 的 bool 矩阵: 块号相等 (M_BD)、key 块号更小 (M_OBC)、key 块号不大于 query (M_BC), 再拼成 [[M_BD, M_OBC], [0, M_BC]]。' },
+            { concept: '按块加噪', code: 'block_diffusion.py:block_forward_process', takeaway: '全 batch 的块数为 $n$, 用一个共享随机起点把 $n$ 个 $t$ 等间隔铺满 $[\\max(t_{\\min}, \\epsilon), t_{\\max})$, 块内每个 token 独立以本块的 $t$ 换成 [MASK]。$t_{\\min}$ 和 $t_{\\max}$ 就是裁剪日程的 $\\beta$ 和 $\\omega$。' },
+            { concept: '草稿块用 cache 拷贝', code: 'self(blk, position_ids=pos, caches=[dict(c) for c in caches])', takeaway: '每层的 cache 是一个 dict, 注意力会把本次的 K/V 拼到 dict 里已有的 K/V 后面再写回。传浅拷贝时写回只发生在拷贝里, 真 cache 保持不变; 块定稿后才用真 cache 再前向一次。' },
+          ],
+          snippetTitle: '训练一步 + 逐块采样',
+          snippet: `# 训练: 每块一个遮蔽率, x_t 和 x 拼起来一次前向
+t = uniform(beta, omega, size=[B, L // b])          # 裁剪日程
+noisy, masked = mask_tokens(x, t.repeat_interleave(b, 1))
+logits = model(cat([noisy, x], 1), mask=[[M_BD, M_OBC], [0, M_BC]],
+               position_ids=cat([arange(L), arange(L)]))[:, :L]
+loss = (CE(logits, x) * masked / t_per_token).sum() / (B * L)
+
+# 采样: 块间自回归, 块内去噪
+cache = empty_kv_cache()
+for blk in blocks:                                  # 每块 b 个位置
+    for s in range(steps):
+        logits = model(blk, cache=copy(cache))      # 只送当前块, 前文读 cache
+        blk = low_confidence_remask(blk, logits, s)
+    model(blk, cache=cache)                         # 定稿的块写进 cache`,
+          source: ['llm_models/models/language_models/block_diffusion.py:training_mask', 'llm_models/models/language_models/block_diffusion.py:BlockDiffusionLM.sample'],
+          run: 'python -m llm_models.run_models.language_models.block_diffusion.infer_block_diffusion',
+          related: [
+            { route: 'models-llada', label: '先看 LLaDA: 掩码扩散怎样训练和采样', reason: '块内的加噪、$1/t$ 加权和低置信度重遮都直接沿用 LLaDA, 本章只讲块因果掩码和 KV cache 带来的变化。' },
+            { route: 'models-generation', label: '对照自回归的 KV cache', reason: '块大小为 1 时块扩散就是自回归; 对照 KV cache 那一章, 可以看清 cache 成立需要的条件只是 "前文不再变"。' },
+          ],
+        },
+
+    'models-hyper-connections': {
+          title: 'Hyper-Connections 与 mHC · 把 1 条残差流加宽成 n 条',
+          subtitle: 'Pre-LN 的残差主路只有 1 条, 每层只能全读全写, 层与层之间的连接强度在设计时就定死了。Hyper-Connections 把它加宽成 n 条流, 让模型自己学三组连接权重; mHC 再把其中的流间混合矩阵投到双随机矩阵上, 让多层连乘之后仍然保持恒等映射。',
+          tldr: '- 加宽: 残差变成 n 条流 $x \\in \\mathbb{R}^{n \\times D}$, 一层的更新是 $x_{l+1} = H_{\\text{res}} x_l + H_{\\text{post}}^\\top F(H_{\\text{pre}} x_l)$。$H_{\\text{pre}}$ 把 n 条流混成这一层的那一个输入, $H_{\\text{post}}$ 把层输出按不同强度写回 n 条流, $H_{\\text{res}}$ 决定流之间怎么互相混。\n- 约束: 第 j 层到第 k 层的有效连接是中间各层 $H_{\\text{res}}$ 的连乘。不加约束时这个乘积会整体放大或衰减信号; mHC 用 Sinkhorn-Knopp 把每个 $H_{\\text{res}}$ 投到双随机矩阵, 这类矩阵对乘法封闭, 连乘多少层最大绝对行和都还是 1。',
+          question: '残差连接从 1 条加宽成 n 条之后, 多出来的那些连接权重为什么不能放开让模型随便学?',
+          evolution: {
+            title: '残差主路从 1 条到 n 条, 再把连乘管住',
+            subtitle: '根问题: 残差连接决定每一层的输出以多大强度传到后面每一层, 这个强度在设计阶段写死, 模型没有调整它的余地; 一旦放开让模型学, 多层连乘又会让信号在深度方向上失控。',
+            steps: [
+              { name: 'Pre-LN 残差', pain: '(原点) 残差主路只有 1 条, 每层全读全写, 层间连接强度是常数 1', fix: '$x = x + F(\\mathrm{norm}(x))$ 的主路是恒等相加, 梯度直通; 代价是 Pre-LN 的表示塌缩与 Post-LN 的梯度消失之间只能二选一' },
+              { name: 'Hyper-Connections', year: 2024, pain: '两种归一化位置的取舍是固定的, 模型自己调不了层间连接的强弱', fix: '残差加宽成 n 条流, 三组权重都可学; OLMo-7B 上 n = 4 把验证 loss 从 2.581 降到 2.559, MoE 上收敛快约 1.8 倍' },
+              { name: '连乘跑掉', pain: '$H_{\\text{res}}$ 不加约束, 多层连乘后复合映射不再是恒等, 信号被整体放大或衰减', fix: 'mHC 在 27B 上实测这个复合增益的峰值约 3000, 训练里还出现过一次 loss 抬升' },
+              { name: 'mHC 双随机约束', year: 2025, pain: '要限住连乘的增益, 又不能把 $H_{\\text{res}}$ 退回成固定的单位矩阵', fix: 'Sinkhorn-Knopp 把 $H_{\\text{res}}$ 投到双随机矩阵: 乘法封闭、谱范数不超过 1, 增益恒为 1; $H_{\\text{pre}}$ 与 $H_{\\text{post}}$ 只要求非负' },
+            ],
+          },
+          code: 'llm_models/layers/core/hyper_connections.py · llm_models/models/language_models/hyper_llama.py',
+          points: [
+            { title: '一层读一次、写一次, 三个矩阵各管一件事', body: '加宽后的残差把 "怎么读 n 条流" 和 "怎么写回 n 条流" 都变成了可学的权重。一层分三步:\n1. 宽度连接: $H_{\\text{pre}} \\in \\mathbb{R}^{1 \\times n}$ 把 n 条流加权成这一层的那一个输入, 注意力和 FFN 只看这一个输入。\n2. 层计算: $F$ 是 Pre-LN block 的残差分支那一项, 代码里取 $\\mathrm{block}(x) - x$。\n3. 深度连接: $H_{\\text{post}}$ 把输出按不同强度写回 n 条流, 同时 $H_{\\text{res}} \\in \\mathbb{R}^{n \\times n}$ 把旧的 n 条流互相混一遍。\n三个矩阵都由当前位置的流向量现算: $\\tilde{H} = \\alpha \\cdot (\\mathrm{RMSNorm}(\\mathrm{vec}(x)) \\varphi) + b$, $\\varphi$ 初始为 0, 所以起步时只有静态偏置 $b$ 起作用。n 条流初始化时数值相同, 而 $H_{\\text{pre}}$ 的各条权重加起来是 1、$H_{\\text{post}}$ 全是 1、$H_{\\text{res}}$ 的行和是 1, 于是流的共同值原样传过去: infer 脚本实测 hc 与 mhc 在 n = 1 和 n = 4 下与普通 LLaMA 的 logits 最大差是 2.4e-07 到 4.8e-07, 初始 loss 完全相同。', key: true },
+            { title: '真正的层间连接是 H_res 的连乘', body: '第 j 层的输出传到第 k 层时, 要先被中间每一层的 $H_{\\text{res}}$ 乘一遍, 所以有效连接是这些矩阵的乘积, 而不是单层的那一个矩阵。mHC 用这个乘积的最大绝对行和衡量它偏离恒等多少 (论文叫 Amax Gain Magnitude, 前向看最大绝对行和、反向看最大绝对列和)。infer 脚本用同一组偏离恒等的 $4 \\times 4$ 矩阵 (确定性模拟, 不是训练出来的) 算了五个深度:\n- 不加约束: 行和从 L = 1 的 1.782 涨到 L = 24 的 10.795, 谱范数从 1.414 涨到 8.558。\n- 双随机: 五个深度全是 1.000000。\n乘积的增益大致按最大特征值的 L 次方走: 谱半径略大于 1 就指数放大, 略小于 1 就指数衰减、底层的信号传不到顶层。论文在 27B 上实测不加约束时峰值约 3000, 加约束后约 1.6。' },
+            { title: '双随机矩阵为什么够用', body: '双随机矩阵 (元素非负、每行与每列的和都是 1) 恰好满足两个性质: 集合对矩阵乘法封闭, 谱范数不超过 1。于是每层单独投一次, 连乘之后自动还是双随机, 行和恒为 1, 深度加到多少都不会跑掉; 同时矩阵本身仍有 $n^2$ 个自由度可学, 不是退回成固定的单位矩阵。投影用 Sinkhorn-Knopp: 先取 $\\exp$ 变成正矩阵, 再交替按列、按行归一化, 论文迭代 20 次。\n- 边界: 20 次迭代只是近似。infer 脚本实测行和偏差 1.2e-07 (最后一步是行归一化, 所以行和恰为 1), 列和偏差 5.6e-05, 也就是前向增益严格为 1、反向增益只是近似为 1。\n$H_{\\text{pre}}$ 与 $H_{\\text{post}}$ 不投双随机, 只过 $\\sigma$ 和 $2\\sigma$ 保证非负, 论文的理由是防止不同流的信号互相抵消。' },
+            { title: '代价在访存和激活, KV cache 一点没变', body: '加宽残差流改的是残差处的张量, 不是注意力的输入输出。n 条流让残差处的激活按 n 倍算 (玩具配置 D = 64、n = 4 时每 token 从 64 个数变成 256 个), 但注意力只看 $H_{\\text{pre}} x$ 这一个 $[B, T, D]$ 的输入, 所以 K/V 的形状与 n 无关: infer 脚本里 hc 与 mhc 的 KV cache 都是 262,144 个元素, 和普通 LLaMA 相同, 逐 token 增量生成与整段前向的最大差是 7.2e-07 与 6.0e-07。\n- 论文的开销: HC 在 OLMo-1B 上 n = 4 多约 0.03% 参数、约 0.2% FLOPs; mHC 配上算子融合与混合精度算子后, n = 4 在自家大规模训练上多 6.7% 的训练时间。\n- 本库的开销: 输入相关项的投影作用在 $n \\cdot D$ 维的展平向量上, 玩具配置下参数从 214,272 涨到 239,980, 多了 12%, 远高于论文在真实规模上报告的比例。真实模型的 $D$ 大得多, 这部分相对 $D^2$ 的权重就可以忽略。' },
+            { title: '玩具规模上放开约束反而学得快', body: '约束不是免费的: 它换来稳定, 代价是 $H_{\\text{res}}$ 能动的范围变小。train 脚本在 "[a, b, =, (a+b) mod 10]" 的求和序列上, 用 6 层、d_model = 64 的同一套权重起点各训 800 步 (三者初始化时逐位相同, 初始 loss 都是 2.551):\n- standard (1 条流): held-out loss 1.715, 答案准确率 0.115, 相当于只学会了 "=" 的位置。\n- hc (n = 4, 不约束): loss 1.224, 准确率 0.837; 训练后 6 层 $H_{\\text{res}}$ 连乘的行和是 44.15, 单层在训练中最多改变 4.88。\n- mhc (n = 4, 双随机): loss 1.722, 准确率 0.104; 连乘行和一直是 1.000000, 但 $H_{\\text{res}}$ 在 800 步里只动了 0.0099。\nSinkhorn 投影之后梯度小得多, mHC 的 $H_{\\text{res}}$ 基本停在起点上, 所以它在这个玩具上的表现贴近单条残差流; 不约束的 HC 让各条流分化开, 学得最快, 代价就是连乘的增益跑到 44。\n边界: 6 层、合成任务, seed 0 下三者都没到 0.9; seed 1 的排序一致 (hc 0.954、standard 0.183、mhc 0.096, 见 README)。论文在 3B 到 27B、真实语料上报告 mHC 在保住 HC 收益的同时稳定性更好, 这里的玩具既推不出那个结论, 也否定不了它。' },
+          ],
+          links: [
+            { from: 'blocks · Pre-LN 残差主路', to: 'HyperConnection.forward', body: 'Pre-LN 的 $x = x + F(\\mathrm{norm}(x))$ 在这里被拆成两半: $F$ 还是同一个残差分支, 相加那一步换成了 $H_{\\text{res}} x + H_{\\text{post}}^\\top F$。代码里的 block 自带残差主路, 所以取 $\\mathrm{block}(x) - x$ 才是式子里的 $F$。本库一个 HyperConnection 包一整个 block, 真实实现把注意力和 FFN 的两处残差各换一次。' },
+            { from: 'models-generation · KV cache', to: 'HyperLLaMA.forward', body: '残差加宽不影响 KV cache: 注意力只看 $H_{\\text{pre}} x$ 这一个输入, K/V 的形状与 n 无关, 增量生成与整段前向仍然逐位一致。变大的是残差处的激活和访存, 按 n 倍算。' },
+            { from: 'models-compressed-attention · DeepSeek-V4', to: 'ManifoldHyperConnection', body: 'DeepSeek-V4 把残差流加宽成 $n_{hc} = 4$ 条并用 mHC 的约束, 与压缩稀疏注意力一起构成那一代的三项改动 (第三项是 Muon 优化器)。两章可以对着读: 一个改残差怎么走, 一个改注意力看多少。' },
+          ],
+          sourceRows: [
+            { concept: '双随机投影', code: 'hyper_connections.py:sinkhorn_knopp', takeaway: '先取 $\\exp$ 变成正矩阵, 再交替按列、按行归一化 20 次。减去每个矩阵的最大值只为防 $\\exp$ 溢出: 整体乘一个正标量不改归一化的结果。最后一步是行归一化, 所以行和恰为 1、列和只是近似。' },
+            { concept: '三个矩阵', code: 'pre = self.b_pre + self.alpha[0] * (v @ self.phi_pre)', takeaway: '静态偏置加输入相关项。$\\varphi$ 是裸 Parameter 而不是 nn.Linear, 这样不会被 utils/init.py 的 $N(0, 0.02^2)$ 覆盖掉零初始化; $\\alpha$ 初始 0.01, 三个矩阵各一个。' },
+            { concept: '读一次写一次', code: 'inp = (pre.unsqueeze(-1) * x).sum(dim=-2)', takeaway: 'n 条流沿流维加权求和, 得到这一层唯一的输入 [B, T, D]。写回时 mixed + post 乘 out, 其中 mixed 是 $H_{\\text{res}}$ 与 n 条流的矩阵乘, out 是 block 的分支输出在流维上广播。' },
+            { concept: '约束函数', code: 'hyper_connections.py:ManifoldHyperConnection', takeaway: 'HC 与 mHC 的唯一区别是 _constrain 里的三个函数和静态偏置的初值。mHC 的偏置取不饱和的值: $\\sigma$ 和 Sinkhorn 在饱和处梯度几乎为 0, 矩阵会一直卡在初值上。' },
+            { concept: '复合增益', code: 'hyper_connections.py:composite_gain', takeaway: '把各层 $H_{\\text{res}}$ 连乘, 返回最大绝对行和、最大绝对列和与谱范数。前两项就是 mHC 的 Amax Gain Magnitude 的前向与反向口径; 用 float64 累乘, 避免深度大时的精度问题。' },
+            { concept: '流的读出', code: 'h = self.ln_f(streams.mean(dim=-2))', takeaway: 'n 条流取均值再过最后的 RMSNorm。论文是求和, 两者只差一个常数因子、被 RMSNorm 吸收; 取均值让 "初始化时与普通 LLaMA 逐位相同" 这条断言成立。' },
+          ],
+          snippetTitle: '一层的宽度连接与深度连接, 以及 mHC 的三个约束',
+          snippet: `# 一层: n 条流 -> 1 个层输入 -> 写回 n 条流   (mHC 式 3)
+H_pre, H_post, H_res = matrices(x)        # [n], [n], [n, n], 每个位置现算
+inp = (H_pre[:, None] * x).sum(0)         # 宽度连接: n 条流混成一个输入
+out = block(inp) - inp                    # F(inp): Pre-LN block 的分支那一项
+x = H_res @ x + H_post[:, None] * out     # 流间混合 + 深度连接写回
+
+# HC: 三个矩阵原样用。mHC: 先投到约束流形上
+H_pre, H_post = sigmoid(t_pre), 2 * sigmoid(t_post)   # 非负, 不同流不会相消
+M = exp(t_res)
+for _ in range(20):                       # Sinkhorn-Knopp
+    M = M / M.sum(0)                      # 列和 = 1
+    M = M / M.sum(1, keepdim=True)        # 行和 = 1, 最后一步, 所以行和恰为 1
+H_res = M                                 # 双随机: 连乘仍是双随机, 增益恒为 1`,
+          source: [
+            'llm_models/layers/core/hyper_connections.py:sinkhorn_knopp',
+            'llm_models/layers/core/hyper_connections.py:composite_gain',
+            'llm_models/models/language_models/hyper_llama.py:HyperLLaMA',
+          ],
+          run: 'python -m llm_models.run_models.language_models.hyper_connections.infer_hyper_connections',
+          related: [
+            { route: 'blocks', label: '先看 Pre-LN 残差主路', reason: '恒等相加的主路是本章改动的对象; Block 组装器那一页讲清了残差分支与归一化位置的关系。' },
+            { route: 'models-compressed-attention', label: 'DeepSeek-V4 的另一半改动', reason: 'V4 同时换了残差 (mHC) 和注意力 (压缩稀疏注意力); 那一章讲压缩比、indexer 选块与 KV cache。' },
+          ],
+        },
+
+    'models-compressed-attention': {
+          title: 'DeepSeek-V4 的压缩注意力 · 把选择的粒度从 token 换成块',
+          subtitle: 'DSA 在 token 上选 top-k, 省的是主注意力的算力, KV cache 一点没省。V4 先把每 m 个 token 压成一个条目再在条目上选, 缓存从每 token 一份变成每 m 个 token 一份; 压缩比高的层和低的层交错排, 近处的细节由一条滑动窗口分支保住。',
+          tldr: '- 压缩: 每个 token 投出一个 KV 向量和一个压缩打分, 一个条目是它覆盖的那些 token 的 softmax 加权和 (不是池化); 条目是一个向量, 同时当 key 和 value。CSA 每 4 个 token 一条、块与块重叠、indexer 选 top-k; HCA 每 128 个一条、不重叠、不选, 稠密读全部。\n- 两个门槛: 条目 i 要等位置 $(i+1)m - 1$ 才可见, 所以 query 附近那一段只能靠滑动窗口读未压缩的 token; top-k 不可导, indexer 还是要靠拟合主注意力分布的对齐损失单独训。',
+          question: 'DSA 已经让每个 query 只算 top-k 个 key 了, 为什么 KV cache 还是一点没省?',
+          evolution: {
+            title: '稀疏的粒度从 token 走到块',
+            subtitle: '根问题: 1M 上下文下, 每个 token 的 K/V 都要留在显存里, 单 token 解码还要把它们全读一遍; 算力可以靠稀疏选择省掉, 缓存体积和访存量却跟着长度线性增长。',
+            steps: [
+              { name: 'MLA', year: 2024, pain: '(原点) 每 token 每层要存 2·H·Dh 个数, 长上下文下缓存放不下', fix: 'K/V 压进一个低秩 latent, 每 token 只存 $r + \\text{rope}$ 个数; 但注意力算力仍是 $O(T^2)$' },
+              { name: 'DSA', year: 2025, pain: '缓存小了, 每个 query 还是要和全部历史 key 算一遍内积', fix: '轻量 indexer 打分, 每个 query 只在 top-k 个 key 上做 MLA; 缓存反而多了一份 indexer 的 key' },
+              { name: '压缩成块', pain: '选择的粒度还是 token: 缓存条数等于 token 数, 访存量不降', fix: '每 m 个 token 压成一个条目, 条目一个向量兼当 key 和 value; 缓存条数降到 1/m, 代价是块内细节被加权和抹平' },
+              { name: 'CSA / HCA 交错', year: 2026, pain: '压缩比一调大远处就模糊, 调小又省不下来; 条目还要等凑满才可见', fix: 'm = 4 的层选 top-k、m = 128 的层稠密读全部, 两种交错; 每层都另读最近 128 个未压缩 token' },
+            ],
+          },
+          code: 'llm_models/layers/core/compressed_attention.py · llm_models/models/moe/deepseek_v4.py',
+          points: [
+            { title: '压缩器是学出来的加权和, 一个条目兼当 key 和 value', body: '每个 token 先投出一个 KV 向量 $C$ 和一个压缩打分 $Z$, 一个压缩条目是它覆盖的那些 token 的 softmax 加权和, 权重里还加了一组按块内位置学的偏置 $B$:\n$$S = \\mathrm{softmax}(Z + B), \\quad C^{\\mathrm{Comp}}_i = \\sum_j S^a_j \\odot C^a_j + \\sum_j S^b_j \\odot C^b_j$$\n权重由内容和块内位置共同决定, 所以它可以学会 "把权重压在关键的那个 token 上", 而不是把一块平均掉。CSA 有两路 KV 序列: 条目 i 的自己这一块走第一路、前一块走第二路, 覆盖 2m 个 token, 相邻块因此重叠; HCA 只有一路、不重叠。条目是一个向量, 同时当 key 和 value 用 (shared-KV 的多查询注意力), RoPE 只转它的最后 64 维。本库的块内偏置初始为 0, 所以起步时压缩器恰好是块内平均池化, 之后才学出偏好。', key: true },
+            { title: '条目要凑满才可见, 近处交给滑动窗口', body: '条目 i 的到齐位置是 $(i+1)m - 1$: 它覆盖的 token 全部到齐之前不进任何注意力, 位置 t 能看到的条目数就是 $(t+1) \\div m$ 取整。infer 脚本在 m = 4 下实测位置 2 看到 0 条、位置 3 看到 1 条、位置 63 看到 16 条, 并且只改位置 40 之后的 token 时前 40 个位置的 logits 一位都没变。\n这条规则直接决定了滑动窗口分支的必要性: query 前面最多有 $m - 1$ 个 token 还没进任何可见条目, 这一段由读未压缩 token 的滑窗补上, 一个也不丢。HCA 的压缩比敢开到 128, 靠的就是同一条滑窗分支; 它丢的是远处的细节, 这正是要和 CSA 层交错的原因。原文的层排布是 V4-Pro 前两层用 HCA、之后 CSA 与 HCA 交错, V4-Flash 前两层用纯滑动窗口注意力; 交错的具体比例原文没有给。' },
+            { title: '每 token 的 KV 字节: 从 1152 降到 144 和 4.65', body: '一个压缩条目按原文的混合精度存: RoPE 那 64 维用 BF16、其余 448 维用 FP8, 共 576 字节。滑窗条目有各自的 K 和 V, 条数封顶在 $n_{win}$、不随长度增长, 所以 T 一大就摊薄了。按原文配置 (c = 512, m = 4, $m^\\prime$ = 128, $n_{win}$ = 128) 在 1M 上下文下每 token 每层:\n- MLA (V3): $(512 + 64) \\times 2 = 1152$ 字节。\n- CSA 层: $576 \\div 4 + 128 \\times 2 \\times 576 \\div 10^6 = 144.15$ 字节。\n- HCA 层: $576 \\div 128$ 加同样的滑窗 = 4.65 字节。\n61 层按 1:1 交错合计 4,469 字节, 是 MLA 的 6.4%。原文报告的是 V4-Pro 在 1M 下 KV cache 为 V3.2 的 10%、单 token 推理 FLOPs 为 27% (V4-Flash 是 7% 和 10%)。按上面的代价模型反推, 要凑到 10% 就得有约 48 层 CSA, 也就是交错比例比 1:1 更偏向 CSA —— 这是一个推论, 不是原文的说法。\n边界: 上面都是代价模型估算, 不是实测; V3.2 还要多存一份 indexer 的 key, 原文没有给它的维度, 没计进分母。infer 脚本实测的是本库玩具配置下每层的 KV 元素数与算式逐个相等 (CSA 层 1352, HCA 层 1232)。' },
+            { title: 'top-k 还是不可导, indexer 还是要单独训', body: 'indexer 的训练和 V3.2 的 DSA 完全同一套, 只是打分对象从 token 换成了压缩条目。infer 和 train 脚本都验证了 LM loss 对 indexer 参数的梯度全为 None: top-k 是离散集合操作, 分数的微小扰动要么不改变选中集合, 要么让下标跳变。对齐损失的两端是:\n- 老师: 主注意力各头在压缩条目上的概率均值, detach 之后再在用到的条目集合上归一化 (滑窗分走的那部分不算)。\n- 学生: indexer 打分在同一集合上的 softmax。\nindexer 的输入也 detach 过, 所以梯度只落在 indexer 自己和它的 query 投影上, 主干的表示不会反过来迁就筛选器。train 脚本实测 index_loss 给 indexer 的每个参数非零梯度, 给主模型的梯度为零。' },
+            { title: '植入针的检索: 召回 0.45, 准确率 1.000', body: 'train 脚本把 4 对 (KEY, 值) 散落在随机填充里, 末尾依次给出 4 个 KEY, 只有 4 个答案位算 loss。这个玩具四层都用 CSA, 好把检索逼到压缩块上; 按 V3.2 的三段推进:\n1. 稠密预热 250 步 (CSA 读全部到齐的条目, 只训主模型): lm_loss 4.1915 → 0.3393, 答案准确率 0 → 0.875, 召回停在随机水平 0.285 (随机基线 0.250)。\n2. indexer 预热 250 步 (冻结主模型, 只用对齐 KL): KL 0.3446 → 0.1695, 召回 0.285 → 0.446。按 "命中针所在的两块之一" 这个更完整的口径是 0.407 → 0.523 (随机基线 0.450), 因为块重叠, 针所在的 token 也进了后一块的第二路。\n3. 切到只读 top-4 个条目、不再训练: 准确率 0.875 → 0.848; 再联合训练 150 步到 1.000, lm_loss 0.0029。\n召回只有 0.45 而准确率已经满分, 是因为四层各选各的 top-4、信息可以在层间中转, 滑窗分支也一直全读: indexer 只要好到 "该读的块落在 k 个里面" 就够了。\n边界: 单种子, 4 层、d_model = 64、序列长 64 的合成检索任务, 只验证机制成立; 原文是 61 层、1M 上下文、1024 个候选条目。' },
+          ],
+          links: [
+            { from: 'models-dsa · LightningIndexer', to: 'CompressedAttention.forward', body: 'indexer 的零件一点没改, 只是打分对象从每个历史 token 换成了每个压缩条目, 候选数从 T 降到 T/m。"先 mask 再 top-k" 和用稳定排序代替 topk (并列时固定取靠前的列, 带 cache 的解码才和整段前向一致) 这两条也照搬。' },
+            { from: 'attention · MLA 的 latent cache', to: 'kv_bytes_per_token', body: 'MLA 把每 token 的 K/V 压成一个 latent, 条数仍是 T; 压缩注意力把条数降到 T/m, 而且一个条目兼当 key 和 value。两者是正交的两种省法: 一个压维度, 一个压条数。' },
+            { from: 'models-hyper-connections · mHC', to: 'DeepSeekV4', body: 'V4 的三项改动是压缩注意力、mHC 残差、Muon 优化器。本库的 DeepSeekV4 用 residual="mhc" 就能把残差流加宽成 4 条并带双随机约束; 两种模式下增量生成与整段前向都一致 (最大差 4.8e-07)。' },
+          ],
+          sourceRows: [
+            { concept: '压缩成条目', code: 'compressed_attention.py:CompressedAttention', takeaway: 'compress_entries 把缓冲区里凑满的块压成条目, 返回每条的到齐位置 $(i+1)m - 1$。重叠靠把第二路的结果右移一格实现: 第 j 项变成块 j−1; 第 0 条没有前一块, 补零。' },
+            { concept: '两个开关覆盖两种层', code: 'sparse / overlap', takeaway: 'sparse 决定要不要 indexer 与 top-k, overlap 决定压缩器是两路重叠还是一路不重叠。CSA 是两者都开, HCA 是两者都关; 一个类加两个开关就够, 不用写两份。' },
+            { concept: '缓冲区留一整块', code: 'return entries[:, start:], pos, (nb - 1) * m', takeaway: '条目 i 的第二路要用块 i−1, 所以处理完之后缓冲区必须留下最后一整块。next_entry 记住下一条的下标, 整段前向和逐 token 解码走的是同一段代码, 结果才一致。' },
+            { concept: '一次 softmax 读两条分支', code: 'scores = torch.einsum("bthc,bsc->bths", qh, keys) * self.scale', takeaway: '选中的压缩条目和滑窗 token 拼成一串 key, 一次 softmax 读完 (按原文式 27 的分母形式)。条目的 key 和 value 是同一个向量, 滑窗的 K 和 V 各一份, 这也是滑窗条目大约是压缩条目 8 倍大的来源。' },
+            { concept: '对齐 loss', code: 'self.last_index_loss = (p * (p.clamp_min(1e-9).log() - log_q)).sum(dim=-1).mean()', takeaway: '老师 p 是主注意力在条目上的概率均值, detach 后再归一化 (滑窗分走的那部分不算); 学生是 indexer 打分的 log_softmax。Block 会把它放进 routing_info, 由 MoELMLoss 按权重加进总 loss。' },
+            { concept: '按层排布建层', code: 'deepseek_v4.py:DeepSeekV4', takeaway: 'pattern 字符串按层指定 "C" 或 "H", 每层的注意力只构造一次。先建一个 0 层的 V3 骨架拿到 embedding / RoPE / ln_f / lm_head, 再按 pattern 建 block, 最后补一次 init_weights。' },
+          ],
+          snippetTitle: '压缩 → 选块 → 一次 softmax',
+          snippet: `# 1) 压缩器: 一个条目是它覆盖的 token 的 softmax 加权和 (CSA 两路重叠, HCA 一路)
+S = softmax(Z.view(nb, m) + block_bias)            # 块内位置偏置初始为 0 → 起步是平均池化
+entry = (S[..., None] * C.view(nb, m, c)).sum(1)   # [nb, c], 一个向量兼当 key 和 value
+entry[i] += prev_block_weighted(i)                 # CSA: 再加前一块的第二路
+entry_pos = (arange(nb) + 1) * m - 1               # 到齐位置: 覆盖的 token 全到齐才可见
+
+# 2) 可见性 + indexer 选 top-k (只在压缩条目上做, 滑窗一直全读)
+visible = q_pos[:, None] >= key_pos[None, :]
+I = indexer(w_iq(x.detach()), k=entry.detach())    # 输入 detach: 梯度不回主干
+used = topk_mask(I, visible[:, :, :nb], k)         # 先 mask 再 top-k; stable sort 保证并列可复现
+
+# 3) 选中的条目 + 最近 n_win 个未压缩 token, 一次 softmax
+keys = cat([entry, window_k]);  values = cat([entry, window_v])
+out = softmax(q @ keys.T / sqrt(c) + mask) @ values
+
+# 4) top-k 不可导 → indexer 用对齐 KL 单独训 (和 V3.2 的 DSA 同一套)
+p = attn[..., :nb].mean(heads).detach();  p /= p.sum(-1, keepdim=True)
+index_loss = (p * (log(p) - log_softmax(I))).sum(-1).mean()`,
+          source: [
+            'llm_models/layers/core/compressed_attention.py:CompressedAttention',
+            'llm_models/layers/core/compressed_attention.py:topk_mask',
+            'llm_models/models/moe/deepseek_v4.py:DeepSeekV4',
+          ],
+          run: 'python -m llm_models.run_models.moe.deepseek_v4.infer_deepseek_v4',
+          related: [
+            { route: 'models-dsa', label: '先看 DSA: indexer 怎么被蒸馏出来', reason: '对齐 loss、先 mask 再 top-k、三段训练都是那一章讲清的; 本章只把打分对象换成压缩条目。' },
+            { route: 'models-hyper-connections', label: 'V4 的另一半改动: mHC 残差', reason: 'V4 同时换了注意力和残差; 那一章讲 n 条残差流和双随机约束。' },
+            { route: 'infer-kv-footprint', label: '推理侧: KV 占用怎么算', reason: '本章给的是每 token 每层的字节算式; 要把它换成一张卡能放多少条并发, 看推理阶段的 KV 占用一章。' },
+          ],
+        },
+
+    'models-hybrid-family': {
+          title: '混合架构家族 · KDA、门控注意力与 NoPE 排布',
+          subtitle: '2025-2026 的长上下文架构都是 "大部分层便宜、少数层精确" 的混合, 比例多半是 3:1。各家的差别只剩三个选择: 便宜层用哪种定长状态、精确层用什么注意力、位置信息放在哪一层。本章把几家的排布放进同一个类里, 按同一套口径比缓存和外推。',
+          tldr: '- 三个选择: 便宜层是 Gated DeltaNet、KDA 还是 Mamba; 精确层是 MLA、带输出门的 GQA 还是普通 GQA; 位置编码是全上 RoPE、只给一部分层上, 还是精确层干脆不加 (NoPE)。\n- 缓存算式: $\\sum_{\\text{全注意力层}} T \\cdot (\\text{每 token 的 K/V}) + \\sum_{\\text{线性层}} H \\cdot D_h^2$, 后一项与 T 无关。所以混合的收益是渐近的: 玩具配置下 T = 32 时定长状态占三分之二, T 一大才轮到线性项占优。',
+          question: '同样是 3 层便宜配 1 层精确, Kimi 把精确层做成不加位置编码的 MLA, Qwen 做成带输出门的 GQA, Llama 4 干脆让 NoPE 层和分块 RoPE 层交错。这三种选择各自在换什么?',
+          evolution: {
+            title: '便宜层与精确层的三次分工',
+            subtitle: '根问题: 全注意力的 KV cache 随长度线性增长、算力按平方增长, 而定长状态是有损压缩, 远处的精确检索靠不住; 两者必须混着用, 混的比例和位置编码放哪都要定。',
+            steps: [
+              { name: '纯线性 / 纯注意力', pain: '(原点) 注意力的缓存随长度线性长, 定长状态又记不住远处的细节', fix: '两条路各走到头: Mamba 用定长状态换常数缓存, 全注意力用线性缓存换精确召回' },
+              { name: '按层混合', year: 2025, pain: '长上下文下纯注意力放不下, 纯线性在长程检索上掉点', fix: 'Qwen3-Next 用 3 层 Gated DeltaNet 配 1 层全注意力; Jamba 与 Nemotron 3.5 把线性那一半换成 Mamba' },
+              { name: '细化门与输出门', pain: '标量遗忘门太粗, 全注意力层又被迫把概率质量分完, 第 0 个 token 成了垃圾桶', fix: 'KDA 把遗忘门细化到每个 key 通道; Gated Attention 在 SDPA 输出上加 sigmoid 门, 论文把首 token 的注意力从 46.7% 压到 4.8%' },
+              { name: '位置编码挪位置', year: 2026, pain: 'RoPE 在没训练过的相对距离上不可靠, 扩上下文要调频率基数或上 YaRN', fix: 'Kimi 让全注意力层一律 NoPE, 顺序交给 KDA 的衰减门; Llama 4 让 NoPE 层与分块 RoPE 层交错, 推理时再做温度缩放' },
+            ],
+          },
+          code: 'llm_models/models/language_models/hybrid.py · llm_models/layers/sparse/linear_attention.py · llm_models/layers/core/gated_attention.py',
+          points: [
+            { title: 'KDA: 遗忘门从每头一个标量细到每个通道一个', body: 'Kimi Delta Attention 与 Gated DeltaNet 的递推式只差门的粒度和顺序:\n$$\\text{GDN}: S_t = \\alpha_t (I - \\beta_t k_t k_t^\\top) S_{t-1} + \\beta_t k_t v_t^\\top$$\n$$\\text{KDA}: S_t = (I - \\beta_t k_t k_t^\\top) \\mathrm{Diag}(\\alpha_t) S_{t-1} + \\beta_t k_t v_t^\\top$$\nGDN 的 $\\alpha_t$ 是每头一个标量, 一步只能整体淡出; KDA 的 $\\alpha_t \\in (0,1)^{d_k}$ 给每个 key 通道一个保留率, 有的通道记得久、有的忘得快。$\\mathrm{Diag}(\\alpha)$ 乘在状态的 key 维上, 与 $(I - \\beta k k^\\top)$ 不交换, 所以 "先衰减再写入" 这个顺序在 α 是向量时才有意义。\n$\\alpha$ 的各通道取同一个值时标量与矩阵可交换, 两式相等: infer 脚本把 GDN 的每头标量门复制到 KDA 的每个通道, 实测两者最大差 3.0e-08, 同一头内各通道门的跨度是 0。默认初始化下这个跨度是 0.506, 通道确实在各自衰减。KDA 因此是 GDN 的严格推广, 论文把 GDN 的门称作 coarse head-wise。', key: true },
+            { title: '门控注意力: 在输出侧让注意力 "读了也不用"', body: 'softmax 的行和恒为 1, 每个 query 必须把这 1 份概率质量分完。没有合适的 key 时模型只能倒给一个无害的位置, 最常见的就是第 0 个 token (attention sink), 伴随的是少数维度上的大激活, BF16 训练下容易放大数值误差。门控注意力在 SDPA 的输出上乘一个按 token 现算的 sigmoid 门再过输出投影:\n$$y = W_o [\\sigma(W_g x) \\odot \\mathrm{SDPA}(q, k, v)]$$\n质量照样分完, 但乘上一个接近 0 的门之后不进残差。论文实测基线平均有 46.7% 的注意力落在第 0 个 token 上, 加门之后降到 4.8%。Qwen3-Next 的全注意力层用的就是这一种; Qwen3.5 的 60 层按 15 组 "3 层 Gated DeltaNet + 1 层 Gated Attention" 排布, 397B 总参数 / 17B 激活。Kimi K3 给 MLA 加的是同一类逐通道输出门。\n对照 GPT-OSS 的做法: 它给每个 head 一个可学的额外 logit 参与 softmax 再丢掉, 让行和可以小于 1; 门控注意力不动 softmax, 在输出侧解决同一个问题。' },
+            { title: '缓存账: 省的是随长度增长的那一部分', body: '混合架构的缓存分两项: 全注意力层每 token 存 K/V, 线性层只有一个与长度无关的状态矩阵。infer 脚本在 4 层、d_model = 64、4 个头、头维 16 的配置下逐个核对算式 (实测与算式完全相等):\n- Kimi 式 (kda ×3 + mla_nope): T = 32 时 4,608 个元素 (随 T 增长 1,536 + 定长 3,072), T = 64 时 6,144。\n- Qwen 式 (gdn ×3 + gated_gqa): T = 32 时 7,168 (4,096 + 3,072), T = 64 时 11,264。\n- iRoPE 排布与全注意力基线: T = 32 时都是 16,384, T = 64 时都是 32,768。\nMLA 的全注意力层每 token 只存 latent 32 加 rope 段 16 = 48 个数, GQA 要 2 × 4 × 16 = 128 个, 所以 Kimi 式比 Qwen 式更省 (按 float32 算每个元素 4 字节, 要换成字节乘 4 即可)。T = 32 时 Kimi 式的 4,608 里有 3,072 是定长状态, 占三分之二: 混合的收益是渐近的, Kimi Linear 报告的 1M 上下文下 KV cache 省到 1/4、解码吞吐最高 6 倍, 在短上下文上看不出来。\n边界: 本库的分块注意力只改可见性, K/V 仍然整条缓存着, 所以 iRoPE 排布的缓存没有省; 真实实现会像滑动窗口那样滚动裁剪。' },
+            { title: '位置编码放哪, 决定超出训练长度后掉多少', body: 'train 脚本用植入针的检索任务 (序列前半段散落 4 对 KEY 与值, 末尾依次问这 4 个 KEY), 训练长度 32, 评估长度 32 / 64 / 128; 序列越长针离问话越远。4 层、1200 步、seed 0 实测:\n- 全 RoPE 全注意力: 1.000 / 0.105 / 0.062, 长度翻倍就塌。\n- 全 NoPE 全注意力: 1.000 / 0.969 / 0.824, 128 上还有训练长度的 0.82 倍。\n- Kimi 式 (3 层 KDA + 1 层 NoPE 的 MLA): 0.996 / 0.969 / 0.973, 几乎不掉。\n- iRoPE (3 层分块 RoPE + 1 层 NoPE): 训练长度上只有 0.086, 这个玩具配置下没学会。\nRoPE 把位置写成按相对距离的旋转, 训练时只拟合过不超过训练长度的那段角度; 推理时距离一超, 注意力分数就不可靠, 这也是要做 NTK 或 YaRN 插值的原因。不加位置编码的层没有这个问题, 顺序由因果掩码和别的层带进来。方向与 Kazemnejad 等人 2023 的结论一致。\n边界: 单种子、4 层、合成任务。iRoPE 的分块大小 16 使针和问话几乎总跨块, 只有最后一层能跨块取信息; Llama 4 Scout 用的是几十层、块长 8K、10M 上下文, 这个结果外推不过去。' },
+            { title: '输出门没减少 sink, 因为这个规模上没有 sink', body: 'train 脚本在训练长度 32 上测各 GQA 系列层落在第 0 列的平均注意力质量 (第 0 行不计, 那一行只有自己可看):\n- 均匀分布下的期望: 0.0987。\n- 无输出门: 0.0812 (逐层 0.0373 / 0.1179 / 0.0960 / 0.0738)。\n- 有输出门: 0.1103 (逐层 0.0708 / 0.1737 / 0.0988 / 0.0979)。\n两者都在均匀水平附近, 带门的那一组反而略高。论文报告的 46.7% → 4.8% 是在真实规模的预训练模型上; 玩具上既没有那样的集中, 门也就没有可减的东西。这条照实记下来: 它说明 attention sink 是规模和数据带出来的现象, 不是任何因果注意力都会自动长出来的东西。\n本库的 GatedAttention 继承 GroupedQueryAttention, use_gate=False 时与它逐位相同 (实测差 0.0), 所以这个对照是同一条代码路径, 只差那一次乘法; 两组的参数差只有门的投影 (214,848 对 231,232)。' },
+          ],
+          links: [
+            { from: 'models-mamba · 定长状态', to: 'HybridLM.cache_elements', body: 'Mamba 与 Gated DeltaNet 都用固定大小的状态替代随长度增长的 KV, 本章把这类层和全注意力层按排布字符串拼在一起, 并给出两项相加的缓存算式。Nemotron 3.5 与 Jamba 的便宜层就是 Mamba, 本库的 Mamba 在那一章单列。' },
+            { from: 'attention · MLA 与 GQA', to: '_MIXERS', body: '精确层的选择直接写进每 token 的 K/V 条数: GQA 是 $2 \\cdot H_{kv} \\cdot D_h$, MLA 是 latent 加 rope 段。同一个 3:1 排布下换一种精确层, 长上下文的缓存差一倍以上。' },
+            { from: 'position · RoPE 的相对距离', to: 'gqa_chunk / gqa_nope', body: 'RoPE 的位置信息是按相对距离的旋转角, 训练长度之外的角度没拟合过。分块把距离压回训练范围内, NoPE 干脆不要位置输入。这两种层交错就是 Llama 4 的 iRoPE, 本章末的位置编码补充段讲这一段。' },
+          ],
+          sourceRows: [
+            { concept: '逐通道遗忘门', code: 'linear_attention.py:KimiDeltaAttention', takeaway: '继承 GatedDeltaNet, 只把 gate_alpha 的输出宽度从 num_heads 换成 num_heads × d_head, 再改递推那一段。a_t 的形状从 [B, H, 1, 1] 变成 [B, H, Dh, 1], 乘在状态的 key 维上。' },
+            { concept: '先衰减再写入', code: 'decayed = a_t * state', takeaway: '$\\mathrm{Diag}(\\alpha) S$ 先按通道衰减, 再用衰减后的状态算 $k^\\top \\mathrm{Diag}(\\alpha) S$ 擦掉 k 方向, 最后写入 v。顺序换一下在 α 是向量时结果不同。' },
+            { concept: '输出门', code: 'gated_attention.py:GatedAttention', takeaway: 'use_gate=False 时与 GroupedQueryAttention 逐位相同, 所以 "有门 / 无门" 的对照是同一条代码路径。门的形状是 [H·Dh], 每个 head 的每个通道各一个。' },
+            { concept: '三类掩码', code: 'masks = {"full": full, "chunk": chunk, "token": token_mask}', takeaway: '全注意力层拿 [B, T, S] 的因果加 padding 掩码; 分块层在它之上再要求 query 和 key 落在同一块里; 线性层只要 [B, T] 的 "本次哪些 token 是真的"。按层查表, 主循环不用写分支。' },
+            { concept: '缓存算式', code: 'hybrid.py:HybridLM', takeaway: 'cache_elements 把每层按类型拆成 "随 T 增长" 和 "定长状态" 两项。infer 脚本用它和实测的 cache 张量逐个比对, 四种排布、两个长度全部相等。' },
+            { concept: '第 0 列的质量', code: 'self.last_sink_mass = attn[:, :, 1:, 0].mean().item()', takeaway: '每次前向顺手记下第 0 列分走的平均注意力质量, 第 0 行不算 (它只有自己可看, 必然是 1)。sink_mass() 把各层的值收起来, 两种模式可以直接比。' },
+          ],
+          snippetTitle: 'KDA 的递推、输出门, 和按层排布选混合器',
+          snippet: `# KDA: 逐通道衰减, 先衰减再写入 (α 是向量时顺序有意义)
+a_t = alpha[:, :, t].unsqueeze(-1)              # [B, H, Dh, 1], 作用在 state 的 key 维
+decayed = a_t * state                           # Diag(α) S
+k_read = einsum("bhd,bhde->bhe", k_t, decayed)  # k^T Diag(α) S
+state = decayed - b_t * outer(k_t, k_read) + b_t * outer(k_t, v_t)
+out_t = einsum("bhd,bhde->bhe", q_t, state)
+
+# Gated Attention: SDPA 输出后乘一个逐通道的 sigmoid 门, 再过 w_o
+out = softmax(q @ k.T * scale + mask) @ v       # [B, T, H·Dh]
+out = out * sigmoid(w_g(x))                     # 读了也可以不用
+y = w_o(out)
+
+# HybridLM: 排布字符串一个名字一层, 掩码和 RoPE 按类型查表
+for layer, kind in zip(layers, "kda kda kda mla_nope".split()):
+    use_rope, mask_kind = MIXERS[kind]           # mla_nope / kda 都不要位置编码
+    x = layer(x, mask=masks[mask_kind], rope=rope if use_rope else None, ...)`,
+          source: [
+            'llm_models/layers/sparse/linear_attention.py:KimiDeltaAttention',
+            'llm_models/layers/core/gated_attention.py:GatedAttention',
+            'llm_models/models/language_models/hybrid.py:HybridLM',
+          ],
+          run: 'python -m llm_models.run_models.language_models.hybrid.infer_hybrid',
+          related: [
+            { route: 'models-mamba', label: '先看定长状态是怎么回事', reason: 'Gated DeltaNet 与 Mamba 的状态递推在那一章讲清; 本章只讲怎么和全注意力层搭、位置编码放哪。' },
+            { route: 'position', anchor: 'nope-irope', label: 'NoPE 与 iRoPE 的那一段', reason: '不加位置编码为什么能外推、分块 RoPE 把相对距离压在哪、Llama 4 的 iRoPE 怎么组合这两者, 在位置编码一章的补充段里。' },
+            { route: 'models-hyper-connections', label: '另一条改残差的路', reason: 'Kimi K3 还把残差换成了层间注意力 (Attention Residuals); Hyper-Connections 与 mHC 是同类思路里有代码实现的那一支。' },
+          ],
+        },
   },
 }
 
@@ -644,3 +1081,127 @@ delta.question = "将随序列长度增长的 KV cache 替换为固定大小的�
 mixed.question = "级联 MTP 的第 $k$ 级模块在位置 $i$ 已经拼入了后续真实 token $t_{i+k}$ 的表示, 为什么这不算提前看到了当前要预测的目标 $t_{i+k+1}$?"
 qk.related = [{ route: 'position', anchor: 'yarn', label: '继续看 YaRN: 把 RoPE 拉到更长' }]
 yarn.related = [{ route: 'attention', anchor: 'qk-norm', label: '对照 QK-Norm: 管住注意力分数的大小' }]
+
+// 补充段: 激活引导 · 读得出的方向, 不一定改得动行为
+topic.pages['blocks'] ||= { points: [], links: [], sourceRows: [], widgets: [] }
+topic.pages['blocks'].sections = [...(topic.pages['blocks'].sections || []), {
+  id: 'steering',
+  title: '激活引导 · 读得出的方向, 不一定改得动行为',
+  tldr: '- 激活引导不改权重, 在推理时往某一层的残差流里加一个向量 $c \\cdot d$, 让行为朝某个方向偏; $d$ 通常是两组对照样本的平均激活之差。\n- 线性探针能读出的方向, 不一定是加进去能改变行为的方向: demo 里在混杂数据上训练的探针准确率 1.000, 读的却是话题, 沿它加向量不改情绪。\n- 引导强度和副作用要一起量: 系数越大, 行为改得越多, 与目标无关的任务 loss 也涨得越多。',
+  question: '探针已经能从某层激活里 100% 读出情绪标签, 把这个方向加进残差流, 是否就能让模型换一种情绪说话?',
+  labNames: ['ModelSteeringLab'],
+  evolution: {
+    title: '从读出到改写',
+    subtitle: '根问题: 中间层激活看不见、也改不了; 只看输出无法知道模型内部有没有某个概念, 想改行为又只能重新训练权重。',
+    steps: [
+      { name: '线性探针', pain: '(原点) 只能看输出, 不知道中间层里有没有 "情绪" 这样的信息', fix: '在冻结的中间层激活上训练一个线性分类器, 能读出标签就说明信息在那一层' },
+      { name: '激活修补', pain: '读得出不等于模型在用, 与标签相关的旁观特征也能读出同一个标签', fix: '把一次运行的局部激活换成另一次运行的, 看输出变不变, 拿到因果证据 (本章的研究回放)' },
+      { name: 'ActAdd', year: 2023, pain: '修补只能在两次已有运行之间交换, 不能主动把行为推向想要的方向', fix: '用一对对照提示在某层的激活之差当向量, 推理时加进残差流, 不训练就能调整话题和情绪' },
+      { name: 'CAA', year: 2023, pain: '一对提示的差里混着措辞、长度等与目标行为无关的差异', fix: '对很多对只在目标行为上不同的样本取平均差, 乘正负系数加到提示之后的每个位置' },
+      { name: 'persona vectors', year: 2025, pain: '系数一大就伤通用能力, 而且只能在出问题之后再纠正', fix: '自动抽出性格方向, 用投影在生成前监控, 微调时预防性地加向量, 再按投影差筛训练数据' },
+    ],
+  },
+  points: [
+    { title: '能读出, 不等于加进去能改变行为', body: '探针在混杂数据上读出的方向可能是一个与标签相关的旁观特征, 沿它往残差流里加向量改不了目标行为。demo 训练了一个 3 层的小 LLaMA: 情绪 (正面 / 负面) 决定形容词从哪组出, 话题 (运动 / 食物) 决定名词从哪组出。在一份情绪和话题完全混在一起的数据上 (正面总配运动、负面总配食物):\n- 读出: 情绪方向、话题方向和逻辑回归探针都能 100% 读出情绪标签。\n- 探针读的是什么: 它的方向与话题方向的余弦是 0.20, 与情绪方向是 -0.08; 换一份话题与情绪反着配的数据, 准确率掉到 0.000。\n- 加进残差流: 情绪方向在系数 2 时把负面提示后的正面词概率从 0.101 升到 0.690; 同样长度的话题方向和探针方向在系数 4 以内最多到 0.13 和 0.15, 话题方向改的是名词 (系数 4 时运动名词概率 1.00)。\n这与本章研究回放的结论是同一件事的两面: 修补说明读出不等于起作用, 引导说明读出的方向不一定推得动。', key: true },
+    { title: '引导向量: 只差一个属性的对照样本取平均差', body: '引导向量是两组对照样本在某一层的平均激活之差, 推理时按 $h_\\ell \\leftarrow h_\\ell + c \\cdot d$ 加回去, $c$ 是引导系数, 正负决定方向。三种做法的区别在于对照样本怎么来:\n- ActAdd (Turner et al. 2023): 只用一对提示, 比如 "Love" 和 "Hate", 不需要训练。\n- CAA (Rimsky / Panickssery et al.): 对很多对只在目标行为上不同的样本取平均差, 加到提示之后的每个位置; 论文在 Llama 2 Chat 上调了谄媚、拒答、幻觉等 7 种行为。\n- persona vectors (Chen et al. 2025, Anthropic): 给一个性格的文字描述, 自动生成对照的系统提示和问题, 取两组回答的平均激活之差。\ndemo 用 CAA 的做法: 情绪方向 $d_{\\text{mood}}$ 来自话题相同、只差情绪的对照样本, 话题方向 $d_{\\text{topic}}$ 来自情绪相同、只差话题的样本, 两者的余弦是 -0.12。这个玩具里对照样本只差情绪标记和对应的形容词, 所以单对样本的差与 256 对平均的余弦已有 0.96 以上; 真实提示里一对样本还会差在措辞和长度上, 这正是 CAA 取平均的原因。' },
+    { title: '系数和位置都要调', body: '系数取 1 (正好补上两类均值之差) 时引导几乎不起作用, demo 里正面词概率只从 0.101 到 0.130; 系数 2 才到 0.690。原因在于加的位置: 向量只加在提示之后的位置, 最后一层仍能从未被引导的情绪标记那里读到 "负面"; 连提示位置一起加, 同样系数 1 时升到 0.307。实际使用时要扫三样东西:\n- 层: CAA 报告 Llama 2 7B 上最有效的层在第 13 层附近; demo 固定在第 1 层, 没有扫层。\n- 位置: 只加在提示之后, 还是连提示一起加。\n- 系数: 见下一条的取舍。' },
+    { title: '引导强度和副作用的取舍', body: '系数越大, 目标行为改得越多, 与目标无关的能力也被推离得越远, 两者要同时量。demo 用一个与情绪无关的计数任务量副作用, 引导向量为 $c \\cdot d_{\\text{mood}}$:\n- $c = 1$: 正面词概率 0.130, 计数 loss 增加 0.043。\n- $c = 2$: 0.690, 增加 0.484。\n- $c = 4$: 0.780, 增加 1.156。\n- $c = 8$: 0.819, 增加 1.514。\n系数 4 以后行为收益趋平, 副作用还在涨。论文里的结论不尽相同: CAA 报告 MMLU 基本不变, persona vectors 报告系数大时 MMLU 准确率下降。应该选行为已经足够、副作用还能接受的最小系数。\n边界: 3 层、d_model=48 的合成任务, 单种子; 行为用教师强制下 "下一个形容词落在正面词组的概率" 量, 没有做开放生成。' },
+    { title: 'persona vectors: 同一个方向的三种用法', body: 'persona vectors 把引导向量从 "推理时改行为" 扩展到训练和部署的几个环节, 论文以 evil、谄媚和幻觉三种性格为例:\n- 监控: 提示的激活在性格方向上的投影, 能在生成之前预示模型会不会表现出这种性格。\n- 预防性引导: 微调时主动沿不想要的方向加向量, 模型就不必通过改权重去学这个方向, 学到的性格偏移更小, 对 MMLU 的损伤也小于事后反向引导。\n- 筛数据: 按训练样本在性格方向上的投影差, 找出可能让模型性格偏移的数据集和单条样本。\n这三种用法 demo 都没有实现, 只在这里讲; 它们共同依赖的前提就是第 1 条: 方向必须用干预验证过, 而不只是读得出。' },
+  ],
+  sourceRows: [
+    { concept: '读激活', code: 'demo.py:acts', takeaway: '在第 1 层上挂一个 forward hook, 记下这一层输出的残差流 $[B, T, D]$, 前向结束后摘掉 hook。' },
+    { concept: '对照样本取平均差', code: 'demo.py:mean_diff', takeaway: '两组样本在提示之后各位置的平均激活相减。两组用同一个随机数种子生成, 除了要对照的那个属性, 其余 token 一一对应。' },
+    { concept: '加向量', code: 'model.layers[LAYER].register_forward_hook(lambda m, i, o: o + add[: o.size(1)])', takeaway: 'forward hook 的返回值会替换这一层的输出, add 在提示之后的位置等于引导向量、提示位置为 0; 后面各层照常读被改过的残差流。' },
+    { concept: '行为和副作用的读数', code: 'demo.py:pos_rate', takeaway: '在 "下一个是形容词" 的位置把正面词组的概率加起来取平均; 副作用用同样加了向量的计数序列的交叉熵减去不加时的值。' },
+  ],
+  snippet: `# 1. 对照样本取平均差 (CAA)
+d = mean(h_l(只差目标属性的 A 组)) - mean(h_l(B 组))   # [D]
+
+# 2. 推理时加进残差流
+hook = layers[l].register_forward_hook(
+    lambda m, inp, out: out + c * d * after_prompt_mask)  # 提示之后的每个位置
+logits = model(x)
+
+# 3. 同时量两件事
+behavior = target_prob(logits)                         # 目标行为
+side = loss_on_unrelated_task(c) - loss_on_unrelated_task(0)`,
+  source: ['llm_models/run_models/foundation/steering/demo.py:steer', 'llm_models/run_models/foundation/steering/demo.py:mean_diff'],
+  run: 'python -m llm_models.run_models.foundation.steering.demo',
+  links: [
+    { from: '研究回放 · 激活修补', to: 'steer', body: '激活修补把一次运行的激活换成另一次运行的, 回答 "这里的信息有没有被用到"; 激活引导往激活里加一个人为构造的向量, 回答 "沿这个方向推, 行为会不会跟着变"。两者都是干预, 都比探针读出的证据更强。' },
+    { from: 'blocks · Pre-LN 残差主路', to: '引导加在哪一层之后', body: 'Pre-LN 的残差主路是恒等相加, 每层只往上面加一个增量; 引导向量就是在某一层之后额外加一项, 后面各层的 norm 和子层照常读它。也因为后面还有 norm, 加得太长时表示会被推离训练时的分布。' },
+  ],
+  related: [
+    { route: 'finetune-lora', label: '对照: 改权重的做法', reason: '引导在推理时加向量、不改权重; LoRA 用少量参数改权重。CAA 论文把两者对比过, 结论因行为而异。' },
+  ],
+}]
+
+// 新章的前置与延伸链接。
+for (const [route, link] of [
+  ['models-llada', { route: 'models-block-diffusion', label: '下一步: 块扩散把 KV cache 找回来', reason: '本章写明的代价是双向注意力没有 KV cache; 块扩散把掩码改成块因果, 定稿的块可以缓存, 生成也能逐块往后接。' }],
+  ['models-llada', { route: 'infer-diffusion-decoding', label: '推理时一步揭开几个', reason: '采样时每步揭开多少位置、相关位置一起揭开为什么会拼错、双向注意力怎样做近似 KV cache, 见推理阶段的扩散模型并行解码一章。' }],
+  ['models-block-diffusion', { route: 'infer-diffusion-decoding', label: '推理侧: 块内一步揭开几个', reason: '本章讲块因果掩码、训练掩码和精确的块级 KV cache; 块内并行揭开的置信度阈值、全双向模型的近似缓存, 见推理阶段的扩散模型并行解码一章。' }],
+  ['models-multimodal', { route: 'models-unified-multimodal', label: '同一个模型里也生成图像', reason: '前缀路线只输出文本; Transfusion 在同一条序列里给图像位置加扩散损失, 掩码改成整体因果、图内双向。' }],
+  ['models-gptoss', { route: 'models-conditional-depth', label: '从宽度稀疏到深度稀疏', reason: 'MoE 让每个 token 只用一部分专家; MoD / MoR 让每个 token 只过一部分层, 路由器和 top-k 的写法相同, 选的对象换成了 token。' }],
+  ['models-mtp', { route: 'models-byte-latent', label: '一步覆盖多个字节', reason: 'MTP 让一个位置多预测几个 token; BLT 让全局模型一步覆盖一个 patch 的若干字节, 字节由局部解码器逐个预测。' }],
+  ['models-mtp', { route: 'infer-hybrid-state', label: 'MTP 头当推理时的草稿', reason: 'MTP 模块在推理时可以直接当投机解码的草稿, 不需要独立草稿模型; 接受率和混合模型上的回滚问题见推理阶段的这一章。' }],
+  ['models-mamba', { route: 'infer-hybrid-state', label: '服务混合模型时缓存怎么存', reason: '定长状态省掉了随长度增长的 KV, 但推理引擎的前缀缓存和投机回滚都建立在截断 KV 上; 混合模型怎样存状态快照、命中粒度和显存怎么权衡, 见推理阶段的这一章。' }],
+  ['models-dsa', { route: 'models-compressed-attention', label: '下一步: 在压缩块上选 top-k', reason: '本章的 DSA 省的是主注意力的算力, 每个历史 token 的 latent 还得留着。DeepSeek-V4 先把每 m 个 token 压成一个条目再在条目上选, 缓存条数也跟着降到 1/m。' }],
+  ['models-mamba', { route: 'models-hybrid-family', label: '各家的混合排布对照', reason: '定长状态与全注意力按什么比例搭、全注意力层用 MLA 还是带门的 GQA、要不要位置编码, 2025-2026 的几家给出了不同答案; 那一章把它们放进同一个类里按同一套口径比缓存和外推。' }],
+]) topic.pages[route].related = [...(topic.pages[route].related || []), link]
+
+// 补充段: NoPE 与 iRoPE · 不加位置编码, 和让它只管近处
+topic.pages['position'].sections = [...(topic.pages['position'].sections || []), {
+  id: 'nope-irope',
+  title: 'NoPE 与 iRoPE · 不加位置编码, 和让它只管近处',
+  tldr: 'RoPE 把位置写成按相对距离的旋转角, 训练时只拟合过不超过训练长度的那一段角度; 距离一超出去, 注意力分数就不可靠。两条绕法: 干脆不加位置编码 (NoPE), 顺序交给因果掩码和别的层; 或者让带 RoPE 的层只在自己那一块之内看 (分块局部注意力), 把相对距离压回训练范围内, 再与 NoPE 层交错 —— Meta 把后者叫 iRoPE。实测 4 层、训练长度 32 的玩具上, 全 RoPE 到 128 只剩训练长度的 0.06 倍, 全 NoPE 剩 0.82 倍, 3 层 KDA 配 1 层 NoPE 的 MLA 剩 0.98 倍。',
+  question: '不加位置编码的因果 decoder 凭什么还知道 token 的顺序?',
+  labNames: ['ModelNopeLab'],
+  evolution: {
+    title: '位置信息从显式写进去, 到交给别的机制带',
+    subtitle: '根问题: 显式位置编码要在训练时见过某个位置或某段相对距离才可靠, 而推理时的上下文长度总比训练时长。',
+    steps: [
+      { name: '绝对位置编码', pain: '(原点) 模型要知道 token 的顺序, 自注意力本身对位置是对称的', fix: '给每个位置一个编码加到 embedding 上; 代价是训练时没出现过的位置完全没学过' },
+      { name: 'RoPE', year: 2021, pain: '绝对位置换不到相对距离, 平移整段文本会改变所有位置的表示', fix: '把位置写成按相对距离的旋转, $q \\cdot k$ 只依赖两者之差; 但只有训练过的那一段距离对应的角度是可靠的' },
+      { name: 'NoPE', year: 2023, pain: '扩上下文要靠 NTK 或 YaRN 插值改频率, 改完还要再训一段', fix: '不加任何位置编码, 顺序由因果掩码本身携带; Kazemnejad 等人报告它的长度外推好于显式编码' },
+      { name: 'iRoPE', year: 2025, pain: '全靠 NoPE 会丢掉近处的精细位置区分, 全靠 RoPE 又外推不了', fix: 'Llama 4 让 NoPE 层与 RoPE 层交错, RoPE 层用分块局部注意力把相对距离压在块内, 推理时再对注意力做温度缩放' },
+    ],
+  },
+  points: [
+    {
+      title: 'NoPE 的顺序信息来自因果掩码',
+      key: true,
+      body: '不加位置编码不等于看不见顺序。因果掩码本身是有方向的: 位置 t 只能看到 0 到 t, 所以 "我前面有多少个 token" 这个信息是可数的, 模型可以把它编码进表示再传给后面的层。Kazemnejad 等人 2023 的实验结论是, 在长度外推上 NoPE 好于绝对位置编码、ALiBi、RoPE 等显式方案, 而且不用额外计算。\ntrain 脚本用植入针的检索任务 (序列前半段散落 4 对 KEY 与值, 末尾依次问这 4 个 KEY) 在 4 层、d_model = 64、训练长度 32 上训 1200 步, 评估长度 32 / 64 / 128:\n- 全 RoPE 全注意力: 1.000 / 0.105 / 0.062。\n- 全 NoPE 全注意力: 1.000 / 0.969 / 0.824。\n两者在训练长度上都是满分, 差别全在训练长度之外。RoPE 的旋转角只在训练过的距离上拟合过, 距离 100 的角度在训练中从没出现; NoPE 没有这个参数, 也就没有 "没见过的距离" 这回事。\n边界: 单种子、4 层、合成检索任务。Kazemnejad 等人的实验也在小模型上做, 真实规模的预训练模型几乎都带显式位置编码, 这条结论不能直接外推成 "大模型也该去掉 RoPE"。',
+    },
+    {
+      title: '分块把相对距离压回训练范围内',
+      body: 'Llama 4 的 iRoPE 里, 带 RoPE 的层不看全长, 只在自己那一块之内做注意力。分块大小是常数, 所以这些层遇到的相对距离永远不超过块长, 一直工作在训练过的角度里; 跨块的信息交给交错的 NoPE 层。实验台把这件事画成一排 key: 全 RoPE 模式下 T = 128、训练长度 32 时, 末位 query 的 128 个可见 key 里有 96 个 (75%) 落在没训练过的距离上; 切到分块模式后可见 key 只剩块内那些, 没训练过的距离是 0 个。\nMeta 的官方说法是: "A key innovation in the Llama 4 architecture is the use of interleaved attention layers without positional embeddings", 并且 "we employ inference time temperature scaling of attention to enhance length generalization"; 名字里的 i 指 interleaved, 同时指向支持无限长上下文这个目标。Llama 4 Scout 以 256K 预训练和后训练, 声称支持 10M 上下文。\n边界: 每 4 层一个 NoPE 层、RoPE 层块长 8192 这些具体数字来自 Hugging Face 与 vLLM 的实现说明, 不在 Meta 的博客里; 推理时温度缩放的公式同样来自实现, 本库没有实现它。',
+    },
+    {
+      title: '另一种搭法: 让线性层带顺序, 全注意力层不要位置',
+      body: 'Kimi Linear 与 Kimi K3 的做法是: 3 层 KDA 配 1 层 MLA, 所有 MLA 层一律 NoPE。顺序信息由中间那几层 KDA 的衰减门隐式携带 —— 越旧的信息被衰减得越多, 本身就是一种与距离相关的权重。论文写明这样做还免掉了扩上下文时改位置编码参数的麻烦, 不用重调 RoPE 的频率基数, 也不用上 YaRN。\ntrain 脚本里这套排布 (kda ×3 + mla_nope) 在同一个任务上是 0.996 / 0.969 / 0.973, 128 上几乎不掉, 比全 NoPE 还稳。而 3 层分块 RoPE 加 1 层 NoPE 的 iRoPE 排布在这个玩具上没学会 (训练长度上 0.086): 分块大小 16 时针和问话几乎总在不同块里, 只有最后那一层能跨块, 信息来不及先在块内整理好。Llama 4 Scout 是几十层、块长 8K、10M 上下文, 和这里不是一个量级, 这个结果说明不了那套排布不行。',
+    },
+  ],
+  sourceRows: [
+    { concept: '分块掩码', code: 'same = (position_ids[:, None] // chunk) == (k_pos[None, :] // chunk)', takeaway: 'query 和 key 的块号相同才可见, 再与因果加 padding 的掩码取交集。只改可见性, K/V 仍然整条缓存着; 真要省缓存得像滑动窗口那样滚动裁剪。' },
+    { concept: '按层决定要不要 RoPE', code: 'rope=self.rope if use_rope else None', takeaway: '混合器名查表得到 use_rope。NoPE 层传 None, 库里的注意力模块看到 None 就不旋转 Q/K; 线性层本来就忽略 rope。' },
+    { concept: 'NoPE 的 MLA', code: 'hybrid.py:HybridLM', takeaway: 'mla_nope 用的是同一个 MultiHeadLatentAttention, 只是不传 rope。简化: 本库的 MLA 把 latent 和 rope 段写在一个投影里, NoPE 时那一段不旋转但照样缓存; 真实实现会去掉, 每 token 再少 rope 个数。' },
+  ],
+  snippet: `# 三种层的可见性与位置编码
+full  = causal                                   # 全注意力: 看全长
+chunk = causal & (q_pos // C == k_pos // C)      # 分块 RoPE: 只看自己那一块
+# NoPE 层: 掩码同 full, 但不传 rope → Q/K 不旋转
+
+# RoPE 层遇到的最大相对距离
+全长:  max(q_pos - k_pos) = T - 1                # T 超过训练长度就有没训练过的角度
+分块:  max(q_pos - k_pos) = C - 1                # 只要 C <= 训练长度就一直在训练过的范围里`,
+  source: ['llm_models/models/language_models/hybrid.py:HybridLM'],
+  run: 'python -m llm_models.run_models.language_models.hybrid.train_hybrid',
+  links: [
+    { from: 'position · YaRN', to: 'gqa_nope', body: 'YaRN 的思路是把 RoPE 的频率插值成适配更长上下文的版本, 还得再训一段; NoPE 把这个参数整个去掉, 代价是近处的精细位置区分要靠别的层补。两者解决的是同一个问题的两端。' },
+    { from: 'attention · 滑动窗口', to: 'gqa_chunk', body: '滑动窗口是每个 query 看最近 W 个, 窗口随 query 滑动; 分块是把序列切成固定的块, 块内全看、跨块不看。前者的掩码是带状, 后者是块对角, 分块因此可以按块复用注意力 kernel。' },
+  ],
+  related: [
+    { route: 'models-hybrid-family', label: '各家排布的缓存与外推对照' },
+  ],
+}]

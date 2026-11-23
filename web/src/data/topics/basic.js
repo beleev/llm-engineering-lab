@@ -286,3 +286,6 @@ for (const [route, rows] of Object.entries(supplements)) {
 export default topic
 
 canonicalizeRelated(topic)
+
+// 不用 tokenizer 的路线。
+topic.pages['basic-data'].related = [...(topic.pages['basic-data'].related || []), { route: 'models-byte-latent', label: '不用 tokenizer: 按熵切 patch', reason: 'BPE 的词表在训练前定死, 同一句话在不同语言下 token 数可能相差一倍; BLT 直接读字节, 让切分在运行时按下一字节熵决定。' }]

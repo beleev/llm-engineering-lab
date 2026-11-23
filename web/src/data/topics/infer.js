@@ -12,13 +12,17 @@ const topic = {
     { route: 'infer-structured-output', label: 'token 级语法约束', hint: '让模型只能吐出合法 JSON, 而且每步几乎不花时间' },
     { route: 'infer-quant-awq', label: 'INT4 · AWQ · KIVI', hint: '把权重和 KV 压到 4 bit 还不失真, 要看怎么分组' },
     { route: 'infer-kv-footprint', label: 'KV 体积 · MHA→MLA', hint: '算清每个 token 的 KV 占几个字节, 它决定并发上限' },
-    { route: 'infer-attention-sinks', label: 'Attention sinks', hint: '对话无限长时, 怎么让 KV cache 不涨还不崩' },
-    { route: 'infer-tree-speculation', label: 'EAGLE 与树形投机', hint: '让 draft 猜得更准, 再让 target 一次验一整棵树' },
+    { route: 'infer-attention-sinks', label: 'Attention sinks · KV 淘汰', hint: '对话无限长时 KV 不涨不崩; 按重要性删会丢什么' },
+    { route: 'infer-tree-speculation', label: 'EAGLE · 树形 · 无草稿投机', hint: '草稿猜得更准、一次验一整棵树, 或直接从 prompt 里查' },
     { route: 'infer-kv-offload', label: '分层 KV offload', hint: 'GPU 装不下的历史 KV 往哪放, 搬回来还是重算' },
-    { route: 'infer-moe-serving', label: 'MoE serving · EPLB', hint: 'MoE 分到多张卡后, 热门专家压垮一张卡怎么办' },
+    { route: 'infer-moe-serving', label: 'MoE serving · EPLB · AFD', hint: '热门专家压垮一张卡怎么办; 注意力和专家要不要分开' },
     { route: 'infer-sparse-decode', label: '稀疏注意力 decode', hint: '每步只读一小部分 KV, 还不漏掉关键 token' },
     { route: 'infer-test-time-compute', after: 'infer-decode-control', label: '推理时计算 · best-of-N 与长思考', hint: '模型不换, 多花 token 怎么换正确率, 哪种错换不掉' },
     { route: 'infer-multi-replica-routing', label: '多副本路由', hint: '请求发给哪个副本: 既要缓存命中, 又不能压垮一台' },
+    { route: 'infer-hybrid-state', label: '混合模型的状态缓存', hint: '线性注意力层只有定长状态, 前缀缓存和回滚怎么办' },
+    { route: 'infer-diffusion-decoding', label: '扩散模型的并行解码', hint: '一步揭开多个位置: 揭几个、怎么缓存' },
+    { route: 'infer-agentic-serving', label: 'Agent 负载的服务端', hint: '思考 token、工具停顿和前缀命中怎么改变服务' },
+    { route: 'infer-rotation-fp4', label: '旋转与 FP4', hint: '激活有离群值时, 怎么把权重和激活都压到 4 bit' },
   ],
   pages: {
     // ---------------- 主线五章 ---------------- //
@@ -493,7 +497,7 @@ state = next_state[state, tok]`,
         },
         {
           title: 'SmoothQuant 迁移激活离群值解锁 W8A8, FP8 用浮点指数天然抗尖峰',
-          body: '前几种方法只压权重而保留浮点激活 (weight-only), 加速的是带宽受限的小批量 decode; 若想让算力受限的长文本 prefill 也跑进高速整数/低精度 Tensor Core, 就必须把激活一并量化:\n- SmoothQuant (W8A8): 激活含剧烈离群通道难以直接做整张量 INT8 量化; 通过双向缩放因子 $s_j = \\max|X_j|^\\alpha / \\max|W_j|^{1-\\alpha}$ (α=0.5) 把一半难度平滑转嫁给更容易量化的权重, 使 W8A8 输出误差从 0.0278 降至 0.0070。\n- FP8 (E4M3): 浮点格点间距随数值自身大小按比例伸缩, 正规数区间相对误差恒不超过 $2^{-4} = 6.25\\%$, 面对 50 倍激活尖峰时无需繁琐逐通道校准即可将整张量量化误差控制在 0.0360 (同条件 INT8 为 0.0606)。但 FP8 不是处处胜过 INT8: 没有离群值时, INT8 per-channel (0.0070) 比 E4M3 (0.0251) 还准。\n本节的数全是 fake quant (量化后立刻反量化回浮点再算), 只验数值, 不说明速度。',
+          body: '前几种方法只压权重而保留浮点激活 (weight-only), 加速的是带宽受限的小批量 decode; 若想让算力受限的长文本 prefill 也跑进高速整数/低精度 Tensor Core, 就必须把激活一并量化:\n- SmoothQuant (W8A8): 激活含剧烈离群通道难以直接做整张量 INT8 量化; 通过双向缩放因子 $s_j = \\max|X_j|^\\alpha / \\max|W_j|^{1-\\alpha}$ (α=0.5) 把一半难度平滑转嫁给更容易量化的权重, 使 W8A8 输出误差从 0.0278 降至 0.0070。\n- FP8 (E4M3): 浮点格点间距随数值自身大小按比例伸缩, 正规数区间相对误差恒不超过 $2^{-4} = 6.25\\%$, 面对 50 倍激活尖峰时无需繁琐逐通道校准即可将整张量量化误差控制在 0.0360 (同条件 INT8 为 0.0606)。但 FP8 不是处处胜过 INT8: 没有离群值时, INT8 per-channel (0.0070) 比 E4M3 (0.0251) 还准。\n本节的数全是 fake quant (量化后立刻反量化回浮点再算), 只验数值, 不说明速度。\n权重和激活都压到 4 bit (W4A4) 时, 权重也装不下 SmoothQuant 挪过去的离群值, 要靠正交旋转把离群值摊平, 见下一章「旋转与 FP4」。',
         },
       ],
       links: [
@@ -582,7 +586,7 @@ max_seqs = kv_budget_bytes // (bytes_per_token * context_len)`,
     },
 
     'infer-attention-sinks': {
-      title: 'Attention sinks · 流式长上下文的有界 KV',
+      title: 'Attention sinks 与 KV 淘汰 · 有界的 KV 留下谁',
       subtitle: '无限持续的流式语音或长程对话不能让 KV 缓存无上限膨胀; 然而简单采用滑动窗口一旦把句首最初几个词挤出缓存, 模型输出便会瞬间崩溃。StreamingLLM 通过永久钉住句首汇聚词并按缓存槽位重编位置实现恒定内存流式生成。',
       tldr: '- 崩溃根因 (Attention Sink): Softmax 强制注意力权重之和恒为 1; 当前位置不需要参考历史信息时, 预训练模型习惯将多余注意力倾倒在所有位置都看得见的句首前几个词上。一旦滑窗把这几个词逐出, 分母骤降会导致剩余权重整体失真放大。\n- StreamingLLM 解法: 始终保留开头 n_sink 个词外加最近 window 个词使缓存大小恒定; 同时存储未施加 RoPE 旋转的原始 K 并按当前缓存槽位 0 .. L-1 动态重旋转, 确保位置编码永不越过预训练长度上限。',
       question: '常规 KV cache 存的都是已经乘过 RoPE 旋转矩阵的 K, 为什么流式 SinkCache 必须反过来存未旋转前的原始 K?',
@@ -639,7 +643,7 @@ q = apply_rope(q, positions=pos[-1:])`,
     },
 
     'infer-tree-speculation': {
-      title: 'EAGLE 与树形投机 · 让一次 target forward 验更多',
+      title: 'EAGLE、树形与无草稿投机 · 让一次 target forward 验更多',
       subtitle: '单链投机解码一旦在第一个草稿词处猜偏, 后面跟着猜的 K−1 个词便全盘作废。EAGLE 通过接入大模型顶层隐状态让草稿猜得更准, 树形投机则用祖先注意力掩码在单次大模型前向里同时验证多条候选分支。',
       tldr: '沿着两个正交方向放大单次大模型验证的平均产出词数:\n- EAGLE (特征层自回归草稿): 草稿头不再只看离散 token id, 而是直接读取大模型验证时顺手算出的顶层特征向量 $h_t$ 并复用大模型的 lm_head, 显著提升单步命中率。\n- 树形投机 (Tree Speculation): 每个节点保留 top-k 个备选分支张成候选树, 构造只看自身祖先的二维 tree_mask 并让同层兄弟节点共享同一个 RoPE 深度位置, 一次大模型前向即可验完整棵树 (同样验证 16 个 token 时, 单次产出从长链 K=15 的 2.13 词升至树 [3,2,1] 的 2.58 词)。',
       question: '把一棵候选树的 16 个节点展平一次喂给大模型验证时, 为什么处于同一深度的兄弟节点必须共用同一个 RoPE 位置下标, 而不能按数组顺序依次加一?',
@@ -751,7 +755,7 @@ self.store(prompt)                            # 命中的提升回 GPU 层, 溢�
     },
 
     'infer-moe-serving': {
-      title: 'MoE serving · 专家并行与 EPLB',
+      title: 'MoE serving · 专家并行、EPLB 与 Attention–FFN 分离',
       subtitle: '在线推理阶段路由权重已经定型, 无法再靠加训练损失压平热门专家。当最热专家单枪匹马就超过了单卡平均负载时, 仅调换专家位置也无济于事, EPLB 通过为热门专家部署冗余副本并均分流量消除多卡木桶效应。',
       tldr: '多卡专家并行 (EP) 每一层的 combine 归约都必须等最慢的那张卡算完, 单步延迟完全由 max_rank_load 决定:\n- 倾斜痛点: 在服从 Zipf 偏置的路由流量下 (16 专家分 4 卡, top-2), 顺号摆放导致最忙卡负载高达均值的 2.95 倍, 集群平均有效利用率仅剩 34%; 即便按历史热度贪心重排位置, 因最热的 0 号专家独自就占了单卡均值的 1.42 倍, max/mean 仍卡在 1.48 倍下不去。\n- EPLB (专家并行负载均衡): 预留少量冗余槽位复制最热专家的权重并轮询分流其输入 token, 仅加 4 个冗余副本即将 max/mean 压平至 1.02 倍, 且模型输出逐位不变。',
       question: '既然可以把重负载专家和轻负载专家搭配摆放到不同 GPU 上, 为什么有时不管怎么重新排列组合都还是均衡不了, 非得把同一个热门专家复制好几份?',
@@ -992,6 +996,312 @@ answer = beams[0][1][-1]`,
       ],
       run: 'python -m llm_infer.m27_multi_replica_routing.demo',
     },
+
+    'infer-hybrid-state': {
+          title: '混合模型的状态缓存 · 快照、回滚与 MTP 自投机',
+          subtitle: '混合模型的线性注意力层把整段前缀压成一个定长状态, 不能像 KV 那样按 token 截断。前缀缓存因此要在检查点存状态快照, 投机解码的草稿被拒时要靠快照把状态退回去, 模型自带的 MTP 头可以直接当草稿。',
+          tldr: '混合模型的注意力层 KV 照常分页、按 token 截断; 递推层每条序列只有一份定长状态, 只能在存过快照的位置恢复:\n- 前缀缓存: 命中长度向下取整到快照位置, 快照越密命中越细, 显存也越多。按 Qwen3-Next 的配置估算, 一份快照约等于 1608 个 token 的 KV。\n- 投机解码: 草稿被拒时 KV 截断即可, 状态要么在验证时逐位置留快照, 要么从验证前的快照重算; 只截断 KV 的做法, 输出会偏离贪心解码。',
+          question: '注意力层的草稿被拒后截掉几行 KV 就回滚完了, 为什么线性注意力层不能这样做? 前缀缓存又为什么只能命中到某些特定位置?',
+          evolution: {
+            title: '让定长状态也能复用和回滚',
+            subtitle: '根问题: 线性注意力层省掉了随长度增长的 KV, 但它的状态是整段前缀的函数, 不能按 token 截断复用。',
+            steps: [
+              { name: '整段重算', pain: '(原点) 递推层没有按 token 排的 KV, 前缀缓存和投机回滚都没法直接套用', fix: '每个请求都从头 prefill, 草稿被拒就从验证前重新开始; 结果正确, 但长 system prompt 和多轮历史每次都要重算' },
+              { name: '只存末尾状态', pain: '只在请求结束时存一份状态, 新请求只共享其中一段前缀时, 这份状态用不上', fix: '注意力层的 KV 照常分页复用; 递推层只能在新请求完整包含旧序列时接着用末尾状态, 否则整段重算' },
+              { name: '检查点快照', pain: '共享前缀落在序列中间时, 末尾状态切不出中间位置的样子', fix: '每隔 I 个 token 存一份状态快照, 命中向下取整到快照位置; 间隔 512 时 32K 上下文的快照是 KV 的 3.1 倍 (估算)' },
+              { name: '快照回滚 + MTP 草稿', pain: '草稿被拒时, 递推状态已经吃进了被拒的 token, 只截断 KV 会让输出偏离贪心', fix: '验证时逐位置留快照, 或从验证前的快照重算, 输出都与贪心逐 token 相同; 草稿直接用模型自带的 MTP 头' },
+            ],
+          },
+          code: 'llm_infer/m35_hybrid_state_cache/hybrid_cache.py',
+          points: [
+            {
+              title: '递推状态是整段前缀的函数, 切不出中间位置',
+              body: 'Gated DeltaNet 每层只保留一个 $d_k \\times d_v$ 的状态矩阵, 每来一个 token 就整体更新一次:\n$$S_t = \\alpha_t (I - \\beta_t k_t k_t^\\top) S_{t-1} + \\beta_t k_t v_t^\\top, \\quad o_t = S_t^\\top q_t$$\n$\\alpha_t$ 是遗忘门, 决定旧状态留多少; $\\beta_t$ 是写入强度, 决定新的 $k_t v_t^\\top$ 写进去多少。状态大小不随序列长度变, m35 的小模型喂完 65 个和 96 个 token 时状态都是 6,144 B, KV 从 33,280 B 涨到 49,152 B。带状态和 KV 的增量生成与每步整段重算一致, 32 步里 logits 最大差 5.13e-06。\n代价是位置 100 的状态已经把前 100 个 token 混在一起, 无法从中取出位置 77 的样子。demo 里把 KV 截到 77 行、状态却用喂完 100 个 token 的那份, 接着算的 logits 最大差 2.63。',
+            },
+            {
+              title: '前缀缓存: 命中粒度等于快照间隔, 快照越密越占显存',
+              key: true,
+              body: '递推层只能从存过的状态继续, 所以前缀缓存要在检查点位置存状态快照, 命中长度向下取整到快照位置: $h = \\lfloor \\min(L, n-1) / I \\rfloor \\cdot I$, 其中 $L$ 是公共前缀长度, $I$ 是快照间隔, $n-1$ 保证至少留一个 token 现算出最后一个位置的 logits。m35 里公共前缀 77 个 token, 间隔 8 能用 72 个, 间隔 16 到 64 都只能用 64 个; 从快照恢复后续算, 与整段重算一致。\n快照的代价按 Qwen3-Next-80B-A3B 的 config.json 估算 (bf16):\n- 12 个注意力层 (2 个 KV 头 × 256 维) 每 token 的 KV 是 24,576 B, 是 48 层全注意力时的 1/4。\n- 36 个 Gated DeltaNet 层 (32 个 value 头, 每头 128×128 的状态, 加短卷积缓存) 一份快照 37.7 MiB, 相当于 1608 个 token 的 KV。\n- 32K 上下文的 KV 是 768 MiB; 快照间隔 512 时 64 份快照共 2,412 MiB, 间隔 2048 时 603 MiB, 间隔 8192 时 151 MiB。\n快照间隔小于 1608 token 时, 快照比它覆盖的那段 KV 还大。状态如果用 fp32 存, 这个分界点翻倍到 3216 token。',
+            },
+            {
+              title: '投机解码回滚: KV 截断即可, 状态要靠快照退回去',
+              body: '验证 $k$ 个草稿时, 目标模型把 $k+1$ 个 token 都喂了一遍, 递推状态已经吃进了所有草稿。接受 $n$ 个之后有两种把状态退回去的做法:\n- 逐位置快照: 验证时每喂一个 token 存一份状态, 被拒后取第 $n$ 份。每轮多占 $k+1$ 份状态的显存, 不多花算力。\n- 从快照重算: 只存验证前那一份, 有草稿被拒时恢复它, 把接受的 $n+1$ 个 token 重新喂一遍。只多占 1 份状态, 但每次被拒都多花 $n+1$ 个 token 的前向; 草稿全部被接受时不用重算。\nm35 在 3 条 prompt、每条 48 个新 token、每轮 3 个草稿上比较: 两种做法的输出都与贪心逐 token 相同, 接受率 51.1%, 逐位置快照多存 4 份状态, 从快照重算共重喂 63 个 token。只截断 KV、不恢复状态的对照组, 3 条输出全部偏离贪心。',
+            },
+            {
+              title: 'MTP 头当自投机草稿: 接受率取决于头训练得好不好',
+              body: 'DeepSeek-V3 和 Qwen3-Next 训练时带了 MTP (multi-token prediction, 用主模型最后的隐状态和下一个 token 预测再下一个 token) 模块, 推理时可以直接拿它当草稿, 不需要另外部署草稿模型。DeepSeek-V3 技术报告给出的第二个 token 接受率在 85%–90%, 生成速度是原来的 1.8 倍。\nm35 的 MTP 头是一个线性映射: 从 $[h_t; \\mathrm{emb}(x_{t+1})]$ 预测 $h_{t+1}$, 再过主模型的输出头, 链式用 3 次得到 3 个草稿。每轮 3 个草稿、5 条 prompt 上的接受率:\n- 随机权重主模型: 没训练的头 0.6%, 用主模型自己生成的 2520 个样本最小二乘拟合后 9.6%。随机权重的贪心输出几乎没有规律, 线性头学不到多少。\n- 植入后继表的主模型 (logits 加 3·onehot(succ[x]), 输出有一部分由当前 token 决定): 没训练的头靠共用的输出头猜中 41.3%, 拟合后 52.3%, 每次验证平均产出 2.57 个 token。\n这一行用的是植入了结构的合成模型, 不是真实模型的接受率。不管接受率高低, 输出都与贪心逐 token 相同。',
+            },
+            {
+              title: '真实引擎: vLLM 在 block 边界存状态, SGLang 叫它 checkpoint',
+              body: '两个主流引擎都按「只能在存过状态的位置命中」来做混合模型的前缀缓存, 区别在快照存在哪:\n- vLLM: 官方文档写明 Mamba 类状态只存在 block 网格上, 命中只能从 block 边界继续。为了让一页状态和一页注意力 KV 一样大, 混合模型的注意力 block_size 会被调大, 快照间隔随之变粗; 文档另给了 --enable-mamba-shared-prefix-checkpoint 配合 --prefix-match-unit, 在更细的粒度上命中共享前缀。\n- SGLang: 官方文档把快照叫 checkpoint, 默认在 radix 树的分叉点和请求结束处存; --hybrid-cache-checkpoints-level 3 时另外每个 prefill chunk 存一次, decode 阶段每 --mamba-track-interval 个 token (默认 256) 存一次。\n- Marconi (MLSys 2025): 只在分叉点和最后一次 decode 之后准入状态, 淘汰时按「省下的 FLOPs ÷ 状态字节」加上最近访问时间打分, 摘要报告 token 命中率最多提高 34.4 倍。\n前缀缓存和 MTP 投机解码叠加时容易出正确性问题: vLLM issue #43559 报告两者同时开启后准确率下降约 20%, PR #47861 分析的原因是把 KV 的「先多算一步再丢掉」套到了递推状态上。',
+            },
+          ],
+          links: [
+            { from: 'm04 / m05 前缀缓存', to: 'PrefixStateCache', body: '注意力层的 KV 沿用按 token 截断的前缀复用; 递推层另加按间隔存的状态快照, 命中长度取两者都能恢复的位置, 也就是不超过公共前缀的最近一份快照。' },
+            { from: 'm07 truncate_kv', to: 'speculative_generate', body: '链式投机解码的验证与接受规则不变, 只是回滚从一句 truncate_kv 变成 KV 截断加状态恢复, 状态恢复有逐位置快照和从快照重算两种做法。' },
+            { from: 'm17 EAGLE 草稿', to: 'MTPHead', body: 'EAGLE 和 MTP 都读主模型的隐状态、共用输出头; 区别是 MTP 模块随主模型一起训练好、跟着权重发布, 推理时不需要另外训练草稿头。' },
+          ],
+          sourceRows: [
+            { concept: '混合模型一步', code: 'm35_hybrid_state_cache/hybrid_cache.py:HybridLM.step', takeaway: '递推层原地更新定长状态, 注意力层往 KV 尾部追加一行; 层排布 RRRARRRA 对应 3:1。' },
+            { concept: '状态快照前缀缓存', code: 'm35_hybrid_state_cache/hybrid_cache.py:PrefixStateCache', takeaway: 'insert 每隔 interval 个 token 存一份状态; match 把命中长度向下取整到快照位置, 再截取同样长度的 KV。' },
+            { concept: '三种回滚', code: 'm35_hybrid_state_cache/hybrid_cache.py:speculative_generate', takeaway: 'per_step 多占 k+1 份状态, recompute 多花重喂的前向, truncate_only 只截 KV, 作为错误对照。' },
+            { concept: 'MTP 草稿头', code: 'm35_hybrid_state_cache/hybrid_cache.py:MTPHead', takeaway: '线性映射预测下一位置的隐状态, 链式出 k 个草稿; fit 用主模型自己的隐状态做最小二乘。' },
+          ],
+          snippetTitle: '命中取整 + 被拒后恢复状态',
+          snippet: `# 前缀缓存: KV 截到 h, 状态取位置 h 的快照
+h = (min(L, len(ids) - 1) // interval) * interval
+cache.kv = [(K[:h], V[:h]) for K, V in kv]
+cache.states = snapshots[h]
+
+# 投机解码: 验证 k+1 个位置, 接受 n 个
+for t in [last] + drafts:
+    model.step(t, cache)
+    if per_step: snaps.append(copy(cache.states))
+cache.truncate_kv(base + n + 1)                # KV: 截断就够
+if per_step:
+    cache.states = snaps[n]                    # 状态: 取第 n 份快照
+elif n < k:                                    # 或: 退回验证前, 把接受的重喂一遍
+    cache.states = before; cache.truncate_kv(base)
+    model.feed([last] + drafts[:n], cache)`,
+          source: [
+            'llm_infer/m35_hybrid_state_cache/hybrid_cache.py:PrefixStateCache',
+            'llm_infer/m35_hybrid_state_cache/hybrid_cache.py:speculative_generate',
+            'llm_infer/m35_hybrid_state_cache/hybrid_cache.py:MTPHead',
+          ],
+          run: 'python -m llm_infer.m35_hybrid_state_cache.demo',
+          related: [
+            { route: 'models-mamba', label: '状态空间与混合线性架构', reason: 'Mamba 与 Gated DeltaNet 为什么只需要一个定长状态、Qwen3-Next 怎样把它和注意力层按 3:1 交错, 见模型阶段的这一章; 本章只讲服务这类模型时缓存怎么存。' },
+            { route: 'models-mtp', label: 'MTP 训练目标', reason: 'MTP 模块在训练时怎样同时预测后面几个 token、和主模型共享哪些权重, 见模型阶段的 MTP 一章; 本章把它当推理时的草稿来用。' },
+            { route: 'infer-tree-speculation', label: '草稿怎样被验证', reason: '链式与树形投机的验证、接受规则在这一章; 本章的回滚问题只在递推层出现, 注意力层的 KV 回滚和那一章相同。' },
+          ],
+    },
+
+    'infer-diffusion-decoding': {
+          title: '扩散语言模型的解码 · 置信度阈值与近似 KV cache',
+          subtitle: '掩码扩散语言模型每步可以并行揭开多个位置, 但同一步揭开的相关位置会拼出不合法的组合, 双向注意力也没有精确的 KV cache。按置信度阈值决定每步揭开多少, 再用隔几步刷新的近似缓存或块扩散的精确缓存省掉重复计算。',
+          tldr: '扩散语言模型能快, 靠的是每步揭开多个位置; 揭开多少和怎么缓存各有一个取舍:\n- 揭开多少: 同一步揭开的位置各取各的最大值, 相当于从边缘分布的乘积里取值。固定每步揭开 k 个时, 步数越少相关短语拼错越多 (合成 Oracle 上一步全揭开拼错 49.0%); 按置信度阈值揭开时, 独立位置一步揭开一片, 相关位置自动退回一次一个, τ=0.7 在三种负载上都不拼错。\n- 怎么缓存: 双向注意力下任何位置一揭开, 块外所有位置的 K/V 都会变。隔 r 步刷新的近似缓存误差随 r 单调变大; 块扩散把块间改成因果, 写完的块缓存是精确的。',
+          question: 'LLaDA 一步只揭开 1 个位置时并不比自回归快, 一步揭开 8 个、32 个又会出什么错? 双向注意力的模型为什么没法直接用 KV cache?',
+          evolution: {
+            title: '一步揭开更多, 又不拼错',
+            subtitle: '根问题: 扩散模型一步只揭开 1 个位置时步数等于回答长度, 每步还要对整段做一次双向前向, 延迟比自回归还高。',
+            steps: [
+              { name: '一步揭开 1 个', year: 2025, pain: '(原点) LLaDA 默认每步只揭开置信度最高的 1 个位置, 步数等于回答长度', fix: '每步都在精确的条件分布上取值, 不会拼错; 但步数和自回归一样多, 每步还要对整段做双向前向' },
+              { name: '固定每步 k 个', pain: '步数等于回答长度, 并行揭开的能力完全没用上', fix: '每步揭开置信度最高的 k 个, 步数降到长度 ÷ k; 但相关位置同一步揭开会拼错, 一步全揭开时合成负载拼错 49.0%' },
+              { name: '置信度阈值', year: 2025, pain: '固定 k 不看内容: 独立位置被拖慢, 相关位置照样被一起揭开', fix: '置信度超过 τ 的全揭开, 都不过就只揭开最高的 1 个 (Fast-dLLM); τ=0.7 在混合负载上平均 10.2 步、不拼错' },
+              { name: '近似缓存 / 块扩散', pain: '双向注意力下每揭开一个位置, 块外所有位置的 K/V 都会变, 每步都要整段重算', fix: '隔 r 步刷新、其余步只算当前块的近似缓存, 误差随 r 变大; 块扩散让块间因果, 写完的块缓存精确' },
+            ],
+          },
+          code: 'llm_infer/m37_diffusion_decoding/diffusion_decode.py',
+          points: [
+            {
+              title: '并行揭开的错误来自边缘分布的乘积',
+              body: '模型每步给的是每个遮住位置各自的条件分布 $p(x_i \\mid x_{\\text{obs}})$。同一步揭开位置 $i$ 和 $j$, 等于从 $p(x_i \\mid x_{\\text{obs}})\\, p(x_j \\mid x_{\\text{obs}})$ 里取值, 而正确的联合分布是 $p(x_i \\mid x_{\\text{obs}})\\, p(x_j \\mid x_{\\text{obs}}, x_i)$, 第二个因子要看到 $x_i$ 才能定。两个位置独立时两者相等, 强相关时不等。\n举个例子: 一个两词短语只有 "high card" 0.40、"full house" 0.35、"low house" 0.25 三种写法。第一个位置 "high" 最大, 第二个位置 "house" 最大 (0.60), 同一步揭开得到表里没有的 "high house"; 逐个揭开时先定 "house", 第一个位置再在剩下两条里重新归一, 得到 "full house"。\nm37 用合成 Oracle 测这件事: 它返回精确的条件分布, 所以拼错全部来自解码策略。混合负载 (43% 的位置落在相关短语里) 上固定每步揭开 k 个, k = 1、2、4、8、32 时拼错率依次是 0、1.2%、8.4%、19.5%、49.0%; 全部独立的负载上任何 k 都不拼错。',
+            },
+            {
+              title: '置信度阈值: 有把握的一起揭开, 没把握的自动退回一次一个',
+              key: true,
+              body: 'Fast-dLLM 的规则是每步揭开所有置信度 (最大概率) 超过 τ 的位置, 一个都不过就只揭开最高的那一个, 保证每步都有进展。论文的定理 1 给出安全条件: 同一步揭开 $n$ 个位置, 每个的置信度都高于 $1 - \\epsilon$ 且 $(n+1)\\epsilon \\le 1$ 时, 并行贪心揭开和逐个贪心揭开的结果相同。\nm37 三种负载上的结果 (每种 200 条, 回答长 32):\n- 全部独立: τ = 0.3 到 0.9 都是 1 步揭完, 不拼错。\n- 全部相关: τ=0.9 平均每步揭开 1.09 个, τ=0.7 每步 1.42 个, 都不拼错。\n- τ=0.5 在全部相关的负载上拼错 46.0%。「三角」短语 (a,b,x)、(a,y,c)、(z,b,c) 各约 1/3, 每个位置的置信度约 2/3, 三个都过 0.5, 同一步揭开拼出表里没有的 (a,b,c)。τ=0.7 时三个置信度加起来等于 2, 不可能都超过 0.7, 所以不拼错。\n混合负载上 τ=0.7 平均 10.2 步、不拼错; 固定 k=2 要 16 步, 还拼错 1.2%。固定 k 不看内容, 阈值策略按每条序列的把握自己决定步数。',
+            },
+            {
+              title: '双向注意力没有精确 KV cache: 隔几步刷新的近似缓存',
+              body: '自回归模型的 KV 写完就不再变, 扩散模型不行: 注意力是双向的, 当前块里任何一个位置被揭开, 所有位置在第 2 层及以后的 K/V 都会变。每步整段重算是精确的, 但最慢。\n近似做法是每 r 步完整前向一次、存下所有位置的 K/V, 中间的步只重算当前块, 块外的前缀和后缀用缓存里的旧值。Fast-dLLM 的 DualCache 同时缓存前缀和后缀, 每写完一个块刷新一次; dKV-Cache 在 token 揭开之后晚一步再缓存它的 K/V, 并每隔几步刷新。\nm37 在一个随机权重的 3 层双向小模型上沿精确解码的轨迹测误差 (prompt 16、回答 32、块长 8、每步揭开 1 个): r = 1、2、4、8、16、32 时, 当前块 logits 的平均误差依次是 0、0.0176、0.0456、0.0827、0.1980、0.3824, 揭开决策与精确解码不一致的步数占比从 0 升到 43.8%。r=8 对应每块开头刷新。随机模型的输出分布很平, 不一致率不能当成真实模型的精度损失, 能读的是误差随 r 单调变大。',
+            },
+            {
+              title: '块扩散: 块间改成因果, 换来精确缓存',
+              body: '块扩散 (BD3-LM, ICLR 2025) 把回答切成块, 块之间自回归、块内仍然并行去噪。注意力掩码是块因果的: 位置 $i$ 能看位置 $j$, 当且仅当 $j$ 所在的块不晚于 $i$ 所在的块。前面块的位置看不见后面的块, 后面怎么揭开都不影响它们的 K/V, 所以一个块写完算一次 K/V 存起来就是精确的。\nm37 在同一个小模型上换成块因果掩码, 缓存与每步完整前向的最大差是 1.2e-06。代价是块与块之间回到自回归, 一个块写完才能开始下一个; 块内仍然可以用阈值策略并行揭开。LLaDA2.0 的默认解码设置是阈值 0.95、块长 32, SGLang 支持扩散模型时默认块长也是 32。块扩散模型怎么训练见模型阶段的块扩散一章。',
+            },
+            {
+              title: '商用速度数字是厂商口径, 本章没有复现',
+              body: '扩散语言模型的速度宣传数字都来自厂商或论文作者, 测试条件各不相同:\n- Mercury (Inception Labs) 的技术报告引用 Artificial Analysis 的独立评测, Mercury Coder Mini 和 Small 在 H100 上分别是 1109 和 737 tok/s。\n- LLaDA2.0 技术报告: LLaDA2.0-flash-CAP 535 TPS, 普通 LLaDA2.0-flash 383 TPS, 两个自回归基线 256 和 237 TPS; 扩散模型跑在 dInfer 上、自回归基线跑在 SGLang 上, 报告没有写硬件。\n- LLaDA2.1 在定制的 SGLang 和 FP8 量化下报告 HumanEval+ 上 892 TPS。\n- Fast-dLLM 在 LLaDA、GSM8K 8-shot、生成长度 1024 上报告吞吐最多提高 27.6 倍 (0.7 → 19.3 tok/s), 准确率 76.0 对基线 77.3。\n这些数字和引擎实现、量化、批大小、任务都有关, 只能作为引用; m37 的合成实验只说明并行度、拼错率和缓存误差之间的关系。',
+            },
+          ],
+          links: [
+            { from: 'm01 KV cache', to: 'dual_cache_error', body: '自回归的 KV 写完不再变, 缓存是精确的; 双向注意力下 K/V 随每次揭开而变, 缓存只能近似, 或者像块扩散那样把块间改成因果。' },
+            { from: 'm07 投机解码', to: 'decode(threshold)', body: '投机解码靠目标模型验证草稿, 输出分布不变; 扩散模型的并行揭开没有验证步, 正确性只能靠同一步只揭开有把握的位置。' },
+            { from: 'LLaDA 的低置信度重遮盖', to: 'decode(fixed)', body: 'LLaDA 每步揭开置信度最高的几个、把其余遮回去, 就是固定 k 策略; 论文的默认设置是每步 1 个, 步数等于回答长度。' },
+          ],
+          sourceRows: [
+            { concept: '合成 Oracle', code: 'm37_diffusion_decoding/diffusion_decode.py:Oracle', takeaway: '序列由独立的组拼成, 组内是短语表; marginals 在和已揭开位置一致的短语上重新归一, 给出精确的条件分布。' },
+            { concept: '两种揭开策略', code: 'm37_diffusion_decoding/diffusion_decode.py:decode', takeaway: 'fixed 每步取置信度最高的 k 个; threshold 取所有超过 τ 的, 一个都没有时只取最高的 1 个。' },
+            { concept: '近似缓存误差', code: 'm37_diffusion_decoding/diffusion_decode.py:dual_cache_error', takeaway: '沿精确轨迹每 r 步刷新一次 K/V, 其余步只算当前块, 统计 logits 误差和揭开决策的不一致率。' },
+            { concept: '块扩散精确缓存', code: 'm37_diffusion_decoding/diffusion_decode.py:block_cache_error', takeaway: '块因果掩码下写完的块 K/V 不再变, 缓存与每步完整前向一致。' },
+          ],
+          snippetTitle: '阈值揭开 + 隔 r 步刷新的缓存',
+          snippet: `while any(x == MASK):
+    P = model(x)                                   # 每个遮住位置的条件分布
+    conf = where(x == MASK, P.max(-1), -1)
+    order = argsort(-conf)
+    n = max(1, (conf > tau).sum())                 # 过阈值的全揭开, 都不过只揭开 1 个
+    x[order[:n]] = P[order[:n]].argmax(-1)         # 同一步的位置各取各的最大值
+
+# 近似缓存: 每 r 步完整算一次, 其余步只算当前块
+if step % r == 0:
+    kv = full_forward(x)                           # 所有位置的 K/V 都是新的
+logits = forward(x, idx=current_block, cache=kv)   # 块外用旧 K/V`,
+          source: [
+            'llm_infer/m37_diffusion_decoding/diffusion_decode.py:decode',
+            'llm_infer/m37_diffusion_decoding/diffusion_decode.py:Oracle',
+            'llm_infer/m37_diffusion_decoding/diffusion_decode.py:dual_cache_error',
+          ],
+          run: 'python -m llm_infer.m37_diffusion_decoding.demo',
+          related: [
+            { route: 'models-llada', label: 'LLaDA 扩散语言模型', reason: '掩码扩散语言模型怎样训练、采样时为什么把没把握的位置遮回去, 见模型阶段的 LLaDA 一章; 本章讲推理时一步揭开多少、怎么缓存。' },
+            { route: 'models-block-diffusion', label: 'BD3-LM 块扩散', reason: '块间自回归、块内扩散的模型怎样训练, 见模型阶段的块扩散一章; 本章只用它的块因果掩码说明为什么缓存能精确。' },
+          ],
+    },
+
+    'infer-agentic-serving': {
+          title: '推理模型与 Agent 负载 · 思考 token、工具停顿与前缀命中',
+          subtitle: '推理模型的输出以思考 token 为主, Agent 一个任务要来回调用很多次工具。历史里的思考块删不删, 决定前缀缓存从哪里断开; 工具调用期间 KV 留不留, 决定是排队还是重算; 思考预算则同时拉长单请求延迟、压低集群吞吐。',
+          tldr: 'Agent 负载让服务端多了三笔账 (本章数字都来自代价模型和离散事件模拟, 是估算):\n- 历史拼法: 删掉之前的思考块就是改了历史, 断点之后的 token 全部重算。新用户消息到来时删思考, 第 2 轮第一次调用的命中率从 99% 降到 31%; 全部保留不断开, 但最终上下文是每次都删的两倍多。\n- 工具停顿: 全部钉住会占满 KV 池, 平均 TTFT 277.9 s; LRU 淘汰重算最多; 应用告诉引擎工具快慢、只给快工具设 TTL 时, 重算是 LRU 的一半, 平均 TTFT 从 6.2 s 降到 3.9 s。\n- effort: 思考预算从 512 到 32768 token, 单请求延迟变长 42.8 倍, 集群请求吞吐降到 1/229。',
+          question: '多轮 Agent 对话里, 对话模板删掉上一轮的思考块能缩短上下文, 为什么新一轮第一次请求的首 token 反而变慢? 工具调用期间, 引擎该不该把这条会话的 KV 留在显存里?',
+          evolution: {
+            title: '从单次问答到多轮工具循环',
+            subtitle: '根问题: Agent 任务的每次调用都重发整段历史, 历史里夹着大段思考和工具结果, 能不能复用前缀决定了 prefill 算力和首 token 延迟。',
+            steps: [
+              { name: '前缀缓存', pain: '(原点) Agent 每次调用都重发整段历史, 不复用的话每次都要把历史重新 prefill', fix: '逐 token 复用之前算过的序列, 解码出的思考和工具调用也进缓存; 历史全部保留时整个会话命中 94.8%' },
+              { name: '删掉历史里的思考', pain: '全部保留时上下文随调用次数变长, 最后 25,800 token 里一多半是思考', fix: '新用户消息到来时删掉之前的思考, 上下文降到 18,600; 但断点之后全部重算, 新一轮第一次调用只命中 31%' },
+              { name: '工具停顿时按提示保留 KV', pain: '工具调用期间会话停着, KV 留在显存里挤占别人, 被淘汰了回来又要整段重算', fix: '应用告诉引擎工具快慢: 快工具按典型耗时设 TTL, 慢工具不钉、先淘汰; 重算是 LRU 的一半, 平均 TTFT 6.2 → 3.9 s' },
+            ],
+          },
+          code: 'llm_infer/m41_agentic_serving/agentic_sim.py',
+          points: [
+            {
+              title: '思考块删不删, 决定前缀缓存从哪里断开',
+              key: true,
+              body: '前缀缓存逐 token 比较本次 prompt 和之前算过的序列, 第一个不同的 token 之后全部要重算。删掉历史里的一个思考块, 就是在那个位置改了历史。\nm41 的会话有 2 轮用户发言, 每轮 5 次工具调用加 1 次回答; 每次调用思考 1200 token、工具调用 60 token, 工具结果 800 token, system prompt 2000 token 已被缓存。三种历史拼法的结果:\n- 全部保留: 每次只算新的工具结果, 要算 8,200 token, 命中率 94.8%, 最后一次调用的上下文 25,800 token。\n- 新用户消息到来时删掉之前的思考 (Qwen3、DeepSeek-V3.2 的对话模板): 工具循环内部全部命中, 但第 2 轮第一次调用只命中 31%。第 1 轮第一次调用的思考块紧跟在用户消息后面, 缓存从那里断开, 第 1 轮的工具调用、工具结果和回答都要重算; 共要算 12,800 token, 上下文 18,600。\n- 每次都删: 每次多算上一次的可见输出, 共要算 9,100 token, 上下文只有 12,600。\n思考占每次输出的 92.3%。命中率要和要算的 token 一起看: 每次都删的命中率 88.5% 低于全部保留, 要算的只多 11%, 上下文却短了一半多。',
+            },
+            {
+              title: '历史怎么拼由模板和 API 决定, 各家规定不同',
+              body: '交错思考 (interleaved thinking, 每次工具调用之间都有一段思考) 让历史里夹着很多思考块。各家对它们的处理, 按官方文档和模型卡:\n- Qwen3: 模型卡写明多轮对话的历史只保留最终输出, 不带思考内容; 对话模板只给最后一条真正的用户消息之后的 assistant 消息渲染思考, 也就是当前工具循环里的保留。\n- DeepSeek: V3.2 的编码代码默认在最后一条用户消息之前删掉 reasoning_content。现行 API 文档分情况: 不带 tools 时上一轮的 reasoning_content 会被忽略; 带 tools 时所有历史轮次的都要传回并拼进上下文, 不传回返回 400。\n- Anthropic: 一个工具循环内必须把思考块原样传回。Opus 4.5 及之后、Sonnet 4.6 及之后和 Haiku 5.5 默认保留之前所有轮次的思考块; 更早的模型收到不是工具结果的用户消息时自动删掉之前的思考块, prompt caching 文档写明这时它们之后的消息都会从缓存里移除。\n- OpenAI: Responses API 要求工具调用之后把推理项和工具输出一起传回, 用 reasoning.context 控制保留当前轮还是所有轮。\n删思考块对答题质量的影响不在 m41 的模拟范围内。',
+            },
+            {
+              title: '工具停顿期间的 KV: 全部钉住最差, 按工具快慢区别对待最好',
+              body: '两次调用之间会话停在工具上, 引擎要决定这条会话的 KV 怎么办。m41 的离散事件模拟有 120 个会话、每个 8 次调用, KV 池 120,000 token, 16 个并发槽, prefill 排同一条队; 工具 75% 是快的 (中位 2 s), 25% 是慢的 (中位 40 s)。3 个种子的平均:\n- LRU 淘汰 (引擎默认的前缀缓存): 重算 3,961,000 token, 平均 TTFT 6.2 s, 平均完成时间 222 s。\n- 钉住到会话回来: 慢工具会话占着池子, 新调用进不来, 平均 TTFT 277.9 s; 池子钉满后平均被迫淘汰 336 次, 照样要重算。\n- 固定 TTL 8 s: 重算降到 2,562,067, 但把慢工具会话也白钉了 8 s, 平均 TTFT 18.0 s。\n- 按应用提示设 TTL (快工具钉 4 s, 慢工具不钉、先淘汰): 重算 1,964,567, 是 LRU 的一半; 平均 TTFT 3.9 s, 完成时间 204 s, 三项都最好。\nLRU 本身不算差, 因为它先淘汰停得最久的会话, 而停得久的多半是慢工具。这些时间都来自代价模型: 解码每 token 20 ms 不随批大小变, prefill 8000 tok/s。',
+            },
+            {
+              title: 'effort: 单请求延迟线性变长, 集群吞吐下降得更快',
+              body: '思考预算 (effort) 调高, 每个请求的输出变长。单请求延迟大致按输出长度线性变长; 集群吞吐还要再乘一个因子, 因为每个请求预留的 KV 变大, 能同时跑的请求变少:\n$$\\text{请求/s} \\approx \\frac{B}{t_{\\text{step}}(B) \\cdot O}, \\quad B = \\frac{M}{P + O}$$\n$B$ 是 KV 池 $M$ 能容纳的并发数, $P$ 是 prompt 长度, $O$ 是输出长度, $t_{\\text{step}}$ 是一步解码的时间 (读一遍权重加上读批里所有 KV)。读权重占主导时, 请求吞吐大致按 $1 / (O (P+O))$ 下降。\nm41 的代价模型取 8B 级模型、单卡、fp16 的量级 (每步读权重 8 ms, KV 池 300,000 token, prompt 4000): 思考 512、2048、8192、32768 token 时, 单请求延迟依次是 7.2、20.1、73.0、309.5 s, 最大并发 62、47、24、8, 集群每秒完成 2.948、0.836、0.135、0.013 个请求。输出变长 40.7 倍, 延迟变长 42.8 倍, 请求吞吐降到 1/229。',
+            },
+            {
+              title: '应用层提示: 告诉引擎 KV 留多久, 或者直接改缓存',
+              body: '引擎只看得到请求, 看不到 Agent 的计划; 应用层知道下一次调用什么时候来、历史要怎么改, 研究里有两类做法把这些信息交给引擎:\n- 给 KV 设 TTL: Continuum (arXiv 2511.02230) 对产生工具调用的请求把 KV 钉在 GPU 上, TTL 由重新加载的代价和淘汰可能带来的排队延迟决定, 配合按整个 Agent 任务先到先服务的调度, 论文报告平均任务完成时间改善 8 倍以上。m41 的「按提示设 TTL」只用了快慢两档, 是它的简化版。\n- 直接编辑缓存: Leyline (arXiv 2606.01065) 让应用下指令删掉或替换缓存里的一段, 比如失败的工具调用或过时的输出, 用 RoPE 旋转的闭式校正修正后面 token 的位置, 不必把后面全部重新 prefill; 摘要报告回放时缓存命中提高 11.2 个百分点、延迟最多减少 241 ms。论文附录列了钉住、按工具链衰减等保留指令, 原文写明还没有实验验证。被删片段之后的 token 当初是看着那段内容算出 K/V 的, 只校正位置不会让它们回到没见过那段内容的样子。\n托管 API 的前缀缓存也有寿命: Anthropic 默认 5 分钟, 可选 1 小时。',
+            },
+          ],
+          links: [
+            { from: 'm05 RadixCache', to: 'history_hits', body: '命中按最长公共前缀计算, 与 radix 树的匹配相同; 解码出的 token 也插进缓存, 下一次调用才能命中自己上一次的思考和工具调用。' },
+            { from: 'm20 分层 KV offload', to: 'simulate', body: '工具停顿期间的 KV 除了钉住和淘汰, 还可以降到 CPU 内存; 本章的模拟没有这一层, 搬回还是重算的判断见分层 offload 一章。' },
+            { from: 'm23 test-time compute', to: 'effort_row', body: '多花推理 token 换正确率的账在 test-time compute 一章; 本章算的是这些 token 在服务端的代价: 延迟、KV 和集群吞吐。' },
+          ],
+          sourceRows: [
+            { concept: '历史拼法', code: 'm41_agentic_serving/agentic_sim.py:render', takeaway: '三种拼法只差在跳过哪些思考块: 全部保留、只删更早用户轮的、每次都删。' },
+            { concept: '逐次前缀命中', code: 'm41_agentic_serving/agentic_sim.py:history_hits', takeaway: '每次调用的命中 = 本次 prompt 与之前任何一次完整序列的最长公共前缀, 逐 token 比较得出。' },
+            { concept: 'effort 代价模型', code: 'm41_agentic_serving/agentic_sim.py:effort_row', takeaway: '按最长上下文预留 KV 算最大并发, 一步耗时 = 读权重 + 读批里所有 KV。' },
+            { concept: '工具停顿模拟', code: 'm41_agentic_serving/agentic_sim.py:simulate', takeaway: 'KV 池 + 并发槽 + 共享 prefill 队列; 四种停顿策略只差在 pinned_until 和淘汰顺序。' },
+          ],
+          snippetTitle: '删思考块的断点 + 停顿时的 TTL',
+          snippet: `def render(blocks, policy, cur_turn):
+    for kind, turn, toks in blocks:
+        if kind == "think" and policy == "strip_on_user" and turn < cur_turn:
+            continue                      # 删掉更早用户轮的思考: 缓存从这里断开
+        yield from toks
+
+hit = max(lcp(prompt, seq) for seq in cached)   # 逐 token 比较, 第一个不同处之后全部重算
+
+# 一次调用结束, 会话进入工具停顿
+if policy == "hint":
+    pinned_until = -1 if slow_tool else now + 2 * fast_s   # 慢工具立刻可淘汰, 快工具钉一会儿
+evict_order = sorted(paused, key=lambda s: (not s.slow, s.pause_at))   # 先淘汰慢工具, 再按 LRU`,
+          source: [
+            'llm_infer/m41_agentic_serving/agentic_sim.py:render',
+            'llm_infer/m41_agentic_serving/agentic_sim.py:history_hits',
+            'llm_infer/m41_agentic_serving/agentic_sim.py:simulate',
+          ],
+          run: 'python -m llm_infer.m41_agentic_serving.demo',
+          related: [
+            { route: 'agent-prompt-caching', label: '从 Agent 一侧看前缀缓存', reason: 'Agent 一侧怎样排 system prompt、工具定义和动态状态才能稳定命中缓存, 见 Agent 阶段的 prompt caching 一章; 本章从服务端看同一件事。' },
+            { route: 'infer-prefix-radix', label: '前缀缓存的匹配与淘汰', reason: '链式 hash 和 radix 树怎样匹配公共前缀、按 LRU 淘汰叶子, 见前缀复用一章; 本章的命中计算和淘汰顺序都建立在它上面。' },
+            { route: 'infer-test-time-compute', label: '多花 token 换正确率', reason: '思考预算为什么能换来正确率、哪类错误换不掉, 见 test-time compute 一章; 本章只算这些 token 在服务端的代价。' },
+          ],
+    },
+
+    'infer-rotation-fp4': {
+          title: '旋转与 FP4 · 先把离群值摊平, 再压到 4 bit',
+          subtitle: 'W4A4 让矩阵乘直接走 4 bit 算子, 难点在激活里比其余通道大几十倍的离群通道。QuaRot 用正交的 Hadamard 矩阵把离群值均分给所有通道, 矩阵乘的结果不变; SpinQuant 进一步学出更好的旋转。硬件侧的 MXFP4 与 NVFP4 则让一小块元素共享一个 scale, 撑起 4 bit 元素的精度。',
+          tldr: '- 旋转: $Q$ 正交时 $XW = (XQ)(Q^\\top W)$ 恒成立, 乘 Hadamard 矩阵把一个离群通道的能量均分给全部通道; demo 里每个 token 的 max/RMS 从 11.10 降到 2.48, 普通通道的 INT4 误差从 0.883 降到 0.263。\n- FP4: 元素都是 E2M1, MXFP4 每 32 个元素共享一个 2 的幂 scale (4.25 bit), NVFP4 每 16 个共享一个 FP8 scale (4.5 bit); 小 block 本身就能关住离群值, 旋转对 NVFP4 几乎没有收益。',
+          question: '旋转之后矩阵乘的结果一点没变, 为什么量化误差会小那么多? 用了 NVFP4 这种 16 个元素一组的格式之后, 还需要旋转吗?',
+          evolution: {
+            title: '从挪离群值到摊平离群值',
+            subtitle: '根问题: 要让 prefill 和大 batch decode 的矩阵乘也走 4 bit 算子, 激活必须量化, 而激活里少数固定通道比其余通道大几十倍。',
+            steps: [
+              { name: 'per-token INT4', pain: '(原点) W4A4 每个 token 只有 15 个格点, 少数离群通道把格距撑大几十倍', fix: '每个 token 一个 scale 直接舍入; demo 里普通通道误差 0.883, 几乎全被舍成 0, W4A4 输出误差 0.3345' },
+              { name: 'SmoothQuant 缩放', year: 2022, pain: '离群值只出现在固定的几个通道, 却让每个 token 的量化都变粗', fix: '用 $XW = (X/s)(s \\odot W)$ 把一部分离群值挪给权重, W4A4 误差降到 0.1731; 缩放来自校准集, 离群通道随 token 变化时比不处理还差' },
+              { name: 'Hadamard 旋转 (QuaRot)', year: 2024, pain: '4 bit 下权重也装不下挪过来的离群值, 静态缩放追不上随 token 变化的尖峰', fix: '插入正交矩阵 $XW = (XH)(H^\\top W)$, 离群能量均分给所有通道; max/RMS 从 11.10 降到 2.48, W4A4 误差降到 0.1563' },
+              { name: 'MXFP4 / NVFP4', pain: '分布摊平后, per-token INT4 的格点仍粗; 细分组又要每组多存一个 fp16 scale', fix: '元素用 E2M1, 每 32 个共享一个 2 的幂 scale (4.25 bit) 或每 16 个共享一个 FP8 scale (4.5 bit); 16 个一组本身就关住离群值' },
+            ],
+          },
+          code: 'llm_infer/m38_rotation_fp4_quant/rotation_fp4.py',
+          points: [
+            {
+              title: '旋转不改变结果, 只改变分布: 离群值被均分给所有通道',
+              key: true,
+              body: '正交矩阵满足 $QQ^\\top = I$, 所以 $XW = (XQ)(Q^\\top W)$ 对任何激活都成立。$Q^\\top W$ 离线乘好存起来, 推理时只在激活侧多乘一个 $Q$; demo 里旋转前后的相对差是 5.9e-07, 只是浮点舍入。Hadamard 矩阵的元素全是 $\\pm 1/\\sqrt{n}$, 乘它之后每个通道都是原来所有通道的 ±1 加权和, 一个大通道的能量被均分给 256 个通道:\n- 每个 token 的 max/RMS 从 11.10 降到 2.48 (纯高斯约为 3), per-token INT4 的格距随之缩小。\n- 普通通道的激活误差从 0.883 (几乎全被舍成 0) 降到 0.263, W4A4 输出误差从 0.3345 降到 0.1563; 权重换成 GPTQ (m25) 后是 0.1049。\nQuaRot 在整个网络上这样做: 残差流上的旋转并进相邻权重, down_proj 之前和 RoPE 之后各做一次在线 Hadamard。论文 v2 摘要报告, LLaMA2-70B 的权重、激活和 KV 全部压到 4 bit 后 WikiText-2 困惑度最多上升 0.47。demo 是人工合成的单层激活 (4 个离群通道 × 20), 数字只说明机制。',
+            },
+            {
+              title: 'SmoothQuant 挪离群值, 旋转摊平离群值',
+              body: '两者都利用矩阵乘的恒等变换, 差别在变换的形状。SmoothQuant (m25) 用对角缩放把离群通道缩小、把对应的权重行放大; 旋转用稠密的正交矩阵把离群值摊给所有通道。8 bit 下权重还装得下挪过去的离群值, 4 bit 下就不够了:\n- 离群通道位置固定时, W4A4 输出误差 SmoothQuant 为 0.1731, 旋转为 0.1563。\n- 离群值出现在哪个通道随 token 变化时 (10% 的 token 在一个随机通道上出现 ±60), 校准集里的尖峰把很多通道的最大值撑大, 静态缩放比不处理还差 (0.4665 vs 0.2504), 旋转是 0.1595。\n旋转不依赖校准统计, 这是它在 4 bit 下比缩放更稳的原因。随机通道尖峰是合成设定, 真实模型里离群通道的位置大多是固定的。',
+            },
+            {
+              title: 'KV cache 也能压到 4 bit: q 和 k 乘同一个旋转, 打分不变',
+              body: '注意力打分是 $q \\cdot k$。给每个头的 q 和 k 乘同一个正交矩阵 $H_d$, $(qH_d) \\cdot (kH_d) = q \\cdot k$ 不变, demo 里相对差 3.1e-07。K 和激活一样有固定的离群通道 (m08 的 KIVI 为此按通道分组), 旋转之后可以直接按 token 量化:\n- 单头 d=64、两个通道 × 15 时, K 做 per-token INT4 后打分误差从 0.2232 降到 0.0731。\nKV cache 存的是 RoPE 之后的 K, 而 $W_k$ 和 cache 之间隔着按位置变化的 RoPE, 这个旋转没法并进 $W_k$, 所以 QuaRot 在 RoPE 之后对 Q、K 逐头做在线 Hadamard。',
+            },
+            {
+              title: 'MXFP4 与 NVFP4: 元素都是 E2M1, 差别在 scale',
+              body: 'FP4 的每个元素是 E2M1, 只能取 ±{0, 0.5, 1, 1.5, 2, 3, 4, 6}, 精度全靠一小块元素共享一个 scale:\n- MXFP4 (OCP MX 规范): 每 32 个元素一个 E8M0 scale, 只能是 2 的幂, 每元素 4 + 8/32 = 4.25 bit。块内最大值除以 scale 落在 [4, 8), 大于 6 的部分饱和到 6。\n- NVFP4 (NVIDIA): 每 16 个元素一个 FP8 E4M3 scale, 外加整张量一个 FP32 scale, 每元素 4.5 bit。E4M3 带 3 位尾数, 能把块内最大值对到接近 6。\n同一组高斯权重上, NVFP4 误差 0.0949, MXFP4 0.1182; 对照的对称 INT4 每 32 个一组 (4.5 bit) 是 0.0975, 每 128 个一组 (4.125 bit) 是 0.1186。GPT-OSS 以 MXFP4 发布 MoE 权重, 这部分占总参数 90% 以上, 120b 因此能放进单张 80 GB GPU。',
+            },
+            {
+              title: '旋转对粗分组的 INT4 收益最大, 对 NVFP4 几乎没有',
+              body: '分组越粗, 一个离群值连累的普通通道越多, 旋转越有用; 分组越细, 离群值本来就被关在自己那一小组里。demo 只算普通通道的激活误差 (离群通道本身是组内最大值, 在哪种格式下都量得准):\n- INT4 每 128 个一组: 从 0.7792 降到 0.2522, 改善 3.09 倍。\n- INT4 每 32 个一组: 从 0.4528 降到 0.2249, 改善 2.01 倍。\n- MXFP4: 从 0.3453 降到 0.2998, 改善 1.15 倍。\n- NVFP4: 从 0.2363 升到 0.2685, 旋转反而更差。\nNVFP4 每 16 个一组, 浮点格点对大值也更宽容, 离群值只伤到自己那一小组; 旋转却把离群能量带进了所有组。这是这组合成数据上的实测, 真实模型要逐层测。',
+            },
+            {
+              title: '选哪个旋转: Hadamard 胜过随机正交矩阵, 学出来的再好一点',
+              body: '正交矩阵不是都一样好。Hadamard 的元素幅度处处相同, 摊得最匀: 随机正交矩阵 (QR 分解得到) 的 W4A4 误差是 0.1724, 高于 20 个随机符号 Hadamard 的平均 0.1535 (最好 0.1503, 最差 0.1577)。SpinQuant 把旋转当成参数来学, 用 Cayley 变换更新:\n$$Q \\leftarrow (I + \\tfrac{\\eta}{2}\\Omega)^{-1}(I - \\tfrac{\\eta}{2}\\Omega)\\,Q$$\n$\\Omega$ 是由梯度构造的反对称矩阵, 所以更新后的 $Q$ 仍然正交。demo 在单层上用 STE (把量化器的导数当成 1) 求梯度, 从最差的那个 Hadamard 出发走 60 步, held-out 误差从 0.1577 降到 0.1425, 比随机 Hadamard 的平均好 7%。SpinQuant 在整个网络上优化最终 loss, 摘要报告随机旋转之间最多差 13 个点; 单层 demo 的差距小得多, 不能外推。',
+            },
+            {
+              title: 'QuIP#: 对权重做非相干处理, 再做低比特量化',
+              body: 'QuIP# 只量化权重, 主攻 2 bit。它在量化前给权重两侧各乘一个随机 Hadamard, 得到 $W^\\prime = U^\\top W V$, 推理时用 $(XU)\\,q(W^\\prime)\\,V^\\top$ 还原。非相干度 $\\mu = \\max|W_{ij}| \\sqrt{mn} / \\|W\\|_F$ 衡量有没有特别大的元素:\n- demo 里 0.2% 的权重被放大 25 倍, $\\mu$ 从 45.3 降到 4.5。\n- per-channel INT4 weight-only 输出误差从 0.1830 降到 0.0735, INT3 从 0.2388 降到 0.1670。\nQuIP# 在非相干处理之后用 E8 格码本和微调把 2 bit 做到可用; demo 在非相干处理之后只接了标量 RTN。',
+            },
+          ],
+          links: [
+            { from: 'smooth_scales (m25)', to: 'hadamard', body: '同一个恒等式的两种用法: 对角缩放把离群值挪给权重, 正交旋转把离群值均分给所有通道。' },
+            { from: 'int4_sym', to: 'mxfp4 / nvfp4', body: '三者都是一组元素共享一个 scale。INT4 用均匀的整数格点和 fp16 scale, FP4 用 E2M1 浮点格点, scale 分别是 2 的幂和 FP8。' },
+            { from: 'w4a4_err', to: 'learn_rotation', body: '学习旋转优化的就是 w4a4_err 这个量: 用 STE 求它对 Q 的梯度, 再用 Cayley 变换保证 Q 正交。' },
+          ],
+          sourceRows: [
+            { concept: 'Hadamard 矩阵', code: 'm38_rotation_fp4_quant/rotation_fp4.py:hadamard', takeaway: 'Sylvester 递推把 H 拼成 [[H, H], [H, -H]], 最后除以 $\\sqrt{n}$, 得到元素全是 $\\pm 1/\\sqrt{n}$ 的正交矩阵。' },
+            { concept: 'W4A4 误差', code: 'm38_rotation_fp4_quant/rotation_fp4.py:w4a4_err', takeaway: '激活 per-token、权重 per-output-channel 的对称 INT4; 传入 Q 时先旋转再量化。' },
+            { concept: 'MXFP4', code: 'm38_rotation_fp4_quant/rotation_fp4.py:mxfp4', takeaway: '每 32 个元素一个 2 的幂 scale, 块内最大值除以 scale 落在 [4, 8), 大于 6 的饱和。' },
+            { concept: 'NVFP4', code: 'm38_rotation_fp4_quant/rotation_fp4.py:nvfp4', takeaway: '整张量 FP32 scale 把 block scale 搬进 E4M3 的范围, block scale 本身再舍入成 E4M3。' },
+            { concept: '非相干度', code: 'm38_rotation_fp4_quant/rotation_fp4.py:incoherence', takeaway: 'QuIP 的 $\\mu$: 最大元素比平均幅度大多少倍; 两侧随机 Hadamard 之后明显变小。' },
+            { concept: '学习旋转', code: 'm38_rotation_fp4_quant/rotation_fp4.py:learn_rotation', takeaway: 'STE 求梯度, 反对称矩阵做 Cayley 更新, 只保留校准集误差最低的那一步。' },
+          ],
+          snippetTitle: '旋转再量化',
+          snippet: `H = hadamard(n)                       # H Hᵀ = I, 元素都是 ±1/√n
+W_rot = H.T @ W                       # 离线: 旋转并进权重
+def forward(x):
+    x_rot = x @ H                     # 在线: 真实系统用快速 Hadamard 变换
+    return int4(x_rot) @ int4(W_rot)  # ≈ x @ W, 离群值已被摊平
+
+def mxfp4(x, block=32):
+    scale = 2 ** (floor(log2(amax(x, block))) - 2)   # E8M0: 只能是 2 的幂
+    return e2m1_round(x / scale) * scale             # 大于 6 的饱和`,
+          source: ['llm_infer/m38_rotation_fp4_quant/rotation_fp4.py:hadamard', 'llm_infer/m38_rotation_fp4_quant/rotation_fp4.py:mxfp4', 'llm_infer/m38_rotation_fp4_quant/rotation_fp4.py:nvfp4', 'llm_infer/m38_rotation_fp4_quant/rotation_fp4.py:learn_rotation'],
+          run: 'python -m llm_infer.m38_rotation_fp4_quant.demo',
+          related: [
+            { route: 'train-precision-stability', anchor: 'block-scale', label: '训练侧的 FP8 与 FP4', reason: '训练侧的 MXFP4 / NVFP4 量化器和误差对比在训练精度一章的 block scaling 段 (llm_train/m15)。本章在推理侧重写了同样的格式, 重点放在激活离群值和旋转上。' },
+            { route: 'infer-quant-awq', label: 'SmoothQuant 与 GPTQ', reason: '本章拿来对照的 SmoothQuant 缩放和 GPTQ 权重量化都在上一章 (m25)。它们解决 W8A8 和 weight-only INT4, 本章接着解决 W4A4。' },
+          ],
+    },
   },
 }
 
@@ -1043,3 +1353,209 @@ topic.pages["infer-prefix-radix"].points.push({"title": "前缀缓存的隔离�
 topic.pages["infer-prefix-radix"].source.push("llm_infer/m34_cache_identity/demo.py:experiment")
 
 canonicalizeRelated(topic)
+
+// 补充段: KV 淘汰 · H2O / SnapKV / TOVA: 按重要性删, 删了就找不回来
+topic.pages['infer-attention-sinks'].sections = [...(topic.pages['infer-attention-sinks'].sections || []), {
+  id: 'kv-eviction',
+  title: 'KV 淘汰 · H2O / SnapKV / TOVA: 按重要性删, 删了就找不回来',
+  tldr: 'sink + 窗口只按位置留 KV; H2O、SnapKV、TOVA 按注意力分数留, 同样的预算下能留住前文中段被问到的那句话。代价是淘汰不可逆: 打分只能看已经出现过的 query, 当时没人问的信息被删掉后, 后面再问就答不出来。demo 在 20 个种子上, H2O 问题 1 全对、问题 2 全错; 不删 KV 的 Quest 两个问题都全对。',
+  question: 'SnapKV 只留 12.5% 的 KV 就答对了问题 1, 为什么紧接着的问题 2 却答不出来? 它和每步只读一部分 KV 的 Quest 有什么不同?',
+  labNames: ['InferKvEvictLab'],
+  evolution: {
+    title: '从按位置删到按重要性删',
+    subtitle: '根问题: 长上下文的 KV cache 随 token 数线性增长, 显存放不下时只能留一部分。',
+    steps: [
+      { name: 'sink + 窗口 (m16)', pain: '(原点) 显存只够存预算内的 KV, 必须决定删掉哪些 token', fix: '只按位置留开头 4 个和最近一段; 前文中段的信息一律被删, demo 里两根针在 20 个种子上都没留住' },
+      { name: 'H2O 累积注意力', year: 2023, pain: '只看位置, 前文中段被问到的那句话也会被删', fix: '按每个 token 被所有 query 看过多少选重击者, 再留最近窗口, 预算各一半; 问题 1 的针 20/20 留住' },
+      { name: 'SnapKV 观察窗口', year: 2024, pain: '累积注意力偏向被更多 query 看过的靠前位置, 不一定是问题要找的那句', fix: '用 prompt 末尾的问题给前文投票, max pool 后取 top, prefill 结束时压一次; 显存省到预算, 问题 1 全对' },
+      { name: '不删: Quest / offload', pain: '淘汰不可逆, 后面的问题要找的信息可能已经被删了', fix: 'Quest 存着全部 KV, 每步只读打分最高的 block, 两个问题都 20/20; offload 把 KV 挪到 CPU。代价是显存不省或要搬运' },
+    ],
+  },
+  points: [
+    {
+      title: '淘汰不可逆: 打分只能看已经出现过的 query',
+      key: true,
+      body: '所有淘汰策略都靠注意力判断谁重要, 而注意力来自已经出现过的 query。demo 是一段 2080 个 token 的合成对话: 2032 个 token 的前文里埋着两根针 A、B, 接着问题 1 找 A, 回答之后问题 2 找 B。预算 256 个 token (prompt 的 12.5%) 时, 20 个种子的结果是:\n- H2O 和 SnapKV 的打分里有问题 1 的 query, 针 A 每次都被留下, 问题 1 全对。\n- 针 B 在压缩时没人问过, 和普通 token 没有区别, 问题 2 H2O 全错, SnapKV 只对了 3 次。\n- 把两个问题对调, 前文不变, 先问 B: 两种策略都变成先问的那个 20/20 全对, 后问的 A 答不出来。\n打分本身没问题, 失败只来自删掉的 KV 回不来。demo 还逐个种子断言了: 淘汰策略答对与否, 完全取决于针是否还在 cache 里。',
+    },
+    {
+      title: '四种淘汰规则: 按位置、按当前 query、按累积注意力、按问题投票',
+      body: '各家的差别只在"按什么打分、什么时候删":\n- sink + 窗口 (m16, StreamingLLM): 只按位置, 留开头 4 个和最近 B−4 个, 不看内容。\n- TOVA: 写满之后每写入一个 token, 删掉当前 query 注意力最低的那个。论文 (Transformers are Multi-State RNNs) 报告部分任务上用 1/8 的 cache 接近完整模型。demo 里它在问题 1 到来之前就把针 A 删了, 两个问题都答不对。\n- H2O: 累积注意力选重击者, 再留最近窗口, 预算对半分, 生成时每步删 1 个。摘要报告用 20% 的重击者时, 吞吐比 DeepSpeed Zero-Inference 和 HF Accelerate 最高高 29 倍。\n- SnapKV: prompt 末尾的观察窗口 (通常就是用户的问题) 对前文投票, 1D max pool 让选中的位置带上邻居, prefill 结束时压一次, 只压 prompt 的 KV。摘要报告 16K 输入时生成快 3.6 倍、显存效率高 8.2 倍。',
+    },
+    {
+      title: 'SnapKV 答对问题 2 只是碰巧',
+      body: 'SnapKV 留下了 prompt 的 12.5%, 其中除了被问题 1 选中的位置, 还有大量票数相近的普通位置。针 B 没被问过, 它能不能留下取决于是否碰巧落在这些位置或被 max pool 带上的邻居里:\n- 20 个种子里针 B 留下了 3 次, 这 3 次问题 2 都答对, 其余 17 次都答错。\n- seed 0 就是碰巧的一次: 针 B 的 2 个 token 留下了 1 个。\n预算越大, 碰巧留下的概率越高, 但这和问题 2 问什么无关。依赖这种运气的系统, 在多轮对话里表现会随前文长度和提问顺序上下波动。',
+    },
+    {
+      title: '淘汰、稀疏读取、offload 是三种不同的取舍',
+      body: '同样是"每步只看一部分 KV", 三条路省的东西不同:\n- 淘汰 (本段): 删掉的 KV 永久消失, 省显存, 也省读取带宽; 后面问到被删的信息就答不出来。\n- 稀疏读取 (m22 的 Quest): KV 全部留着, 每步按当前 query 选打分最高的 block 来读。demo 里存 2080 个 token, 每步只读 256 个, 两个问题都 20/20 全对; 显存一点没省, 省的是读取带宽。\n- offload (m20): 把放不下的 KV 挪到 CPU 内存或磁盘, 需要时搬回来或重算, 不丢信息, 代价是搬运延迟。\nm16 的 sink + 窗口也是淘汰, 只是规则最简单。选哪条路取决于后面会不会问到前文的任意位置: 单次问答的长文档摘要适合淘汰, 多轮对话和 Agent 更需要 Quest 或 offload。',
+    },
+    {
+      title: 'PyramidKV 按层分预算; demo 的边界',
+      body: 'PyramidKV 在 SnapKV 的基础上让不同层的预算不同: 低层多、高层少, 按等差数列递减, 依据是注意力在高层更集中。论文报告在 LongBench 上留 12% 的 KV 与完整 KV 持平。demo 只有单层单头, 体现不出按层分配, 没有实现。\ndemo 的其余边界:\n- 注意力是合成的: sink 和两根针的 key 方向、问题对针的打分 (约 18) 都是设定的, 针越弱各策略的差别越模糊。\n- 论文的评测大多把问题放在 prompt 末尾, 正好是 SnapKV 观察窗口看得到的位置; 多轮对话里后问的问题不在其中。\n- 真实实现按头分别选、按 page 删, 还要处理 RoPE 位置; demo 按单个 token 删, key 不带位置编码。',
+    },
+  ],
+  sourceRows: [
+    { concept: '位置淘汰', code: 'm39_kv_eviction/kv_eviction.py:sink_window_keep', takeaway: '与 m16 SinkCache 同一个规则: 开头 n_sink 个加最近 budget − n_sink 个。' },
+    { concept: '当前 query 淘汰', code: 'm39_kv_eviction/kv_eviction.py:tova_keep', takeaway: '从第 0 个 token 一路写入, 写满后每步删掉当前 query 注意力最低的那个。' },
+    { concept: '累积注意力', code: 'm39_kv_eviction/kv_eviction.py:H2O', takeaway: 'prefill 结束时按 prompt 内的累积注意力选一半重击者, 另一半留最近; 之后每写入一个 token 删 1 个。' },
+    { concept: '观察窗口投票', code: 'm39_kv_eviction/kv_eviction.py:snapkv_keep', takeaway: 'prompt 最后 16 个 query 对前文投票, kernel 7 的 max pool 后取 top, 再加上窗口本身。' },
+    { concept: '不删, 只少读', code: 'm22_sparse_attention/sparse_attention.py:select_blocks', takeaway: 'Quest 每个 query 现算 block 上界选 top-k, 首尾块强制保留; KV 一个不删。' },
+  ],
+  snippet: `def snapkv_keep(q, k, t_prompt, budget, window=16, kernel=7):
+    prefix = t_prompt - window
+    votes = sum(softmax(q[t] @ k[:t+1].T)[:prefix]          # 观察窗口里的 query 投票
+                for t in range(prefix, t_prompt))
+    pooled = max_pool1d(votes, kernel)                      # 选中的位置带上邻居
+    keep = top_k(pooled, budget - window) + range(prefix, t_prompt)
+    return keep                                             # 其余位置永久删除`,
+  source: ['llm_infer/m39_kv_eviction/kv_eviction.py:snapkv_keep', 'llm_infer/m39_kv_eviction/kv_eviction.py:H2O', 'llm_infer/m39_kv_eviction/kv_eviction.py:tova_keep'],
+  run: 'python -m llm_infer.m39_kv_eviction.demo',
+  links: [
+    { from: 'sink_window_keep', to: 'snapkv_keep', body: '同样只留预算内的 token, 打分从"位置"换成"问题对前文的注意力"; 中段被问到的信息因此留得住。' },
+    { from: 'snapkv_keep', to: 'quest_upper_bound (m22)', body: '一个在 prefill 结束时删掉其余 KV, 一个每步按当前 query 重选、什么都不删; 区别在显存省不省、后面的问题答不答得了。' },
+  ],
+  related: [
+    { route: 'infer-sparse-decode', label: 'Quest: 不删 KV, 只少读' },
+    { route: 'infer-kv-offload', label: 'KV offload: 挪走, 不丢' },
+  ],
+}]
+
+// 补充段: 不用草稿模型的投机 · prompt lookup 与 n-gram 缓存
+topic.pages['infer-tree-speculation'].sections = [...(topic.pages['infer-tree-speculation'].sections || []), {
+  id: 'draftless-spec',
+  title: '不用草稿模型的投机 · prompt lookup 与 n-gram 缓存',
+  tldr: '输出大段照抄输入时 (代码编辑、RAG 摘录), 草稿直接在 prompt 里按 n-gram 查就有, 不需要草稿模型; 验证规则和 m07 相同, greedy 下输出逐 token 不变。demo 里代码编辑每次 target forward 产出 5.66 个 token, 开放生成退化成 1.00 个; 跨请求记住以前输出的 n-gram 缓存, 让模板类请求的接受率从 0.0% 升到 83.7%。',
+  question: '没有草稿模型, 草稿从哪来? 在什么负载上它有效, 在什么负载上等于没开?',
+  labNames: ['InferNgramSpecLab'],
+  evolution: {
+    title: '草稿从模型换成查表',
+    subtitle: '根问题: decode 每步只产 1 个 token 却要读一遍全部权重, 投机解码需要便宜的草稿, 而草稿模型本身也要显存和算力。',
+    steps: [
+      { name: '草稿模型 (m07 / EAGLE)', pain: '(原点) 投机解码要草稿; 草稿模型占显存、每轮串行跑 K 次, 还要和 target 对齐', fix: '小模型或特征层草稿头连猜 K 个, target 一次 forward 验完; 草稿越准越省, 但它本身有成本' },
+      { name: 'prompt lookup', year: 2023, pain: '代码编辑、RAG 的输出大段照抄输入, 用模型去猜能照抄的文本是浪费', fix: '取末尾 n-gram 在 prompt 里找最近一次出现, 把后面 K 个抄来当草稿; 代码编辑每次 forward 产出 5.66 个, 草稿成本为 0' },
+      { name: 'REST 检索库', year: 2023, pain: '只查当前 prompt, 输出不在输入里就查不到', fix: '从外部检索库 (后缀数组) 找最长后缀匹配的续写, 组成 Trie 用树注意力一次验; 论文在 7B / 13B 上 1.62~2.36 倍' },
+      { name: 'SuffixDecoding', year: 2024, pain: 'Agent 的输出和以前的请求高度相似, 却既不在当前 prompt 里, 也不在通用检索库里', fix: '把以前请求的输出建成全局后缀树, 草稿长度随匹配长度伸缩; demo 里模板类请求的接受率从 0.0% 升到 83.7%' },
+    ],
+  },
+  points: [
+    {
+      title: '草稿来自查表, 验证照旧: 输出与 greedy 逐 token 相同',
+      key: true,
+      body: 'prompt lookup 取已生成文本的最后 n 个 token (n 从 3 降到 1), 在 prompt 和已生成文本里从后往前找它最近一次出现的位置, 把后面的 K 个 token 抄来当草稿; 都找不到就不提草稿, 这一轮退化成普通 decode。验证和接受完全复用 m07: target 一次 forward 验 K+1 个位置, 接受最长的一致前缀, 再白送 1 个纠错或 bonus token。\n- 无损: 真实 TinyLM 当 target 时, 输出与 target 逐 token greedy 完全相同 (demo 断言), 64 个 token 用了 52 次 forward。\n- 草稿成本为 0: 没有草稿模型, 草稿模型的 forward 次数恒为 0, 只花一次 CPU 上的字符串匹配。\nHF transformers 用 prompt_lookup_num_tokens 打开它; vLLM 在 speculative_config 里写 method="ngram", 用 prompt_lookup_max / prompt_lookup_min 控制 n-gram 长度, num_speculative_tokens 控制 K。',
+    },
+    {
+      title: '只在照抄输入的负载上有效',
+      body: 'demo 的 target 是写好参考答案的 oracle (它的 greedy 输出就是参考答案), K=8, 每类 5 条请求:\n- 代码编辑 (输出是同一个文件改 12 处): 1500 个输出 token 用了 265 次 forward, 每次产出 5.66 个, 接受率 72.7%。\n- RAG 摘录 (输出里夹着 4 段 25 个 token 的原文): 每次产出 2.92 个, 接受率 45.2%。每段原文抄完后它还会接着猜原文的下文, 这些草稿全被拒。\n- 开放生成 (输出与 prompt 无关): 660 次 forward 产出 660 个, 和逐 token 一样; 期间提了 1178 个草稿全被拒。\n被拒的草稿只是在同一次 forward 里多算了几个位置, decode 受带宽限制时几乎不花时间; batch 大到算力受限时, 这就是真实开销。prompt lookup 项目报告在摘要、文档问答、代码编辑这类基于输入的任务上快 2~4 倍。',
+    },
+    {
+      title: '跨请求的 n-gram 缓存: 输出不在 prompt 里也能查到',
+      body: '有些负载的输出和以前的请求高度相似, 却不在当前 prompt 里, 比如 Agent 反复发同一类工具调用、Text-to-SQL 反复生成结构相近的查询。SuffixDecoding 把以前请求的输出建成全局后缀树, 加上当前请求的后缀树, 只占 CPU 内存; 草稿长度上限 $\\alpha \\cdot p$ 随匹配长度 $p$ 伸缩, 匹配越长越敢猜远。论文摘要报告在 Agent 负载上最高快 5.3 倍。\ndemo 的简化版用 n ≤ 6 的计数表代替后缀树, 只出一条链: 8 个请求的输出都是同一个 40 token 的调用模板 (3 个参数位每次不同), 模板不在 prompt 里。\n- 只查当前 prompt: 第 2~8 次请求的接受率 0.0%。\n- 记住以前的输出: 接受率 83.7%, forward 次数从第 1 次的 40 降到平均 13.0。',
+    },
+    {
+      title: 'REST 与 Lookahead: 检索库和 Jacobi 迭代',
+      body: '另外两种不用草稿模型的做法, demo 没有实现:\n- REST: 草稿来自外部检索库。用当前上下文的最长后缀 (从 16 个 token 开始缩短) 在后缀数组里检索, 把找到的续写组成 Trie, 取频率最高的 64 个节点, 用树注意力 (本章的 tree mask) 一次验完。论文在 7B / 13B 模型上报告 1.62~2.36 倍, 最高的是 CodeLlama 在 HumanEval 上用代码库做检索库。\n- Lookahead decoding: 不查任何外部文本。同一次 forward 里, 一支用 Jacobi 迭代并行猜未来若干位置、把猜出的 n-gram 放进池子, 另一支验证池里与当前末尾匹配的候选。论文报告 MT-bench 上最高 1.8 倍, 多卡代码补全最高 4 倍。\n两者和 prompt lookup 一样无损, 区别只在草稿从哪来。',
+    },
+    {
+      title: 'demo 的边界',
+      body: '数字只说明机制, 不能当成真实模型的加速比:\n- target 是写好参考答案的 oracle, 接受率完全由负载里照抄的比例决定; 真实模型的输出和输入的重合程度要在真实数据上量。\n- 加速按 target forward 次数算, 没有计 CPU 查表的时间, 也没有计一次 forward 多验 8 个位置的额外耗时。\n- 只有 greedy。采样时 n-gram 草稿相当于一个 one-hot 的草稿分布, 接受概率要按 m07 的规则另算。\n- SuffixDecoding 按频率长出一棵草稿树再用树注意力验证; demo 只出一条链。',
+    },
+  ],
+  sourceRows: [
+    { concept: '查最近一次出现', code: 'm36_draftless_speculation/draftless.py:PromptLookupDrafter.propose', takeaway: 'n 从 max_n 降到 min_n, 每个 n 都从后往前找末尾 n-gram, 找到就抄后面的 K 个。' },
+    { concept: '跨请求缓存', code: 'm36_draftless_speculation/draftless.py:SuffixCacheDrafter.propose', takeaway: '最长匹配 p 决定草稿长度上限 α·p; 沿出现次数最多的下一个 token 往下走, 经验概率低于 0.3 就停。' },
+    { concept: '会复制的 target', code: 'm36_draftless_speculation/draftless.py:OracleTarget', takeaway: '上下文与 prompt + 参考答案前缀一致时, greedy 下一个 token 就是参考答案的下一个; kv 只存 token id, 回滚照样能切片。' },
+    { concept: '验证与接受', code: 'm07_speculative_decoding/speculative.py:speculative_decode', takeaway: '与草稿模型版本完全相同: 一次 forward 验 K+1 个位置, 接受最长一致前缀再白送 1 个。' },
+  ],
+  snippet: `def propose(out, K, max_n=3, min_n=1):        # out = prompt + 已生成
+    for n in range(max_n, min_n - 1, -1):
+        tail = out[-n:]
+        for s in range(len(out) - n - 1, -1, -1): # 从后往前: 最近一次出现
+            if out[s:s + n] == tail:
+                return out[s + n:s + n + K]       # 抄后面 K 个当草稿
+    return []                                     # 查不到: 本轮就是普通 decode`,
+  source: ['llm_infer/m36_draftless_speculation/draftless.py:PromptLookupDrafter', 'llm_infer/m36_draftless_speculation/draftless.py:SuffixCacheDrafter'],
+  run: 'python -m llm_infer.m36_draftless_speculation.demo',
+  links: [
+    { from: 'ModelDrafter (m07)', to: 'PromptLookupDrafter', body: '接口完全相同 (propose 返回草稿 token), 主循环和接受规则一行不改; 草稿从小模型的 forward 换成了字符串匹配。' },
+    { from: 'PromptLookupDrafter', to: 'SuffixCacheDrafter', body: '前者只查当前请求的文本, 后者把以前请求的输出也记进计数表, 输出相似但不在 prompt 里时才查得到。' },
+  ],
+  related: [
+    { route: 'infer-decode-control', label: '投机解码的接受规则 (m07)' },
+  ],
+}]
+
+// 补充段: Attention–FFN 分离 · P/D 分离之后的下一次拆分
+topic.pages['infer-moe-serving'].sections = [...(topic.pages['infer-moe-serving'].sections || []), {
+  id: 'af-disaggregation',
+  title: 'Attention–FFN 分离 · P/D 分离之后的下一次拆分',
+  tldr: 'AFD 把 MoE decode 的每一层拆到两组卡上: 注意力卡受 KV 读取带宽限制, 耗时随 batch × 上下文增长; FFN 卡要汇聚足够多的 token 才能吃满算力。两边按各自的瓶颈独立扩缩, 用 3 个 micro-batch 的 ping-pong 把通信藏起来。代价模型 (全部是估算) 里, 它比 16 卡同卡部署快 1.25~4 倍, 但赢不了调好的大 EP 同卡部署 (0.68~0.97 倍)。',
+  question: '注意力卡和 FFN 卡各配多少? micro-batch 切几份? 什么条件下 AFD 不划算?',
+  labNames: ['InferAfdLab'],
+  evolution: {
+    title: '从同卡部署到注意力与专家分开扩缩',
+    subtitle: '根问题: MoE decode 里注意力受 KV 读取带宽限制, 专家 FFN 要大 batch 才吃满算力, 放在同一张卡上时两边只能按同一个比例扩。',
+    steps: [
+      { name: '同卡部署 (小 EP)', pain: '(原点) 每张卡既放 1/N 的专家又跑注意力, 专家权重挤占 KV 显存', fix: '专家按 EP 分到 16 张卡, 双 micro-batch 重叠 all-to-all; 每卡剩给 KV 的显存少, batch 小, FFN 在读权重' },
+      { name: '大 EP 同卡部署', pain: '每个专家分到的 token 太少, FFN 卡大部分时间在读权重, 算力闲着', fix: 'EP 扩到 256 卡, 每卡分到的专家权重变少, FFN 接近算力受限 (DeepSeek-V3 式部署)' },
+      { name: 'AFD (MegaScale-Infer / Step-3)', year: 2025, pain: '注意力和专家只能按同一个比例扩, 上下文变长时专家卡也被迫跟着加', fix: '注意力卡和 FFN 卡分开, 按 $t_a \\approx t_f$ 定比例 (这里 184:16), 3 个 micro-batch 藏住通信; 上下文翻倍只加注意力卡' },
+      { name: '何时划算', year: 2026, pain: '每层多两次网络往返, micro-batch 越多, 每一份都要重读一遍权重', fix: '代价模型里比 16 卡同卡快 1.25~4 倍, 比大 EP 只有 0.68~0.97 倍, 网络慢时最差; FastAFD 称之为资源配置的选择' },
+    ],
+  },
+  points: [
+    {
+      title: 'A:F 比的最优点在两边耗时相等处',
+      key: true,
+      body: '注意力卡的显存全给 KV, 塞满后每份 micro-batch 的耗时 $t_a$ 就固定了; FFN 卡固定 16 张, 每加一张注意力卡, FFN 收到的 token 就多一些。代价模型 (粗粒度专家, 48 选 3, 4K 上下文, 3 个 micro-batch, 网络 450 GB/s) 里:\n- $t_f < t_a$ 时 FFN 还在读权重 (99 µs), 多接 token 几乎不加时间, 加注意力卡只是摊薄 FFN 卡, 每卡吞吐上升。\n- 184 张注意力卡时 $t_a$ = 161 µs、$t_f$ = 160 µs, 每卡吞吐 4108 token/s, 是最优点。\n- 再加注意力卡, FFN 成了瓶颈, 384 张时每卡吞吐降到 2067。\n上下文从 4K 翻到 8K, 每张注意力卡装的序列减半, 最优点移到 368 张, 也就是扩上下文只需加注意力卡。MegaScale-Infer 按同样的条件定注意力节点数, Step-3 的 4K 与 8K 部署也是 FFN 不变、只加注意力实例。全部数字是代价模型的估算, 硬件和模型参数都是假设。',
+    },
+    {
+      title: 'micro-batch: 3 个藏住通信, 再多反而慢',
+      body: '一个 micro-batch 走一层要 $t_a + t_f + 2t_c$; 两边轮流处理 $m$ 份, 各自忙 $m \\cdot t$。$t_a \\approx t_f$ 时, 通信完全藏住的条件是\n$$m \\ge 2\\,(1 + t_c / t_f)$$\n这是 MegaScale-Infer 给出的条件, 通信快于 $t_f/2$ 时至少 3 个。代价模型在 184:16、450 GB/s 下:\n- m=1 不重叠, 每卡 1764 token/s; m=2 有气泡, 3359。\n- m=3 正好藏住 ($t_c$ = 46 µs, 需要 m ≥ 2.6), 4108, 最高。\n- m=6 每份太小, 每一份都要把专家和注意力权重重读一遍, 降到 3039, 低了 26%。\n网络降到 100 GB/s 时要 6 个才藏得住。MegaScale-Infer 把 micro-batch 数限制在 4 以内, 消融里从 1 个增加到 2 个吞吐提升 1.9 倍; 2602.09721 也指出 2 个必然有气泡, 3 个是最低要求。',
+    },
+    {
+      title: '网络慢时 FFN 卡的收发先到顶',
+      body: 'FFN 卡每份要收 $N \\cdot k / n_f$ 个隐藏向量, 它随 A:F 比线性增长。网络从 450 GB/s 降到 50 GB/s 时:\n- 最优注意力卡数从 184 压到 48, 每卡吞吐从 4108 降到 3349。\n- 再加注意力卡, 网络泳道排满, 384 张时只剩 802 token/s。\n2602.09721 把这叫做 AFD 的 dead zone: FFN 收到的 token 数被跨机带宽封顶, 再加注意力实例也提不高 FFN 的利用率; 论文估算非 Superpod 的 H800 上 AFD 的理论硬件利用率上限只有 33.1%, 而大规模 EP 约 60%。Step-3 也把网络写进了设计约束: 每层的 A→F 和 F→A 传输必须在流水线的一段时间内完成。',
+    },
+    {
+      title: '什么时候不划算: 取决于拿谁对照',
+      body: 'AFD 本身不减少总的读写量, 它让两边各自跑在自己的瓶颈上。代价模型扫了 模型 × 上下文 × 网络 8 个场景 (TPOT ≤ 50 ms, 全部是估算):\n- 对照 16 卡同卡部署: 每卡显存被专家权重挤满, batch 很小, AFD 快 1.25~4.0 倍。\n- 对照 32~256 卡里最好的大 EP 同卡部署: 每卡分到的专家权重很少, FFN 已经接近算力受限, AFD 只有 0.68~0.97 倍。\n- 最差的是短上下文 + 50 GB/s 网络: 细粒度专家 (256 选 8) 0.68 倍, 粗粒度专家 0.77 倍。\n这和两篇分析的方向一致: 2602.09721 认为 AFD 不是普适解, 粗粒度专家、低稀疏度和 GB200 这类大 NVLink 域对它有利; FastAFD 在 GB200 NVL72 上测得 AFD 比调好的大 EP 最多快 1.17 倍、比单节点 EP4 快 1.30~2.36 倍, 结论是资源配置的选择, 不是架构上的胜利。',
+    },
+    {
+      title: '真实系统的数字和代价模型的边界',
+      body: '论文报告的收益都有各自的对照组:\n- MegaScale-Infer (ByteDance): 单 GPU decode 吞吐比 TensorRT-LLM 最高高 1.90 倍; 注意力放 H20、专家放 L40S 的异构部署按单位成本算吞吐高 1.86 倍; 自研的 M2N 通信库替代 NCCL 做 all-to-all。\n- Step-3 (StepFun): 2A2F 共 32 张 Hopper 卡, 4K 上下文、50 ms TPOT 下每卡 4,039 token/s, 同设置的 DeepSeek-V3 是 2,324; 模型和注意力结构 (MFA) 也一起为 AFD 设计过。\n代价模型没有算的: 专家负载不均 (本章正文的 EPLB) 和注意力侧的 DP 负载不均、shared expert 与 dense 层、通信延迟和按节点去重、异构硬件的成本。同卡部署的 all-to-all 假设被双 micro-batch 完全重叠, 对它偏乐观。硬件取 H800 类的量级 (3.35 TB/s、1.98 PFLOPS FP8、72 GB 可用显存), 模型参数仿 DeepSeek-V3 / Step-3 的量级, 都是假设。',
+    },
+  ],
+  sourceRows: [
+    { concept: '每层每份的耗时', code: 'm40_af_disaggregation/afd.py:afd', takeaway: '注意力卡塞满 KV, 算出 t_a、t_f、t_c, 再由 layer_cycle 得到一层的周期和每卡吞吐。' },
+    { concept: 'ping-pong 周期', code: 'm40_af_disaggregation/afd.py:layer_cycle', takeaway: '一层的周期取四项最大值: 一份走一圈, 以及注意力、FFN、网卡各自的忙碌时间。' },
+    { concept: '读权重还是算', code: 'm40_af_disaggregation/afd.py:ffn_time', takeaway: 'FFN 卡的耗时取读本卡专家权重和矩阵乘中更慢的; batch 不够大时是读权重说了算。' },
+    { concept: '同卡对照', code: 'm40_af_disaggregation/afd.py:colocated', takeaway: '每卡放 1/n 的专家和全部注意力权重, 双 micro-batch 重叠 all-to-all, 剩下的显存给 KV。' },
+  ],
+  snippet: `def layer_cycle(t_a, t_f, t_c, m):
+    # 一个 micro-batch 走一圈: 注意力 → 网络 → FFN → 网络
+    one_pass = t_a + t_f + 2 * t_c
+    # m 份轮流占用注意力卡、FFN 卡和网卡, 各忙 m·t
+    return max(one_pass, m * t_a, m * t_f, m * t_c)
+
+# 藏住通信: m·max(t_a, t_f) ≥ one_pass  ⇔  m ≥ 2·(1 + t_c/t_f)  (t_a ≈ t_f 时)`,
+  source: ['llm_infer/m40_af_disaggregation/afd.py:afd', 'llm_infer/m40_af_disaggregation/afd.py:layer_cycle', 'llm_infer/m40_af_disaggregation/afd.py:ffn_time'],
+  run: 'python -m llm_infer.m40_af_disaggregation.demo',
+  links: [
+    { from: 'ep_forward (m21)', to: 'afd', body: 'm21 把专家分到多个 rank 并看负载均衡, 注意力和专家仍在同一张卡上; AFD 把注意力也挪走, 只留专家在 FFN 卡上。' },
+    { from: 'P/D 分离 (m15)', to: 'AFD', body: 'P/D 分离按阶段拆 (prefill 和 decode), 传一次 KV; AFD 在 decode 内按层的两半拆, 每层传两次隐藏向量。' },
+  ],
+  related: [
+    { route: 'infer-scheduler', label: 'P/D 分离 (m15)' },
+  ],
+}]
+
+// 新章与补充段的前置和延伸链接。
+for (const [route, link] of [
+  ['infer-quant-awq', { route: 'infer-rotation-fp4', label: '旋转与 FP4: 把激活也压到 4 bit', reason: '本章的 SmoothQuant 在 8 bit 下够用。权重和激活都压到 4 bit 时, 下一章用正交旋转把离群值摊平, 并对比 MXFP4 / NVFP4 两种 FP4 格式。' }],
+  ['infer-kv-offload', { route: 'infer-hybrid-state', label: '混合模型的状态缓存', reason: '线性注意力层没有按 token 排的 KV, 只有定长状态; 它的前缀缓存要在检查点存快照, 命中粒度和显存账都和本章不同。' }],
+  ['infer-prefix-radix', { route: 'infer-hybrid-state', label: '混合模型的前缀缓存', reason: '本章的前缀复用依赖 KV 能按 token 截断; 混合模型的递推层只能在存过状态快照的位置命中, 命中长度向下取整到快照间隔。' }],
+  ['infer-tree-speculation', { route: 'infer-diffusion-decoding', label: '另一条一次出多个 token 的路', reason: '投机解码靠目标模型验证保证输出分布不变; 扩散模型一步并行揭开多个位置, 没有验证步, 靠置信度阈值避免拼错。' }],
+  ['infer-tree-speculation', { route: 'infer-hybrid-state', label: '递推状态怎么回滚', reason: '草稿被拒时注意力层截断 KV 即可; 混合模型的递推层状态不能截断, 要靠逐位置快照或从快照重算。' }],
+  ['infer-multi-replica-routing', { route: 'infer-agentic-serving', label: 'Agent 负载下的前缀命中', reason: '推理模型的思考块删不删、工具调用期间 KV 留不留, 会改变每个副本的前缀命中和排队。' }],
+  ['infer-test-time-compute', { route: 'infer-agentic-serving', label: '多花的 token 在服务端的代价', reason: '本章讲多花推理 token 换正确率; 这些 token 在服务端怎样拉长单请求延迟、压低集群吞吐, 见 Agent 负载的服务端一章。' }],
+  ['infer-sparse-decode', { route: 'infer-attention-sinks', label: 'KV 淘汰: 删了就找不回来', reason: 'Quest 只少读不删; 同样预算下 H2O / SnapKV 永久删 KV, 后问的问题答不出, 对照见 attention sinks 一章的 KV 淘汰段。' }],
+]) topic.pages[route].related = [...(topic.pages[route].related || []), link]

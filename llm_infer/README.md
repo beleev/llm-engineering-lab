@@ -108,15 +108,17 @@ python -m llm_infer.run_all
     full_engine/   把 m02 / m03 / m04 / m10 组装成 mini-vLLM
 ```
 
-图里的分组是建议的阅读顺序，不是代码依赖。模块之间真实的 import 一共 13 条：
+图里的分组是建议的阅读顺序，不是代码依赖。模块之间真实的 import 一共 16 条：
 
 | 谁 | import 了谁 | 拿来用的东西 |
 |---|---|---|
 | m03、m04 | m02 | `BlockManager` |
 | m06 | m03 | `Scheduler`（分块 prefill 是它的一个开关） |
-| m17、m19 | m07 | `speculative_decode`、`pick`、`ModelDrafter` |
+| m17、m19、m36 | m07 | `speculative_decode`、`pick`、`ModelDrafter` |
 | m23、m24 | m10 | `sample` |
 | m25 | m08 | `quantize_affine`、`awq_quantize` |
+| m38 | m25 | `fp8_round`、`smooth_scales`、`gptq_quantize` |
+| m39 | m22 | `quest_upper_bound`、`select_blocks` |
 | m27 | m05 | `RadixCache` |
 | full_engine | m02、m03、m04、m10 | 分页 KV、调度器、前缀缓存、采样 |
 
@@ -153,6 +155,13 @@ python -m llm_infer.run_all
 | 25 | [GPTQ / SmoothQuant / FP8](m25_weight_quant/) | `gptq.py`, `smoothquant.py`, `fp8.py` | Hessian 逆逐行补偿误差、激活离群值迁到权重 (W8A8, 扫 α)、E4M3/E5M2 与 scale 粒度 |
 | 26 | [Flash-Decoding](m26_flash_decoding/) | `flash_decoding.py` | decode 沿 KV 长度 split-K、LSE 合并；SM 利用率/延迟代价模型 |
 | 27 | [Multi-replica Routing](m27_multi_replica_routing/) | `router.py` | 轮询/最少负载/前缀感知 (最长前缀匹配)、热点倾斜与负载阈值兜底 |
+| 35 | [Hybrid State Cache](m35_hybrid_state_cache/) | `hybrid_cache.py` | Gated DeltaNet + 注意力混合：状态快照前缀缓存（命中按快照间隔取整）、投机回滚（逐位置快照 / 从快照重算）、MTP 自投机；字节账为估算 |
+| 36 | [Draftless Speculation](m36_draftless_speculation/) | `draftless.py` | prompt lookup / 跨请求 n-gram 缓存当草稿, 验证复用 m07: 照抄输入的负载 5.66×, 开放生成 1.00× |
+| 37 | [Diffusion Decoding](m37_diffusion_decoding/) | `diffusion_decode.py` | 掩码扩散并行揭开：固定 k vs 置信度阈值（Fast-dLLM）、合成 Oracle 上的拼错率；近似 DualCache 误差 vs 刷新间隔、块扩散精确缓存 |
+| 38 | [Rotation + FP4](m38_rotation_fp4_quant/) | `rotation_fp4.py` | QuaRot / SpinQuant 旋转摊平激活离群值 (W4A4、KV 4 bit)、QuIP# 非相干处理、INT4 分组 / MXFP4 / NVFP4 的误差与每元素位数 |
+| 39 | [KV Eviction](m39_kv_eviction/) | `kv_eviction.py` | H2O / SnapKV / TOVA 按注意力删 KV, 对照 sink + 窗口 (m16) 与 Quest (m22): 淘汰不可逆, 后问的问题答不出 |
+| 40 | [AF Disaggregation](m40_af_disaggregation/) | `afd.py` | Attention–FFN 分离的代价模型 (估算): A:F 比的最优点、ping-pong micro-batch 数、对小 EP 与大 EP 同卡部署何时划算 |
+| 41 | [Agentic Serving](m41_agentic_serving/) | `agentic_sim.py` | 思考块删留与逐次前缀命中、effort 对延迟与集群吞吐的代价模型、工具停顿期间 KV 的 LRU / 钉住 / TTL / 应用提示（离散事件模拟，估算） |
 | ★  | [Full Engine](full_engine/) | `engine.py`, `model_runner.py` | m02 真分页 + m03 调度（含分块 prefill 开关，原理见 m06）+ m04 前缀复用 + m10 采样；输出与朴素 greedy 逐 token 相同 |
 
 ---
@@ -212,6 +221,14 @@ python -m llm_infer.run_all
 | GPTQ / SmoothQuant W8A8 / FP8 | ✅ m25 | 与 m08 的 AWQ 分工：补偿误差 / 压平激活 / 换格点 |
 | Flash-Decoding (split-KV decode) | ✅ m26 | LSE reduce；加速比为代价模型估算 |
 | Cache-aware 多副本路由 | ✅ m27 | SGLang router 思路：最长前缀匹配 + balance 阈值 |
+| 混合模型（线性注意力 + 注意力）服务 | ✅ m35 | 状态快照前缀缓存 + 投机回滚 + MTP 自投机；vLLM / SGLang checkpoint / Marconi 思路 |
+| 无草稿模型投机 (prompt lookup / vLLM ngram / SuffixDecoding) | ✅ m36 | target 为写好参考答案的 oracle; REST / Lookahead 只讲不实现 |
+| 扩散语言模型解码 | ✅ m37 | 置信度阈值并行揭开 + DualCache 式近似缓存 / 块扩散精确缓存；速度数字只引厂商口径 |
+| 旋转量化 W4A4 / KV 4 bit (QuaRot / SpinQuant / QuIP#) | ✅ m38 | 单层合成激活; fake quant |
+| MXFP4 / NVFP4 推理格式 | ✅ m38 | E2M1 + E8M0 / E4M3 scale; 训练侧见 llm_train/m15 |
+| KV 淘汰 (H2O / SnapKV / TOVA) | ✅ m39 | 单层单头合成注意力; PyramidKV 只讲不实现 |
+| Attention–FFN 分离 (AFD) | ✅ m40 | 代价模型估算; 无异构硬件与负载不均 |
+| 推理模型 / Agent 负载 | ✅ m41 | 思考块与前缀命中、工具停顿 KV TTL（Continuum 思路）、effort 代价模型；全部为估算 |
 
 ---
 

@@ -75,4 +75,17 @@ export default [
   "oneliner": "按父子层级记录任务、模型请求、重试与工具调用的追踪结构; 并行子 Span 的耗时重叠而不能直接相加。",
   "route": "agent-eval-suite"
 },
+  { term: 'history-editing check', aka: 'preserved thinking 的前缀检查', stage: 'agent', oneliner: "当前代 Claude 模型的 thinking 块签名绑定产生它时的 system、tools 与之前全部消息; 改动其中任何一处, 其后的 thinking 块在下一次请求时失效。", number: 'm15: 清旧工具结果后 4 个块失效 3 个', route: 'agent-loop' },
+  { term: 'effort', aka: 'output_config.effort', stage: 'agent', oneliner: "当前代 Claude 模型调节思考深浅的参数, 取 low 到 max 五档; thinking 恒开以后, 它是控制延迟与成本的主要手段。", number: 'Opus 5.5 默认 medium', route: 'agent-loop' },
+  { term: '模型级联', aka: 'LLM cascade / FrugalGPT', stage: 'agent', oneliner: "先让便宜的模型处理, 验收失败再交给更强的模型; 是否省钱要按每个完成任务的成本算, 失败尝试与换模型后丢掉的缓存都在账里。", number: 'm61: 交给大模型接着做的级联每任务贵 7%', route: 'agent-system-design' },
+  { term: '托管式 Agent', aka: 'Managed Agents', stage: 'agent', oneliner: "agent loop、工具沙箱与完成验收由服务端托管的 agent 形态: 带版本的 agent 配置, 每个会话一个容器, 权限策略与 outcome 验收都是服务端配置。", number: '权限策略: always_allow / always_ask / auto', route: 'agent-system-design' },
+  { term: '锚状态分组', aka: 'anchor state grouping', stage: 'agent', oneliner: '把不同轨迹里出现过的同一个状态归为一组, 组内比较从这里出发的折扣回报。', number: '$A = A_E + \\omega A_S$, $\\omega = 1$', route: 'agent-agentic-rl' },
+  { term: '逐轮奖励', aka: 'per-turn reward', stage: 'agent', oneliner: '把结尾那一分当场拆给每一轮, 失败轨迹里做对的步骤也能拿到区分。', number: 'm58: 0.2 / 0.2 / 0.2 / 0.4', route: 'agent-agentic-rl' },
+  { term: '输入依赖度', aka: 'input dependence', stage: 'agent', oneliner: '贪心动作序列随输入变化的比例; 它为 0 时策略已经不读输入, 而熵未必低。', number: 'm58 崩塌组: 0%, 熵 0.386', route: 'agent-agentic-rl' },
+  { term: 'OS 级沙箱', aka: 'OS-level sandbox', stage: 'agent', oneliner: '进程获准运行之后, 由操作系统逐次判定它的文件与网络访问。', number: 'Linux bubblewrap, macOS Seatbelt', route: 'agent-sandbox' },
+  { term: '出站代理', aka: 'egress proxy', stage: 'agent', oneliner: '进程本身没有网络出口, 流量交给沙箱外的代理按域名白名单放行。', number: '允许域名列表默认为空', route: 'agent-sandbox' },
+  { term: '路径规范化', aka: 'path canonicalization', stage: 'agent', oneliner: '先展开 .. 与符号链接再判断是否越界; 直接比字符串前缀会被绕过。', number: 'm59: 2 条逃逸路径前缀都在工作区内', route: 'agent-sandbox' },
+  { term: '上下文重置', aka: 'context reset', stage: 'agent', oneliner: '清空上下文换一个新 agent, 交接靠磁盘上带足状态的产物, 而不是原地摘要。', number: 'm60: 同样预算下 12/12 对 6/12', route: 'agent-long-horizon' },
+  { term: '进度文件', aka: 'progress file', stage: 'agent', oneliner: '放在上下文之外的工作日志, 新会话读它和提交记录就知道做到哪了。', number: 'claude-progress.txt 加 git log', route: 'agent-long-horizon' },
+  { term: '功能清单', aka: 'feature list', stage: 'agent', oneliner: '初始全部标未通过的端到端功能表, passes 只能由一次真实验证翻转。', number: 'claude.ai 克隆例子: 200 多条', route: 'agent-long-horizon' },
 ]

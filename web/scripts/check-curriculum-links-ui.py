@@ -3,6 +3,7 @@ import json
 import subprocess
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
+from zh_punct import zh  # 页面显示中文标点, 期望文字先按同样规则转换
 BASE='http://127.0.0.1:5174/llm-engineering-lab/'
 ROOT=Path(__file__).resolve().parents[2]
 TITLES=json.loads(subprocess.check_output(['node','--input-type=module','-e',"const all={};for(const s of ['basic','models','train','finetune','infer','agent'])for(const [r,p] of Object.entries((await import('./web/src/data/topics/'+s+'.js')).default.pages))all[r]=p.title;console.log(JSON.stringify(all));"],cwd=ROOT,text=True))
@@ -15,7 +16,7 @@ with sync_playwright() as p:
     for route in ['finetune-sft','agent-memory-lifecycle','agent-programmatic-actions','agent-tools-permissions','agent-runtime-reliability','agent-evals','train-collectives-loop','infer-scheduler','infer-decode-control','models-mtp','finetune-knowledge-update','agent-verifiable-reasoning']:
         page.goto(BASE+'#'+routes[route],wait_until='networkidle')
         page.wait_for_function("r=>document.querySelector('#app').__vue_app__.config.globalProperties.$route.name===r",arg=route)
-        expect(page.locator('.page-title')).to_have_text(TITLES[route])
+        expect(page.locator('.page-title')).to_have_text(zh(TITLES[route]))
         links=page.locator('.related-topics a');expect(links.first).to_be_visible()
         destinations=links.evaluate_all('es=>es.map(e=>e.getAttribute("href"))')
         assert all(h.split('#')[-1] in routes.values() for h in destinations)

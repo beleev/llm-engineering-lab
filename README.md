@@ -16,7 +16,7 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 
 - 每个模块 `python -m xxx.demo` 单独跑，CPU 几秒到几十秒，零 GPU 依赖。
 - 每个 demo 末尾都用 `assert` 验证它声称的结论（与单卡基线逐位相等、与朴素解码逐 token 相同……）。断言不过，程序直接报错退出。
-- 配套 **交互式 Web 教程**：六阶段、27 个主题组、108 个章节入口（102 个三级章节 + 6 个总览）、178 个实验入口，400 道章末自测，253 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
+- 配套 **交互式 Web 教程**：六阶段、27 个主题组、126 个章节入口（120 个三级章节 + 6 个总览）、209 个实验入口，478 道章末自测，329 条术语速查；实验台包含可拖动可视化与 Python 执行记录回放。页面上的代码直接取自仓库里的 Python 源文件。
 
 **在线教程**: https://beleev.github.io/llm-engineering-lab/
 
@@ -25,9 +25,9 @@ numpy 手写反向传播 → PyTorch 现代架构 → 规模化训练 → 微调
 ```
 阶段 1 · llm_basic       numpy 手写 forward / backward / Adam / 采样 / BPE —— 看清梯度怎么流过 Transformer
     ↓
-阶段 2 · llm_models      PyTorch 实现 23 个模型: 2017 Transformer → 2025 GPT-OSS / LLaDA / Qwen3-Next
+阶段 2 · llm_models      PyTorch 实现 31 个模型: 2017 Transformer → 2026 DeepSeek-V4 / 混合线性架构 / mHC
     ↓
-阶段 3 · llm_train       纯 numpy 模拟大规模训练: DDP / TP / PP / ZeRO / EP / Ring + Ulysses / FP8 / FP4 / Muon
+阶段 3 · llm_train       纯 numpy 模拟大规模训练: DDP / TP / PP / ZeRO / EP / Ring + Ulysses / FP8 / FP4 / Muon / 容错与 DiLoCo
                           以及数据去重与 packing、scaling law、μP、课程/合成数据、校准与多语言评测
     ↓
 阶段 4 · llm_finetune    SFT / LoRA / QLoRA / DoRA / DPO / KTO / SimPO / ORPO / RM / PRM / PPO / GRPO 及变体
@@ -161,13 +161,17 @@ npm run build
 
 | 主题 | 内容 |
 |------|------|
-| 注意力 | MHA → MQA/GQA → MLA（含只缓存 latent 的解码路径）→ DSA（LightningIndexer + KL 对齐损失）；QK-Norm；可学习 attention sink |
-| 位置 | Sinusoidal / Learned → RoPE → NTK / YaRN 长上下文缩放 → M-RoPE |
-| 序列建模 | 滑动窗口（Mistral）、滑窗/全局交替（GPT-OSS-mini）、Gated DeltaNet 混合（Qwen3-Next）、Mamba 选择性 SSM |
+| 注意力 | MHA → MQA/GQA → MLA（含只缓存 latent 的解码路径）→ DSA（LightningIndexer + KL 对齐损失）→ CSA / HCA（先压缩再在压缩条目上选 top-k）；QK-Norm；可学习 attention sink；逐头输出门 |
+| 位置 | Sinusoidal / Learned → RoPE → NTK / YaRN 长上下文缩放 → M-RoPE；NoPE 与 iRoPE（不加位置编码的层与 RoPE 层交错） |
+| 序列建模 | 滑动窗口（Mistral）、滑窗/全局交替（GPT-OSS-mini）、Gated DeltaNet 混合（Qwen3-Next）、Kimi Delta Attention 的通道级遗忘门、Mamba 选择性 SSM；按层排布混合的缓存账 |
+| 输入表示 | BLT 字节 patch（按下一字节熵切分，不用 tokenizer）|
 | MoE | Mixtral softmax top-k；DeepSeekMoE sigmoid + 共享专家 + **真正会更新的** aux-loss-free 路由偏置 |
-| 训练目标 | next-token、MTP 多 token 预测、LLaDA 掩码扩散语言模型 |
+| 残差结构 | Hyper-Connections 与 mHC（残差流加宽成 n 条，流间混合矩阵投到双随机矩阵保住恒等映射） |
+| 条件计算 | MoD 按 token 跳层（top-k 容量 + 因果预测器）、MoR 共享块按 token 递归 |
+| 训练目标 | next-token、MTP 多 token 预测、LLaDA 掩码扩散语言模型、BD3-LM 块扩散（块因果 + KV cache） |
 | 生成 | 9 个自回归 LM（GPT-3、LLaMA、Mistral、Mamba、MTP、Qwen3-Next、Mixtral、DeepSeek-V3、GPT-OSS）共用带 KV cache 的 `GenerationMixin`（有/无 cache 输出 `torch.equal`）。多模态的 `Qwen2VLDecoder`、`OmniTalkerDecoder` 没有接，不支持 `generate()` |
-| 多模态 | CLIP、Whisper、Qwen2-VL、Qwen2.5-Omni |
+| 多模态 | CLIP、Whisper、Qwen2-VL、Qwen2.5-Omni、Transfusion（理解与生成统一：文本 CE + 图像扩散，图内双向掩码） |
+| 可解释性 | 线性探针与激活修补（研究实验）、激活引导：读出的方向与能改变行为的方向分开检验 |
 | 视觉生成 | VAE / 因果 3D VAE、DiT、MM-DiT（Rectified Flow）、Video DiT、VAR（真 next-scale + 多尺度残差 VQ） |
 
 ### 阶段 3 · 规模化训练 (llm_train)
@@ -176,7 +180,7 @@ npm run build
 |------|------|---------|
 | m01–m02 | 梯度累积、DDP | 与单卡整 batch 一致 |
 | m03 | Megatron 张量并行（前向 + 反向 all-reduce） | W、dX 均与 dense 一致 |
-| m04 | GPipe / 1F1B / 交错 1F1B | 气泡 = 公式；1F1B 峰值精确为 `[PP, …, 1]` |
+| m04 | GPipe / 1F1B / 交错 1F1B / Zero Bubble (ZB-H1)；DualPipe 按报告公式算 | 气泡 = 公式；1F1B 峰值精确为 `[PP, …, 1]`；ZB-H1 每卡空闲 = `(PP-1)(t_f+t_b-t_w)` 且峰值仍为 PP |
 | m05 | ZeRO-1/2/3 + FSDP gather→compute→free | 三档与 DDP 逐位相同；字节数 = 2+2+12 公式 |
 | m06 | FP16 / BF16、动态 loss scaling | 真实 fp16 溢出触发跳步 |
 | m07 | 激活重算（真反向） | 梯度与全存基线逐位相同；峰值 = L/k + k |
@@ -192,6 +196,8 @@ npm run build
 | m19 | Scaling law：36 个 (N, D) 点真训后拟合 | 拟合出的 E 接近噪声方差；指数 α≈1.08、β≈1.13，与 Chinchilla 论文的 0.34 / 0.28 不同 |
 | m20 | μP 超参迁移 | 最优 lr 在三种宽度下不动；SP 下会漂 |
 | m21 | 评测：perplexity、污染检测、pass@k 无偏估计、judge 位置偏差 | 朴素 pass@k 偏低；交换判消掉位置偏差 |
+| m27 | 容错：整体 MTBF、Young / Daly checkpoint 间隔、goodput、慢节点、SDC、弹性缩容 | 最优间隔处落盘与重跑开销相等；解析模型与蒙特卡洛差 < 1pp |
+| m28 | DiLoCo：本地 H 步 + 外层 Nesterov 动量，Streaming 分片错峰 | H=1 且外层退化时与 DDP 差 1.8e-07；通信量 ∝ 1/H |
 | full_loop | DDP + 累积 + AMP + 分片 Adam + 裁剪 + 续训 | 续训逐位相同；fp32 下与单卡差 6e-8 |
 
 ### 阶段 4 · 微调对齐 (llm_finetune)
@@ -199,11 +205,13 @@ npm run build
 | 类别 | 方法 |
 |------|------|
 | 指令微调 | SFT（prompt mask） |
-| 参数高效 | LoRA · QLoRA（NF4 真 4-bit 打包）· DoRA |
-| 偏好对齐 | DPO · KTO（非成对）· SimPO · ORPO · Reward Model（Bradley–Terry）· PRM（逐步打分）· RLAIF（按宪法自动造偏好） |
-| 在线 RL | PPO（critic + GAE）· GRPO（重要性比率 + clip），及 DAPO / Dr.GRPO / GSPO 变体 |
+| 参数高效 | LoRA · QLoRA（NF4 真 4-bit 打包）· DoRA · LoRA 做 RL（全参 / 秩 1 / 冻结 norm 对照） |
+| 量化训练 | QAT（假量化 + STE, 分组对称低比特） |
+| 偏好对齐 | DPO · KTO（非成对）· SimPO · ORPO · Reward Model（Bradley–Terry）· PRM（逐步打分）· RLAIF（按宪法自动造偏好）· 生成式 / rubric 奖励（长度捷径与 reward hacking） |
+| 在线 RL | PPO（critic + GAE）· GRPO（重要性比率 + clip），及 DAPO / Dr.GRPO / GSPO 变体 · 训练-推理不一致（TIS / MIS） |
+| 推理模型 | 长 CoT 蒸馏 · 思考 / 非思考模式融合 · 思考预算（预算 token、强制截断） |
 | 模型合并 | Task Arithmetic · TIES · DARE · SLERP |
-| 蒸馏 | 离线（forward KL）· on-policy（reverse KL） |
+| 蒸馏 | 离线（forward KL）· on-policy（reverse KL）· OPD 与 RLVR 的先后 / 联合组合 · 多教师按领域路由 |
 
 合成任务是**依赖 prompt 的可学习任务**。验证看留出集指标，不看"loss 下降了"。
 
@@ -211,14 +219,15 @@ npm run build
 
 | 方向 | 模块 |
 |------|------|
-| 省 KV 显存 | KV Cache · PagedAttention · Prefix Cache · Radix Cache · KV 占用对比 / MLA 解码 · 分层 KV offload |
+| 省 KV 显存 | KV Cache · PagedAttention · Prefix Cache · Radix Cache · KV 占用对比 / MLA 解码 · 分层 KV offload · KV 淘汰 (H2O / SnapKV / TOVA) · 混合模型状态快照（前缀缓存 + 投机回滚） |
 | 调度 | Continuous Batching（含抢占）· Chunked Prefill（Sarathi 混批）· P/D 分离 · 租户公平轮转 / 配额 / goodput 模拟 |
-| 少算几次 | Speculative Decoding（拒绝采样 + 分布保持检验）· EAGLE · 树状投机 · 稀疏注意力解码 |
-| 压缩 | INT8 / group-wise INT4 / AWQ · GPTQ · SmoothQuant（W8A8）· FP8 · KIVI KV 量化 |
-| 算子与并行 | FlashAttention（Q/KV 双向分块 + LSE）· Flash-Decoding（split-K）· Tensor Parallel · CUDA Graph · MoE 推理 EP + EPLB |
+| 少算几次 | Speculative Decoding（拒绝采样 + 分布保持检验）· EAGLE · 树状投机 · 无草稿模型投机 (prompt lookup / n-gram 缓存) · MTP 自投机 · 稀疏注意力解码 · 扩散语言模型并行解码（置信度阈值 + 近似 / 块扩散缓存） |
+| 压缩 | INT8 / group-wise INT4 / AWQ · GPTQ · SmoothQuant（W8A8）· FP8 · KIVI KV 量化 · 旋转量化 W4A4 (QuaRot / SpinQuant / QuIP#) · MXFP4 / NVFP4 |
+| 算子与并行 | FlashAttention（Q/KV 双向分块 + LSE）· Flash-Decoding（split-K）· Tensor Parallel · CUDA Graph · MoE 推理 EP + EPLB · Attention–FFN 分离 (代价模型) |
 | 输出控制 | Sampling · Beam Search · Structured Output（token 级预编译语法 mask）· Attention Sinks（SinkCache）· Multi-LoRA |
 | 测试时计算 | best-of-N · 多数投票 · PRM 引导搜索 · budget forcing |
 | 多副本 | 前缀感知路由 + 负载阈值兜底 |
+| Agent 负载 | 思考块删留与前缀命中 · 工具停顿期间 KV 的 TTL / 应用提示 · effort 代价模型（估算） |
 | 缓存边界 | 可信共享域 · 模型 / adapter 身份与版本 · 缓存错误命中对照 |
 | 性能与设备 | CPU profiler · 选做 CUDA 测量 · 剪枝与融合 · 端侧预算模型 |
 
@@ -229,13 +238,14 @@ npm run build
 | 层 | 内容 |
 |------|------|
 | 循环 | Agent 循环（`tool_use` / `tool_result` content block）· JSON Schema 工具 + 并行调用 |
-| 安全 | 权限门（deny > ask > allow，六种模式，命令归一化与分段）· 护栏（注入、路径围栏、脱敏） |
+| 安全 | 权限门（deny > ask > allow，六种模式，命令归一化与分段）· 护栏（注入、路径围栏、脱敏）· OS 级沙箱的策略评估（文件系统: 只写工作区 / 拒读密钥目录 / 路径先规范化; 网络: 出站代理按域名白名单） |
 | 上下文 | 压缩与文件记忆 · 上下文工程 · TF-IDF 检索（中文 bigram）· RAG（切块、BM25 + 稠密混合检索、RRF、rerank）· Prompt caching |
 | 扩展 | Hooks · Skills 渐进式披露 · 真 MCP（stdio JSON-RPC）· A2A（agent 之间的任务协议） |
 | 操作界面 | Computer use（无障碍树观察、按元素 ref 点击） |
 | 编排 | 计划模式 · 子智能体 · orchestrator–workers |
-| 运维 | JSONL 持久化与恢复 · checkpoint 版本迁移 / 权限重验 / 提交后强退恢复 · Agent 评测（pass@k / pass^k）· 发布门槛与回滚 |
-| 接真模型 | 可选的 Claude API 适配器，默认不联网 |
+| 训练 | 多轮 Agent RL 的信用分配（轨迹级优势 / 锚状态分组的逐步优势 / 逐轮奖励）· 崩塌诊断（输入依赖度，策略熵查不出来）· 方差筛选与静态任务集的信号枯竭 |
+| 运维 | JSONL 持久化与恢复 · checkpoint 版本迁移 / 权限重验 / 提交后强退恢复 · Agent 评测（pass@k / pass^k）· 发布门槛与回滚 · 模型路由与级联的成本 (按每个完成任务算) · 跨窗口接力（启动脚本 / 功能清单 / 进度文件 / 提交记录，每个新会话从干净上下文开始） |
+| 接真模型 | 可选的 Claude API 适配器 (adaptive thinking、effort、历史只追加的离线自检)，默认不联网 |
 
 工具全部是模拟或沙箱内的，可以放心跑。
 
@@ -245,11 +255,11 @@ npm run build
 
 | 档位 | 章数 | 用时 (粗估) | 覆盖范围 |
 |------|-----:|------------|--------------|
-| ★ 冲刺 | 12 | 约 2 小时 22 分 | 每个阶段最关键的一两章, 快速串起全栈主干 |
-| ● 主干 | 42 | 约 7 小时 50 分 | 完整覆盖大模型训练、微调对齐、推理服务与 Agent 主线 |
-| ○ 全部 | 109 | 约 17 小时 37 分 | 进一步包含前沿变体、替代方案对比与视觉/多模态分支 |
+| ★ 冲刺 | 12 | 约 4 小时 3 分 | 每个阶段最关键的一两章, 快速串起全栈主干 |
+| ● 主干 | 42 | 约 12 小时 37 分 | 完整覆盖大模型训练、微调对齐、推理服务与 Agent 主线 |
+| ○ 全部 | 127 | 约 34 小时 10 分 | 进一步包含前沿变体、替代方案对比与视觉/多模态分支 |
 
-「全部」按速成路线页统计：108 个六阶段章节入口，加 1 个总览对照表；不含主线首页与术语速查。用时取当前页面估算，内容更新后以网页为准。
+「全部」按速成路线页统计：126 个六阶段章节入口，加 1 个总览对照表；不含主线首页与术语速查。用时取当前页面估算，内容更新后以网页为准。
 
 分层只是阅读建议, 不影响任何章节的内容。侧栏可以按档位收起扩展章, 每章开头标着它属于哪一层,
 章内关键结论带有「重点」标记。用时按内容字数粗估, 供安排阅读节奏参考。
@@ -272,7 +282,7 @@ npm run build
 - FP8 的 per-tensor 与 block scaling 在玩具任务上**打平**，outlier 要超过约 1e5 倍才拉开差距。
 - `llm_basic` 的 2 层配置**不优于** 1 层（val 2.042 vs 1.986）。
 - CUDA Graph 的加速比来自**显式注入的 launch 开销模型**，不是实测。
-- 同步数下**全参微调优于 LoRA**（留出集 EM 0.809 vs 0.352）。LoRA 买的是显存和分发，不是收敛速度。
+- 同步数下**全参微调优于 LoRA**（留出集 EM 0.809 vs 0.352）。LoRA 买的是显存和分发，不是收敛速度。这是 SFT 上的结论；GRPO 上标准 LoRA 也落后，但差距来自冻结的 RMSNorm 增益：只训 320 个 norm 增益的采样 pass@1 是 0.502，高于全参的 0.324。
 
 这些结论都写在程序输出和文档里。数据没有为了让结论好看而调过。
 
@@ -291,6 +301,10 @@ npm run build
 - *Mixtral of Experts* — Jiang et al., 2024 ([arXiv:2401.04088](https://arxiv.org/abs/2401.04088))
 - *Mamba* — Gu & Dao, 2023 ([arXiv:2312.00752](https://arxiv.org/abs/2312.00752))
 - *Gated Delta Networks* — Yang et al., 2024 ([arXiv:2412.06464](https://arxiv.org/abs/2412.06464))
+- *Hyper-Connections* — Zhu et al., 2024 ([arXiv:2409.19606](https://arxiv.org/abs/2409.19606)); *mHC: Manifold-Constrained Hyper-Connections* — DeepSeek-AI, 2025 ([arXiv:2512.24880](https://arxiv.org/abs/2512.24880))
+- *Kimi Linear* (KDA) — Moonshot AI, 2025 ([arXiv:2510.26692](https://arxiv.org/abs/2510.26692)); *Gated Attention for LLMs* — Qiu et al., 2025 ([arXiv:2505.06708](https://arxiv.org/abs/2505.06708))
+- *The Impact of Positional Encoding on Length Generalization* (NoPE) — Kazemnejad et al., 2023 ([arXiv:2305.19466](https://arxiv.org/abs/2305.19466))
+- *DeepSeek-V4* — DeepSeek-AI, 2026 ([arXiv:2606.19348](https://arxiv.org/abs/2606.19348)); *Kimi K3* — Moonshot AI, 2026 ([arXiv:2607.24653](https://arxiv.org/abs/2607.24653)); *Nemotron 3.5* — NVIDIA, 2026 ([arXiv:2610.38095](https://arxiv.org/abs/2610.38095))
 - *DeepSeek-V2 / V3 / V3.2 Technical Reports* — DeepSeek-AI, 2024-2025
 
 ### 组件层面
@@ -308,6 +322,7 @@ npm run build
 - *Flamingo* — Alayrac et al., 2022 ([arXiv:2204.14198](https://arxiv.org/abs/2204.14198))
 - *Qwen2-VL* — Wang et al., 2024 ([arXiv:2409.12191](https://arxiv.org/abs/2409.12191))
 - *Qwen2.5-Omni Technical Report* — Xu et al., 2025
+- *Transfusion* — Zhou et al., 2024 ([arXiv:2408.11039](https://arxiv.org/abs/2408.11039))
 
 ### 生成模型
 - *VAE* — Kingma & Welling, 2013 ([arXiv:1312.6114](https://arxiv.org/abs/1312.6114))
@@ -329,6 +344,11 @@ npm run build
 - *EAGLE* — Li et al., 2024 ([arXiv:2401.15077](https://arxiv.org/abs/2401.15077))
 - *SGLang / RadixAttention* — Zheng et al., 2024 ([arXiv:2312.07104](https://arxiv.org/abs/2312.07104))
 - *StreamingLLM / Attention Sinks* — Xiao et al., 2023 ([arXiv:2309.17453](https://arxiv.org/abs/2309.17453))
+- *H2O* — Zhang et al., 2023 ([arXiv:2306.14048](https://arxiv.org/abs/2306.14048)); *SnapKV* — Li et al., 2024 ([arXiv:2404.14469](https://arxiv.org/abs/2404.14469)); *TOVA* (Transformers are Multi-State RNNs) — Oren et al., 2024 ([arXiv:2401.06104](https://arxiv.org/abs/2401.06104))
+- *QuaRot* — Ashkboos et al., 2024 ([arXiv:2404.00456](https://arxiv.org/abs/2404.00456)); *SpinQuant* — Liu et al., 2024 ([arXiv:2405.16406](https://arxiv.org/abs/2405.16406)); *QuIP#* — Tseng et al., 2024 ([arXiv:2402.04396](https://arxiv.org/abs/2402.04396)); *OCP Microscaling (MX) Formats v1.0*, 2023
+- *Prompt Lookup Decoding* — Saxena, 2023 ([GitHub](https://github.com/apoorvumang/prompt-lookup-decoding)); *REST* — He et al., 2023 ([arXiv:2311.08252](https://arxiv.org/abs/2311.08252)); *Lookahead Decoding* — Fu et al., 2024 ([arXiv:2402.02057](https://arxiv.org/abs/2402.02057)); *SuffixDecoding* — Oliaro et al., 2024 ([arXiv:2411.04975](https://arxiv.org/abs/2411.04975))
+- *Fast-dLLM*, 2025 ([arXiv:2505.22618](https://arxiv.org/abs/2505.22618)); *Marconi* (混合模型前缀缓存), MLSys 2025 ([arXiv:2411.19379](https://arxiv.org/abs/2411.19379)); *Continuum* (工具调用期间按 TTL 钉住 KV), 2025 ([arXiv:2511.02230](https://arxiv.org/abs/2511.02230))
+- *MegaScale-Infer* — ByteDance Seed, 2025 ([arXiv:2504.02263](https://arxiv.org/abs/2504.02263)); *Step-3 (AFD)* — StepFun, 2025 ([arXiv:2507.19427](https://arxiv.org/abs/2507.19427)); *Revealing the Challenges of Attention-FFN Disaggregation*, 2026 ([arXiv:2602.09721](https://arxiv.org/abs/2602.09721)); *FastAFD*, 2026 ([arXiv:2611.07149](https://arxiv.org/abs/2611.07149))
 
 ### 微调 / 对齐
 - *LoRA* — Hu et al., 2021 ([arXiv:2106.09685](https://arxiv.org/abs/2106.09685))
@@ -338,6 +358,9 @@ npm run build
 - *GRPO / DeepSeekMath* — Shao et al., 2024 ([arXiv:2402.03300](https://arxiv.org/abs/2402.03300))
 - *DeepSeek-R1* — DeepSeek-AI, 2025 ([arXiv:2501.12948](https://arxiv.org/abs/2501.12948))
 - *Knowledge Distillation* — Hinton et al., 2015 ([arXiv:1503.02531](https://arxiv.org/abs/1503.02531))
+- *Your Efficient RL Framework Secretly Brings You Off-Policy RL Training* — Yao et al., 2025 ([博客](https://fengyao.notion.site/off-policy-rl)); *When Speed Kills Stability* — Liu et al., 2025 ([博客](https://richardli.xyz/post/rl-collapse-training-inference/)); *Defeating the Training-Inference Mismatch via FP16* — Qi et al., 2025 ([arXiv:2510.26788](https://arxiv.org/abs/2510.26788))
+- *Qwen3 Technical Report* — Qwen Team, 2025 ([arXiv:2505.09388](https://arxiv.org/abs/2505.09388)); *s1: Simple test-time scaling*, 2025 ([arXiv:2501.19393](https://arxiv.org/abs/2501.19393)); *L1: Controlling How Long A Reasoning Model Thinks With Reinforcement Learning* — Aggarwal & Welleck, 2025 ([arXiv:2503.04697](https://arxiv.org/abs/2503.04697))
+- *Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference* — Jacob et al., 2018 ([arXiv:1712.05877](https://arxiv.org/abs/1712.05877)); *Estimating or Propagating Gradients Through Stochastic Neurons* (STE) — Bengio et al., 2013 ([arXiv:1308.3432](https://arxiv.org/abs/1308.3432)); *LLM-QAT* — Liu et al., 2023 ([arXiv:2305.17888](https://arxiv.org/abs/2305.17888))
 
 
 ### 长上下文 / 低精度 / 新架构
@@ -345,8 +368,17 @@ npm run build
 - *QK-Norm / OLMo 2* — Team OLMo, 2024 ([arXiv:2501.00656](https://arxiv.org/abs/2501.00656)); *Qwen3 Technical Report*, 2025
 - *gpt-oss model card* — OpenAI, 2025
 - *LLaDA: Large Language Diffusion Models* — Nie et al., 2025 ([arXiv:2502.09992](https://arxiv.org/abs/2502.09992))
+- *Block Diffusion (BD3-LM)* — Arriola et al., 2025 ([arXiv:2503.09573](https://arxiv.org/abs/2503.09573))
+- *Mixture-of-Depths* — Raposo et al., 2024 ([arXiv:2404.02258](https://arxiv.org/abs/2404.02258)); *Mixture-of-Recursions* — Bae et al., 2025 ([arXiv:2507.10524](https://arxiv.org/abs/2507.10524))
+- *Byte Latent Transformer* — Pagnoni et al., 2024 ([arXiv:2412.09871](https://arxiv.org/abs/2412.09871)); *H-Net* — Hwang, Wang & Gu, 2025 ([arXiv:2507.07955](https://arxiv.org/abs/2507.07955))
+- *ActAdd* — Turner et al., 2023 ([arXiv:2308.10248](https://arxiv.org/abs/2308.10248)); *CAA* — Rimsky et al., 2023 ([arXiv:2312.06681](https://arxiv.org/abs/2312.06681)); *Persona Vectors* — Chen et al., 2025 ([arXiv:2507.21509](https://arxiv.org/abs/2507.21509))
 - *Auxiliary-Loss-Free Load Balancing* — Wang et al., 2024 ([arXiv:2408.15664](https://arxiv.org/abs/2408.15664))
 - *Muon* — Jordan et al., 2024; *Muon is Scalable for LLM Training* — Liu et al. (Moonshot AI), 2025 ([arXiv:2502.16982](https://arxiv.org/abs/2502.16982))
+- *Zero Bubble Pipeline Parallelism* — Qi et al., ICLR 2024 ([arXiv:2401.10241](https://arxiv.org/abs/2401.10241)); *Pipeline Parallelism with Controllable Memory* — Qi et al., 2024 ([arXiv:2405.15362](https://arxiv.org/abs/2405.15362))
+- *DeepSeek-V3 Technical Report* (DualPipe) — DeepSeek-AI, 2024 ([arXiv:2412.19437](https://arxiv.org/abs/2412.19437))
+- *DiLoCo* — Douillard et al., 2023 ([arXiv:2311.08105](https://arxiv.org/abs/2311.08105)); *Streaming DiLoCo* — Douillard et al., 2025 ([arXiv:2501.18512](https://arxiv.org/abs/2501.18512))
+- *A first order approximation to the optimum checkpoint interval* — Young, CACM 1974; *A higher order estimate of the optimum checkpoint interval for restart dumps* — Daly, FGCS 2006
+- *The Llama 3 Herd of Models* — Grattafiori et al., 2024 ([arXiv:2407.21783](https://arxiv.org/abs/2407.21783))
 - *OCP Microscaling Formats (MX) Specification*, 2023; *NVFP4* — NVIDIA, 2025
 - *DeepSpeed-Ulysses* — Jacobs et al., 2023 ([arXiv:2309.14509](https://arxiv.org/abs/2309.14509))
 - *ZeRO* — Rajbhandari et al., 2019 ([arXiv:1910.02054](https://arxiv.org/abs/1910.02054))

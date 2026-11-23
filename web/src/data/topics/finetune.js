@@ -18,6 +18,9 @@ const topic = {
     { route: 'finetune-grpo-variants', label: 'GRPO 进阶: clip · DAPO · Dr.GRPO · GSPO', hint: '一批采样更新多次, 才需要比率和 clip' },
     { route: 'finetune-onpolicy-distill', label: 'on-policy 蒸馏', hint: '学生自己写答案, 老师逐 token 打分' },
     { route: 'finetune-rlvr', label: '看题的可验证奖励', hint: '奖励不看题, RL 就只学会一个常数' },
+    { route: 'finetune-rollout-mismatch', label: '训练-推理不一致 · TIS / MIS', hint: '同一份权重, 采样和训练算出的概率不同' },
+    { route: 'finetune-reasoning', label: '推理模型 · 长 CoT 与思考预算', hint: '蒸馏长轨迹, 用开关和预算控制想多久' },
+    { route: 'finetune-qat', label: 'QAT · 量化感知训练', hint: '训练时就用量化后的权重, INT2 回到 0.96' },
   ],
   pages: {
     // ───────────────────────── SFT ─────────────────────────
@@ -76,7 +79,7 @@ loss = cross_entropy(logits.reshape(-1, V), labels.reshape(-1),
     'finetune-lora': {
       title: 'LoRA 参数高效微调 · 冻结 W, 只学低秩 ΔW',
       subtitle: '全参数微调需要为每个权重配备梯度与优化器状态, 多任务分发还要保存多份完整模型。LoRA 冻结原始权重并在旁路并联两个极瘦的低秩矩阵, 大幅压缩训练状态与落盘体积。',
-      tldr: 'LoRA (Low-Rank Adaptation) 保持预训练权重 $W$ 冻结不变, 在旁路并联低秩增量 $y = Wx + (\\alpha/r)BAx$, 仅更新小矩阵 $A$ 与 $B$:\n- 核心收益: 省去基座权重的梯度与双份 Adam 动量显存, 单个下游任务只需保存轻量的 adapter 文件, 推理前还可合并回 $W$ 实现零额外延迟。\n- 能力折中: 同样步数下 LoRA 收敛更慢; 在本库 copy -> sort 300 步对照中, 全参微调留出集 EM 达 0.809, 而 LoRA (r=8) 调大步长后为 0.352。模型太小, 这组差距说明不了低秩容量够不够用。',
+      tldr: 'LoRA (Low-Rank Adaptation) 保持预训练权重 $W$ 冻结不变, 在旁路并联低秩增量 $y = Wx + (\\alpha/r)BAx$, 仅更新小矩阵 $A$ 与 $B$:\n- 核心收益: 省去基座权重的梯度与双份 Adam 动量显存, 单个下游任务只需保存轻量的 adapter 文件, 推理前还可合并回 $W$ 实现零额外延迟。\n- 能力折中: SFT 上同样步数下 LoRA 收敛更慢; 在本库 copy -> sort 300 步对照中, 全参微调留出集 EM 达 0.809, 而 LoRA (r=8) 调大步长后为 0.352。模型太小, 这组差距说明不了低秩容量够不够用; RL 一侧的对照见本章「LoRA 做 RL」一段。',
       question: 'LoRA 真正省下的是哪几块显存与存储开销? 为什么初始化时必须令 B 全零而 A 随机?',
       evolution: {
         title: '从改整张矩阵到挂一条旁路',
@@ -95,7 +98,7 @@ loss = cross_entropy(logits.reshape(-1, V), labels.reshape(-1),
         {
           title: '省下的是优化器显存与多任务存储, 而非收敛步数',
           key: true,
-          body: 'LoRA 的核心工程价值在于降低优化器状态显存与模型分发成本, 并不保证在相同步数下比全参微调学得更快或更准。将同一个已掌握 copy 任务的基座迁移到 sort 排序任务、各训练 300 步对比:\n- 全参微调: 可训参数 99,648 个, Adam 动量状态占 778 KiB, 留出集 EM 达 0.809。\n- LoRA (r=8): 可训参数降至 19,456 个, Adam 状态压到 152 KiB; 即使把学习率从 3e-3 专门调大到 1e-2, 留出集 EM 为 0.352 (沿用 3e-3 时为 0.281)。\n同时需留意显存账的边界: LoRA 省掉了冻结权重的梯度与 Adam 状态, 但由于旁路挂在各层内部, 前向激活与反向传播流经主干的中间张量依然无法省去。',
+          body: 'LoRA 的核心工程价值在于降低优化器状态显存与模型分发成本, 并不保证在相同步数下比全参微调学得更快或更准。将同一个已掌握 copy 任务的基座迁移到 sort 排序任务、各训练 300 步对比:\n- 全参微调: 可训参数 99,648 个, Adam 动量状态占 778 KiB, 留出集 EM 达 0.809。\n- LoRA (r=8): 可训参数降至 19,456 个, Adam 状态压到 152 KiB; 即使把学习率从 3e-3 专门调大到 1e-2, 留出集 EM 为 0.352 (沿用 3e-3 时为 0.281)。\n同时需留意显存账的边界: LoRA 省掉了冻结权重的梯度与 Adam 状态, 但由于旁路挂在各层内部, 前向激活与反向传播流经主干的中间张量依然无法省去。\n边界: 这组对照是 SFT。RL 每个 episode 只带回约 1 bit 信息, 容量瓶颈不在同一处; 同一个 GRPO 任务上标准 LoRA 也落后全参, 但原因是冻结了 RMSNorm 增益, 不是秩, 见本章「LoRA 做 RL」一段。',
         },
       ],
       links: [
@@ -897,6 +900,239 @@ for _ in range(2):                                   # 同一批更新 μ=2 次
       ],
       run: 'python -m llm_finetune.run_all',
     },
+
+    'finetune-rollout-mismatch': {
+      title: '训练-推理不一致 · 同一份权重, 两个概率',
+      subtitle: 'RL 框架用推理引擎采样、用训练器算梯度, 两边数值路径不同, 同一份权重算出的 token 概率也不同; 按同策略公式算的梯度其实是异策略的, 可以用 TIS、MIS 校正, 也可以把采样精度改成 FP16 从源头缩小差距。',
+      tldr: '记 $r = \\pi_{\\text{train}} / \\pi_{\\text{infer}}$ 为同一个 token 在训练器和推理引擎里的概率比, 它不恒等于 1, 样本其实来自 $\\pi_{\\text{infer}}$:\n- 来源: 推理引擎用融合算子、低精度和自己的 softmax 实现, 训练器用另一套算子重算。版本完全相同, 差在数值路径, 与异步 RL 的版本陈旧不是一回事。\n- 校正: TIS 给每个 token 乘 $\\min(r, C)$; MIS 把 $r > C$ 的 token 或整条序列丢掉; 也可以把采样侧精度从 BF16 换成 FP16。\n- 本库实测: 模拟的 bf16 引擎不一致是 fp16 的 8.2 倍; 不校正时梯度相对偏差 5.2%, 再加 INT4 权重是 42.7%, C=2 的 TIS 降到 1.7%。60 步 GRPO 在这个规模下没有因此失败。',
+      question: '推理引擎和训练器加载的是同一份权重、同一个版本, 为什么 GRPO 的梯度还会是异策略的? TIS 和 MIS 的阈值 C 设得越紧越安全吗?',
+      evolution: {
+        title: '从 "同一份权重就是同策略" 到逐 token 校正',
+        subtitle: '根问题: RL 的大部分时间花在生成 rollout 上, 为了吞吐要交给专门的推理引擎, 而推理引擎的数值路径和训练器不同。',
+        steps: [
+          { name: '推理引擎采样', pain: '(原点) RL 每步要生成大量 rollout, 用训练框架逐 token 生成太慢', fix: '采样交给 vLLM、SGLang 这类推理引擎, 训练器只算梯度; 每步同步同一份权重, 默认把样本当作同策略样本' },
+          { name: 'TIS', year: 2025, pain: '推理引擎的低精度和融合算子让同一个 token 的概率与训练器重算的不同, 样本其实来自 π_infer', fix: 'Yao et al. 给每个 token 乘 $\\min(\\pi_{\\text{train}}/\\pi_{\\text{infer}}, C)$, 把行为分布换回训练器的分布, 截断限制方差' },
+          { name: 'MIS', year: 2025, pain: '长序列和多轮工具调用里, 逐 token 截断仍会崩; 不一致集中在推理引擎认为不太可能的 token 上', fix: 'Liu et al. 把比率超过 C 的 token 或整条序列直接屏蔽, 不再截断后保留; 多轮工具调用里只有序列级校正可靠' },
+          { name: '采样改 FP16', year: 2025, pain: '校正只是事后补救, 不一致的根源是 BF16 只有 7 位尾数, 每次取整的误差大', fix: 'Qi et al. 把训练和推理都换成 FP16 (10 位尾数), 序列级不一致约小 24 倍; 代价是数值范围小, 要做 loss scaling' },
+        ],
+      },
+      code: 'llm_finetune/methods/is_correction.py · llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py',
+      points: [
+        {
+          title: '同一份权重, 两条数值路径: 样本来自 π_infer, 梯度按 π_train 算',
+          key: true,
+          body: '推理引擎和训练器每一步都加载同一份权重, 但前者用融合算子和低精度, 后者用另一套算子重算, 同一个 token 的概率 $\\pi_{\\text{infer}}$ 和 $\\pi_{\\text{train}}$ 并不相等。GRPO 按同策略公式把引擎采出的样本当成训练器自己的样本, 梯度的期望其实是在 $\\pi_{\\text{infer}}$ 下取的, 带着偏差。\n本库用 Engine 模拟推理引擎: 每次采样前拷贝训练器的权重, 只换 dtype。sort 任务的 2 层模型上, $|\\log r|$ 的均值是:\n- fp16: 0.00094。\n- bf16: 0.00771。\n- bf16 再加 INT4 权重 (模拟低精度 rollout): 0.0418。\n不一致集中在引擎认为不太可能的 token 上: $\\pi_{\\text{infer}} < 0.1$ 的 token, $|\\log r|$ 是 $\\pi_{\\text{infer}} > 0.9$ 的 37–67 倍。它和异步 RL 的版本陈旧不是一回事, 记录策略版本号解决不了它。',
+        },
+        {
+          title: '不校正时梯度有偏, 偏差随不一致变大',
+          body: '为了不被采样噪声淹没, 脚本不采样, 而是沿留出集 512 题的正确前缀, 在回复的每个位置对整个词表求和, 算出每种估计量的期望梯度, 再和真正的同策略梯度比:\n$$\\text{偏差} = \\|\\mathbb{E}[\\hat g] - g\\| \\, / \\, \\|g\\|$$\n这里 $g$ 是按 $\\pi_{\\text{train}}$ 取期望的真梯度, $\\hat g$ 是用引擎样本算出的梯度。不校正时三种引擎的相对偏差分别是 fp16 0.7%、bf16 5.2%、bf16+int4 42.7%。C=2 时 fp16 和 bf16 下没有比率超过 2 的 token, TIS 和 MIS 都等于完整的重要性采样, 偏差为 0; bf16+int4 下 TIS 降到 1.7%, MIS 降到 5.8%。',
+        },
+        {
+          title: 'TIS 截断, MIS 屏蔽: 阈值太紧时屏蔽比不校正还偏',
+          body: '两种校正在比率超过阈值 C 时处理方式不同:\n- TIS (截断重要性采样): 权重 $w_t = \\min(r_t, C)$, 过大的比率被截到 C, 这个 token 的梯度方向还在。\n- MIS (屏蔽重要性采样): 权重 $w_t = r_t \\cdot \\mathbb{1}[r_t \\le C]$, 超过阈值的 token 直接丢掉; 序列级 MIS 用整条回复的比率连乘 $\\rho = \\prod_t r_t$ 决定整条留不留。\n把 C 从 2 收到 1.1 时, bf16+int4 下 TIS 的偏差升到 11.8%, 仍低于不校正的 42.7%; MIS 把大量正常波动的 token 也丢掉了, 偏差升到 82.9%, 比不校正还大。阈值要放在真正的离群值上 (verl 里 TIS 阈值默认 2), 不能卡在正常的数值波动里。',
+        },
+        {
+          title: '把采样换成 FP16, 从源头缩小不一致',
+          body: 'BF16 和 FP16 都是 16 位, 分配不同: BF16 是 8 位指数、7 位尾数, 范围大精度低; FP16 是 5 位指数、10 位尾数, 每次取整的相对误差小 8 倍。本库模拟的 bf16 引擎 $|\\log r|$ 均值 0.00771, fp16 引擎 0.00094, 相差 8.2 倍, 不校正时的梯度偏差也从 5.2% 降到 0.7%。\nQi et al. (arXiv 2510.26788) 把训练和推理都改成 FP16, 报告序列级不一致约小 24 倍, 在 BF16 上要靠序列级 MIS 才稳住的训练直接变稳。代价是 FP16 的数值范围小, 训练要做 loss scaling, 这是混合精度训练早期的老问题。',
+        },
+        {
+          title: '边界: 这个规模下不一致没有让训练失败',
+          body: '从 sort 任务 SFT 150 步的同一个起点出发, 每步 32 题 × 8 条, 60 步 GRPO, 留出集采样 pass@1 (起点 0.186):\n- fp32 引擎 (无不一致): 0.324。\n- bf16 引擎, 不校正: 0.303。\n- bf16+int4 引擎: 不校正 0.316, TIS 0.297, 序列级 MIS 0.318 (平均屏蔽 0.45% 的 token)。\n五臂都比起点高, 彼此的差别在单种子噪声内, 不能读成哪种校正更好。偏差 42.7% 的梯度和真梯度方向仍大体一致, 短训练照样能往上走。Yao et al. 和 Liu et al. 报告的崩溃发生在长时间训练、长推理和多轮工具调用里, 回复只有 9 个 token、训练 60 步的玩具看不到; 推理引擎也是用 dtype 和权重取整模拟的, 没有融合算子和并行切分。',
+        },
+      ],
+      links: [
+        { from: 'GRPO 的 old_logp', to: '训练器重算的 π_train', body: 'GRPO 章的重要性比率 $\\rho = \\pi_\\theta / \\pi_{\\text{old}}$ 处理的是同一批 rollout 更新多次带来的偏移; 本章的校正权重乘在它外面, 处理的是采样引擎和训练器之间的偏移, 两者相乘。' },
+        { from: '异步 rollout 的版本号', to: '同版本的数值路径', body: '异步 RL 里训练器到了 v3, 队列里还有 v1 的样本, 差的是版本; 本章版本完全相同, 差的是算子和精度。两个问题可以同时存在。' },
+        { from: 'qat.quantize_dequantize', to: 'Engine 的 INT4 权重', body: '模拟低精度 rollout 时复用了量化感知训练章的分组对称取整, 每 32 个权重共用一个 scale。' },
+        { from: 'is_weights', to: '下一章 RLVR', body: '校正权重只改变每个样本的分量, 不改变奖励; 奖励本身靠不靠得住, 是下一章的问题。' },
+      ],
+      sourceRows: [
+        { concept: '三种校正权重', code: 'llm_finetune/methods/is_correction.py:is_weights', takeaway: 'none / tis / mis_token / mis_seq 四种模式, 权重全部 detach, 只改变每个 token 的分量, 不参与求导。' },
+        { concept: '不一致的摘要', code: 'llm_finetune/methods/is_correction.py:mismatch_stats', takeaway: '只统计 EOS 之前的 token: |log r| 的均值与最大值、超出 [1/C, C] 的 token 比例、序列级比率超过 C 的序列比例。' },
+        { concept: '模拟的推理引擎', code: 'llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py:Engine', takeaway: '每次采样前 load_state_dict 同步训练器权重, 版本差为 0; 只换 dtype, 可选再把线性层权重取整到 INT4。' },
+        { concept: '精确的梯度偏差', code: 'llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py:bias_report', takeaway: '沿正确前缀逐位置对词表求和, 系数 detach 后反传, 得到每种估计量的期望梯度, 不含采样噪声。' },
+        { concept: '带校正的 GRPO', code: 'llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py:grpo_arm', takeaway: 'rollout 由 Engine 采, old_logp 由训练器 fp32 重算, 校正权重乘在裁剪目标外面。' },
+      ],
+      snippetTitle: '校正权重乘在 GRPO 裁剪目标外面',
+      snippet: `engine.sync(policy)                                  # 同一份权重, 版本差 0
+seqs = engine.generate(prompts, max_new)             # 样本来自 π_infer
+with torch.no_grad():
+    old_lp   = logprobs(policy, seqs)                # 训练器重算: π_train
+    infer_lp = logprobs(engine, seqs)                # 引擎自己的: π_infer
+r = (old_lp - infer_lp).exp()
+w = r.clamp(max=C)                                   # TIS
+# w = r * (r <= C)                                   # token 级 MIS
+# rho = r.prod(1); w = rho * (rho <= C)              # 序列级 MIS
+
+for _ in range(mu):
+    ratio = (logprobs(policy, seqs) - old_lp).exp()  # GRPO 自己的 ρ, 不变
+    surr = torch.min(ratio * A, ratio.clamp(1 - eps, 1 + eps) * A)
+    loss = aggregate(-w * surr, mask)`,
+      source: [
+        'llm_finetune/methods/is_correction.py:is_weights',
+        'llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py:Engine',
+        'llm_finetune/run_finetune/rollout_mismatch/train_rollout_mismatch.py:grpo_arm',
+      ],
+      run: 'python -m llm_finetune.run_finetune.rollout_mismatch.train_rollout_mismatch',
+      related: [
+        { route: 'finetune-grpo-variants', label: 'GRPO 的重要性比率与异步 rollout', reason: '本章的校正权重乘在 GRPO 裁剪目标外面; 异步 rollout 的版本陈旧在 GRPO 章末讲, 与本章的数值不一致是两种偏移。' },
+        { route: 'finetune-qat', label: '量化感知训练', reason: '低精度 rollout 的 INT4 权重用的是 QAT 章的分组对称取整; 那一章讨论的是让训练本身适应量化误差。' },
+      ],
+    },
+
+    'finetune-reasoning': {
+      title: '推理模型的训练面 · 长 CoT 蒸馏、思考开关与思考预算',
+      subtitle: '小模型靠蒸馏大模型的长推理轨迹学会思考; 同一个模型用 /think 与 /no_think 切换是否思考, 用预算 token 或强制截断控制想多久。每个思考 token 都是一次额外的前向计算, 省掉它就要在一次前向里默算。',
+      tldr: '推理模型在回答前先写一段思考, 训练时要定三件事:\n- 从哪学会思考: DeepSeek-R1 用 800k 条样本把长推理轨迹 SFT 进小模型。本库 4 步模 10 算术链上, 只学答案的模型正确率 0.158, 学完整轨迹的 0.996, 代价是输出从 3 个 token 变成 15 个。\n- 要不要思考: Qwen3 把两种格式混训, 非思考样本保留空的思考块。本库融合模型 /think 1.000, /no_think 0.156 且恰好输出 3 个 token。\n- 想多久: s1 到预算就强制结束思考, L1 用 RL 学听从目标长度。本库的取舍是一个台阶: 少写一步, 正确率就掉回 0.13–0.17, 因为 2 层模型一步也默算不了。',
+      question: '思考 token 只是把答案说得更详细, 还是真的在做计算? 把思考长度砍掉一半, 正确率会按比例下降吗?',
+      evolution: {
+        title: '从会思考到控制想多久',
+        subtitle: '根问题: 模型一次前向能做的串行计算有限, 多步推理要靠一步一步写出来, 每个 token 都花算力和延迟。',
+        steps: [
+          { name: '只学答案', pain: '(原点) 多步推理题直接让模型输出答案, 一次前向里要完成全部串行计算', fix: '只在 (题目, 答案) 上 SFT: 本库 4 步算术链的留出集正确率 0.158, 只比瞎猜的 0.1 高一点' },
+          { name: '长 CoT 蒸馏', year: 2025, pain: '小模型容量有限, 一次前向算不完多步, 而大模型能写出长推理轨迹', fix: 'DeepSeek-R1 用大模型的 800k 条轨迹对小模型做 SFT; 本库长轨迹 SFT 正确率 0.996, 输出从 3 个 token 变成 15 个' },
+          { name: '思考模式融合', year: 2025, pain: '简单问题也要写满思考, 延迟和算力白花; 维护两个模型又要两份权重', fix: 'Qwen3 把思考与非思考格式混训, 非思考样本保留空的思考块, 用户写 /think 或 /no_think 切换' },
+          { name: '思考预算', year: 2025, pain: '开关只有两档, 中等难度的题需要思考但不需要写满', fix: 's1 到预算就追加结束分隔符, L1 用 RL 学听从目标长度; 本库用预算 token 做 SFT, 取舍呈台阶' },
+        ],
+      },
+      code: 'llm_finetune/run_finetune/reasoning/train_reasoning.py · llm_finetune/methods/prm.py',
+      points: [
+        {
+          title: '思考 token 是额外的串行计算, 不只是把答案说详细',
+          key: true,
+          body: '题目是 4 步模 10 算术链: 起始数字 a0, 依次做 4 次 +, −, × 一个数。两个结构相同的 2 层模型各从头 SFT 1500 步, 留出集 512 题贪心解码:\n- 只学答案 (回复是 </think> ans EOS): 正确率 0.158, 输出 3 个 token。\n- 学老师的完整轨迹 (每步写一行 "op k 结果", 最后给答案): 正确率 0.996, 输出 15 个 token。\n只学答案的模型要在一次前向里算完 4 次运算, 2 层模型做不到; 长轨迹每写一行就多一次前向, 每次只算一步。DeepSeek-R1 用 R1 整理的 800k 条样本对 Qwen、Llama 小模型做 SFT, 也是这个道理: R1-Distill-Qwen-7B 在 AIME 2024 上 pass@1 55.5; 在 Qwen-32B 上, 蒸馏版 72.6 高于直接做大规模 RL 的 47.0。',
+        },
+        {
+          title: '一个模型两种模式: 开关决定花多少 token',
+          body: 'Qwen3 在推理 RL 之后的第 3 阶段继续 SFT, 把思考与非思考两种格式混在一起训: 用户在消息里写 /think 或 /no_think 切换, 多轮对话里以最后一个标志为准; 非思考模式的样本保留一个空的思考块, 两种模式的输出格式一致。\n本库照这个做法, 在长轨迹模型上继续 SFT 500 步, 数据是两种格式各一半:\n- /think: 正确率 1.000, 输出 15 个 token, 和单独的长轨迹模型 (0.996) 一样。\n- /no_think: 正确率 0.156, 恰好输出 3 个 token, 和单独的只答案模型 (0.158) 一样。\n同一份权重里装下了两种行为, 部署只需要一个模型; 开关决定了写多少步, 也就决定了能算多少步。',
+        },
+        {
+          title: '预算 token: 模型学会按预算写, 但取舍是一个台阶',
+          body: 'L1 (arXiv 2503.04697) 在 prompt 里写 "Think for N tokens.", 用 RL 训练, 奖励是答对减去 $\\alpha$ 乘以长度偏差 (L1-Exact 取 $\\alpha = 0.0003$)。本库简化成 SFT: prompt 里写预算 token $B_b$, 回复只写前 $b$ 步, $b$ 从 0 到 4 均匀取, 在长轨迹模型上继续训 500 步。\n每一档的平均输出长度都恰好是 $3b + 3$ 个 token, 模型学会了按预算写。正确率却不随预算平滑变化: $b = 0, 1, 2, 3$ 时是 0.160、0.131、0.145、0.166, 只有 $b = 4$ 跳到 0.998。少写一步, 那一步就要在回答那一次前向里默算, 而这个模型一步也默算不了; 把混训步数加到 3000, $b = 3$ 也只到 0.178。',
+        },
+        {
+          title: '强制截断: 没学过写一半就答, 截断后等于瞎猜',
+          body: 's1 (arXiv 2501.19393) 的 budget forcing 不训练, 只在推理时干预: 思考到预算就追加结束分隔符, 强制模型作答; 想让它多想, 就压住结束分隔符再追加 "Wait"。Qwen3 的思考预算也是在达到阈值时插入一句提示再接 </think>, 报告说这个能力不是专门训练出来的。\n本库拿长轨迹模型做同样的事, 写完 $b$ 步就硬插 </think>:\n- $b = 4$: 等于不截断, 0.996。\n- $b = 0 \\ldots 3$: 0.072–0.113, 等于 10 选 1 的瞎猜, 低于同一档的预算 token 模型。\n长轨迹模型从没在 "思考到一半" 的状态下作答过, 预算 token 模型至少学到了只答案模型的那点先验。',
+        },
+        {
+          title: '边界: 轨迹每一步都必要, 所以压不掉长度',
+          body: '本例的老师是程序, 轨迹没有一步多余, 2 层模型又没有默算能力, 所以少写一步就丢一步计算。真实的长 CoT 里有反思、回溯和重复检查, 大模型一次前向也能默算更多, L1 这类方法因此能把长度压下来而只掉少量分数: 论文报告在同样的推理长度下比 s1 高出最多 20 个百分点。\n其他边界:\n- 长度控制用 SFT 学, 模型没有机会像 RL 那样自己发现更短的解法。\n- s1 的 "Wait" 延长没有做: 链长固定, 写满就是全部计算。\n- 单种子, 2 层模型, $K = 4$; 台阶的位置取决于模型容量, 更大的模型会左移。',
+        },
+      ],
+      links: [
+        { from: 'PRM 的算术链', to: '本章的思考轨迹', body: 'PRM 章用同一种模 10 算术链给每一步打分; 本章让模型自己把每一步写出来, 研究写多少步。' },
+        { from: 'RLVR 的 verify', to: 'L1 的长度奖励', body: 'L1 的奖励是可验证奖励再减去长度偏差; 上一章讲的看题判分仍是它的第一项。' },
+        { from: '思考 token 数', to: '推理阶段的 test-time compute', body: '思考预算是训练侧的控制; 推理阶段还有并行采样、投票和树搜索这类不改模型的花算力方式。' },
+      ],
+      sourceRows: [
+        { concept: '带模式 token 的算术链', code: 'llm_finetune/run_finetune/reasoning/train_reasoning.py:ArithCoT', takeaway: 'prompts 末尾放模式 token (/think、/no_think 或 B0…B4), responses 按预算只写前 b 步再接 </think> ans EOS, 右 pad 后交给 make_labels。' },
+        { concept: '混训数据', code: 'llm_finetune/run_finetune/reasoning/train_reasoning.py:ChainData', takeaway: '每条样本从 budgets 里均匀抽一个 b, mode_of(b) 给出模式 token; 只答案、长轨迹、融合、预算四种模型只差这两个参数。' },
+        { concept: '评估与强制截断', code: 'llm_finetune/run_finetune/reasoning/train_reasoning.py:evaluate', takeaway: '贪心解码, 取 </think> 后的第一个 token 判对错; force_after=b 时先只生成 3b 个 token, 再硬插 </think> 让模型作答。' },
+        { concept: '每步的运算', code: 'llm_finetune/methods/prm.py:apply_op', takeaway: '与 PRM 章共用的模 10 加、减、乘。' },
+      ],
+      snippetTitle: '同一道题的三种回复格式',
+      snippet: `prompt = [a0, op1, k1, ..., op4, k4, MODE, SEP]
+
+# /think: 老师的完整轨迹, 每步一行 "op k 结果"
+think    = [op1, k1, v1, ..., op4, k4, v4, END_THINK, v4, EOS]
+# /no_think: 空的思考块
+no_think = [END_THINK, v4, EOS]
+# 预算 B_b: 只写前 b 步, 剩下的步数要默算
+budget_b = steps[:3 * b] + [END_THINK, v4, EOS]
+
+# s1 式强制截断: 推理时写完 b 步就硬插 END_THINK
+head = model.generate(prompt, 3 * b)
+out  = model.generate(head + [END_THINK], 2)`,
+      source: [
+        'llm_finetune/run_finetune/reasoning/train_reasoning.py:ArithCoT',
+        'llm_finetune/run_finetune/reasoning/train_reasoning.py:evaluate',
+      ],
+      run: 'python -m llm_finetune.run_finetune.reasoning.train_reasoning',
+      related: [
+        { route: 'finetune-prm', label: 'PRM · 逐步打分', reason: '同一种模 10 算术链; PRM 给每一步打分, 本章研究让模型写多少步。' },
+        { route: 'infer-test-time-compute', label: '推理时花更多算力', reason: '思考预算是训练出来的长度控制; 推理阶段的并行采样、投票和搜索不改模型也能多花算力。' },
+      ],
+    },
+
+    'finetune-qat': {
+      title: 'QAT 量化感知训练 · 前向假量化, 反向直通',
+      subtitle: '训练后量化 (RTN / GPTQ / AWQ) 是训完再压, 位宽一低就掉点; QAT 在训练时就让每次前向用量化再反量化的权重, 用直通估计器 STE 让梯度穿过取整, 模型学会落在量化格点上也能用的权重。',
+      tldr: 'QAT (quantization-aware training) 的前向用假量化后的权重 $\\hat w$, 反向用 STE 把取整当恒等函数, 梯度原样交给高精度的影子权重:\n- 写法: $w + (\\hat w - w).\\mathrm{detach}()$ 一行, 前向值是 $\\hat w$, 对 $w$ 的导数是 1。\n- 本库实测 (reverse 任务, 留出集 EM): 2 层小模型的 INT4 RTN 不掉点 (0.996); INT2 g=32 直接 RTN 掉到 0.176, QAT 100 步后部署回到 0.961, 同样多训 100 步但不加假量化的对照只有 0.164。\n- 真实系统: Gemma 3 发布了 QAT 版本, Q4_0 的 perplexity 下降减少 54%; Kimi K2 Thinking 在后训练做 QAT, 原生 INT4 推理。',
+      question: 'round 的导数几乎处处为 0, QAT 的梯度是怎么传回去的? 训练后量化已经有 GPTQ、AWQ, 为什么 Gemma 3 和 Kimi K2 Thinking 还要专门做 QAT?',
+      evolution: {
+        title: '从训完再压到带着量化误差训练',
+        subtitle: '根问题: 部署时权重要压到 4 位甚至更低以省显存和带宽, 而模型训练时从来没见过量化误差。',
+        steps: [
+          { name: 'RTN', pain: '(原点) 部署要把 16 位权重压到 4 位, 最直接的做法是训完之后逐个就近取整', fix: '每组权重共用一个 scale, 就近取整到整数格点: 不用数据、不用训练, 但每个权重的误差各算各的, 低位宽时掉点' },
+          { name: 'GPTQ / AWQ', year: 2023, pain: 'RTN 不看输入, 误差大的权重恰好对着大激活时, 输出误差被放大', fix: '用少量校准数据: GPTQ 逐列取整并用剩下的列补偿误差, AWQ 按激活大小保护重要通道; 仍是训完再压' },
+          { name: '假量化前向', pain: '训练后量化只能事后补偿, 模型权重本身从没适应过量化格点', fix: 'Jacob et al. (2018) 在训练前向里插入量化再反量化 (fake quant), loss 看到的就是部署时的权重; 权重本身仍以浮点存储' },
+          { name: 'STE + 分组 INT4', pain: '取整的导数几乎处处为 0, 假量化后的前向没法把梯度传回影子权重', fix: 'STE 把取整当恒等函数, 写成 w + (ŵ − w).detach(); 本库 INT2 g=32 的 EM 从 RTN 的 0.176 回到 0.961' },
+        ],
+      },
+      code: 'llm_finetune/methods/qat.py · llm_finetune/run_finetune/qat/train_qat.py',
+      points: [
+        {
+          title: '前向用假量化的权重, 反向用 STE 把梯度传回影子权重',
+          key: true,
+          body: '分组对称量化: 每 $g$ 个权重共用一个 scale $s = \\max|w_{\\text{group}}| / q_{\\max}$, 其中 INT4 的 $q_{\\max} = 7$; 每个权重取整成 $q = \\mathrm{clamp}(\\mathrm{round}(w/s), -q_{\\max}, q_{\\max})$, 再乘回 $s$ 得到 $\\hat w$。QAT 每次前向都用 $\\hat w$, 部署时用的也是同一个 $\\hat w$, 本库实测训练最后一步与部署后的 logits 最大差为 0。\n问题在反向: round 的导数几乎处处为 0。STE (straight-through estimator, Bengio et al. 2013 起的名字) 在反向时把取整当成恒等函数, 代码写成 $w + (\\hat w - w).\\mathrm{detach}()$: 前向值是 $\\hat w$, detach 那一项没有梯度, 对 $w$ 只剩恒等路径。脚本的单测里, 这样得到的梯度与上游梯度逐位相同; 不用 STE 时 32 个权重里只有 8 个拿到梯度, 正好是每组 absmax 那一个, 它经过 scale 才有导数。',
+        },
+        {
+          title: 'RTN 掉多少取决于位宽和组大小; 小模型对 INT4 不敏感',
+          body: 'reverse 任务 SFT 600 步的 2 层模型 (留出集 EM 1.000), 7 种线性层做 RTN (embedding 和 lm_head 保持高精度):\n- INT4: g=8、32、64 都是 0.996, 几乎不掉点。\n- INT3: 0.980、0.973、0.945。\n- INT2: 0.559、0.176、0.004。\n组越小, 一个大权重影响的同组权重越少, 误差越小; 代价是每组多存一个 fp16 scale, 每个权重的平均位数是 $\\text{bits} + 16/g$, INT2 g=8 已经是 4.0 位。\n这个规模下 INT4 不掉点, 是因为 d_model=64 的小模型权重分布窄、没有离群值。真实 LLM 的激活和权重里有离群通道, INT4 RTN 会掉点, 这也是推理阶段要用 GPTQ、AWQ 的原因。所以本章的 QAT 效果在 INT2 上看。',
+        },
+        {
+          title: 'QAT 100 步把 INT2 拿回来, 恢复来自假量化而不是多训',
+          body: '从 fp32 基线出发, 把线性层换成 FakeQuantLinear 再训 100 步 (lr=1e-3), 训完 RTN 部署。对照组用同样的步数和 lr, 但前向不加假量化, 训完再 RTN。留出集 EM:\n- INT2 g=8: 直接 RTN 0.559, 多训再 RTN 0.484, QAT 0.977。\n- INT2 g=32: 0.176, 0.164, 0.961。\n- INT2 g=64: 0.004, 0.000, 0.953。\n- INT4 g=32: 0.996, 0.988, 0.988, QAT 在这里没有额外收益。\n对照组说明恢复来自 "训练时看见了量化误差", 不是多训了 100 步。QAT 之后组大小几乎不再重要, g=64 每个权重只要 2.2 位也有 0.953。',
+        },
+        {
+          title: '真实系统: Gemma 3 与 Kimi K2 Thinking 的 QAT',
+          body: 'QAT 在大模型上的做法和本库有三处不同, 数据、目标和量化范围都更讲究:\n- LLM-QAT (arXiv 2305.17888): 用预训练模型自己生成的数据做蒸馏, 不依赖原始训练集; 同时量化权重、激活和 KV cache, LLaMA-30B 在权重 4 位、激活 8 位、KV 4 位下只比全精度低 1.5 分。\n- Gemma 3 QAT (Google 官方博客, 2025-04-18): 以非量化 checkpoint 的概率为目标做约 5,000 步 QAT, 量化到 Q4_0 时 perplexity 的下降减少 54%; 27B 的权重从 54 GB (BF16) 降到 14.1 GB。\n- Kimi K2 Thinking (Moonshot 官方说明): 后训练阶段做 QAT, 对 MoE 部分做 INT4 weight-only 量化, 原生 INT4 推理的生成速度约快 2 倍, 所有基准分数都在 INT4 下报告。\n本库用任务数据和交叉熵做 QAT, 只量化权重, scale 每步按 absmax 现算、不学习。',
+        },
+        {
+          title: '和训练后量化、QLoRA 分清楚',
+          body: '三种做法都和 4 位权重有关, 区别在量化发生在什么时候、量化的权重还训不训:\n- 训练后量化 (RTN、GPTQ、AWQ, 推理阶段的量化章): 模型训完再压, 不改训练, 最多用一点校准数据补偿误差。\n- QLoRA (本阶段): 把冻结的基座压成 NF4 省显存, 基座不训练, 梯度只进高精度的 LoRA 支路; 合并后通常保持 16 位, 重新量化会抹掉一部分刚学到的 $\\Delta W$。\n- QAT (本章): 训练的就是将要被量化的那份权重, 前向用假量化, 训完直接取整部署。\nQAT 的代价是要训练: 要有数据, 要有和全参训练同量级的显存, 还要防 STE 带来的振荡 (影子权重在格点边界附近来回跳)。',
+        },
+      ],
+      links: [
+        { from: 'qlora.NF4Linear', to: 'FakeQuantLinear', body: 'QLoRA 的 NF4 权重是 buffer, 没有梯度; QAT 的影子权重是可训参数, 前向时现场假量化。两者都靠 lora.replace_linears 按属性名替换 7 种线性层。' },
+        { from: '推理阶段 RTN / AWQ', to: '本章 QAT', body: '训练后量化是 QAT 的对照组: 本章脚本里 "直接 RTN" 那一列就是训练后量化的最简单形态。' },
+        { from: 'rtn_quantize_', to: '模型交付', body: 'QAT 训完调用 rtn_quantize_ 把影子权重取整成普通 nn.Linear, 下一章讲交付包时要把量化配置一起写进清单。' },
+      ],
+      sourceRows: [
+        { concept: '分组对称取整', code: 'llm_finetune/methods/qat.py:quantize_dequantize', takeaway: '沿输入维每 group_size 个一组, scale = absmax / q_max, round 后 clamp 到 [−q_max, q_max] 再乘回 scale; 训练和部署共用这一个函数。' },
+        { concept: 'STE', code: 'llm_finetune/methods/qat.py:fake_quant', takeaway: 'w + (ŵ − w).detach(): 前向值是 ŵ, 反向对 w 的导数是 1。' },
+        { concept: '假量化线性层', code: 'llm_finetune/methods/qat.py:FakeQuantLinear', takeaway: '直接接管原 nn.Linear 的 weight 与 bias, 不复制; 前向用 fake_quant 后的权重。' },
+        { concept: '部署', code: 'llm_finetune/methods/qat.py:rtn_quantize_', takeaway: '把 nn.Linear 或 FakeQuantLinear 换成权重为 ŵ 的普通 nn.Linear; 训练后量化和 QAT 部署都走它。' },
+        { concept: '对照实验', code: 'llm_finetune/run_finetune/qat/train_qat.py:main', takeaway: '每种配置跑两臂: 前向加假量化与不加, 步数和 lr 相同, 训完都 RTN, 把 "多训了几步" 的影响扣掉。' },
+      ],
+      snippetTitle: '假量化与 STE',
+      snippet: `def quantize_dequantize(w, bits=4, g=32):
+    q_max = 2 ** (bits - 1) - 1                     # INT4: 7
+    grp   = w.reshape(d_out, d_in // g, g)
+    s     = grp.abs().amax(-1, keepdim=True) / q_max
+    q     = (grp / s).round().clamp(-q_max, q_max)
+    return (q * s).reshape(d_out, d_in)
+
+def fake_quant(w):
+    return w + (quantize_dequantize(w) - w).detach()   # 前向 ŵ, 反向恒等
+
+class FakeQuantLinear:
+    def forward(self, x):
+        return F.linear(x, fake_quant(self.weight), self.bias)
+
+# 训完部署: 把影子权重取整成普通 Linear
+layer.weight = quantize_dequantize(layer.weight)`,
+      source: [
+        'llm_finetune/methods/qat.py:quantize_dequantize',
+        'llm_finetune/methods/qat.py:fake_quant',
+        'llm_finetune/methods/qat.py:FakeQuantLinear',
+      ],
+      run: 'python -m llm_finetune.run_finetune.qat.train_qat',
+      related: [
+        { route: 'finetune-qlora', label: 'QLoRA · NF4 量化基座', reason: 'QLoRA 的量化基座冻结不训练, 本章训练的正是要被量化的权重。' },
+        { route: 'infer-quant-awq', label: '训练后量化 AWQ / GPTQ', reason: '训练后量化不改训练, 用校准数据补偿误差; 本章 "直接 RTN" 那一列是它最简单的形态。' },
+      ],
+    },
   },
 }
 
@@ -978,7 +1214,7 @@ topic.pages["finetune-knowledge-update"] = {
   "run": "python -m llm_finetune.run_finetune.knowledge_edit.demo"
 }
 topic.pages["finetune-runs"].points.push({"title": "模型交付包: 跨进程加载必须绑定词表与模板契约", "body": "训练产出的权重张量离开配套的输入输出约定就无法独立工作: 哪怕权重逐位一致, 只要线上服务换了不同顺序的词表或少一个换行符的对话模板, 模型收到的整数序列就会面目全非。因此完整的模型交付包必须将架构参数、权重文件、词表与特殊控制符、Chat Template、默认解码超参、基座标识与量化配置统一写入可信清单 (manifest)。\nartifact_delivery 训练一个小 LLaMA 并在全新独立进程中做加载核验: 完整 FP32 包在新进程中的 token、logits 与贪心输出误差全为 0.0; int8 存储反量化包需按实测误差 (0.008654) 设定明确容差; 而词表错配、模板错配或基座标识不符 (实验里换的是基座名, 没有核对基座权重摘要) 的包在加载入口即被直接拦截拒收 (注意单纯核对文件 SHA 哈希只能防传输损坏, 拦不住有人调换词表顺序后重算哈希, 必须由可信 manifest 校验语义契约)。"})
-topic.pages["finetune-grpo-variants"].points.push({"title": "异步 RL 流水线: 追踪策略版本号与行为概率校正陈旧样本", "body": "工业级强化学习常将自回归采样器与梯度训练器异步解耦并行运行: 当训练器已将策略推进到 v3 时, 经验队列里送来的可能仍是 v1 采出的旧轨迹。因此每条 rollout 在生成当下就必须绑定当时的策略版本号与真实行为对数概率 behavior_logp (绝不能事后用训练器重算代替, 因为推理引擎的量化精度或采样截断往往与训练端存在细微差异)。\nasync_rollout 在真实期望奖励已知为 0.8 的双动作模型上对比四种陈旧样本处理策略: 直接当新样本用期望跌回旧策略的 0.2; 乘重要性比率无偏校正可恢复期望 0.8, 但有效样本量比例 (ESS) 缩水至 0.3077; 将比率裁剪在 [0.8, 1.2] 以有偏 (0.24) 换回低方差 (ESS = 0.968); 超出版本容忍度则直接拒收跳过更新, 配合有界队列背压与取消任务计数回收保障异步管线稳定。"})
+topic.pages["finetune-grpo-variants"].points.push({"title": "异步 RL 流水线: 追踪策略版本号与行为概率校正陈旧样本", "body": "工业级强化学习常将自回归采样器与梯度训练器异步解耦并行运行: 当训练器已将策略推进到 v3 时, 经验队列里送来的可能仍是 v1 采出的旧轨迹。因此每条 rollout 在生成当下就必须绑定当时的策略版本号与真实行为对数概率 behavior_logp (不能事后用训练器重算代替: 推理引擎的量化精度、融合算子或采样截断会让同一个 token 的概率与训练端不同。即使版本完全相同, 这种数值差异也会让梯度变成异策略的, 见下一章「训练-推理不一致」)。\nasync_rollout 在真实期望奖励已知为 0.8 的双动作模型上对比四种陈旧样本处理策略: 直接当新样本用期望跌回旧策略的 0.2; 乘重要性比率无偏校正可恢复期望 0.8, 但有效样本量比例 (ESS) 缩水至 0.3077; 将比率裁剪在 [0.8, 1.2] 以有偏 (0.24) 换回低方差 (ESS = 0.968); 超出版本容忍度则直接拒收跳过更新, 配合有界队列背压与取消任务计数回收保障异步管线稳定。"})
 topic.pages["finetune-sft"].related = [{"route": "agent-trajectory-learning", "label": "RFT: 先采样, 再筛选, 再做 SFT", "reason": "本章仅从训练样本来源角度介绍 RFT 如何复用交叉熵损失; SFT、RFT 与在线 RL 三个分支的并行对照实验及逐步执行记录详见该章。"}, {"route": "finetune-knowledge-update", "label": "知识编辑: 改对一个事实, 伤到多少邻居", "reason": "SFT 用于拟合一类任务的整体输出分布; 若只需定向修改模型参数记住的某一条事实, 则需采用参数级知识编辑算法并按四项指标联合验收, 详见该章。"}]
 topic.pages["finetune-rlhf"].related = [{"route": "basic-optim-sample", "label": "复习 softmax 温度", "reason": "两章共用同一套温度缩放公式 $\\mathrm{softmax}(z/T)$: 基础篇演示温度如何调节解码分布的锐度, 本章进一步将其用于在线采样探索与软标签知识蒸馏。"}]
 topic.pages["finetune-knowledge-update"].related = [{"route": "agent-memory-privacy", "label": "应用记忆的删除", "reason": "清除应用侧存储的单条记忆记录属于应用层数据治理, 关联章节专门讨论记忆的授权、过期与删除机制; 而训练阶段留在模型参数中的统计印记无法随之自动消失, 必须按本章方法单独执行参数遗忘与独立验证。"}]
@@ -1003,3 +1239,224 @@ topic.pages['finetune-lora'].subtitle = '冻结预训练基座、只在旁路更
 for (const chapter of topic.chapters) chapter.label = chapterLabels[chapter.route] || chapter.label
 
 canonicalizeRelated(topic)
+
+// 补充段: 进阶 · LoRA 做 RL: 每个 episode 只带回约 1 bit
+topic.pages['finetune-lora'].sections = [...(topic.pages['finetune-lora'].sections || []), {
+  id: 'lora-rl',
+  title: '进阶 · LoRA 做 RL: 每个 episode 只带回约 1 bit',
+  tldr: '本章前面 "同步数下全参优于 LoRA" 的结论是在 SFT 上量的。RL 一侧另有一笔信息量的账: 策略梯度每个 episode 只靠一个优势值学习, 带回 O(1) bit, 低秩适配器的容量通常够用, Thinking Machines 报告秩 1 的 LoRA 就能追平全参。\n- 本库实测: 同一个 GRPO 任务上, 标准 LoRA (norm 和 embedding 冻结) 没有追平全参, 采样 pass@1 r=1 0.193、全参 0.324。\n- 差距不在秩: 线性层满秩可训的对照也只有 0.223; 给 r=1 再放开 320 个 RMSNorm 增益就到 0.301, 只训这 320 个增益到 0.502。',
+  question: 'RL 上秩 1 的 LoRA 为什么可能就够用? 本库的小模型上标准 LoRA 追不上全参, 缺的是秩还是别的参数?',
+  labNames: ['FtLoraRlLab'],
+  evolution: {
+    title: '从照搬 SFT 的结论到按信息量算账',
+    subtitle: '根问题: 适配器的容量要装下训练数据带来的信息, 而 RL 与 SFT 每条样本带来的信息量差几个数量级。',
+    steps: [
+      { name: '照搬 SFT 的结论', pain: '(原点) SFT 上同步数全参优于 LoRA (EM 0.809 vs 0.352), 由此推断 RL 也得用大秩或全参', fix: 'RL 训练里按 SFT 的经验配大秩适配器或直接全参, 显存和权重同步的开销都按大模型算' },
+      { name: '按信息量算账', year: 2025, pain: 'SFT 每条样本逐 token 监督, RL 每个 episode 只有一个优势值, 两者需要的容量不该一样', fix: 'LoRA Without Regret: 策略梯度每个 episode 带回 O(1) bit, 秩 1 的 LoRA 已能追平全参; 最优 lr 约为全参的 10 倍' },
+      { name: '本库实测', pain: '容量够不等于学得动: 本库标准 LoRA r=1 的 RL pass@1 只有 0.193, 全参 0.324', fix: '满秩线性层也只有 0.223; 放开 320 个 RMSNorm 增益后 r=1 到 0.301, 瓶颈在冻结了哪些参数' },
+    ],
+  },
+  points: [
+    {
+      title: 'RL 每个 episode 只带回约 1 bit, 低秩适配器装得下',
+      key: true,
+      body: 'Thinking Machines 的 LoRA Without Regret (Schulman 等, 2025-09-29) 报告, 用策略梯度做 RL 时 LoRA 的学习曲线与全参一致, 秩 1 也成立。他们给出的理由是一笔信息量的账:\n- SFT: 每条样本对每个 token 都给出目标, 带回 O(token 数) bit。\n- 策略梯度: 每个 episode 只靠一个优势值学习, 带回 O(1) bit; episode 有几千个 token 时, RL 每个训练 token 吸收的信息约少 1000 倍。\n- 容量: 按每个参数约存 2 bit 估 (原文引用 Allen-Zhu & Li)。MATH 上 1 万题各采 32 次约 32 万 bit, Llama-3.1-8B 秩 1 的 LoRA 已有约 300 万参数。\n同一篇博客也给出了边界: SFT 数据量超过 LoRA 容量时 LoRA 落后全参; LoRA 要加到包括 MLP 在内的所有层, 只加注意力明显更差; LoRA 的最优 lr 约为全参的 10 倍, 100 步以内的短训练约 15 倍。',
+    },
+    {
+      title: '本库实测: 标准 LoRA 在 GRPO 上没有追平全参',
+      body: '起点与 GRPO 章相同 (sort 任务 SFT 150 步), 每种配置跑 60 步 GRPO (32 prompt × G=8), 扫 2 个 lr 取留出集采样 pass@1 最好的一臂:\n- 全参 (99,648 个参数): 0.186 升到 0.324。\n- LoRA r=1 (2,432 个参数, 注入全部 7 种线性层, α=16): 0.193, 只涨 0.007。\n- LoRA r=8 (19,456 个参数): 0.221。\nLoRA 最好的 lr (1e-3 到 3e-3) 是全参 (3e-4) 的 3 到 10 倍, 与博客的倍数同一量级。这个规模上博客的结论没有照原样成立, 下一条说明缺的是什么。数字是单种子, 评估噪声约 ±0.03。',
+    },
+    {
+      title: '差距不在秩, 在冻结了 RMSNorm 增益',
+      body: '两组对照把原因定位到 "哪些参数可训", 而不是秩:\n- 只训线性层 (满秩, 98,304 个参数, norm 和 embedding 冻结): pass@1 0.223, 与 LoRA 差不多。\n- LoRA r=1 再放开 RMSNorm 增益 (每层 norm1、norm2 加 ln_f, 共 320 个): 0.301, 与全参只差 0.023。\n- 只训这 320 个增益: 0.502, 是所有臂里最高的。\n所有 RL 臂的贪心 EM 都没有比起点 0.562 高 0.02 以上, 60 步 GRPO 的收益是把分布变尖, 不是学会新映射。LLaMA 在 lm_head 之前有一层 RMSNorm, 残差流整体放大会被它归一化抵消, logits 的尺度只能由 norm 增益和 embedding 来调。标准 LoRA 冻结了这两样, 只能靠改方向慢慢拉大 logit 差距。',
+    },
+    {
+      title: 'SFT 对照: 学新映射要靠线性层的容量',
+      body: '同一起点、同样 60 步 SFT (每步 64 条), 按贪心 EM 取最好的一臂, 涨幅按线性层的可训容量排序:\n- 全参 0.684 (+0.122), 只训线性层 0.672, LoRA r=8 0.637, r=1 0.629, r=1 + norm 0.625。\n- 只训 norm 0.602 (+0.040): 变尖不改变 argmax, 几百个尺度参数改不对错的答案。\n边界: 这里的 SFT 只有 3,840 条样本, r=1 落后全参 0.055 更可能是 60 步里学得慢, 不能证明 LoRA 的容量不够。博客说的容量瓶颈是大数据集上的现象。',
+    },
+  ],
+  sourceRows: [
+    { concept: '哪些参数可训', code: 'llm_finetune/run_finetune/lora_rl/train_lora_rl.py:prepare', takeaway: '六种配置只差 requires_grad 的设置: 全参、只训线性层、LoRA r=1 / r=8、r=1 + norm、只训 norm。' },
+    { concept: 'RL 一臂', code: 'llm_finetune/run_finetune/lora_rl/train_lora_rl.py:run_rl', takeaway: '原样使用 GRPOTrainer; 它的 AdamW 收全部参数, grad 为 None 的冻结参数被直接跳过, 脚本断言基座权重逐位不变。' },
+    { concept: '只训适配器', code: 'llm_finetune/methods/lora.py:mark_only_lora_as_trainable', takeaway: '名字不含 lora_ 的参数全部冻结, RMSNorm 增益和 embedding 也在其中, 这正是本库标准 LoRA 在 RL 上落后的原因。' },
+    { concept: '验收口径', code: '采样 pass@1 (RL) / 贪心 EM (SFT)', takeaway: 'RL 臂按 512 道留出题的采样 pass@1 取最好的 lr, SFT 臂按 256 道留出题的贪心 EM 取, 单种子。' },
+  ],
+  snippet: `for name in ["全参", "只训线性层", "LoRA r=1", "LoRA r=8", "LoRA r=1 + norm", "只训 norm"]:
+    model = deepcopy(start)                     # 同一个 SFT 150 步的起点
+    if name.startswith("LoRA"):
+        apply_lora(model, r, alpha=16, target_modules=ALL_LINEARS)
+        mark_only_lora_as_trainable(model)      # norm / embedding 也被冻结
+    set_requires_grad(model, name)              # 只训线性层 / 加回 norm / 只训 norm
+    trainer = GRPOTrainer(model, task.verify, make_config("grpo", lr=lr))
+    for _ in range(60):
+        trainer.step(prompts.generate_batch()["prompts"])
+    report(pass1=exact_match(model, temperature=1.0), em=exact_match(model))`,
+  source: [
+    'llm_finetune/run_finetune/lora_rl/train_lora_rl.py:prepare',
+    'llm_finetune/run_finetune/lora_rl/train_lora_rl.py:run_rl',
+  ],
+  run: 'python -m llm_finetune.run_finetune.lora_rl.train_lora_rl',
+  links: [
+    { from: 'SFT 对照 (本章前文)', to: 'RL 对照', body: '本章前文 EM 0.809 vs 0.352 的对照是 SFT; RL 每个 episode 带回的信息少得多, 两边的容量瓶颈不在同一处。' },
+    { from: 'ln_f (RMSNorm)', to: 'logits 的尺度', body: 'lm_head 之前的归一化抵消了残差流的整体放大, 采样分布的尖锐程度只能由 norm 增益和 embedding 调节。' },
+  ],
+  related: [
+    { route: 'finetune-grpo-variants', label: 'GRPO 进阶: 同一个起点和配置', reason: '本段的 RL 臂复用 GRPO 章的起点、prompt 流和 GRPOTrainer, 那里解释了为什么验收看采样 pass@1 而不看贪心 EM。' },
+  ],
+}]
+
+// 补充段: 进阶 · 在线蒸馏与 RLVR: 先蒸馏再强化, 还是一起训
+topic.pages['finetune-onpolicy-distill'].sections = [...(topic.pages['finetune-onpolicy-distill'].sections || []), {
+  id: 'opd-rlvr',
+  title: '进阶 · 在线蒸馏与 RLVR: 先蒸馏再强化, 还是一起训',
+  tldr: '在线蒸馏 (OPD) 的信号稠密但以老师为上限, RLVR 的信号稀疏但不受老师限制, 两者按先后顺序用效果最好:\n- 先 OPD 再 RLVR: 先把学生拉进老师的覆盖范围, 再让 verifier 在这个范围里锐化。本例弱老师的 pass@1 是 0.547, 先后训练的学生到了 0.584, 只 OPD 停在 0.494。\n- 联合训练: 两种损失加在同一个 loss 里, KL 项把学生拉向老师 (连同老师的错), RL 项朝 verifier 推, 本例低于先后训练。\n- 多教师: 学生要学几个领域时, 按 prompt 的领域把样本交给对应的领域老师打分。',
+  question: '手里既有一个比学生强的老师, 又有一个能自动判对错的 verifier, 应该先蒸馏再强化、两种损失一起训, 还是只用其中一种? 学生要学好几个领域时, 一位老师够不够?',
+  labNames: [],
+  evolution: {
+    title: '稠密信号和稀疏信号怎么排队',
+    subtitle: '根问题: RLVR 每条回复只有一个 0/1 分, 学生采不到对的回复就没有梯度; OPD 每个 token 都有监督, 但只能学到老师的水平。',
+    steps: [
+      { name: '只 RLVR', pain: '(原点) 推理任务只有最终答案能自动判分, 一条回复只拿到一个 0/1 奖励', fix: 'GRPO 按组内相对优势更新, 不需要老师; 学生起点弱时大部分题采不到对的回复, 160 步 pass@1 从 0.186 到 0.486' },
+      { name: '只 OPD', year: 2025, pain: '稀疏奖励在学生起点弱时利用率低, 采到的样本大多没有梯度', fix: '学生自己采样, 老师在每个位置给整张词表的分布, 逐 token reverse KL 当稠密奖励; 学生最多学到老师的分布, 本例停在 0.494' },
+      { name: '两种损失联合', pain: 'OPD 的上限是老师, 老师采样时犯的错学生也一起学', fix: '同一批 rollout 上 loss = GRPO surrogate + KL 项, 一次反传; 两项方向不一致时互相拖累, 本例 0.436–0.547' },
+      { name: '先 OPD 再 RLVR', year: 2026, pain: '联合训练里拉向老师的 KL 项和朝 verifier 锐化的 RL 项互相干扰', fix: '前 80 步只做 OPD, 后 80 步只做 RLVR: pass@1 0.584, 超过老师的 0.547; 切换太早也会吃亏' },
+      { name: '多教师路由', pain: '一位老师只擅长一个领域, 用它给所有领域打分会把别的领域教坏', fix: '按 prompt 的领域把样本交给对应的领域老师打逐 token 分: 学生 copy 的 pass@1 从单老师的 0.000 到 0.904' },
+    ],
+  },
+  points: [
+    {
+      title: 'OPD 以老师为上限, RLVR 不受老师限制',
+      key: true,
+      body: 'OPD 的目标是让学生的分布贴近老师, 所以学生最多学到老师的水平; RLVR 的奖励来自 verifier, 学生采到比老师更好的回复也会被奖励。\n脚本在 sort 任务上用一个只比学生好一截的弱老师 (SFT 250 步, 采样 pass@1 0.547), 从 pass@1 0.186 的学生起点出发, 每臂 160 步、每步 256 条学生 rollout:\n- 只 OPD: KL(学生‖老师) 降到 0.064, 是各臂里离老师最近的, 贪心 EM 0.789 也最高, 但 pass@1 停在 0.494, 没超过老师。\n- 只 RLVR: pass@1 0.486, 和只 OPD 差不多。\n- 先 OPD 再 RLVR: 前 80 步 OPD、后 80 步 RLVR, pass@1 0.584, 超过了老师自己。\n手动把各臂种子换成 2 和 3 再跑, 先后训练的 pass@1 是 0.564 和 0.605, 三次都是最高。',
+    },
+    {
+      title: '联合训练输给先后训练, 一部分原因是两项梯度互相拖累',
+      body: '联合训练在同一批 GRPO rollout 上把两种损失加起来: 每个 token 的 loss 是 $-\\text{surrogate}_t + \\lambda \\cdot \\mathrm{KL}_t$, λ=1, 一次反传。KL 项把学生拉向老师的分布, 包括老师采样时的错; RL 项把学生往 verifier 认可的回复上推, 两个方向不一致时互相抵消一部分。\n- lr=3e-4 (RLVR 的 lr): pass@1 0.436, 比只 RLVR 和只 OPD 都低。\n- lr=1e-3 (OPD 的 lr): pass@1 0.547, 追上了单项, 但仍低于先后训练的 0.584。三个种子平均 0.542 对 0.584, 种子 2 上只差 0.005。\n边界: λ 没有扫, KL 项算在 32 个 prompt × 8 条样本上, 而只 OPD 每步是 256 个不同的 prompt。lr 一项就能把联合臂拉高 0.11, 说明它的差距有一部分来自配置, 不全是干扰。',
+    },
+    {
+      title: '切换时机看 OPD 还有没有在涨, 不是固定一半',
+      body: '把老师换成训得很好的强老师 (SFT 800 步, pass@1 0.977), 同样 160 步、第 80 步切换, 结论反过来: 只 OPD 的 pass@1 0.818, 先 OPD 再 RLVR 只有 0.678。老师远强于学生时, 80 步的 OPD 还没把老师学完, 这时切到 RLVR 是把每个 token 都有的监督换成了每条回复一个分。\n"Sequential Beats Joint" (arXiv 2609.04108, 2026) 的建议是看 OPD 的验证分数决定何时切到 RL; "Beyond GRPO and On-Policy Distillation" (arXiv 2605.12483, 2026) 把这条经验概括成奖励密度原则: 稀疏奖励适合已经能自己探索的模型, 稠密的老师监督适合把能力压缩进小模型。本脚本只测了第 80 步这一个切换点, 没有扫。',
+    },
+    {
+      title: '多领域学生按领域路由老师',
+      body: '一位老师只在自己训练过的领域可靠, 在别的领域给出的逐 token 分布会把学生往错的方向拉。脚本让一个学生同时学 sort 和 copy (prompt 末尾的分隔符决定做哪个), 两位领域老师各只训自己的子任务, 各做 100 步 OPD:\n- 单老师: 所有样本都交给 sort 老师, 它在 copy 样本上也按 sort 打分, 学生 copy 的 pass@1 从起点 0.346 被压到 0.000, sort 到 0.436。\n- 多教师路由: 按分隔符把样本交给对应的老师, copy 到 0.904, sort 到 0.637。sort 也比单老师高, 因为共享参数不再被 copy 样本上的错误分布拖累。\nMiMo-V2-Flash 技术报告 (arXiv 2601.02780) 的 MOPD 就是这样按 prompt 领域选老师, 并在逐 token 的老师奖励之外叠加可验证的结果奖励, 本脚本没有叠加。',
+    },
+    {
+      title: '真实规模上 OPD 便宜在每个 token 都有监督',
+      body: 'Thinking Machines 的 On-Policy Distillation 博客 (2025-10) 把逐 token reverse KL 当作折扣为 0 的稠密奖励, 并引用 Qwen3 技术报告的数字: RL 用 17,920 GPU 小时把 AIME24 训到 67.6, 在线蒸馏用 1,800 GPU 小时到 74.4。博客里的 9–30 倍是相对离线蒸馏的成本, 不是相对 RL。\n同一篇博客还用 OPD 修复中训带来的遗忘: Qwen3-8B 在内部文档上继续训练后 IF-eval 从 85% 降到 79%, 以原版模型为老师做 OPD 后恢复到 83%, 内部知识问答从 36% 升到 41%。\n边界: 本脚本的老师和学生同结构 (2 层, d=64), 老师只是多训了几步; 回复最长 9 个 token, 单种子 (另手动补跑了两个种子)。这些数字只说明机制, 不能外推成真实模型上的幅度。',
+    },
+  ],
+  sourceRows: [
+    { concept: '联合损失', code: 'llm_finetune/run_finetune/opd_rlvr/train_opd_rlvr.py:joint_steps', takeaway: '同一批 GRPO rollout 上一次前向同时算 surrogate 和逐 token KL, 两项相加后一次反传、一个 lr。' },
+    { concept: '先后与切换', code: 'llm_finetune/run_finetune/opd_rlvr/train_opd_rlvr.py:combine', takeaway: '弱老师跑五臂、强老师跑两臂, 先后训练在第 80 步切换, 两段各用自己的 lr 和新的 AdamW。' },
+    { concept: '多教师路由', code: 'llm_finetune/run_finetune/opd_rlvr/train_opd_rlvr.py:RoutedTeacher', takeaway: '按每条序列 prompt 末尾的分隔符选老师, 接口和单个老师一样, on_policy_distill_step 不用改。' },
+    { concept: 'OPD 一步', code: 'llm_finetune/methods/on_policy_distill.py:on_policy_distill_step', takeaway: '学生 no_grad 采样, 老师在同一条轨迹上给分布, 逐 token reverse KL 按全批有效 token 平均。' },
+  ],
+  snippet: `# 先 OPD 再 RLVR: 两段各用自己的 lr 和优化器
+opd_steps(student, teacher, task, 80)       # 稠密: 逐 token reverse KL
+rlvr_steps(student, task, 80)               # 稀疏: verifier 的 0/1 分 + GRPO
+
+# 联合: 同一批 rollout, 两项加在一个 loss 里
+logits = student(seqs[:, :-1])[:, P-1:]
+surrogate = min(ratio * A, clip(ratio) * A)
+loss = aggregate(-surrogate + lam * token_kl(logits, teacher_logits), mask)
+
+# 多教师: 按 prompt 的领域选老师
+t_logits = where(prompt_sep == CPY, copy_teacher(seqs), sort_teacher(seqs))`,
+  source: [
+    'llm_finetune/run_finetune/opd_rlvr/train_opd_rlvr.py:joint_steps',
+    'llm_finetune/run_finetune/opd_rlvr/train_opd_rlvr.py:RoutedTeacher',
+  ],
+  run: 'python -m llm_finetune.run_finetune.opd_rlvr.train_opd_rlvr',
+  links: [
+    { from: 'on_policy_distill_step', to: 'opd_steps', body: '本段的 OPD 臂直接调本章的 on_policy_distill_step, 每步 256 个 prompt, 与 RLVR 每步 256 条 rollout 对齐。' },
+    { from: 'GRPOTrainer', to: 'rlvr_steps', body: 'RLVR 臂直接用 GRPO 章的 GRPOTrainer 和 task.verify, 配置与 grpo 脚本相同 (32 个 prompt × G=8, lr=3e-4)。' },
+    { from: 'token_kl', to: 'joint_steps', body: '联合臂复用本章的 token_kl, 把它当作逐 token 的稠密项加进 GRPO 的 per-token loss。' },
+  ],
+  related: [
+    { route: 'finetune-grpo-variants', label: 'GRPO 进阶: ratio、clip 与 DAPO', reason: '本段的 RLVR 臂和联合臂都建立在 GRPO 的组内优势与 PPO 式 clip 上, 公式和各变体的差别在该章。' },
+  ],
+}]
+
+// 补充段: 进阶 · 生成式与 rubric 奖励: 别让奖励学到长度捷径
+topic.pages['finetune-rlhf'].sections = [...(topic.pages['finetune-rlhf'].sections || []), {
+  id: 'generative-rm',
+  title: '进阶 · 生成式与 rubric 奖励: 别让奖励学到长度捷径',
+  tldr: '标量 RM 只从「A 比 B 好」里学一个分数, 标注者偏爱长回答时, 这份偏爱会原样进入 RM 的系数:\n- best-of-N 只在基座分布里挑, 长度偏差只分走一点选择力; RL 把策略推出分布后, 策略就沿长度方向钻空子 (reward hacking)。\n- GenRM 让 LM 先写推理再回答「这个解对吗」, 以 Yes 的概率当分数; rubric 奖励为每题写一份清单, judge 逐条判, 分数里没有长度这一项。\n- 代价是每题都要写清单, judge 自己也会判错, 它的错误同样会被优化压力利用。',
+  question: '标注者偏爱长回答时, 标量 RM 会学到什么? 为什么同一个 RM 在 best-of-N 下几乎不吃亏, 在 RL 下却被策略钻了空子? 换成逐条判的 rubric 奖励之后, 剩下的风险在哪里?',
+  labNames: ['FtRubricRewardLab'],
+  evolution: {
+    title: '从一个分数到一张清单',
+    subtitle: '根问题: 偏好标签只说「哪个更好」, 标注者对长度的偏爱和真实质量混在同一个标签里, 标量 RM 无从分开。',
+    steps: [
+      { name: 'BT 标量 RM', pain: '(原点) 在线 RL 需要随时可调用的奖励, 而人只能稳定地标出「A 比 B 好」', fix: '用 Bradley-Terry 损失把偏好对训成标量分; 标签里的长度偏爱也被原样学进系数 (demo 学到 0.81, 标注值 0.8)' },
+      { name: 'GenRM', year: 2024, pain: '标量头只给一个数, 给不出判断依据, 也没法靠多想几遍来提高判断质量', fix: '让 LM 先写推理再回答「这个解对吗」, 分数取 Yes 的概率, 多条推理取平均; best-of-N 上 GSM8K 从 73% 提到 93.4%' },
+      { name: 'rubric 逐条判', year: 2025, pain: '整体打一个分仍会混进长度、语气这类与题目要求无关的偏好, 策略可以沿着它们涨分', fix: '每题写一份评分清单, judge 逐条判满足与否, 按权重求满足比例; demo 的 RL 里真实质量 0.994, 标量 RM 只有 0.792' },
+    ],
+  },
+  points: [
+    {
+      title: '偏好标签里的长度偏差会原样进入标量 RM',
+      key: true,
+      body: 'Bradley-Terry RM 拟合的是标注者心里的胜率, 标注者偏爱长回答, RM 就学到「越长越好」。rubric_reward 用合成数据把这件事量出来:\n- 设定: 回复由 5 条清单条目加长度表示, 第 5 条是「简洁」(长度超过 300 token 就违反); 标注公式为 $P(A \\succ B) = \\sigma(4(q_A - q_B) + 0.8 (L_A - L_B)/100)$, 即多写 100 token 与多满足一条内容条目在标注者眼里一样值钱。\n- 结果: 在 4096 个偏好对上训出的线性 RM, 长度系数为 0.81, 与标注值 0.8 几乎相同; 对照组的标签不含长度项, 长度系数为 −0.06。\n这与 Singhal et al. (2023) 的观察一致: 只按长度给奖励就能复现大部分 RLHF 的下游提升, 偏差主要来自奖励模型。这里的长度偏差和简洁上限都是写进脚本的设定, 不是从真实数据里测出来的。',
+    },
+    {
+      title: '分布内挑选时偏差影响有限, RL 把策略推出分布后才被钻空子',
+      body: '同一个带长度偏差的 RM, 在两种优化压力下结论相反:\n- best-of-N (从基座采 N 条, 挑 RM 分最高的): N=64 时挑出的回复从 199 token 变长到 256 token, 真实质量 0.974, 仍高于逐条判错率 0.1 的 rubric (0.916)。候选都来自基座分布, 长度集中在 200 ± 60 token, 而且这里的 RM 直接看得见每条条目, 比真实 RM 读文本容易得多。\n- RL (策略自己移动内容和长度, REINFORCE 300 步): 策略把平均长度推到 600 的上限, RM 分从 4.16 涨到 8.24, 真实质量只到 0.792, 因为 4 条内容条目学会了, 「简洁」条目全部丢掉。同期按真实质量优化的上限是 0.992。\nRM 的长度项是线性的, 在训练分布外继续加分, 策略离开分布越远, 代理奖励与真实目标分得越开。数字来自单种子, 策略是一个 5 参数的玩具, 不是 LM。',
+    },
+    {
+      title: 'GenRM: 把打分写成下一个 token 的预测',
+      body: 'GenRM (Zhang et al. 2024, Generative Verifiers) 不在 LM 上接标量头, 而是让它回答「这个解对吗」, 分数 = 下一个 token 是「Yes」的概率。这样做有两个好处:\n- 判断前可以先写一段推理, 打分器和生成器用的是同一种能力。\n- 可以对同一个解采多条推理, 把 Yes 的概率取平均, 相当于让 judge 投票。\n论文在 best-of-N 上把算法题从 5% 提到 45.3%, GSM8K 从 73% 提到 93.4%。demo 里用带噪的规则 judge 模拟投票: 每条以 0.3 的概率判反时, 独立判 5 次取平均把逐条判错率从 0.301 降到 0.165。前提是 5 次判错彼此独立; 同一个模型、同一个 prompt 的多次采样, 错误往往相关, 取平均的收益会小得多。',
+    },
+    {
+      title: 'rubric 奖励: 逐条判, 分数里没有长度这一维',
+      body: 'rubric 奖励为每道题写一份评分清单, judge 逐条判「满足 / 不满足」, 奖励 = 加权的满足比例:\n- Rubrics as Rewards (Gunjal et al. 2025) 把这种显式聚合与「整份 rubric 交给 judge 打一个 1–10 分」的隐式聚合对比, 在 HealthBench 和 GPQA-Diamond 上用 Qwen2.5-7B + GRPO, 相对直接打 Likert 分最多提升 31% 和 7% (相对提升)。\n- RLCF (Viswanathan et al. 2025) 从指令里抽出清单, 逐条用 AI judge 和专门的验证程序评分, 在 Qwen2.5-7B-Instruct 上 FollowBench +4、InFoBench +6、Arena-Hard +3。\ndemo 的 RL 里, rubric 奖励把真实质量推到 0.994, 平均长度 143 token, 留在简洁上限以内。judge 每条以 0.3 的概率判反时仍到 0.993: 独立、对称的判错让 judge 分的期望变成 $\\varepsilon + (1-2\\varepsilon) \\cdot$ 真实满足率, RL 优化的是期望, 最优点不变, 只是信号变弱。',
+    },
+    {
+      title: 'judge 也会错, 优化压力同样会利用它的错误',
+      body: 'rubric 难钻的是长度这类分数里根本没有的维度, judge 自己的错误照样会被挑出来:\n- best-of-N 下, 逐条判错率 0.3 的 rubric 在 N=64 时真实质量只有 0.754 (判错率 0.1 时 0.916), 投票 5 次后回到 0.880。\n- 被挑中的回复, judge 分比真实质量高出 0.233 (N=1 时是 −0.043)。挑得越多, 越容易挑到被误判成好的那一条, 这是赢家诅咒 (winner\'s curse)。\n真实 LLM judge 的错误还有系统偏向, 例如偏爱长回答、被回答里的说辞带偏; 这类错误与长度偏差的性质相同, 在 RL 下同样会被钻空子。另一项代价是人力: 每道题都要写清单, 清单漏掉的方面学不到, 这与 RLAIF 章「judge 没查的学不到」是同一个问题。',
+    },
+  ],
+  sourceRows: [
+    { concept: '标量 RM 学到长度系数', code: 'llm_finetune/run_finetune/rubric_reward/demo.py:train_rm', takeaway: '线性 Bradley-Terry 模型在带长度偏差的偏好对上训练; 标签恰好是特征差的 logistic 函数, 学到的长度系数 0.81 对应标注值 0.8。' },
+    { concept: '带噪 judge 与投票', code: 'llm_finetune/run_finetune/rubric_reward/demo.py:judge', takeaway: '每条以 ε 的概率判反, votes 次取平均, 对应 GenRM 把多条推理的 Yes 概率取平均的离散版。' },
+    { concept: '推出分布的 RL', code: 'llm_finetune/run_finetune/rubric_reward/demo.py:rl', takeaway: '4 个内容条目的 logit 加一个长度均值, REINFORCE 用批均值当 baseline; 长度上限 600 相当于 max_new_tokens。' },
+    { concept: '两种优化压力', code: 'best-of-N vs RL', takeaway: '同一个 RM, best-of-N 下真实质量 0.974, RL 下 0.792; 差别在策略能不能离开 RM 训练时见过的分布。' },
+  ],
+  snippet: `# 标量 RM: 一个分数, 长度是其中一项
+r_rm = w_items @ items + w_len * length / 100     # w_len 从带偏差的标签里学来
+
+# rubric: judge 逐条判, 分数里没有长度
+judged = [judge(response, item) for item in rubric]          # 每条 0/1, 可能判错
+r_rubric = sum(w * j for w, j in zip(weights, judged)) / sum(weights)
+
+# GenRM: 分数 = P("Yes" | 题目, 回复, 推理), 多条推理取平均
+r_gen = mean(p_yes(prompt, response, cot) for cot in sample_cots(k))`,
+  source: [
+    'llm_finetune/run_finetune/rubric_reward/demo.py:train_rm',
+    'llm_finetune/run_finetune/rubric_reward/demo.py:judge',
+    'llm_finetune/run_finetune/rubric_reward/demo.py:rl',
+  ],
+  run: 'python -m llm_finetune.run_finetune.rubric_reward.demo',
+  links: [
+    { from: 'BradleyTerryLoss', to: 'train_rm', body: '本章的 RM 在 LM 主干上接标量头; demo 把主干换成直接看得见条目的线性模型, 损失还是 $-\\log\\sigma(r_w - r_l)$。' },
+    { from: 'rubric 奖励', to: 'RLVR 的 verify', body: '清单里能写成程序的条目 (格式、长度、必须出现的字段) 就是可验证奖励; 写不成程序的条目才交给 LLM judge。' },
+  ],
+  related: [
+    { route: 'finetune-rlaif', label: 'RLAIF: judge 没查的学不到', reason: 'rubric 奖励和宪法式 AI 反馈有同一个上限: 清单或条文里漏掉的方面, 训练对它没有直接压力。' },
+    { route: 'finetune-rlvr', label: '看题的可验证奖励', reason: 'rubric 里能写成程序的条目就是 RLVR 的规则判分, 开训前同样要先算不读题的常数基线。' },
+  ],
+}]
+
+// 新章的前置与延伸链接。
+for (const [route, link] of [
+  ['finetune-grpo-variants', { route: 'finetune-rollout-mismatch', label: '训练-推理不一致', reason: '同一版本下推理引擎和训练器的数值路径不同, 采到的样本其实是异策略的; 这和异步 rollout 的版本陈旧是两种偏移, 校正方法也不同。' }],
+  ['finetune-qlora', { route: 'finetune-qat', label: 'QAT · 量化感知训练', reason: 'QLoRA 的量化基座冻结不训练, 只训适配器; QAT 训练的正是要被量化的那份权重, 让它在低位宽下仍然可用。' }],
+  ['finetune-prm', { route: 'finetune-reasoning', label: '推理模型的训练面', reason: '同一种模 10 算术链, 这次让模型自己把每一步写出来, 再研究写多少步、什么时候不写。' }],
+]) topic.pages[route].related = [...(topic.pages[route].related || []), link]
+
+// 多轮 Agent 任务上的信用分配。
+for (const [route, link] of [
+  ['finetune-grpo-variants', { route: 'agent-agentic-rl', label: '多轮任务上的组内优势', reason: '组内归一化的优势用在多轮 agent 轨迹上时, 一条轨迹一个数会把中间步骤的功劳糊在一起; 按锚状态分组的做法见 Agent 阶段的多轮 RL 一章。' }],
+  ['finetune-rlvr', { route: 'agent-agentic-rl', label: '可验证奖励在多轮上的信用分配', reason: '结果可验证只解决了奖励从哪来; 奖励只在结尾给一次时中间几步的功劳怎么分, 见 Agent 阶段的多轮 RL 一章。' }],
+]) topic.pages[route].related = [...(topic.pages[route].related || []), link]

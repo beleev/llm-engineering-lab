@@ -32,13 +32,13 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 
 ```
 切 batch      m01 梯度累积 → m02 DDP
-切模型        m03 张量并行 → m04 流水线 (GPipe / 1F1B / Interleaved) → m11 专家并行
+切模型        m03 张量并行 → m04 流水线 (GPipe / 1F1B / Interleaved / Zero Bubble) → m11 专家并行
 切状态        m05 ZeRO-1/2/3 · FSDP
 切序列        m12 Context Parallel (Ring + zigzag) → m16 Ulysses
 省显存        m07 激活重算
 数值格式      m06 FP16/BF16 混合精度 → m13 FP8 → m15 FP4 (MXFP4 / NVFP4)
 优化与稳定    m10 cosine / WSD · clip · NaN guard → m14 Muon
-通信与容错    m09 通信原语 → m08 checkpoint / resume
+通信与容错    m09 通信原语 → m08 checkpoint / resume → m27 容错与 goodput → m28 DiLoCo
 数据与规模    m17 数据流水线 → m18 packing → m19 scaling law → m20 μP
 评测          m21 PPL / 污染 / pass@k / judge
 合起来        full_loop
@@ -51,7 +51,7 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | 01 | [Gradient Accumulation](m01_gradient_accumulation/) | micro-batch 加权累积 | == 大 batch; 不缩放恰好 ×K |
 | 02 | [Data Parallel](m02_data_parallel/) | 梯度 all-reduce | == 单卡; 副本逐位一致; 通信 = 2(N-1)/N·\|g\| |
 | 03 | [Tensor Parallel](m03_tensor_parallel/) | 列切 + 行切, f / g 算子 | 输出、全部梯度、**dX** == dense |
-| 04 | [Pipeline Parallel](m04_pipeline_parallel/) | GPipe / 1F1B / Interleaved 1F1B, B 占 2 格 | 1F1B 峰值 == [PP-s]; 气泡 == (PP-1)/(vM+PP-1) |
+| 04 | [Pipeline Parallel](m04_pipeline_parallel/) | GPipe / 1F1B / Interleaved 1F1B / Zero Bubble (ZB-H1), 另按公式算 DualPipe | 1F1B 峰值 == [PP-s]; 气泡 == (PP-1)/(vM+PP-1); ZB-H1 每卡空闲 == (PP-1)(t_f+t_b-t_w) 且峰值仍是 PP |
 | 05 | [ZeRO / FSDP](m05_zero_fsdp/) | 真 Adam, stage 1/2/3 三条代码路径, gather→compute→free | 各 stage 与 DDP 逐位相同; 字节 == 2+2+12 公式 |
 | 06 | [Mixed Precision](m06_mixed_precision/) | FP16 vs BF16 (模拟), 真实 fp16 溢出, 动态 scaler, master | 下溢/上溢/舍入各一条断言; 溢出步 master 不动, 有效步 master 必动 |
 | 07 | [Activation Checkpointing](m07_activation_checkpointing/) | 真实分段重算反向 | 梯度逐位相同; 峰值 == L/k + k |
@@ -69,6 +69,8 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | 19 | [Scaling Laws](m19_scaling_laws/) | 36 个真训点拟合 L(N,D), 算力最优 N/D | E 在噪声方差的 0.5–1.5 倍内 (实测 0.0080 vs 0.01); 预测 N_opt 在 IsoFLOP 实测最优的 0.5–2 倍内 (实测 89 vs 81) |
 | 20 | [μP](m20_mup/) | SP vs μP 扫 lr, 宽度 32 → 512 | μP 最优 lr 移动 ≤ 1 格 (实测 0 格); SP 左移 ≥ 3 格 (实测 6 格) |
 | 21 | [LLM Eval](m21_llm_eval/) | PPL, n-gram 污染检测, pass@k, judge 位置偏差 | 朴素 pass@k 偏低; 交换判消掉位置偏差 |
+| 27 | [Fault Tolerance](m27_fault_tolerance/) | 整体 MTBF、Young / Daly 间隔、goodput 蒙特卡洛与解析式、慢节点、SDC、弹性缩容 | Young 间隔处落盘与重跑开销相等; 解析式与蒙特卡洛差 < 1pp; 缩容后梯度差 < 1e-7 但不逐位相同 |
+| 28 | [DiLoCo](m28_diloco/) | 本地 H 步 + 外层 Nesterov 动量, Streaming 分片错峰同步 | H=1 且外层退化时 == DDP (差 1.8e-07); 通信量 ∝ 1/H; H 两头都变差 |
 | ★ | [Full Loop](full_loop/) | DP × 累积 × AMP × 分片 Adam × clip × NaN guard × 分片 checkpoint | ≈ 单卡; 续训逐位相同 |
 
 ## 实现说明
@@ -84,11 +86,13 @@ python -m llm_train.run_all                 # 全部 (任一 assert 失败即失
 | Gradient accumulation | yes | `m01`, `full_loop` |
 | Data parallel / DDP | partial | `m02`; 无 bucket、无通信-计算重叠 |
 | Tensor parallel | partial | `m03` MLP 的 fwd+bwd; 无 attention 切分、无 Megatron sequence parallel |
-| Pipeline parallel | partial | `m04` 三种调度的时间表仿真; 不真的算梯度; 无 zero-bubble / DualPipe |
+| Pipeline parallel | partial | `m04` GPipe / 1F1B / 交错 / ZB-H1 的时间表仿真, DualPipe 按报告公式算; 不真的算梯度; 无 ZB-H2 / ZB-V 时间表、无 DualPipe 双向排程 |
 | ZeRO-1/2/3, FSDP | yes | `m05`; 无 prefetch / HSDP / offload |
 | Mixed precision FP16 / BF16 | yes | `m06`, `full_loop`; BF16 为模拟 |
 | Activation checkpointing | partial | `m07` 整段重算; 无选择性重算 |
-| Checkpoint / resume | partial | `m08` 单文件, `full_loop` 每 rank 分片; 无 resharding、无异步落盘 |
+| Checkpoint / resume | partial | `m08` 单文件, `full_loop` 每 rank 分片, `m27` 最优间隔与异步快照的 goodput 模型; 无 resharding、无真实异步落盘 |
+| 容错与 goodput | partial | `m27` 整体 MTBF、Young / Daly 间隔、慢节点、SDC、弹性缩容; 故障按泊松过程模拟, 无相关故障 |
+| 低通信分布式训练 (DiLoCo) | partial | `m28` DiLoCo + Streaming 分片错峰; 272 字节的玩具模型, 无异步 worker、无外层梯度量化 |
 | Collectives | partial | `m09` 带宽；`m22` 补启动延迟和通信次数；无拓扑 / tree 算法 |
 | LR schedule / clipping / NaN guard | yes | `m10` cosine + WSD |
 | Expert parallel (MoE) | partial | `m11` 前向, top-1; 无反向、无 top-k / shared expert |

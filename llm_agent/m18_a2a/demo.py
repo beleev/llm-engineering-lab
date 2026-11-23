@@ -4,7 +4,7 @@
 它会反问缺的信息、要跑一阵子、内部用什么工具也不该暴露给调用方。
 关键设计:
   - Agent Card: 放在 /.well-known/agent-card.json 的能力声明 (名字、skills、tags、输入输出模式), 调用方靠它挑人。
-  - Task 是有状态的: submitted → working → (input-required ⇄ working) → completed / failed / canceled。
+  - Task 是有状态的: submitted → working → (input-required / auth-required ⇄ working) → completed / failed / canceled / rejected。
     状态转移表写死, 终态不可再动; 非法转移在服务端直接拒绝 (本地抛 InvalidTransition, 线上回 JSON-RPC 错误)。
   - Message 由 parts 组成 (text / data), 最终产物放在 artifacts 里; 同一个 taskId 上多轮来回。
   - 不透明: 调用方只看到消息和 artifact, 看不到对方内部用了哪个工具、跑了几轮 loop。
@@ -13,7 +13,11 @@
   - 没有 HTTP, 没有鉴权。Agent Card 是对方自己写的, 调用方按 tag 挑人就等于相信了对方的自述
   - 对方返回的消息和 artifact 直接使用, 没有按不可信数据包装 (对照 m12)
   - 只实现 message/send、tasks/get、tasks/cancel 三个方法, 别的方法回 -32601。不做流式和推送
-对应: Google / Linux Foundation 的 A2A 协议 (JSON-RPC 2.0 over HTTP); 与 m09 MCP 的分工见 README。
+  - 线上写法沿用 v0.3: 方法名 message/send、状态名 kebab-case、part 和 task 带 kind 字段。
+    v1.0 改成 SendMessage / TASK_STATE_INPUT_REQUIRED, 去掉 kind, 对应关系见 V1_METHODS / v1_state
+  - auth-required 只进了转移表, 没有一条真的需要鉴权的业务路径
+对应: A2A 协议 v1.0 (2026-03-12 发布; 项目现归 Linux Foundation 旗下的 Agentic AI Foundation),
+定义 JSON-RPC、gRPC、HTTP+JSON 三种绑定; 本 demo 只模拟 JSON-RPC 这一种的形状。与 m09 MCP 的分工见 README。
 """
 
 from __future__ import annotations
@@ -28,13 +32,23 @@ from llm_agent.core.utils import banner, kv
 
 # 状态转移表: 当前状态 → 允许去的下一个状态。不在表里的转移一律拒绝
 TRANSITIONS = {
-    "submitted": {"working", "failed", "canceled"},
-    "working": {"input-required", "completed", "failed", "canceled"},
-    "input-required": {"working", "failed", "canceled"},
+    "submitted": {"working", "failed", "canceled", "rejected"},
+    "working": {"input-required", "auth-required", "completed", "failed", "canceled", "rejected"},
+    "input-required": {"working", "failed", "canceled"},  # 中断态: 等调用方补信息
+    "auth-required": {"working", "failed", "canceled"},  # 中断态: 等调用方补凭据
     "completed": set(),  # 终态: 结果已交付, 不能"复活"
     "failed": set(),
     "canceled": set(),
+    "rejected": set(),  # 终态: 对方决定不接这个任务
 }
+# v1.0 的线上名字。枚举序列化成名字字符串, 如 "TASK_STATE_COMPLETED"; 另有 TASK_STATE_UNSPECIFIED (= 0) 表示未知
+V1_METHODS = {"message/send": "SendMessage", "message/stream": "SendStreamingMessage", "tasks/get": "GetTask",
+              "tasks/cancel": "CancelTask", "tasks/resubscribe": "SubscribeToTask"}
+
+
+def v1_state(state: str) -> str:
+    """本 demo 的 kebab-case 状态名 → v1.0 的枚举名。"""
+    return "TASK_STATE_" + state.upper().replace("-", "_")
 TASK_NOT_FOUND, TASK_NOT_CANCELABLE, UNSUPPORTED_OPERATION = -32001, -32002, -32004  # A2A 规范里的 JSON-RPC 错误码
 METHOD_NOT_FOUND = -32601  # JSON-RPC 2.0 规范本身的错误码: 服务端没有这个方法
 
@@ -159,6 +173,9 @@ class ExpenseAgent:
         """真正干活: 信息不全就追问, 齐了就算金额, 超限就失败, 否则出报销单。"""
         # 把用户在这个任务上说过的全部文字拼起来, 再从里面找日期和金额
         said = " ".join(p["text"] for m in task.history if m["role"] == "user" for p in m["parts"] if p["kind"] == "text")
+        if "私人" in said:  # 不在业务范围: 直接拒绝, 不追问也不计算
+            task.to("rejected", "私人消费不在差旅报销范围, 不受理。")
+            return
         date = re.search(r"\d{4}-\d{2}-\d{2}", said)
         if not date:
             task.to("input-required", "请提供出差日期 (YYYY-MM-DD)。")
@@ -309,6 +326,34 @@ def main() -> None:
     # 被拒绝的请求没有改动任何状态
     assert expense.tasks[task["id"]].state == "completed", "被拒绝的请求不应改动已完成任务的状态"
     assert len(expense.tasks[task["id"]].states) == 5, "被拒绝的请求不应在状态轨迹里留下记录"
+
+    print("\n[6] v1.0 的 8 个状态: 两个中断态, 四个终态; rejected 是对方不接")
+    no = assistant.delegate(url, "报销私人聚餐: 餐费 600 元", lambda s: print(f"    {s}"))
+    kv("状态轨迹", " → ".join(expense.tasks[no["id"]].states))
+    kv("v1.0 线上状态", v1_state(no["status"]["state"]))
+    kv("v1.0 方法名", V1_METHODS)
+    assert expense.tasks[no["id"]].states == ["submitted", "working", "rejected"], (
+        f"不在业务范围的请求应直接 rejected, 不追问, 实际: {expense.tasks[no['id']].states}"
+    )
+    terminal = sorted(s for s, out in TRANSITIONS.items() if not out)
+    interrupted = sorted(s for s in TRANSITIONS["working"] if "working" in TRANSITIONS[s])  # 从 working 进去、还能回 working 的
+    kv("终态", terminal)
+    kv("中断态", interrupted)
+    assert terminal == ["canceled", "completed", "failed", "rejected"], f"v1.0 的终态是 4 个, 实际: {terminal}"
+    assert interrupted == ["auth-required", "input-required"], f"v1.0 的中断态是 2 个, 实际: {interrupted}"
+    assert len(TRANSITIONS) == 8, f"转移表应覆盖 v1.0 除 UNSPECIFIED 以外的 8 个状态, 实际: {len(TRANSITIONS)}"
+    t = Task("t", "c")
+    for step in ("working", "auth-required", "working"):  # 补完凭据回到 working: 合法
+        t.to(step)
+    for src_path, dst in ((["rejected"], "working"), (["working", "auth-required"], "completed")):
+        t = Task("t", "c")
+        for step in src_path:
+            t.to(step)
+        try:
+            t.to(dst)
+            raise AssertionError(f"{t.state} -> {dst} 应当被拒绝")
+        except InvalidTransition as exc:
+            print(f"    本地  {exc}: rejected")
 
     print("\n  OK: MCP 是 agent 调工具 (无状态、参数一次给齐); A2A 是 agent 找 agent (有状态、能反问、内部不透明)。")
 

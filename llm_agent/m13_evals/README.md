@@ -96,6 +96,8 @@ cd <仓库根目录> && python3 -m llm_agent.m13_evals.demo
 - FlakyLLM 的失误只有一种形态 (跳过工具) 且各次试验独立; 真实模型的失败模式多样, 并且与 prompt 相关。
 - 环境是内存里的 list 和模拟 shell; 真实 eval (SWE-bench 式) 要起容器、跑测试、做环境快照与清理。
 - 试验串行执行; 真实 harness 要并行跑、缓存、失败重试与区分"agent 失败"和"基础设施失败"。
+- 没有接入公开基准。Terminal-Bench (终端任务, 测试判分)、BrowseComp (难找信息的网页浏览, 短答案准确率)、τ²-bench (用户也能操作环境的双控制客服任务, pass^k)、GDPval (44 种职业的工作产出, 专家盲评) 各自固定了环境与判分口径; 同一模型换 harness 分数会变, 引用时要连同 harness 配置一起报告。
+- Tracer 的 span 没有按 OpenTelemetry GenAI 语义约定 (仍是 Development 状态) 命名: 约定里的 span 名是 `chat {模型}` / `invoke_agent {agent}` / `execute_tool {工具}`, 属性前缀是 `gen_ai.`, 对接通用后端要加一层映射。
 
 ## 常见误区
 

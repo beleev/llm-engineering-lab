@@ -11,6 +11,9 @@ MAP = {',': '，', ';': '；', ':': '：'}
 def zh(s):
     if not isinstance(s, str) or not HAN.search(s):
         return s
+    # 页面侧 Prose 先按行切段, 每段各自转一遍, 所以行尾的冒号算句尾。这里也按行处理, 两边结果才一致。
+    if '\n' in s:
+        return '\n'.join(zh(line) for line in s.split('\n'))
     out, stack, i = '', [], 0
     while i < len(s):
         c = s[i]
@@ -59,4 +62,5 @@ if __name__ == '__main__':
     assert zh('调用 next(messages, tool_schemas) 后') == '调用 next(messages, tool_schemas) 后'
     assert zh('帧步长(ms)') == '帧步长（ms）'
     assert zh('pure english, ok') == 'pure english, ok'
+    assert zh('怎样验证:\n对比三种策略:') == '怎样验证：\n对比三种策略：'   # 行尾的冒号也要转 (Prose 按行切段)
     print('zh_punct: 通过')

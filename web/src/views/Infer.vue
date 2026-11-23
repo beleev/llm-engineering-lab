@@ -185,7 +185,8 @@ import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import CodeRef from '@/components/CodeRef.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { inferModules, learningPath } from '@/data/models.js'
+import { learningPath } from '@/data/models.js'
+import { inferModules } from '@/data/modules.js'
 
 // 上一章从 learningPath 取, 不手写编号 (别的阶段加章后手写的 "4.4" 会过期)
 const prevItem = learningPath[learningPath.findIndex((x) => x.route === 'infer') - 1]

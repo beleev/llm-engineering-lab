@@ -36,7 +36,7 @@ python -m llm_finetune.run_finetune.rm.train_rm        # ~9 s
 ## 与真实系统的差距
 
 - **偏好对是程序造的**: rejected 是把正确排序改错或漏掉一个 token, 好坏界限分明。真实偏好由人标注, 标注员之间会不一致, 标签有噪声。
-- **RM 没有接进 RL**: `ppo` 和 `grpo` 脚本的奖励是规则 verifier (`task.verify`), 没有用这个 RM。策略钻 RM 的空子拿高分 (reward hacking) 在本库里观察不到。
+- **RM 没有接进 RL**: `ppo` 和 `grpo` 脚本的奖励是规则 verifier (`task.verify`), 没有用这个 RM。策略钻 RM 的空子拿高分 (reward hacking) 在本库的 LM 规模上观察不到; 特征级的演示见 [rubric_reward](../rubric_reward/README.md)。
 - **不传 mask 不会报错**: `RewardModel.forward` 在 `attention_mask=None` 时直接取 `scores[:, -1]`。batch 里有 pad 而调用方忘了传 mask, 读到的就是 pad 位置的分, 上表最后一行就是这种情况。
 - **只支持右 pad**: 最后一个真 token 的下标是 `attention_mask.sum(1) − 1`。左 pad 的 tokenizer 要改这一行。
 - **训练会改主干**: RM 和 policy 共用同一个 backbone 对象时, 训 RM 会把 policy 的权重一起改掉。要两用就先 deepcopy。

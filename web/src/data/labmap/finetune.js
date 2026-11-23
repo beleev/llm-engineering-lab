@@ -15,6 +15,9 @@ const labs = {
   'finetune-rlaif': ['FtRlaifLab'],
   'finetune-prm': ['FtPrmLab'],
   'finetune-ppo': ['FtGaeLab', 'FtPpoCriticLab'],
+  'finetune-rollout-mismatch': ['FtMismatchLab'],
+  'finetune-reasoning': ['FtThinkModeLab'],
+  'finetune-qat': ['FtQatLab'],
 }
 
 for (const route of ["finetune-sft"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']

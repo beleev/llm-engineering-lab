@@ -30,6 +30,19 @@
 实现说明:
     教学版用显式时间步循环 (与 layers/sparse/ssm.py 的 scan 一致, CPU 可读),
     真实实现用 chunk-wise 并行扫描在 GPU 上达到训练并行度。
+
+Kimi Delta Attention (KDA) — 门的粒度再细一级:
+    Kimi Linear (Kimi Team, arXiv 2510.26692, 2025) 把 Gated DeltaNet 的
+    "每头一个标量遗忘门" 换成 "每个 key 通道一个遗忘门", 而且先衰减再写入:
+
+        GDN: S_t = α_t (I − β_t k_t k_t^T) S_{t-1} + β_t k_t v_t^T      α_t 是每头一个标量
+        KDA: S_t = (I − β_t k_t k_t^T) Diag(α_t) S_{t-1} + β_t k_t v_t^T   α_t ∈ (0,1)^{d_k}
+
+    α_t 的各通道取同一个值时两式相等 (标量与矩阵可交换), 所以 KDA 是 GDN 的严格推广。
+    论文把 GDN 的门称作 coarse head-wise, KDA 让每个特征维度各有自己的遗忘速率。
+    Kimi Linear 用 3 层 KDA 配 1 层 MLA (3:1), 并对所有 MLA 层不加位置编码 (NoPE);
+    48B 总参数 / 3B 激活, 1M 上下文下 KV cache 省到 1/4、解码吞吐最高 6 倍。
+    Kimi K3 (arXiv 2607.24653, 2026) 沿用这套排布, 并给 MLA 加了逐通道的输出门。
 """
 
 from typing import Optional
@@ -148,3 +161,78 @@ class GatedDeltaNet(nn.Module):
     def state_size_per_token(self) -> int:
         """与序列长度无关的状态大小 (元素数) —— 对比 GQA 的 O(T) KV cache。"""
         return self.num_heads * self.d_head * self.d_head
+
+
+class KimiDeltaAttention(GatedDeltaNet):
+    """
+    Kimi Delta Attention (KDA) — Kimi Linear (arXiv 2510.26692) / Kimi K3 (arXiv 2607.24653)
+
+    与 GatedDeltaNet 只差一件事: 遗忘门从 "每头一个标量" 变成 "每个 key 通道一个", 而且先衰减再写入
+
+        S_t = (I − β_t k_t k_t^T) Diag(α_t) S_{t-1} + β_t k_t v_t^T,   o_t = S_t^T q_t
+
+    α_t ∈ (0, 1)^{d_k} 是逐通道的单步保留率, β_t ∈ (0, 1) 仍是每头一个标量的写入强度。
+    先衰减再写入这个顺序在 α 是向量时有意义: Diag(α) 乘在 S 的 key 维上, 与 (I − β k k^T) 不交换。
+    α 的各通道取同一个值时两式相等, 这时 KDA 与 GatedDeltaNet 逐位相同 (infer 脚本断言了这一点)。
+
+    零件、接口、cache 协议全部沿用 GatedDeltaNet, 只换 gate_alpha 的输出宽度和递推那一段。
+    简化: 论文的 q / k / v 还过一层 ShortConv 加 Swish, α 的 logit 由低秩投影加每头一个偏置生成,
+          再经一个有下界的映射压到 (0, 1); 本文件沿用 GatedDeltaNet 的参数化, 只改门的粒度,
+          这样 "通道门全相同时退化为 GDN" 这条断言才是严格的。
+    """
+
+    def __init__(self, d_model: int, num_heads: int) -> None:
+        super().__init__(d_model, num_heads)
+        # 每头每通道一个遗忘门: [D] → [H·Dh]。bias=+2 (sigmoid ≈ 0.88) 的惯例照旧
+        self.gate_alpha = nn.Linear(d_model, num_heads * self.d_head, bias=True)
+        nn.init.constant_(self.gate_alpha.bias, 2.0)
+
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: Optional[torch.Tensor] = None,
+        v: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,        # [B, T] 1=真 token 0=pad
+        rope: Optional[nn.Module] = None,            # 接受但忽略: 衰减门隐式编码位置
+        position_ids: Optional[torch.Tensor] = None,
+        cache: Optional[dict] = None,                # cache["state"] 就是全部 "KV cache"
+    ) -> torch.Tensor:
+        """q [B, T, D] → [B, T, D]。参数含义与 GatedDeltaNet 相同。"""
+        x = q
+        B, T, D = x.shape
+        H, Dh = self.num_heads, self.d_head
+
+        def split_heads(t: torch.Tensor) -> torch.Tensor:
+            return t.view(B, T, H, Dh).transpose(1, 2)              # [B, T, D] → [B, H, T, Dh]
+
+        qh = F.normalize(split_heads(self.w_q(x)), dim=-1)          # [B, H, T, Dh]
+        kh = F.normalize(split_heads(self.w_k(x)), dim=-1)
+        vh = split_heads(self.w_v(x))
+
+        # ★ 逐通道的 α: [B, T, H·Dh] → [B, H, T, Dh]; β 仍是每头一个标量
+        alpha = torch.sigmoid(split_heads(self.gate_alpha(x)))      # [B, H, T, Dh]
+        beta = torch.sigmoid(self.gate_beta(x)).transpose(1, 2)     # [B, H, T]
+        if mask is not None:
+            real = mask.to(x.dtype).unsqueeze(1)                    # [B, 1, T]
+            beta = beta * real
+            alpha = alpha * real.unsqueeze(-1) + (1 - real.unsqueeze(-1))   # pad 处不衰减
+
+        state = cache["state"] if cache and "state" in cache else x.new_zeros(B, H, Dh, Dh)
+        outs = []
+        for t in range(T):
+            k_t, v_t = kh[:, :, t], vh[:, :, t]                     # [B, H, Dh]
+            a_t = alpha[:, :, t].unsqueeze(-1)                      # [B, H, Dh, 1], 作用在 key 维 d 上
+            b_t = beta[:, :, t, None, None]                         # [B, H, 1, 1]
+
+            decayed = a_t * state                                   # Diag(α) S: 每个 key 通道各自衰减
+            k_read = torch.einsum("bhd,bhde->bhe", k_t, decayed)    # k^T Diag(α) S  [B, H, Dh]
+            state = decayed - b_t * torch.einsum("bhd,bhe->bhde", k_t, k_read) \
+                + b_t * torch.einsum("bhd,bhe->bhde", k_t, v_t)     # 先衰减, 再擦掉 k 方向, 再写入
+            outs.append(torch.einsum("bhd,bhde->bhe", qh[:, :, t], state))
+
+        if cache is not None:
+            cache["state"] = state
+
+        o = torch.stack(outs, dim=2).transpose(1, 2).reshape(B, T, D)
+        o = o * F.silu(self.w_gate(x))
+        return self.w_o(o)

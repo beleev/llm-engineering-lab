@@ -27,10 +27,11 @@ A2A 解决的是这个: agent 之间以**任务**为单位协作。任务有 id�
 
 | 部分 | 符号 | 做什么 |
 |---|---|---|
-| 状态机 | `TRANSITIONS` / `Task.to` / `InvalidTransition` | 转移表写死; 终态 (completed / failed / canceled) 的出边为空 |
+| 状态机 | `TRANSITIONS` / `Task.to` / `InvalidTransition` | 转移表写死, 覆盖 v1.0 的 8 个状态; 终态 (completed / failed / canceled / rejected) 的出边为空 |
+| v1.0 名字 | `V1_METHODS` / `v1_state` | demo 线上沿用 v0.3 写法 (`message/send`、`input-required`), 这两个符号给出 v1.0 的对应名 (`SendMessage`、`TASK_STATE_INPUT_REQUIRED`) |
 | 任务 | `Task.to_json` | `{kind:"task", id, contextId, status:{state, message?}, history, artifacts}` |
 | 服务端 | `ExpenseAgent` | `card` (Agent Card); `handle(wire)` 是 JSON-RPC 分发: `message/send` / `tasks/get` / `tasks/cancel` |
-| 服务端内部 | `ExpenseAgent._work` | 缺日期 → `input-required`; 否则用 `core` 的 `Agent + CalculatorTool` 算合计 → 超限 `failed`, 否则 `completed` + artifact |
+| 服务端内部 | `ExpenseAgent._work` | 私人消费 → `rejected`; 缺日期 → `input-required`; 否则用 `core` 的 `Agent + CalculatorTool` 算合计 → 超限 `failed`, 否则 `completed` + artifact |
 | 传输 | `Network.get_card` / `post` | 进程内的 "HTTP": 只收发字符串, 记录线上每条 JSON (`wire`) |
 | 客户端 | `TripAssistant.discover` / `send` / `delegate` | 按 skill tag 挑 agent; `input-required` 时查自己的日程回答, 用同一个 `taskId` 续上 |
 | 错误码 | `TASK_NOT_FOUND` / `TASK_NOT_CANCELABLE` / `UNSUPPORTED_OPERATION` | -32001 / -32002 / -32004 (A2A 规范的 JSON-RPC 错误表) |
@@ -49,10 +50,21 @@ TripAssistant                                   ExpenseAgent
 submitted ──► working ──► completed
     │            │ ▲
     │            ▼ │
-    │       input-required
-    └──────► failed / canceled  (submitted、working、input-required 都可以到这两个终态)
-终态没有出边: completed → working、failed → canceled 都是非法的
+    │       input-required / auth-required   (中断态: 等调用方补信息或补凭据)
+    ├──────► failed / canceled  (submitted、working 和两个中断态都可以到这两个终态)
+    └──────► rejected           (submitted、working 可以到: 对方决定不接)
+终态没有出边: completed → working、failed → canceled、rejected → working 都是非法的
 ```
+
+A2A v1.0 (2026-03-12 发布, 2026-05-26 发布 v1.0.1) 的任务状态是 8 个有意义的值加一个 `TASK_STATE_UNSPECIFIED` (未知或不确定):
+
+| 本 demo 的写法 (v0.3) | v1.0 线上写法 | 类别 |
+|---|---|---|
+| submitted / working | `TASK_STATE_SUBMITTED` / `TASK_STATE_WORKING` | 进行中 |
+| input-required / auth-required | `TASK_STATE_INPUT_REQUIRED` / `TASK_STATE_AUTH_REQUIRED` | 中断态 |
+| completed / failed / canceled / rejected | `TASK_STATE_COMPLETED` / `_FAILED` / `_CANCELED` / `_REJECTED` | 终态 |
+
+方法名 v1.0 也改了: `message/send` → `SendMessage`, `message/stream` → `SendStreamingMessage`, `tasks/get` → `GetTask`, `tasks/cancel` → `CancelTask`, `tasks/resubscribe` → `SubscribeToTask`, 另外新增 `ListTasks`。
 
 ### MCP 与 A2A 对照
 
@@ -60,7 +72,7 @@ submitted ──► working ──► completed
 |---|---|---|
 | 对方是什么 | 工具 / 资源的提供者 | 另一个 agent |
 | 交互单位 | 一次 `tools/call` | 一个 Task (多轮消息) |
-| 状态 | 无状态, 调用即返回 | submitted / working / input-required / 终态 |
+| 状态 | 无状态, 调用即返回 | submitted / working / 两个中断态 / 四个终态 |
 | 缺信息时 | 本地 schema 校验失败, 或工具返回 `isError` | 进入 `input-required`, 对方主动反问 |
 | 发现 | `tools/list` 列出每个工具的 inputSchema | Agent Card 列出 skills、tags、输入输出模式 |
 | 对方内部 | 工具就是一个函数 | 不透明: 用什么模型、工具、几轮 loop 都不暴露 |
@@ -110,6 +122,16 @@ cd <仓库根目录> && python3 -m llm_agent.m18_a2a.demo
     线上  tasks/cancel  -> error -32002: task task-1 is completed (completed -> canceled)
     线上  tasks/get     -> error -32001: task task-404 not found
     线上  message/stream -> error -32601: Method not found
+
+[6] v1.0 的 8 个状态: 两个中断态, 四个终态; rejected 是对方不接
+    rejected: 私人消费不在差旅报销范围, 不受理。
+  状态轨迹                    : submitted → working → rejected
+  v1.0 线上状态               : TASK_STATE_REJECTED
+  v1.0 方法名                : {'message/send': 'SendMessage', 'message/stream': 'SendStreamingMessage', 'tasks/get': 'GetTask', 'tasks/cancel': 'CancelTask', 'tasks/resubscribe': 'SubscribeToTask'}
+  终态                      : ['canceled', 'completed', 'failed', 'rejected']
+  中断态                     : ['auth-required', 'input-required']
+    本地  rejected -> working: rejected
+    本地  auth-required -> completed: rejected
 ```
 
 断言验证的内容:
@@ -125,21 +147,27 @@ cd <仓库根目录> && python3 -m llm_agent.m18_a2a.demo
   - 四个本地非法转移都抛 `InvalidTransition`。
   - 四个线上请求分别得到 -32004 / -32002 / -32001 / -32601。最后一个是服务端没实现的 `message/stream`, 回的是 JSON-RPC 规范本身的 "Method not found"。
   - 被拒绝之后任务仍是 `completed`, 状态轨迹仍是 5 步 (拒绝没有产生任何副作用)。
+- [6] v1.0 的状态:
+  - 私人消费的请求轨迹恰为 `submitted → working → rejected`, 没有追问。
+  - 终态恰为 canceled / completed / failed / rejected 四个, 能回到 working 的中断态恰为 auth-required / input-required 两个, 转移表一共 8 个状态。
+  - `auth-required → working` 合法; `rejected → working`、`auth-required → completed` 被拒绝。
 
 ## 与真实系统的差距
 
-- **没有 HTTP**: 真实 A2A 走 JSON-RPC 2.0 over HTTPS, Agent Card 在 `https://<host>/.well-known/agent-card.json` (旧版本叫 `agent.json`)。这里用字符串收发模拟, 形状一致, 但没有鉴权、TLS、超时。
-- **没有流式和推送**: 真实 A2A 有 `message/stream` (SSE 推 `TaskStatusUpdateEvent` / `TaskArtifactUpdateEvent`) 和 push notification (长任务回调 webhook)。这里 `message/send` 同步跑完才返回, 发 `message/stream` 得到 -32601。
-- **状态不全**: 规范里还有 `rejected`、`auth-required`、`unknown`。转移表是本模块自己写死的教学版本, 规范本身没有给出这么严格的表。
-- **Agent Card 没有鉴权声明和签名**: 真实 card 里有 `securitySchemes`, 可以签名防伪造。按 tag 选人也很粗: 真实系统会用描述做语义匹配, 或者有注册中心。
+- **没有 HTTP**: A2A v1.0 定义了三种标准绑定: JSON-RPC 2.0、gRPC、HTTP+JSON/REST, 另允许自定义绑定; Agent Card 在 `https://<host>/.well-known/agent-card.json`。这里用字符串收发模拟 JSON-RPC 这一种的形状, 没有鉴权、TLS、超时。
+- **线上写法是 v0.3 的**: v1.0 去掉了 `kind` 判别字段 (按成员名区分多态), part 改成 `text | raw | url | data` 四选一, 状态枚举改成 `TASK_STATE_*`, 角色加 `ROLE_` 前缀, 方法名改成 `SendMessage` 这类写法。demo 为了打印和断言稳定没有改线上形状, 对应关系见 `V1_METHODS` / `v1_state`。
+- **没有流式和推送**: 真实 A2A 有 `SendStreamingMessage` (v0.3 叫 `message/stream`, 推送状态更新和 artifact 更新事件)、`SubscribeToTask` 和 push notification (长任务回调 webhook)。这里 `message/send` 同步跑完才返回, 发 `message/stream` 得到 -32601。
+- **auth-required 没有真实路径**: 它和 rejected 都进了转移表, 但 demo 里没有一个真的需要调用方补凭据的业务分支。转移表是本模块自己写死的教学版本, 规范本身没有给出这么严格的表。
+- **Agent Card 没有鉴权声明和签名**: 真实 card 里有 `securitySchemes`, v1.0 给出了签名的做法: 先按 JCS (RFC 8785) 规范化 card, 再用 JWS (RFC 7515) 签; 认证后才能拿的扩展 card 用 `GetExtendedAgentCard` 取。按 tag 选人也很粗: 真实系统会用描述做语义匹配, 或者有注册中心。
 - **不透明是双刃剑**: 调用方看不到对方内部, 也就没法审计对方做了什么。跨组织协作时要靠合同、日志和 artifact 本身的可验证性, 这里没有涉及。
 - **追问的回答是写死的**: `TripAssistant` 只会从 `calendar` 查日期。真实系统里调用方通常是 LLM, 要理解追问、决定自己答还是转问用户。
-- 错误码取自 A2A 规范的 JSON-RPC 错误表。规范仍在演进, 以官方规范为准。
+- 错误码取自 A2A 规范的 JSON-RPC 错误表, 以官方规范为准。A2A 由 Google 贡献给 Linux Foundation, 现为 Agentic AI Foundation (AAIF) 的项目。
 
 ## 常见误区
 
 - **"A2A 和 MCP 是竞争关系, 二选一。"** 两者解决不同层次的问题。[3] 里报销 agent 内部就在调工具 (这里是本地 calculator, 换成 MCP 工具也一样), 对外则以 A2A agent 的身份接任务。
 - **"input-required 是一种失败。"** 它是正常的中间状态: 任务没结束, 同一个 `taskId` 还能继续。失败是 `failed`, 而 `failed` 也是正常结局 (超限是业务结果, 不是协议错误)。
+- **"rejected 和 failed 是一回事。"** rejected 是对方在动手之前决定不接 ([6] 的私人消费, 不追问、不计算); failed 是接了、做了, 但业务上没成 ([4] 的超限)。两者都是终态, 调用方的后续处理不同: 被拒要换一个 agent 或改需求, 失败要看原因决定是否走特批。
 - **"任务结束了还可以发消息改一下。"** 终态不可再动 ([5] 的 -32004)。要改就开一个新任务; 否则调用方拿到的 artifact 可能在它不知道的时候被改掉。
 
 ## 自测题

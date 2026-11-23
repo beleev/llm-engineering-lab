@@ -32,6 +32,8 @@ DEMOS = [
     "llm_train.m24_synthetic_feedback.demo",
     "llm_train.m25_reliability_metrics.demo",
     "llm_train.m26_multilingual.demo",
+    "llm_train.m27_fault_tolerance.demo",
+    "llm_train.m28_diloco.demo",
 ]
 
 

@@ -2,7 +2,8 @@
 //   数据驱动的章节 → 构建时统计正文长度
 //   手写视图的章节 → 构建时读取 .vue, 浏览器只下载统计结果
 // 按每分钟 300 字算 (技术文, 比小说慢), 每个实验台另加 4 分钟动手时间。
-import { agentModules, inferModules, stageBy, trainModules, timeline } from '@/data/models.js'
+import { stageBy } from '@/data/models.js'
+import { agentModules, inferModules, trainModules, timeline } from '@/data/modules.js'
 import { pageStats, viewStats, replayStats } from 'virtual:course-catalog'
 import { labMap } from '@/data/labMap.js'
 

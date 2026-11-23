@@ -11,4 +11,11 @@ export default {
   'models-var': ['ModelVarLab'],
   'models-multimodal': ['MultimodalPathLab'],
   blocks: ['ModelResidualLab', 'ModelInitLab'], // 绑权重 + 初始化尺度: 为什么首步 loss 应该等于 ln V
+  'models-conditional-depth': ['ModelDepthRouteLab'],
+  'models-byte-latent': ['ModelBytePatchLab'],
+  'models-unified-multimodal': ['ModelUnifiedMmLab'],
+  'models-block-diffusion': ['ModelBlockDiffLab'],
+  'models-hyper-connections': ['ModelHyperConnLab'],
+  'models-compressed-attention': ['ModelCsaLab'],
+  'models-hybrid-family': ['ModelHybridFamilyLab'],
 }

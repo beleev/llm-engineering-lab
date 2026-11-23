@@ -13,16 +13,22 @@
 - Qwen3-Next: Gated DeltaNet 3:1 全注意力混合架构 (2025)
 - Mamba: Selective SSM, O(T) (Gu & Dao, 2023)
 - LLaDA: 掩码扩散语言模型, 没有因果 mask 的 LLaMA (Nie et al., 2025)
+- BD3-LM: 块扩散, 块间自回归、块内掩码扩散 (Arriola et al., 2025)
+- MoD / MoR: 条件深度, 每个 token 只过一部分层 (Raposo et al., 2024; Bae et al., 2025)
+- BLT: 字节级 LM, 按下一字节熵切 patch, 全局模型只在 patch 上走 (Pagnoni et al., 2024)
+- HyperLLaMA: 残差流加宽成 n 条, HC 不约束 / mHC 投到双随机 (Zhu et al., 2024; DeepSeek-AI, 2025)
+- Hybrid: 线性注意力与全注意力按层排布混合 (Qwen3-Next / Kimi Linear / Llama 4 的零件对照)
 
 MoE 模型 (Mixture of Experts)
 - Mixtral: Sparse MoE (Jiang et al., 2024)
-- DeepSeek-V3 / V3.2: MLA + MoE + DSA (2024-2025)
+- DeepSeek-V3 / V3.2 / V4: MLA + MoE + DSA, V4 换成 CSA / HCA 压缩注意力 (2024-2026)
 - GPT-OSS (GPTOSSMini): Mixtral 骨架 + 交替 SWA/全注意力 + attention sink (2025)
 
 多模态模型 (Multimodal)
 - CLIP: 图文对比学习 (Radford et al., 2021)
 - Whisper: 语音识别 (Radford et al., 2022)
 - Qwen2-VL / Qwen2.5-Omni: 多模态 LLM (2024-2025)
+- Transfusion: 文本自回归 + 图像扩散, 一个 transformer (Zhou et al., Meta, 2024)
 - 公共构件: PatchEmbed, Perceiver, ModalityProjector
 
 生成模型 (Generative)
@@ -30,7 +36,7 @@ MoE 模型 (Mixture of Experts)
 - DiT / MM-DiT / Video DiT: 扩散 Transformer
 - VAR: 自回归图像生成
 
-MODEL_REGISTRY 按上面四类列出 23 个模型的展示名和类, main.py 的架构清单从它生成。
+MODEL_REGISTRY 按上面四类列出 31 个模型的展示名和类, main.py 的架构清单从它生成。
 
 
 本库统一的教学约定 (不是原模型的特征)
@@ -63,6 +69,10 @@ B = batch, T = 序列长度, V = 词表, D = d_model。
 返回 Tensor:
     Transformer                 logits [B, T, V_tgt]
     GPT3 / Mistral / Mamba / Qwen3Next / LLaDA      logits [B, T, V]
+    BlockDiffusionLM / MoDLLaMA / MoRLLaMA          logits [B, T, V]
+    HybridLM                    logits [B, T, V]
+    HyperLLaMA                  logits [B, T, V]; return_hidden=True 时改为返回 hidden (继承 LLaMA)
+    ByteLatentLM                logits [B, T, 256]; forward(x, patch_ids), 第 t 行预测 x_{t+1}
     LLaMA                       logits [B, T, V]; return_hidden=True 时改为返回 hidden [B, T, D]
     BERT / Qwen2VLDecoder       logits [B, T, V]; return_hidden=True 时返回 (logits, hidden)
     Whisper                     logits [B, T, V]
@@ -72,7 +82,8 @@ B = batch, T = 序列长度, V = 词表, D = d_model。
     VideoDiT                    与输入同形 [B, C, T, H, W]
 
 返回 tuple (logits [B, T, V], all_routing_info):
-    Mixtral / DeepSeekV3 / DeepSeekV3_2 / GPTOSSMini
+    Mixtral / DeepSeekV3 / DeepSeekV3_2 / DeepSeekV4 / GPTOSSMini
+        DeepSeekV4 的 CSA 层在带梯度的前向里也会给 routing_info 加 index_loss, HCA 层没有。
     all_routing_info 是 list, 每层一个 dict, 键:
         router_logits [N, E] / selected_experts [N, K] / routing_weights [N, K] /
         routing_probs [N, E], 其中 N = B·T。
@@ -85,6 +96,7 @@ B = batch, T = 序列长度, V = 词表, D = d_model。
     CausalVideoVAE      {recon [B, 3, T, H, W], z, mean, logvar}
     ImageTokenizer      {recon, indices: list of [B, s, s], vq_loss, perplexity}
     VARModel            {logits [B, L, K], labels [B, L]}
+    TransfusionModel    {logits [B, S, V], velocity [B, S, P]}
     Qwen2_5_OmniModel   {text_logits, audio_logits (或 None), thinker_hidden_states};
                         return_dict=False 时是同顺序的三元 tuple
 
@@ -98,6 +110,13 @@ padding mask 与 KV cache 支持范围
                           padding mask 参数                    KV cache / generate()
     Transformer           src_mask / tgt_mask (调用方自己建)     无
     BERT / LLaDA          attention_mask                        无 (双向注意力, 没有 cache 可用)
+    BlockDiffusionLM      mask (显式 bool 掩码)                   有 (sample() 内部逐块缓存, 不走 GenerationMixin)
+    HyperLLaMA            attention_mask                        有 (残差宽度不影响 K/V 的形状)
+    HybridLM              attention_mask (线性层跳过 pad 的写入)   有 (attn 层存 k/v 或 latent, 线性层存 state)
+    DeepSeekV4            只接受全 1 (压缩条目会混进 pad)         有 (压缩条目 + 待压缓冲 + 滑窗)
+    MoDLLaMA / MoRLLaMA   不接受                                 无 (跳过某层的 token 在那层没有 K/V; 继承来的 generate() 不能用)
+    ByteLatentLM          不接受 (第二个参数是 patch_ids)          无
+    TransfusionModel      不接受 (image_id 决定掩码)               无
     GPT3                  attention_mask (Sin-PE 下只收全 1)      有
     LLaMA / Mistral       attention_mask                        有
     MTPLLaMA              attention_mask                        有 (只跑主干, mtp_logits 为空)
@@ -132,6 +151,11 @@ from llm_models.models.language_models.mtp import MTPLLaMA, MTPModule, MTPLoss
 from llm_models.models.language_models.qwen3_next import Qwen3Next
 from llm_models.models.language_models.mamba import Mamba, MambaBlock, MambaLayer
 from llm_models.models.language_models.llada import LLaDA, LLaDALoss
+from llm_models.models.language_models.block_diffusion import BlockDiffusionLM
+from llm_models.models.language_models.conditional_depth import MoDLLaMA, MoRLLaMA
+from llm_models.models.language_models.byte_latent import ByteLatentLM, entropy_patch_ids, fixed_patch_ids
+from llm_models.models.language_models.hyper_llama import HyperLLaMA
+from llm_models.models.language_models.hybrid import HybridLM
 
 # --- MoE ---
 from llm_models.models.moe.mixtral import Mixtral, MixtralBlock
@@ -143,6 +167,7 @@ from llm_models.models.moe.deepseekV3 import (
     DeepSeekV32Block,
 )
 from llm_models.models.moe.gpt_oss import GPTOSSMini, GPTOSSBlock
+from llm_models.models.moe.deepseek_v4 import DeepSeekV4, DeepSeekV4Block
 
 # --- 多模态 ---
 from llm_models.layers.multimodal import (
@@ -169,6 +194,7 @@ from llm_models.models.multimodal.qwen2_5_omni import (
     OmniTalkerDecoder,
     Qwen2_5_OmniModel,
 )
+from llm_models.models.multimodal.transfusion import TransfusionModel, transfusion_loss, transfusion_mask
 
 # --- 生成模型 ---
 from llm_models.models.generative.vae import (
@@ -197,11 +223,17 @@ __all__ = [
     "Qwen3Next",
     "Mamba", "MambaBlock", "MambaLayer",
     "LLaDA", "LLaDALoss",
+    "BlockDiffusionLM",
+    "MoDLLaMA", "MoRLLaMA",
+    "ByteLatentLM", "entropy_patch_ids", "fixed_patch_ids",
+    "HyperLLaMA",
+    "HybridLM",
     # MoE
     "Mixtral", "MixtralBlock",
     "DeepSeekV3", "DeepSeekBlock", "DeepSeekMoE",
     "DeepSeekV3_2", "DeepSeekV32Block",
     "GPTOSSMini", "GPTOSSBlock",
+    "DeepSeekV4", "DeepSeekV4Block",
     # Multimodal
     "PatchEmbed2D", "PatchEmbed3D",
     "PatchTransformerEncoder",
@@ -211,6 +243,7 @@ __all__ = [
     "Whisper", "WhisperAudioEncoder", "WhisperTextDecoder",
     "Qwen2VLDecoder", "Qwen2VLModel",
     "OmniThinkerDecoder", "OmniTalkerDecoder", "Qwen2_5_OmniModel",
+    "TransfusionModel", "transfusion_loss", "transfusion_mask",
     # Generative
     "ImageVAE", "ImageVAEEncoder", "ImageVAEDecoder",
     "CausalVideoVAE", "CausalVAE3DEncoder", "CausalVAE3DDecoder",
@@ -226,12 +259,15 @@ MODEL_REGISTRY = {
     "语言模型": {
         "Transformer": Transformer, "BERT": BERT, "GPT-3": GPT3, "LLaMA": LLaMA,
         "Mistral": Mistral, "MTP": MTPLLaMA, "Qwen3-Next": Qwen3Next, "Mamba": Mamba, "LLaDA": LLaDA,
+        "BD3-LM": BlockDiffusionLM, "MoD": MoDLLaMA, "MoR": MoRLLaMA, "BLT": ByteLatentLM,
+        "mHC": HyperLLaMA, "Hybrid": HybridLM,
     },
     "MoE": {
-        "Mixtral": Mixtral, "DeepSeek-V3": DeepSeekV3, "DeepSeek-V3.2": DeepSeekV3_2, "GPT-OSS": GPTOSSMini,
+        "Mixtral": Mixtral, "DeepSeek-V3": DeepSeekV3, "DeepSeek-V3.2": DeepSeekV3_2, "DeepSeek-V4": DeepSeekV4, "GPT-OSS": GPTOSSMini,
     },
     "多模态": {
         "CLIP": CLIPModel, "Whisper": Whisper, "Qwen2-VL": Qwen2VLModel, "Qwen2.5-Omni": Qwen2_5_OmniModel,
+        "Transfusion": TransfusionModel,
     },
     "生成模型": {
         "VAE": ImageVAE, "Causal 3D VAE": CausalVideoVAE, "DiT": DiT, "MM-DiT": MMDiT,

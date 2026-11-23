@@ -16,6 +16,10 @@ const labs = {
   'infer-sparse-decode': ['InferSparseDecodeLab'],
   'infer-test-time-compute': ['InferBestOfNLab', 'InferBudgetForcingLab'],
   'infer-multi-replica-routing': ['InferRouterLab'],
+  'infer-hybrid-state': ['InferHybridStateLab'],
+  'infer-diffusion-decoding': ['InferDiffDecodeLab'],
+  'infer-agentic-serving': ['InferAgenticServingLab'],
+  'infer-rotation-fp4': ['InferRotationQuantLab'],
 }
 
 for (const route of ["infer-multi-replica-routing"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']

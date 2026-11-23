@@ -1,4 +1,4 @@
-# llm_models — 23 个模型的 PyTorch 实现
+# llm_models — 31 个模型的 PyTorch 实现
 
 [![LLaMA 模型结构与运行态](../docs/screenshots/architecture-llama.png)](https://beleev.github.io/llm-engineering-lab/#/models)
 
@@ -31,7 +31,7 @@ pytest -k llm_models                                             # 全部 infer 
 pytest -m slow -k llm_models                                     # 全部 train 脚本
 ```
 
-共 48 个脚本: 25 个 `infer_*`, 23 个 `train_*`。`rope_scaling` 和 `vae3d` 只有 infer。
+共 62 个脚本: 32 个 `infer_*`, 30 个 `train_*`。`rope_scaling` 和 `vae3d` 只有 infer。
 
 ## 模块与阅读顺序
 
@@ -39,7 +39,7 @@ pytest -m slow -k llm_models                                     # 全部 train 
 
 ```
 layers/      零件: core (注意力 / FFN / 归一化 / 位置编码 / Block) · sparse (MoE / SSM / DeltaNet) · multimodal · diffusion
-models/      23 个模型类, 按 foundation / language_models / moe / multimodal / generative 分目录
+models/      31 个模型类, 按 foundation / language_models / moe / multimodal / generative 分目录
 training/    Trainer · TrainingConfig · 合成数据生成器 · 各种 loss · 扩散调度器与采样器
 utils/       generation (KV cache + generate) · init (N(0, 0.02²)) · masks
 run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
@@ -54,7 +54,7 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 
 文件路径相对 `models/`。讲义在 `run_models/<类别>/<目录>/README.md`。
 
-**语言模型 (9)**
+**语言模型 (15)**
 
 | 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
 |---|---|---|---|---|
@@ -67,8 +67,14 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 | Qwen3-Next | `language_models/qwen3_next.py` | `Qwen3Next` | 75% 的层换成 Gated DeltaNet, 25% 保留 GQA | [readme](run_models/language_models/qwen3_next/README.md) |
 | Mamba | `language_models/mamba.py` | `Mamba` | 不用注意力: 因果卷积 + Selective SSM, 状态定长 | [readme](run_models/language_models/mamba/README.md) |
 | LLaDA | `language_models/llada.py` | `LLaDA` | 去掉因果 mask 的 LLaMA, 掩码扩散训练, 多步去噪生成 | [readme](run_models/language_models/llada/README.md) |
+| BD3-LM | `language_models/block_diffusion.py` | `BlockDiffusionLM` | LLaDA 的掩码换成块因果: 块间自回归、块内去噪, 定稿块进 KV cache | [readme](run_models/language_models/block_diffusion/README.md) |
+| MoD | `language_models/conditional_depth.py` | `MoDLLaMA` | LLaMA 隔层加路由器, 整段前 k 名 token 过层, 其余走残差; 生成时用因果预测器 | [readme](run_models/language_models/conditional_depth/README.md) |
+| MoR | `language_models/conditional_depth.py` | `MoRLLaMA` | 首尾独立层 + 一个共享块按 token 递归 N_r 次, 只有仍在递归的 token 存 K/V | [readme](run_models/language_models/conditional_depth/README.md) |
+| BLT | `language_models/byte_latent.py` | `ByteLatentLM` | 不用 tokenizer: 下一字节熵高处切 patch, 局部编码 + 全局 LLaMA 块 + 局部解码 | [readme](run_models/language_models/byte_latent/README.md) |
+| mHC | `language_models/hyper_llama.py` | `HyperLLaMA` | 残差主路从 1 条加宽成 n 条; HC 不约束三个连接矩阵, mHC 把流间混合投到双随机 | [readme](run_models/language_models/hyper_connections/README.md) |
+| Hybrid | `language_models/hybrid.py` | `HybridLM` | 按层排布混合线性注意力与全注意力: KDA / GDN / 门控 GQA / NoPE MLA / 分块 GQA | [readme](run_models/language_models/hybrid/README.md) |
 
-**MoE (4)**
+**MoE (5)**
 
 | 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
 |---|---|---|---|---|
@@ -76,8 +82,9 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 | DeepSeek-V3 | `moe/deepseekV3.py` | `DeepSeekV3` | GQA 换 MLA; sigmoid 路由 + 共享专家; 用 bias 做负载均衡 | [readme](run_models/moe/deepseek/README.md) |
 | DeepSeek-V3.2 | `moe/deepseekV3.py` | `DeepSeekV3_2` | V3 加 Lightning Indexer, MLA 只在 top-k 个 key 上算 | [readme](run_models/moe/deepseek_v3_2/README.md) |
 | GPT-OSS | `moe/gpt_oss.py` | `GPTOSSMini` | Mixtral 骨架: 偶数层 SWA、奇数层全注意力, 每 head 一个 sink | [readme](run_models/moe/gpt_oss/README.md) |
+| DeepSeek-V4 | `moe/deepseek_v4.py` | `DeepSeekV4` | CSA 与 HCA 交错: 先把若干 token 压成一个条目, indexer 再在压缩条目上选 top-k | [readme](run_models/moe/deepseek_v4/README.md) |
 
-**多模态 (4)**
+**多模态 (5)**
 
 | 模型 | 文件 | 核心类 | 相对基线的关键差异 | 讲义 |
 |---|---|---|---|---|
@@ -85,6 +92,7 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 | Whisper | `multimodal/whisper.py` | `Whisper` | Transformer 的 encoder 输入换成 mel 声谱图 | [readme](run_models/multimodal/whisper/README.md) |
 | Qwen2-VL | `multimodal/qwen2_vl.py` | `Qwen2VLModel` | 视觉 token 当前缀拼进 LLaMA 式 decoder; M-RoPE | [readme](run_models/multimodal/qwen2_vl/README.md) |
 | Qwen2.5-Omni | `multimodal/qwen2_5_omni.py` | `Qwen2_5_OmniModel` | 再加视频、音频前缀, 加一个 Talker 输出语音 codec token | [readme](run_models/multimodal/qwen2_5_omni/README.md) |
+| Transfusion | `multimodal/transfusion.py` | `TransfusionModel` | 文本 next-token + 图像 patch 扩散共用一个 transformer; 因果掩码 + 图内双向 | [readme](run_models/multimodal/transfusion/README.md) |
 
 **生成模型 (6)**
 
@@ -97,7 +105,7 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 | Video DiT | `generative/video_dit.py` | `VideoDiT` | DiT 的 patch 换成时空 tubelet, 位置嵌入分时间和空间 | [readme](run_models/generative/video_dit/README.md) |
 | VAR | `generative/var.py` | `VARModel` | 自回归的一步是一整级 token map, 级内并行 | [readme](run_models/generative/var/README.md) |
 
-另有两份只讲零件的讲义: [attention](run_models/foundation/attention/README.md) 和 [RoPE 长度外推](run_models/foundation/rope_scaling/README.md)。
+另有两份只讲零件的讲义: [attention](run_models/foundation/attention/README.md) 和 [RoPE 长度外推](run_models/foundation/rope_scaling/README.md)。另有 [激活引导](run_models/foundation/steering/README.md): 能读出的方向, 不一定是加进去能改变行为的方向。
 
 ## 实现说明
 
@@ -107,9 +115,9 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 
 | 返回 | 模型 |
 |---|---|
-| `Tensor` | Transformer / BERT / GPT3 / LLaMA / Mistral / Qwen3Next / Mamba / LLaDA / Whisper / Qwen2VLModel / DiT / MMDiT / VideoDiT |
-| `(logits, 每层一份 routing_info)` | Mixtral / DeepSeekV3 / DeepSeekV3_2 / GPTOSSMini |
-| `dict` | MTPLLaMA `{logits, mtp_logits}` · CLIPModel `{image_features, text_features, logit_scale}` · ImageVAE 和 CausalVideoVAE `{recon, z, mean, logvar}` · VARModel `{logits, labels}` · Qwen2_5_OmniModel `{text_logits, audio_logits, thinker_hidden_states}` |
+| `Tensor` | Transformer / BERT / GPT3 / LLaMA / Mistral / Qwen3Next / Mamba / LLaDA / BlockDiffusionLM / MoDLLaMA / MoRLLaMA / ByteLatentLM / HyperLLaMA / HybridLM / Whisper / Qwen2VLModel / DiT / MMDiT / VideoDiT |
+| `(logits, 每层一份 routing_info)` | Mixtral / DeepSeekV3 / DeepSeekV3_2 / DeepSeekV4 / GPTOSSMini |
+| `dict` | MTPLLaMA `{logits, mtp_logits}` · CLIPModel `{image_features, text_features, logit_scale}` · ImageVAE 和 CausalVideoVAE `{recon, z, mean, logvar}` · VARModel `{logits, labels}` · Qwen2_5_OmniModel `{text_logits, audio_logits, thinker_hidden_states}` · TransfusionModel `{logits, velocity}` |
 
 同名参数 `return_hidden=True` 有两种含义:
 
@@ -157,7 +165,7 @@ run_models/  <类别>/<模型>/{infer_*.py, train_*.py, README.md}
 - **序列超过 `max_len` 就报错**: 带位置编码的 decoder LM 在 forward 开头检查 `past + T`, 抛出的 `ValueError` 写明上限。Mamba 没有位置编码, 也没有上限。
 - **训练步数不能超过 `config.num_steps`**: 学习率调度按它建, 走过之后余弦掉头、lr 回升。`Trainer.train(num_steps)` 超出时开训前就抛 `ValueError`。
 - **上下文写满之后没有 cache**: 序列到 `max_len` 后窗口每步左移, 所有位置都变, `generate()` 每步整段重算。
-- **没有 `generate()` 的模型**: Transformer 和 Whisper 在脚本里手写贪心循环; Qwen2-VL 和 Omni 只能整段前向; LLaDA 用自己的 `sample()`。
+- **没有 `generate()` 的模型**: Transformer 和 Whisper 在脚本里手写贪心循环; Qwen2-VL 和 Omni 只能整段前向; LLaDA 用自己的 `sample()`, BD3-LM 用自己逐块带 KV cache 的 `sample()`。MoD / MoR 继承了 LLaMA 的 `generate()`, 但 forward 不收 cache, 调用会 TypeError (跳过某层的 token 在那层没有 K/V)。ByteLatentLM 的第二个参数是 patch_ids, Transfusion 用 image_id 决定掩码, 两者都只有前向。
 - **没有真实数据**: 没有 tokenizer, 没有数据集, 没有 checkpoint 读写。要看训练工程见 `llm_train`, 要看可学习的任务见 `llm_finetune`。
 
 ## 图文与语音的阅读入口

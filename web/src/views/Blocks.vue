@@ -182,6 +182,7 @@
     <!-- 本章挂载的实验台 (data/labmap/*.js) 与章末自测 (data/quiz/*.js), 没配置时不渲染 -->
 
     <LabMount />
+    <TopicSupplement v-for="section in topicPages.blocks?.sections || []" :key="section.id" :section="section" />
 
     <QuizCard />
 
@@ -197,7 +198,8 @@
 import LabMount from '@/components/LabMount.vue'
 import QuizCard from '@/components/QuizCard.vue'
 import { ref, reactive, computed } from 'vue'
-import { tracks, learningPath } from '@/data/models.js'
+import { tracks, learningPath, topicPages } from '@/data/models.js'
+import TopicSupplement from '@/components/TopicSupplement.vue'
 import InspectorPanel from '@/components/InspectorPanel.vue'
 import ChapterIntro from '@/components/ChapterIntro.vue'
 import ChapterNav from '@/components/ChapterNav.vue'

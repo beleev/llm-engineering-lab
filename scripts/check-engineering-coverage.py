@@ -36,9 +36,10 @@ console.log(JSON.stringify({pages,quizzes,labs}));
     for e in knowledge:
         assert 'KnowledgeCompletionLab' in web['labs'][e['routes'][0]]
     assert {r for r,labs in web['labs'].items() if 'KnowledgeCompletionLab' in labs}=={e['routes'][0] for e in knowledge}
-    # 所有上下文跳转都指向真实章节；attention 是手写页。
+    # 所有上下文跳转都指向真实章节；这五个是手写视图, 没有 page 对象。
+    handwritten={'attention','position','blocks','moe','diffusion'}
     for route,page in web['pages'].items():
-        for ref in page.get('related',[]):assert ref['route'] in web['pages'] or ref['route']=='attention',(route,ref)
+        for ref in page.get('related',[]):assert ref['route'] in web['pages'] or ref['route'] in handwritten,(route,ref)
     for component,owner in [('SoftmaxTempLab','basic-optim-sample'),('AttnMaskLab',None)]:
         placements=[r for r,p in web['pages'].items() if component in p.get('widgets',[])]
         placements += [r for r,ls in web['labs'].items() if component in ls]

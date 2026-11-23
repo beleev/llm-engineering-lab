@@ -159,7 +159,8 @@ import ChapterNav from '@/components/ChapterNav.vue'
 import EvolutionChain from '@/components/EvolutionChain.vue'
 import ModelArchitectureLab from '@/components/labs/ModelArchitectureLab.vue'
 import RepoLink from '@/components/RepoLink.vue'
-import { timeline, learningPath } from '@/data/models.js'
+import { learningPath } from '@/data/models.js'
+import { timeline } from '@/data/modules.js'
 
 // 上一章 / 下一章从 learningPath 取, 不手写章名和编号 (与 Infer.vue 同一写法)
 const at = learningPath.findIndex((x) => x.route === 'models')

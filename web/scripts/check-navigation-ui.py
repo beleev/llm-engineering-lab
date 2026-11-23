@@ -56,11 +56,11 @@ def run(base):
         page.on('pageerror', lambda e: errors.append(str(e)))
         try:
             page.goto(base, wait_until='networkidle')
-            expect(page.locator('.sidebar .leaf')).to_have_count(101)
+            expect(page.locator('.sidebar .leaf')).to_have_count(120)
             chapters = page.locator('.sidebar .overview, .sidebar .leaf').evaluate_all("""links => links.map(a=>({
               href:a.getAttribute('href'), number:a.querySelector('.idx').textContent,
             }))""")
-            # All 105 leaf chapters + 6 overviews, selected/unselected numbering in both themes.
+            # All 120 leaf chapters + 6 overviews, selected/unselected numbering in both themes.
             for theme in ('light', 'dark'):
                 page.evaluate('t=>document.documentElement.dataset.theme=t', theme)
                 for chapter in chapters:
@@ -80,7 +80,15 @@ def run(base):
                     handle = page.get_by_role('separator')
                     handle.focus()
                     for _ in range(30): handle.press('ArrowLeft')
-                    for _ in range((width-200+15)//16): handle.press('ArrowRight')
+                    presses=(width-200+15)//16
+                    for _ in range(presses): handle.press('ArrowRight')
+                    # 先等键盘那一步真的渲染出来 (aria-valuenow 与手柄实际位置都到位), 再读坐标:
+                    # 否则会按旧位置落下指针, 拖动落空。
+                    expect(handle).to_have_attribute('aria-valuenow',str(min(480,200+16*presses)))
+                    page.wait_for_function('''() => {
+                      const e=document.querySelector('.side-resize');
+                      return Math.abs(e.getBoundingClientRect().left + 4 - Number(e.getAttribute('aria-valuenow'))) < 1;
+                    }''')
                     # Exact boundary/default values also go through the pointer resize handler.
                     x=handle.bounding_box()['x']+2
                     page.mouse.move(x,300);page.mouse.down();page.mouse.move(width,300);page.mouse.up()
@@ -144,7 +152,7 @@ def run(base):
             page.locator('.stage-contents details').first.locator('a').first.click()
             expect(page.locator('.breadcrumb')).to_contain_text('6.1.1')
             page.evaluate("location.hash='/fast-track'")
-            expect(page.locator('.path-topic')).to_have_count(26)
+            expect(page.locator('.path-topic')).to_have_count(27)   # chapterGroups 的主题组数
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             assert not errors,errors
             print(json.dumps({'routes':len(chapters),'themes':2,'desktop_sidebar_widths':[200,260,480],'mobile_widths':[320,390,768],'js_errors':errors},ensure_ascii=False))

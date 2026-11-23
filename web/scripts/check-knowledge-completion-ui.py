@@ -43,7 +43,7 @@ def main(base):
             lab.locator('.source > summary').click()
             expect(lab.locator('.source code')).to_be_visible()
             expect(lab.locator('.source .err')).to_have_count(0)
-        page.evaluate("location.hash='/models'")
+        page.evaluate("location.hash='/models/multimodal'")   # MultimodalPathLab 挂在多模态章, 不在阶段总览页
         lab=page.locator('.lab').filter(has=page.get_by_role('heading',name='图像与音频怎样接入语言模型',exact=False))
         expect(lab).to_be_visible()
         for button in lab.get_by_role('button').all():

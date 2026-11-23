@@ -6,6 +6,8 @@ Qwen3-Next (Alibaba, 2025) — 混合线性注意力架构 (教学版)
 解决什么: 全层注意力的长上下文成本 O(T²)/O(T); 纯线性模型 (Mamba) 又召回弱。
           混合 = 线性层管 "流畅的局部建模", 少量全注意力层兜底 "精准的长程检索"。
           同路线: Jamba (Mamba+Attn), MiniMax-Text (Lightning Attention 7:1)。
+          后续: Qwen3.5 沿用 3:1, 并给那一层全注意力加上 SDPA 输出门; Kimi Linear 把线性层换成 KDA、
+          全注意力层换成不加位置编码的 MLA。各家排布的对照见 language_models/hybrid.py。
 关键数字: 推理缓存 = n_attn × T × 2·Hkv·Dh  +  n_delta × H·Dh² (后一项与 T 无关)。
 简化: 真实模型还有超稀疏 MoE (见 DeepSeekMoE)、MTP (见 mtp.py)、zero-centered RMSNorm, 此处只留 "混合层"。
       lm_head 与 embedding 共享权重、embedding 乘 √D 是本库约定 (见 models/__init__.py)。

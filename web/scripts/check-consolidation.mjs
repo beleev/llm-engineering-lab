@@ -8,14 +8,14 @@ for (const stage of stages) {
   Object.assign(quizzes, (await import(`../src/data/quiz/${stage}.js`)).default)
 }
 const routes = Object.values(chapterGroups).flatMap(groups => groups.flatMap(g => g.routes))
-assert.equal(routes.length, 102)
+assert.equal(routes.length, 120)
 assert.equal(new Set(routes).size, routes.length)
 for (const [old, alias] of Object.entries(chapterAliases)) {
   assert(!routes.includes(old))
   assert(!pages[old] && !quizzes[old])
   assert(pages[alias.route].sections.some(s => s.id === alias.anchor))
 }
-assert.equal(Object.values(quizzes).reduce((n,q) => n+q.length,0),400)
+assert.equal(Object.values(quizzes).reduce((n,q) => n+q.length,0),478)
 const original={ visited:{'finetune-dora':2,'finetune-lora':1}, last:'finetune-dora', quiz:{'finetune-dora':{correct:3,total:3}} }
 const migrated=migrateProgress(original)
 assert.equal(migrated.last,'finetune-lora')
@@ -31,4 +31,4 @@ for (const [route,page] of Object.entries(pages)) {
 }
 assert(pages['models-mtp'].points.every(p => !/状态|mask|深度/.test(p.title)))
 assert(!pages['models-dsa'].links.some(l=>l.from==='models-mtp · 掩码实验台'))
-console.log('PASS: 102 章、400 题、6 个旧入口、进度归档与段落归属')
+console.log('PASS: 120 章、478 题、6 个旧入口、进度归档与段落归属')

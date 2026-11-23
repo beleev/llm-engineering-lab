@@ -40,6 +40,9 @@ const labs = {
   'agent-evidence-chain': ['AgentEvidenceLab'],
   'agent-trajectory-learning': ['AgentTrajectoryLab'],
   'agent-learning-loop': ['AgentLearningLab'],
+  'agent-agentic-rl': ['AgentAgenticRlLab'],
+  'agent-sandbox': ['AgentSandboxLab'],
+  'agent-long-horizon': ['AgentHandoffLab'],
 }
 
 for (const route of ["agent-trajectory-learning", "agent-async-runtime", "agent-eval-suite", "agent-vector-index"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']

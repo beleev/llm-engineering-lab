@@ -107,6 +107,7 @@ cd <仓库根目录> && python3 -m llm_agent.m14_context_engineering.demo
 
 - 预算按字符计, `estimate_tokens` 是粗估 (英文约 4 字符/token, 中文约 1 字/token)。真实系统用 API 的 token 计数 (`messages.count_tokens`) 和响应里的 `usage`。
 - Claude API 提供服务端的 context editing (`clear_tool_uses`) 与 compaction; 这里是客户端自己做, 触发阈值、保留策略都简化到一个字符预算。
+- 两档瘦身在真实 API 上都算改历史。当前代模型 (Opus 5.5、Sonnet 5.5、Fable 5.2 等) 的 thinking 块签名绑定之前的全部消息: 第 1 档清掉旧工具结果, 其后的 thinking 块失效; 第 2 档摘要旧轮、保留当前轮, 保留下来的 thinking 块同样失效 (m15 demo 第 [3] 段分别是 3/4 和 2/4)。服务端 compaction (beta `compact-2026-01-12`) 和 context editing 不算改历史, 是追加式的替代; 客户端压缩只有「整段换成摘要、不带旧 thinking」这一种形状不会触发失效。
 - 没有 prompt caching。真实系统里改写前缀 (清理、压缩) 会让缓存失效, 清理的收益要和缓存损失一起算; 本仓库看不到这笔账。
 - toy LLM 的"摘要"是按结构抽取 (用户 prompt、工具调用名与参数、助手结论或工具结果的前 60 字符), 不是真的读懂后重写; 摘要质量问题 (丢关键细节、幻觉) 在这里观察不到。
 - 压缩会把 `session_start` 消息本身摘要掉, 但其文本会和 `pre_compact` hook 的要求一起作为"必须保留"交给摘要; 下次 resume 发现历史里没有 `session_start` 时会重新注入。Claude Code 是在 compact 之后立刻重跑 SessionStart hook, 这里没有这一步。

@@ -121,6 +121,7 @@ cd <仓库根目录> && python3 -m llm_agent.m19_prompt_caching.demo
   - 模型切换、`tool_choice` 或 thinking 参数变化、上下文清理, 都会让缓存失效。m14 的 `clear_tool_results` 会改写历史里的 tool_result。
   - 本 demo 把 `context_budget_chars` 设得很大, 就是为了不让清理改写历史。
 - **缓存隔离**: 真实缓存按组织隔离, 这里只有一个全局字典。
+- **前缀还决定 thinking 块是否有效**: Opus 5.5 等当前代模型的 thinking 块签名绑定 system、tools 和之前的全部消息, 判定方式和缓存前缀匹配是同一件事。改动前缀既丢缓存, 也让其后的 thinking 块失效 (m15 的 `stale_thinking`)。对话中途要改指令时, 这些模型支持在 messages 末尾追加 role 为 system 的消息, 顶层 system 不动, 缓存前缀和 thinking 块都保住。
 
 ## 常见误区
 

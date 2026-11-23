@@ -13,6 +13,7 @@ const labs = {
   'train-data-packing': ['TrainLshLab', 'TrainDataMixLab', 'TrainPackingLab'],
   'train-scaling': ['TrainIsoFlopLab', 'TrainMupLab'],
   'train-eval': ['TrainPassKLab', 'TrainJudgeLab'],
+  'train-fault-tolerance': ['TrainFaultLab', 'TrainDilocoLab'],
 }
 
 for (const route of ["train-model-parallel"]) labs[route] = [...(labs[route] || []), 'KnowledgeCompletionLab']

@@ -18,7 +18,9 @@ DEMOS = [
     "m21_moe_serving", "m22_sparse_attention",
     "m23_test_time_compute", "m24_beam_search",
     "m25_weight_quant", "m26_flash_decoding", "m27_multi_replica_routing",
-    "m28_service_capacity", "m29_reasoning_graph", "m30_pruning_fusion", "m31_edge_budget", "m32_profiling", "m33_tenant_scheduling", "m34_cache_identity", "full_engine",
+    "m28_service_capacity", "m29_reasoning_graph", "m30_pruning_fusion", "m31_edge_budget", "m32_profiling", "m33_tenant_scheduling", "m34_cache_identity",
+    "m35_hybrid_state_cache", "m36_draftless_speculation", "m37_diffusion_decoding", "m38_rotation_fp4_quant",
+    "m39_kv_eviction", "m40_af_disaggregation", "m41_agentic_serving", "full_engine",
 ]
 
 

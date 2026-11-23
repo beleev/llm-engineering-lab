@@ -1,7 +1,7 @@
 """
 llm_finetune — 把预训练 LM 变成 "听指令 / 合偏好 / 会解题 / 更小" 的模型
 
-路线 (每一步解决上一步留下的问题), methods/ 下共 16 个方法文件:
+路线 (每一步解决上一步留下的问题), methods/ 下共 18 个方法文件:
     SFT ─→ LoRA ─→ DoRA ─→ QLoRA          学会任务 → 省梯度与优化器显存 → 拆开长度与方向 → 连基座也压到 4 bit
     模型合并 (merge)                       几份微调好的权重不再训练, 直接在权重空间里拼成一个模型
     Reward Model ─→ DPO ─→ SimPO / ORPO   偏好变标量分 → 跳过 RM 和 RL → 连 reference 也不要
@@ -10,13 +10,15 @@ llm_finetune — 把预训练 LM 变成 "听指令 / 合偏好 / 会解题 / 更
     RLAIF                                 偏好对不找人标, 由 AI 反馈者按条文自动造, 再交给 DPO
     PPO                                   在线 RL 的起点: 用一个学出来的 critic 当 baseline
     GRPO ─→ DAPO / Dr.GRPO / GSPO         在线 RL + 可验证奖励, 组内均值替代 critic; 三个变体各修一个偏差
+    TIS / MIS (is_correction)             推理引擎与训练器数值路径不同时, 用重要性权重校正异策略偏差
+    QAT                                   前向用假量化的权重训练, STE 让梯度穿过取整, 为低比特部署做准备
     蒸馏 (forward KL) ─→ on-policy 蒸馏 (reverse KL)
 
 所有方法共用一个可学习、依赖 prompt 的合成任务 (data/tasks.py), 验收指标是**留出集**上的 exact-match / 偏好准确率。
 (PRM 例外: 它用自己的多步算术链 prm.ArithChain。)
 
 从哪里 import:
-    - 下面 `__all__` 里的名字可以直接 `from llm_finetune import …`, 16 个方法文件的公开类和函数都在里面。
+    - 下面 `__all__` 里的名字可以直接 `from llm_finetune import …`, 原有 16 个方法文件的公开类和函数都在里面; is_correction 与 qat 要写全路径 import。
     - 常量 (PAD / EOS, rlaif 的 PHONE / SWEAR …) 和 rlaif.content 这类小工具不在顶层, 要写全路径,
       例如 `from llm_finetune.data.tasks import EOS`。
 
