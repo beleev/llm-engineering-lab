@@ -111,7 +111,7 @@ llm_finetune/
 | ppo | 每步 256 条: pass@1 0.186 → **0.381** (GRPO 0.287), 但 critic 冻结的对照 0.389 —— 赢在一题一采, 不在 critic; critic 解释方差 0.025 vs 组均值 0.365; 要训参数 ×2 |
 | grpo | 采样 pass@1 0.186 → 0.287 (GRPO) / 0.326 (DAPO) / 0.324 (Dr.GRPO) / 0.320 (GSPO); 贪心 EM 0.562 → 0.53 (基本不变)。ρ: epoch1 ≡ 1, epoch2 最大偏离 0.16~1.04; β=0.5 短跑 20 步, 留出集 KL(policy‖SFT 起点) 0.0101 (β=0 时 0.0551) |
 | rollout_mismatch | 模拟引擎 \|log r\| 均值 fp16 0.00094 / bf16 0.00771 / bf16+int4 0.0418; 不校正梯度偏差 0.7% / 5.2% / 42.7%, C=2 的 TIS 把 bf16+int4 降到 1.7%; C=1.1 时 MIS 82.9% 反超不校正; 60 步 GRPO pass@1 五臂都在 0.30–0.32 |
-| lora_rl | GRPO 60 步采样 pass@1 (起点 0.186): 全参 0.324, LoRA r=1 0.193 / r=8 0.221, 只训线性层 0.223, r=1 + norm 0.301, 只训 norm (320 参数) **0.502**; RL 各臂贪心 EM 都没涨。同起点 SFT 60 步贪心 EM: 全参 0.684, r=1 0.629, 只训 norm 0.602 |
+| lora_rl | GRPO 60 步采样 pass@1 (起点 0.186): 全参 0.324, LoRA r=1 0.193 / r=8 0.221, 只训线性层 0.223, r=1 + norm 0.301, 只训 norm (320 参数) **0.502**; RL 各臂贪心 EM 在起点 0.562 上下浮动 (最高 0.574)。同起点 SFT 60 步贪心 EM: 全参 0.684, r=1 0.629, 只训 norm 0.602 |
 | reasoning | 4 步模 10 算术链: 只答案 SFT 0.158 (3 token) vs 长轨迹 SFT **0.996** (15 token); 融合模型 /think 1.000, /no_think 0.156 且恰好 3 token; 预算 token b=0…3 为 0.13–0.17, b=4 为 0.998 (台阶, 2 层模型一步也默算不了); s1 式强制截断 b<4 为 0.07–0.11 |
 | distill | 128 条固定数据: forward KL 硬标签 2.293 vs 软标签 **1.860**; 无限数据时差距消失 (0.906 vs 0.960) |
 | on_policy_distill | 样本合格率: off-policy 0.059 vs on-policy **0.402**; 但 on-policy 把 teacher 的少数派答案压到 log π = −33 (off-policy −17) |

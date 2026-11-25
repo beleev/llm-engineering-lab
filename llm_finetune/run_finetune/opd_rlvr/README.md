@@ -83,7 +83,8 @@ python -m llm_finetune.run_finetune.opd_rlvr.train_opd_rlvr    # 单线程 CPU �
 - 第二个子任务最初试的是 reverse: 学生在混合数据上 SFT 150 步后 reverse 的 pass@1 是 0, 路由 OPD 100 步后仍不到 0.01。学生自己一条对的都采不出来时, 老师在这些前缀上的逐 token 分布也很难把它拉起来。这一组没有放进脚本。
 
 断言:
-1. 弱老师: 先 OPD 再 RLVR 的 pass@1 高于只 OPD、只 RLVR 和两个 lr 的联合。
+1. 弱老师: 先 OPD 再 RLVR 的 pass@1 高于只 OPD、只 RLVR 和 lr=3e-4 的联合。
+   与调好学习率的联合 (lr=1e-3) 的比较只打印不断言: 两臂贴得很近, 本机 0.584 对 0.547, 换台机器见过 0.594 对 0.600, 落在上面那条 0.04 的分辨力之内。先后与联合的差距要看调不好学习率的 lr=3e-4 那一臂 (0.436)。
 2. 弱老师: 先 OPD 再 RLVR 的 pass@1 高于老师。
 3. 弱老师: 只 OPD 的 pass@1 不超过老师, KL(学生‖老师) 是各臂里最小的。
 4. 强老师: 只 OPD 的 pass@1 高于先 OPD 再 RLVR。

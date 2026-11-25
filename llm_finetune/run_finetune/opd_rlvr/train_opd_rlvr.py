@@ -226,9 +226,14 @@ def main() -> None:
     res = combine(SeqTask("sort"))
     weak, strong = res["weak"], res["strong"]
     seq = weak["先 OPD 再 RLVR"]["pass1"]
-    for arm in ("只 OPD", "只 RLVR", "联合 lr=3e-4", "联合 lr=1e-3"):
+    for arm in ("只 OPD", "只 RLVR", "联合 lr=3e-4"):
         assert seq > weak[arm]["pass1"], (
             f"弱老师: 先 OPD 再 RLVR 的 pass@1 应高于{arm}: {seq:.3f} vs {weak[arm]['pass1']:.3f}")
+    # 调好学习率的联合训练和先后训练贴得很近, 两个采样值的大小关系不稳 (本机 0.584 对 0.547,
+    # 换台机器见过 0.594 对 0.600), 所以只打印。先后与联合的差距结论要看调不好学习率的那一臂。
+    print(f"\n先 OPD 再 RLVR {seq:.3f} 对联合 lr=1e-3 {weak['联合 lr=1e-3']['pass1']:.3f}: "
+          f"两臂在采样噪声范围内相当, 只打印不断言; 联合 lr=3e-4 的 "
+          f"{weak['联合 lr=3e-4']['pass1']:.3f} 说明联合训练对学习率更敏感")
     assert seq > weak["老师"]["pass1"], (
         f"弱老师: 先 OPD 再 RLVR 应超过老师自己 (RLVR 的奖励来自 verifier, 不以老师为上限): "
         f"pass@1 {seq:.3f} vs 老师 {weak['老师']['pass1']:.3f}")

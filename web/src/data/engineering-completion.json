@@ -1,5 +1,5 @@
 {
-  "source_digest": "c34d881622ae8811da78bb6e26b79b63794d0709dba59e1f0fe79daed3cdd344",
+  "source_digest": "42b3c91fbe02fb406e887920f3a3a83823a885c07e6cc175c3c67770947ba5b8",
   "kind": "Python 实际执行记录回放: 下面的数字是 demo 真实跑出来的, 点上面的按钮切换实验条件, 浏览器不训练模型也不调用 API。",
   "entries": [
     {
